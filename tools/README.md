@@ -7,6 +7,7 @@ Run from **product repo root** after `vendor/demir-kit` clone.
 | `kit-setup.sh` | `kit.config.yaml`, `docs/agent/workflow.md`, `AGENTS.md`, `.gitignore` |
 | `kit-init.sh` | After **discovery-approved** → ecosystem, layout dirs, stubs; agent MVO per `references/envision-handoff.md` |
 | `kit-upgrade.sh` | Sync vendored `${kit.root}` from `kit.upstream.local` or `kit.upstream.git` |
+| `resolve-skills-source.sh` | Pick git URL or local git clone for `npx skills add` (vendor without `.git` → upstream) |
 
 ```bash
 export KIT_ROOT=vendor/demir-kit

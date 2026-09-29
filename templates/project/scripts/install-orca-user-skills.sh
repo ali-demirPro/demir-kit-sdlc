@@ -5,13 +5,23 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 KIT_DIR="${KIT_ROOT:-demir-kit}"
-KIT="file://${ROOT}/${KIT_DIR}"
+RESOLVER="${ROOT}/${KIT_DIR}/tools/resolve-skills-source.sh"
+
+if [[ ! -f "$RESOLVER" ]]; then
+  echo "install-orca-user-skills: missing ${RESOLVER}"
+  exit 1
+fi
+
+# shellcheck source=/dev/null
+source "$RESOLVER"
+KIT="$(resolve_skills_source "$ROOT")"
 
 SKILLS=(kit-feature kit-build kit-build-change kit-upgrade)
 
+echo "Skills source: ${KIT}"
 for s in "${SKILLS[@]}"; do
-  echo "Installing $s from ${KIT_DIR} ..."
-  npx skills add "$KIT" --skill "$s"
+  echo "Installing $s ..."
+  npx skills add "$KIT" --skill "$s" -y
 done
 
 echo "Done. Verify: orca skills installed"
