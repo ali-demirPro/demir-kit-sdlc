@@ -4,6 +4,10 @@ kit:
   root: vendor/demir-kit
   version: "1.7.1" # match vendor/demir-kit/VERSION after setup
   protocol: "1" # issue demir_kit_version
+  upstream:
+    git: https://github.com/ali-demirPro/demir-kit-sdlc.git
+    local: ../demir-kit-sdlc # optional sibling clone; kit-upgrade prefers this
+  # overlay: .kit/overlay # optional product-specific files merged after sync
 
 tracker:
   provider: github

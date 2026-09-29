@@ -7,7 +7,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 KIT_DIR="${KIT_ROOT:-demir-kit}"
 KIT="file://${ROOT}/${KIT_DIR}"
 
-SKILLS=(kit-feature kit-build kit-build-change)
+SKILLS=(kit-feature kit-build kit-build-change kit-upgrade)
 
 for s in "${SKILLS[@]}"; do
   echo "Installing $s from ${KIT_DIR} ..."

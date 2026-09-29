@@ -45,11 +45,13 @@ Optional product `orchestration/README.md` → pointer to `${kit.root}/orchestra
 | `kit-feature` | → scope-triage |
 | `kit-build` | → work-package (+ autonomous kit-init) |
 | `kit-build-change` | → work-package-amend |
+| `kit-upgrade` | → sync vendored kit from `kit.upstream` |
 
 ```bash
 npx skills add file://$PWD/demir-kit --skill kit-feature
 npx skills add file://$PWD/demir-kit --skill kit-build
 npx skills add file://$PWD/demir-kit --skill kit-build-change
+npx skills add file://$PWD/demir-kit --skill kit-upgrade
 ```
 
 **Do not** bulk-install all kit skills. Coordinators read internal skills from disk:

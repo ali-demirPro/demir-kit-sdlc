@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.7.2 — 2026-09-29
+
+- **`kit-upgrade`** owner skill + `tools/kit-upgrade.sh` — sync vendored kit from `kit.upstream.local` / `git`
+- Orca owner set includes `kit-upgrade`; template `scripts/kit-upgrade.sh` wrapper
+
 ## 1.7.1 — 2026-09-29
 
 - **`envision-handoff.md`** — terminology (`*_covered: yes` ⇒ waive), MVO promote matrix, tracking sync, `pilot_mode`
