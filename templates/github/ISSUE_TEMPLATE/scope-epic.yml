@@ -1,0 +1,22 @@
+name: Scope epic (kit-feature only)
+description: Parent epic after scope triage — minimal YAML, no checkpoints
+title: "[Scope] "
+labels: ["intake"]
+body:
+  - type: markdown
+    value: |
+      **kit-feature / scope-triage only.** Do not add `checkpoints`, `tests_plan`, or `agent-approved` here.
+      Seal work on **child** issues via **kit-build**. See `demir-kit/references/agent-phase-gates.md`.
+  - type: textarea
+    id: summary
+    attributes:
+      label: Özet (insan dili)
+    validations:
+      required: true
+  - type: textarea
+    id: scope_yaml
+    attributes:
+      label: scope_triage YAML (demir-kit block — scope_triage + feasibility only)
+      description: "Allowed keys only. No checkpoints."
+    validations:
+      required: false

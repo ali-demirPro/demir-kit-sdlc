@@ -41,3 +41,5 @@ warnings: []
 ```
 
 Do not proceed to CP-1 if `ready: false` and blockers are not waived by user via `ask`.
+
+**Not a substitute for kit-feature discipline:** Agents must not implement `src/` in chat to “skip” health-check/Orca — see `references/agent-phase-gates.md` G1–G3.

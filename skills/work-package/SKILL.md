@@ -9,6 +9,15 @@ description: >-
 
 Apply **`human-communication.md`** to all user-facing text.
 
+**Hard gates:** `${kit.root}/references/agent-phase-gates.md` — read before seal or any `src/` edit.
+
+## Entry check (block if fail)
+
+1. Invoked via **kit-build** (owner) or coordinator with explicit issue **#N**.
+2. **#N** is a **leaf** executable issue — not a scope-only parent with only `scope_triage`.
+3. Not in **kit-feature** / scope-triage F0–F4 (no seal, no app code there).
+4. Parent epic has **`scope-confirmed`** when **#N** is a child.
+
 ## Non-negotiables
 
 - No `docs/work-packages/` or `WP-*.md` in repo.

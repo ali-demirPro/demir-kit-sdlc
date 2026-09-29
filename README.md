@@ -1,6 +1,6 @@
 # demir-kit
 
-**Sürüm 1.7.2** — `references/product-lifecycle.md` + `references/envision-handoff.md`. Detay: `CHANGELOG.md`.
+**Sürüm 1.7.3** — `references/agent-phase-gates.md` (owner skill hard blocks) + `product-lifecycle.md`. Detay: `CHANGELOG.md`.
 
 **Fabrika:** `kit-envision` → `kit-init` → triage → routing → baselines (veya `waived_baselines`) → mühür → Orca.
 

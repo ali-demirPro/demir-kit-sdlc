@@ -9,6 +9,15 @@ description: >-
 
 Apply `human-communication.md` for all user-facing messages.
 
+**Hard gates:** `${kit.root}/references/agent-phase-gates.md` (G1 — no app paths).
+
+## STOP
+
+- **Only** `${kit.root}/`, `kit.config.yaml` `kit.version`, Orca skill refresh.
+- **Never** `src/`, `docs/product/discovery-brief.md`, issue seal, or implementation.
+
+Run `kit-agent-guard.sh` after sync — must pass (no app diff).
+
 ## When the owner says "kit-upgrade"
 
 Sync the product repo’s vendored kit (`kit.config.yaml` → `kit.root`, usually `demir-kit/`) from upstream without touching app code or `docs/product/`.

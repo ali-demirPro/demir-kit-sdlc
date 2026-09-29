@@ -14,10 +14,22 @@ Kit root paths: read `kit.config.yaml` → `kit.root`.
 - **Canonical:** GitHub Issues only (`vendor/demir-kit/references/tracker-policy.md`).
 - **No** `work-packages/` or `WP-*.md` in this repo.
 
+## Hard gates (mandatory)
+
+Read `${kit.root}/references/agent-phase-gates.md`.
+
+| Phase | Owner | App code `src/` | `agent-approved` | Checkpoints in issue |
+|-------|--------|-----------------|------------------|----------------------|
+| kit-feature F0–F4 | kit-feature | **No** | **No** | Parent: **scope_triage only** |
+| kit-build | kit-build **#leaf** | After seal on **#N** | **Yes** on **#N** | Full YAML on **#N** |
+| Orca | coordinator | Per CP | — | Gates run here |
+
+Before commit with app changes: `./scripts/kit-agent-guard.sh --issue N`
+
 ## Seal
 
-1. Discovery → **`work-package`** skill (`vendor/demir-kit/skills/`).
-2. Label **`agent-approved`** on the issue.
+1. **kit-build** on one **leaf** issue → **`work-package`** skill.
+2. Label **`agent-approved`** on that issue only — not on scope parent epic.
 
 ## Orca execution (ADE)
 

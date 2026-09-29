@@ -7,6 +7,8 @@ description: >-
 
 # work-package-amend
 
+**Hard gates:** `${kit.root}/references/agent-phase-gates.md` — issue must already be **`agent-approved`**. Owner entry: **kit-build-change**.
+
 - **`human-communication.md`** for user-facing text.
 - `gh issue view <N> --json body` → parse `demir-kit` YAML.
 - Increment `package_version`; audit comment in plain language.

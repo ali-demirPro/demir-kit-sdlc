@@ -43,3 +43,9 @@ Venture-style **doc sprawl** yasak; demir-kit canonical kayıt **GitHub issue YA
 - CP titles: few words
 - `tests_plan` every behavior CP
 - `out_of_scope` lists CUT items from `scope_triage`
+
+## scope-triage / kit-feature enforcement
+
+- Parent epic: **`scope_triage` (+ optional `feasibility`) only** — see `agent-phase-gates.md`
+- **No** `checkpoints` / `tests_plan` on parent during kit-feature
+- Child issues: markdown + `intake` until **kit-build** on that child

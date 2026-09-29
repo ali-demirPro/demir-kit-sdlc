@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.7.3 — 2026-09-29
+
+- **`references/agent-phase-gates.md`** — hard blocks per owner command (F0–F4 kit-feature, kit-build leaf-only, G1–G8)
+- Owner skills rewritten: `kit-feature`, `kit-build`, `scope-triage`, `kit-upgrade`, `kit-build-change`, `kit`, `work-package` entry checks
+- **`tools/kit-agent-guard.sh`** + product template wrapper; anti-pattern example doc
+- `human-communication.md`, `minimum-viable-output.md`, issue template `scope-epic.yml`
+
 ## 1.7.2 — 2026-09-29
 
 - **`kit-upgrade`** owner skill + `tools/kit-upgrade.sh` — sync vendored kit from `kit.upstream.local` / `git`

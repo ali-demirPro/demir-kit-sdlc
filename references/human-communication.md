@@ -28,8 +28,15 @@ Kullanıcıya (ürün sahibi) yönelik **tüm** sorular, onaylar ve `orca orches
 - Orca **task spec** (worker’a verilen talimat); kullanıcıya okutulmaz.
 - `gh issue comment` teknik özet için; mühür özeti kullanıcı dilinde issue üstünde kalır.
 
+## Issue ve kod (zorunlu)
+
+- **kit-feature:** Kapsam tablosu onaylanmadan `gh issue create` yok. “Basla” = issue aç (onaylıysa), **kod yazma** değil.
+- **kit-build:** Hangi **#N** mühürlenecek net olmalı; mühür sonrası uygulama.
+- Kullanıcıya: “Şimdi sadece kapsamı netleştiriyoruz; kod kit-build sonrası.”
+
 ## Kim uygular
 
 - `work-package` / `work-package-amend` skill’leri
+- **kit-feature** / scope-triage (F0–F4)
 - Orca **coordinator** (`ask`, `gate-create` soru metni)
 - **Worker** önce coordinator’a insan dilinde özet + seçenek; kullanıcıya doğrudan teknik soru sormaz (coordinator `ask` ile)

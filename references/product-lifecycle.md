@@ -1,6 +1,6 @@
 # Product lifecycle (canonical)
 
-Sürüm: demir-kit **1.7.1**. **Tek referans** — stewardship dosyaları buraya uyumlu olmalı. Handoff detay: **`envision-handoff.md`**.
+Sürüm: demir-kit **1.7.3**. **Tek referans** — stewardship dosyaları buraya uyumlu olmalı. Handoff: **`envision-handoff.md`**. Agent hard blocks: **`agent-phase-gates.md`**.
 
 Issue protokol: `demir_kit_version: "1"`. Kit sürümü: `vendor/demir-kit/VERSION`.
 

@@ -8,6 +8,7 @@ Run from **product repo root** after `vendor/demir-kit` clone.
 | `kit-init.sh` | After **discovery-approved** → ecosystem, layout dirs, stubs; agent MVO per `references/envision-handoff.md` |
 | `kit-upgrade.sh` | Sync vendored `${kit.root}` from `kit.upstream.local` or `kit.upstream.git` |
 | `resolve-skills-source.sh` | Pick git URL or local git clone for `npx skills add` (vendor without `.git` → upstream) |
+| `kit-agent-guard.sh` | Block app path diffs without `agent-approved` on `--issue N` (`agent-phase-gates.md` G1) |
 
 ```bash
 export KIT_ROOT=vendor/demir-kit

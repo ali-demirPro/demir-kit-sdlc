@@ -1,55 +1,44 @@
 ---
 name: kit
 description: >-
-  demir-kit entry — kit-setup, kit-envision, kit-init (envision-handoff), then
-  scope-triage → work-package → Orca. Use for kit bootstrap in product repos.
+  demir-kit entry — lifecycle and owner commands. Read agent-phase-gates.md before
+  any owner skill. kit-feature never implements; kit-build seals one leaf issue.
 ---
 
 # Kit (demir-kit)
 
-Protokol sürümü: `vendor/demir-kit/VERSION` (şu an **1.7.1**). Journey: **`product-lifecycle.md`**, handoff: **`envision-handoff.md`**.
+Protokol: **`references/product-lifecycle.md`**, **hard gates: `references/agent-phase-gates.md`**.
 
-## İlk kez bu ürün repoda
+## Owner commands (product repo)
 
-| Adım | Skill / araç | Ne yapar |
-|------|----------------|----------|
-| 0 | Sen | `vendor/demir-kit` — tüm repoyu klonla veya submodule |
-| 1 | **`kit-setup`** | `kit.config.yaml`, Orca kontrolü, `docs/agent/workflow.md` |
-| 2 | **`kit-envision`** | Repo analizi, vizyon soruları, council sentezi, `discovery-brief` → **`discovery-approved`** |
-| 3 | **`kit-init`** | Onaylı brief’ten `ecosystem.yaml` + klasörler (önceden yazma yok) |
+| Command | Ends with | Never |
+|---------|-----------|--------|
+| **kit-feature** | `scope-confirmed`, children `intake` | `src/`, `agent-approved`, checkpoints on parent |
+| **kit-build #N** | `agent-approved` on leaf **#N**, health-check | Seal parent epic; skip Orca gates |
+| **kit-build-change** | amended YAML on sealed **#N** | First seal |
+| **kit-upgrade** | vendor VERSION sync | `src/`, product brief |
 
-Sonra: `scope-triage` → `factory-routing` → baselines veya `waived_baselines` → `work-package` → Orca.
+Internal (coordinator reads `${kit.root}/skills/`): gates, test-plan, architect, …
 
-Detay: `references/product-lifecycle.md`, `references/envision-stewardship.md`.
+## Lifecycle (brownfield)
+
+1. **kit-setup** (+ envision) → `discovery-approved`
+2. **kit-feature** → epic + children (F0–F4)
+3. **kit-build #3** … per leaf → Orca CPs + gates
+4. **kit-init** may run inside **kit-build** if `ecosystem.yaml` missing
 
 ## Kit kökü
 
-`kit.config.yaml` → `kit.root` (varsayılan `vendor/demir-kit`). Tüm `references/`, `profiles/`, `skills/` bu kökten okunur.
+`kit.config.yaml` → `kit.root`. Guard: `scripts/kit-agent-guard.sh`.
 
 ## Skill grupları
 
 | Grup | Skill’ler |
 |------|-----------|
-| **Kit** | `kit`, `kit-setup`, `kit-envision`, `kit-init` |
-| **Keşif** | `kit-envision`, `scope-triage`, `factory-routing` (`discovery-intake` legacy) |
-| **Commercial** | `product-strategy`, `monetization-brief`, `gtm-lite`, `commercial-review` |
-| **Mimari** | `solution-architect` |
-| **Paket** | `work-package`, `work-package-amend`, `test-plan`, `checkpoint-planner` |
-| **Gate** | `behavior-gate`, `ui-gate`, `adversarial-review`, `platform-gate`, `health-check` |
-| **Diğer** | `design-md`, `prototype`, `ecosystem-bootstrap`, `learnings` |
+| **Owner** | `kit-feature`, `kit-build`, `kit-build-change`, `kit-upgrade` |
+| **Kit** | `kit-setup`, `kit-envision`, `kit-init` |
+| **Triage** | `scope-triage` (= kit-feature canonical) |
+| **Seal** | `work-package`, `work-package-amend`, `test-plan`, `health-check` |
+| **Gate** | `behavior-gate`, `ui-gate`, `adversarial-review`, `platform-gate` |
 
-Eski ad `demir-kit` skill = bu dosyaya yönlendirme; Orca’da `skills/kit` yeterli.
-
-## Shell (opsiyonel)
-
-```bash
-export KIT_ROOT="$(pwd)/vendor/demir-kit"
-"$KIT_ROOT/tools/kit-setup.sh" --repo owner/name
-"$KIT_ROOT/tools/kit-init.sh" --repo owner/name --profile game-flutter
-```
-
-## Referans
-
-- `references/kit-bootstrap-layout.md`
-- `references/capability-map.md`
-- `templates/project/kit.config.yaml`
+Anti-pattern: `examples/anti-patterns/kit-feature-premature-seal.md`

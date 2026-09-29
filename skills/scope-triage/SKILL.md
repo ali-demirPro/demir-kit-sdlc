@@ -1,96 +1,62 @@
 ---
 name: scope-triage
 description: >-
-  Feature triage KEEP/DEFER/CUT with effort, value, ROI reasoning. User confirmation
-  loop; sync defer list to evolution-roadmap. Before work-package seal on greenfield.
+  Feature triage KEEP/DEFER/CUT. Ends at scope-confirmed — never seals checkpoints or
+  writes app code. See agent-phase-gates.md.
 ---
 
 # scope-triage
 
-VB **Feature Triager** karşılığı — çıktı issue YAML + roadmap, yüzlerce otomatik issue yok.
+Apply `human-communication.md`. **Hard gates:** `${kit.root}/references/agent-phase-gates.md`.
 
-Apply `human-communication.md`.
+Owner alias: **kit-feature** — same phases F0–F4.
 
 ## When
 
-- After **`kit-init`** (envision complete), before mühür on `greenfield_product` / epic bootstrap
-- User requests “scope sık”, “adjust scope”, re-run after `work-package-amend`
+- After envision / brief approved (brownfield: may run before `ecosystem.yaml` exists — **do not** block triage on kit-init)
+- Before **kit-build** on greenfield bootstrap **or** before opening epic children
+- Re-run after `work-package-amend` scope change
+
+## When NOT (use other skills)
+
+| Situation | Skill |
+|-----------|--------|
+| Seal checkpoints, `agent-approved` | **kit-build** / work-package |
+| Change vendored kit | **kit-upgrade** |
+| Implement `src/` | **kit-build** + Orca only |
 
 ## Process
 
-0. If `docs/product/discovery-brief.md` has § **Development bets**: import rows as draft `scope_triage.items`; only ask confirm/override — do not re-run full feasibility Q&A.
-1. List candidate features (from brief bets + `discovery.must_have_features` + session notes). Include **launch/commercial** items (ASO, landing, paywall, analytics) as triage rows when relevant.
-2. For each item score (1–5 stars or 1–5 int):
-   - **technical** — complexity / unknowns
-   - **value** — MVP criticality
-   - **effort_hours** — realistic estimate (solo-adjusted)
-3. Compute **decision:**
-   - **keep** — MVP core (`roi` note: value/effort)
-   - **defer** — Phase 2+ (`phase` label e.g. `phase-2`)
-   - **cut** — out of product (`reasoning` required)
-4. Present summary table in **human language**; ask confirm or override per item.
-5. On **override to KEEP** a deferred item: state **impact** (extra hours, timeline slip risk) — VB pattern.
+0. Import `docs/product/discovery-brief.md` § Development bets if present; confirm overrides only.
+1. List candidates; score technical / value / `effort_hours`.
+2. Decision: **keep** | **defer** | **cut** per item.
+3. **F1:** Human-language table; owner confirm.
+4. **F2:** Issue plan in chat; wait for “issue aç”.
+5. **F3:** Create issues per `agent-phase-gates.md` (parent minimal YAML; children markdown + `intake`).
+6. **F4:** `scope-confirmed`; roadmap deferrals; run **kit-agent-guard** (no app diff).
 
 ## Issue block `scope_triage`
 
-```yaml
-scope_triage:
-  confirmed: true
-  confirmed_at: "2026-09-29"
-  items:
-    - name: Daily rewards
-      decision: keep
-      technical: 4
-      value: 5
-      effort_hours: 24
-      roi_note: high
-      reasoning: Core retention loop
-      phase: mvp
-    - name: AI coach
-      decision: cut
-      technical: 2
-      value: 1
-      effort_hours: 80
-      roi_note: low
-      reasoning: Unproven; defer until MAU threshold
-  overrides:
-    - name: Web dashboard
-      from: defer
-      to: keep
-      impact_hours: 40
-      user_acknowledged: true
-```
+(Same YAML structure as before — on **parent/epic only**.)
+
+## Parent YAML — allowed vs forbidden
+
+**Allowed:** `demir_kit_version`, `scope_triage`, `feasibility`, `envision` (pointer), `decisions`  
+**Forbidden:** `checkpoints`, `tests_plan`, `checkpoints_preapproved`, full `factory`, `mode: bootstrap`, `greenfield_product` for brownfield UI epics
 
 ## Repo sync
 
-- **keep** → `acceptance_criteria` / future child issues
-- **defer** → `docs/architecture/evolution-roadmap.md` **Deferred** section (create from template if missing)
-- **cut** → issue `out_of_scope` + roadmap “never v1”
-
-## Feasibility coupling
-
-Update `feasibility` on same issue:
-
-```yaml
-feasibility:
-  score: 7.5
-  go: true
-  strengths: ["..."]
-  risks:
-    - text: Two-sided marketplace cold start
-      mitigation: Seed one side first
-```
-
-If `score < 6` or `go: false` → coordinator `ask`: pivot, shrink scope, or waive (document in `decisions`).
-
-## Labels
-
-`scope-confirmed` when `scope_triage.confirmed: true`.
+- **defer** → `docs/architecture/evolution-roadmap.md`
+- **cut** → `out_of_scope` when issue is later sealed on a **child** via kit-build
 
 ## Minimum output
 
-Do not write full PRDs — MVO per `references/minimum-viable-output.md`. Triage table + roadmap bullets enough.
+MVO: triage table + roadmap — **not** full PRD or work-package (`minimum-viable-output.md`).
 
-## Next
+## Labels
 
-`factory-routing` → `architecture_baseline` (if required) → `work-package`.
+`scope-confirmed` when `scope_triage.confirmed: true` on epic/parent — **not** `agent-approved`.
+
+## Next (not in this skill)
+
+`kit-build` on **each leaf** → `factory-routing` → mühür → health-check → Orca.
