@@ -38,7 +38,7 @@ Optional product `orchestration/README.md` → pointer to `${kit.root}/orchestra
 
 ### 3 — Orca user skills (owner only)
 
-**Install only these** from kit root. Product repo: copy `templates/project/install.sh` → `./install.sh` (or `scripts/install-orca-user-skills.sh`):
+**Install only these** from `${kit.root}`. Product repo (recommended): copy `templates/project/scripts/install-orca-user-skills.sh` → `scripts/` and run from repo root. Optional wrapper: `templates/project/install.sh` (not required).
 
 | Skill | Role |
 |-------|------|

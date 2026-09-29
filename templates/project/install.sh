@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Install Orca skills for this product repo (owner commands from vendored demir-kit).
-# Run from product repo root.
+# OPTIONAL wrapper — canonical install is scripts/install-orca-user-skills.sh at product repo root.
+# Copy to product root only if you want ./install.sh; otherwise use scripts/ only.
 #
-# Usage:
-#   ./install.sh                 # kit-feature, kit-build, kit-build-change, kit-upgrade
+# Usage (if copied to product root):
+#   ./install.sh                 # owner skills via scripts/install-orca-user-skills.sh
 #   ./install.sh --with-platform # + orchestration, orca-cli (global)
 set -euo pipefail
 

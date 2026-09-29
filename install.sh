@@ -2,7 +2,8 @@
 # Install demir-kit owner Orca skills from this kit checkout.
 # Run from kit repo root (demir-kit-sdlc or vendored demir-kit/).
 #
-# Product repos: prefer ./install.sh at product root (uses vendored demir-kit/).
+# Product repos: ./scripts/install-orca-user-skills.sh (from templates/project/scripts/).
+# Platform skills: run this script with --with-platform from kit path, e.g. ./demir-kit/install.sh --with-platform
 #
 # Usage:
 #   ./install.sh                 # owner skills only

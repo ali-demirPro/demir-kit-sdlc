@@ -14,8 +14,10 @@ Settings → Experimental: Orchestration + Plugin system (plugin sonra).
 
 ### Platform (bir kez, makine geneli)
 
+Ürün repoda vendored kit yolundan veya bu repoda:
+
 ```bash
-./install.sh --with-platform
+./demir-kit/install.sh --with-platform   # ürün repo kökünden örnek
 # veya elle:
 npx skills add https://github.com/stablyai/orca --skill orchestration --global
 npx skills add https://github.com/stablyai/orca --skill orca-cli --global
@@ -23,13 +25,15 @@ npx skills add https://github.com/stablyai/orca --skill orca-cli --global
 
 ### Owner komutları (ürün sahibi)
 
-Ürün repoda vendored kit (`demir-kit/` veya `vendor/demir-kit/`):
+**Ürün repo kökünden** (standart):
 
 ```bash
-./install.sh
+./scripts/install-orca-user-skills.sh
 ```
 
-Sadece kit repoda çalışıyorsan (bu repo):
+Şablon: `templates/project/scripts/install-orca-user-skills.sh` — `kit-setup` sırasında `scripts/` altına kopyala.
+
+**Sadece kit checkout** (bu repo veya `cd demir-kit`):
 
 ```bash
 ./install.sh
@@ -82,7 +86,7 @@ demir-kit/tools/kit-setup.sh --repo owner/name
 | `profiles/` | Fabrika profilleri |
 | `references/` | Şemalar, gate-contract, packs |
 | `orchestration/` | Coordinator checklist, automation |
-| `templates/project/` | `kit.config.yaml`, `install.sh`, `scripts/` |
+| `templates/project/` | `kit.config.yaml`, `scripts/` (`install-orca-user-skills.sh`); opsiyonel `install.sh` wrapper |
 
 ## Dosya ağacı (özet)
 

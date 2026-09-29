@@ -4,7 +4,7 @@
 
 - **`kit-upgrade`** owner skill + `tools/kit-upgrade.sh` — sync vendored kit from `kit.upstream.local` / `git`
 - Orca owner set includes `kit-upgrade`; template `scripts/kit-upgrade.sh` wrapper
-- Root `install.sh` (+ `templates/project/install.sh`) for Orca owner skills; README 1.7.2
+- Root `install.sh` (kit checkout); product repos use `scripts/install-orca-user-skills.sh`; optional `templates/project/install.sh` wrapper
 
 ## 1.7.1 — 2026-09-29
 
