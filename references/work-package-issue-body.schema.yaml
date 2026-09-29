@@ -1,0 +1,130 @@
+# Issue body içindeki demir-kit YAML bloğu
+# İnsan özeti bu bloğun ÜSTÜNDE serbest markdown.
+
+type: object
+required:
+  - demir_kit_version
+  - package_version
+  - mode
+  - entry
+  - factory
+  - intent
+  - products
+  - surfaces
+  - reference
+  - acceptance_criteria
+  - out_of_scope
+  - decisions
+  - tests_plan
+  - checkpoints_preapproved
+  - checkpoints
+
+properties:
+  demir_kit_version:
+    type: string
+    const: "1"
+  package_version:
+    type: integer
+    minimum: 1
+  mode:
+    enum: [extend, bootstrap, amend]
+  entry:
+    $ref: factory-schema.yaml#/entry
+  factory:
+    $ref: factory-schema.yaml#/factory
+  architecture:
+    $ref: factory-schema.yaml#/architecture
+  commercial:
+    $ref: factory-schema.yaml#/commercial
+  envision:
+    $ref: factory-schema.yaml#/envision
+  discovery:
+    $ref: factory-schema.yaml#/discovery
+  feasibility:
+    $ref: factory-schema.yaml#/feasibility
+  scope_triage:
+    $ref: factory-schema.yaml#/scope_triage
+  adaptive:
+    $ref: factory-schema.yaml#/adaptive
+  intent:
+    type: string
+    description: Tek paragraf özet (birkaç cümle; checkpoint başlıkları kısa tutulur)
+  products:
+    type: array
+    items: { type: string }
+  surfaces:
+    type: array
+    items: { type: string }
+  reference:
+    type: object
+    description: "Referans sözleşmesi — ne ile doğrulanacak (kod, tasarım, çalışan uygulama)."
+    required: [kind]
+    properties:
+      kind:
+        enum:
+          - github_paths
+          - running_app
+          - prototype_url
+          - design_docs
+          - product_issue
+          - mixed
+      summary:
+        type: string
+        description: İnsan dilinde referans özeti
+      paths:
+        type: array
+        items: { type: string }
+        description: Repo yolları veya issue/PR linkleri
+      states:
+        type: array
+        items: { type: string }
+        description: UI karşılaştırma state'leri (boş form, hata, vb.)
+  acceptance_criteria:
+    type: array
+    items: { type: string }
+  out_of_scope:
+    type: array
+    items: { type: string }
+  decisions:
+    type: array
+    items:
+      type: object
+      required: [date, text]
+      properties:
+        date: { type: string }
+        author: { type: string }
+        text: { type: string }
+        adr_required: { type: boolean }
+  risks:
+    type: array
+    items: { type: string }
+  dependencies:
+    type: array
+    items:
+      type: object
+      properties:
+        ref: { type: string }
+        kind: { enum: [blocks, related] }
+  tests_plan:
+    type: array
+    description: CP id ile bağlı doğrulama planı (behavior gate öncesi zorunlu)
+    minItems: 1
+    items:
+      type: object
+      required: [checkpoint_id, cases]
+      properties:
+        checkpoint_id: { type: string, pattern: "^CP-[0-9]+$" }
+        cases:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            required: [name, expectation]
+            properties:
+              name: { type: string }
+              expectation: { type: string }
+              edge: { type: boolean, default: false }
+  checkpoints_preapproved:
+    type: boolean
+  checkpoints:
+    $ref: checkpoints.schema.json#/properties/checkpoints

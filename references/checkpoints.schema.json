@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://demir-kit.local/schemas/checkpoints.json",
+  "title": "DemirKitCheckpoints",
+  "type": "object",
+  "required": ["package_ref", "checkpoints"],
+  "properties": {
+    "package_ref": {
+      "type": "object",
+      "required": ["provider", "id"],
+      "properties": {
+        "provider": { "const": "github" },
+        "id": { "type": "string" },
+        "url": { "type": "string", "format": "uri" },
+        "version": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "checkpoints_preapproved": { "type": "boolean", "default": true },
+    "checkpoints": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "title", "order", "surfaces", "gates", "acceptance_criteria"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^CP-[0-9]+$" },
+          "title": { "type": "string" },
+          "order": { "type": "integer", "minimum": 1 },
+          "depends_on": {
+            "type": "array",
+            "items": { "type": "string", "pattern": "^CP-[0-9]+$" }
+          },
+          "surfaces": {
+            "type": "array",
+            "items": { "type": "string" },
+            "minItems": 1
+          },
+          "gates": {
+            "type": "object",
+            "required": ["behavior", "ui", "adversarial"],
+            "properties": {
+              "behavior": { "type": "boolean" },
+              "ui": { "type": "boolean" },
+              "adversarial": { "type": "boolean" },
+              "architect": {
+                "type": "boolean",
+                "default": false,
+                "description": "solution-architect output-review after behavior when true"
+              },
+              "commercial": {
+                "type": "boolean",
+                "default": false,
+                "description": "commercial-review after behavior when true"
+              },
+              "human": {
+                "type": "boolean",
+                "default": false,
+                "description": "Human gate on CP (e.g. architecture baseline sign-off)"
+              }
+            }
+          },
+          "acceptance_criteria": {
+            "type": "array",
+            "items": { "type": "string" },
+            "minItems": 1,
+            "description": "Few words per CP title style; details live in tests_plan"
+          },
+          "ui_scope": {
+            "type": "string",
+            "description": "Kapsamlı UI: bu CP'de karşılaştırılacak bölgeler/state'ler (örn. yalnızca nav bar)"
+          },
+          "docs_sync": { "type": "boolean", "default": false }
+        }
+      }
+    }
+  }
+}

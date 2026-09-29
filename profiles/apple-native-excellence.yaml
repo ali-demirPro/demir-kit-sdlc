@@ -1,0 +1,101 @@
+id: apple-native-excellence
+description: Native iOS SwiftUI — platform excellence (HIG, a11y, privacy, ASC hazırlığı)
+product_class: native-ios
+default_entry: greenfield_product
+default_quality_tier: platform_excellence
+
+platform_packs:
+  - apple-hig
+  - apple-a11y
+  - apple-privacy
+  - apple-asc
+  - launch-readiness
+
+architecture_baseline_required: true
+commercial_baseline_required: true
+
+required_skills:
+  - kit-envision
+  - scope-triage
+  - product-strategy
+  - monetization-brief
+  - gtm-lite
+  - commercial-review
+  - solution-architect
+  - design-md
+  - platform-gate
+
+optional_capabilities:
+  - id: prototype
+    when: custom UI before code
+
+default_skips:
+  - id: heavy-gtm
+    reason: Use gtm-lite + commercial_baseline; paid ads in phase-2
+
+suggested_surfaces:
+  - ios.app
+  - legal.pages
+  - ops.store.appstore_connect
+
+tests_plan_seeds:
+  - checkpoint_id: CP-BOOT-1
+    cases:
+      - name: project builds
+        expectation: xcodebuild build succeeds
+        edge: false
+  - checkpoint_id: CP-A11Y-1
+    cases:
+      - name: VoiceOver labels on primary flow
+        expectation: accessibility audit no blocker findings
+        edge: false
+
+extra_gates:
+  - id: platform.hig
+    after: ui
+    pack: apple-hig
+  - id: platform.a11y
+    after: behavior
+    pack: apple-a11y
+  - id: platform.privacy
+    after: adversarial
+    pack: apple-privacy
+  - id: platform.store
+    after: platform.privacy
+    pack: apple-asc
+    when: factory.store_ops_in_scope
+  - id: platform.launch
+    after: platform.store
+    pack: launch-readiness
+
+checkpoint_templates:
+  commercial_baseline:
+    - { id: CP-COM-1, title: Positioning and ICP, gates: { behavior: false, ui: false, adversarial: false, architect: false, commercial: false, human: false } }
+    - { id: CP-COM-2, title: Monetization brief, gates: { behavior: false, ui: false, adversarial: false, architect: false, commercial: false, human: false } }
+    - { id: CP-COM-3, title: GTM lite and ASO outline, gates: { behavior: false, ui: false, adversarial: false, architect: false, commercial: false, human: false } }
+    - { id: CP-COM-4, title: Analytics and north star, gates: { behavior: false, ui: false, adversarial: false, architect: false, commercial: false, human: false } }
+    - { id: CP-COM-5, title: Commercial baseline sign-off, gates: { behavior: false, ui: false, adversarial: false, architect: false, commercial: false, human: true } }
+  architecture_baseline:
+    - id: CP-ARCH-1
+      title: Architecture discovery and matrix
+      gates: { behavior: false, ui: false, adversarial: false, architect: true, human: false }
+    - id: CP-ARCH-2
+      title: Docs and ADR seed PR
+      gates: { behavior: false, ui: false, adversarial: false, architect: true, human: false }
+    - id: CP-ARCH-3
+      title: Ecosystem yaml and boundaries
+      gates: { behavior: false, ui: false, adversarial: false, architect: true, human: false }
+    - id: CP-ARCH-4
+      title: Cost tiers and evolution roadmap
+      gates: { behavior: false, ui: false, adversarial: false, architect: true, human: false }
+    - id: CP-ARCH-5
+      title: Baseline human sign-off
+      gates: { behavior: false, ui: false, adversarial: false, architect: false, human: true }
+  greenfield_product:
+    - { id: CP-BOOT-1, title: Xcode project skeleton, gates: { behavior: true, ui: false, adversarial: true, architect: true } }
+    - { id: CP-BOOT-2, title: Core navigation shell, gates: { behavior: true, ui: true, adversarial: true, architect: true }, ui_scope: navigation and tab bar }
+
+human_qa_rubric:
+  - Primary flows match Apple HIG expectations
+  - Dynamic Type and VoiceOver spot-check
+  - Privacy manifest present if networking

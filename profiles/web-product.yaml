@@ -1,0 +1,53 @@
+id: web-product
+description: Full web application + marketing + legal surfaces
+product_class: web-app
+default_entry: greenfield_product
+default_quality_tier: standard
+
+platform_packs:
+  - web-ux
+  - launch-readiness
+
+architecture_baseline_required: true
+commercial_baseline_required: true
+
+required_skills:
+  - kit-envision
+  - scope-triage
+  - product-strategy
+  - monetization-brief
+  - gtm-lite
+  - commercial-review
+  - solution-architect
+  - design-md
+  - platform-gate
+
+suggested_surfaces:
+  - web.app
+  - marketing.site
+  - legal.pages
+
+extra_gates:
+  - id: platform.web_ux
+    after: ui
+    pack: web-ux
+  - id: platform.launch
+    after: adversarial
+    pack: launch-readiness
+
+checkpoint_templates:
+  commercial_baseline:
+    - { id: CP-COM-1, title: Positioning and ICP, gates: { behavior: false, ui: false, adversarial: false, architect: false, commercial: false, human: false } }
+    - { id: CP-COM-2, title: Monetization brief, gates: { behavior: false, ui: false, adversarial: false, architect: false, commercial: false, human: false } }
+    - { id: CP-COM-3, title: GTM lite and channels, gates: { behavior: false, ui: false, adversarial: false, architect: false, commercial: false, human: false } }
+    - { id: CP-COM-4, title: Analytics and north star, gates: { behavior: false, ui: false, adversarial: false, architect: false, commercial: false, human: false } }
+    - { id: CP-COM-5, title: Commercial baseline sign-off, gates: { behavior: false, ui: false, adversarial: false, architect: false, commercial: false, human: true } }
+  architecture_baseline:
+    - { id: CP-ARCH-1, title: Architecture discovery and matrix, gates: { behavior: false, ui: false, adversarial: false, architect: true, human: false } }
+    - { id: CP-ARCH-2, title: Docs and ADR seed PR, gates: { behavior: false, ui: false, adversarial: false, architect: true, human: false } }
+    - { id: CP-ARCH-3, title: Ecosystem yaml and boundaries, gates: { behavior: false, ui: false, adversarial: false, architect: true, human: false } }
+    - { id: CP-ARCH-4, title: Cost tiers and evolution roadmap, gates: { behavior: false, ui: false, adversarial: false, architect: true, human: false } }
+    - { id: CP-ARCH-5, title: Baseline human sign-off, gates: { behavior: false, ui: false, adversarial: false, architect: false, human: true } }
+  greenfield_product:
+    - { id: CP-1, title: Web app shell, gates: { behavior: true, ui: true, adversarial: true, architect: true, commercial: false } }
+    - { id: CP-2, title: Marketing landing hero, gates: { behavior: true, ui: true, adversarial: true, architect: true, commercial: true } }

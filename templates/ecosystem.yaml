@@ -1,0 +1,92 @@
+# Copy to repo root. Ecosystem map — not a work package list.
+name: my-ecosystem
+
+tracker:
+  provider: github
+  repo: owner/repo
+
+products:
+  game:
+    description: Primary interactive product (e.g. Flutter client)
+    surfaces:
+      client:
+        path: apps/game
+        stacks: [flutter]
+        platforms: [android, ios]
+        design: docs/design/game.md
+        gates:
+          behavior: "./scripts/gate-behavior.sh {checkpoint}"
+          behavior_mode: headless
+          ui: true
+          ui_compare: simulator-screenshot
+        behavior_cli:
+          description: "Optional — dart run tool/agent_cli.dart --checkpoint {checkpoint}"
+
+  marketing:
+    description: Landing, blog, public web
+    surfaces:
+      site:
+        path: apps/web
+        stacks: [next]
+        hosts: [landing]
+        design: docs/design/web.md
+        gates:
+          behavior: "pnpm --filter web test:gate -- --checkpoint={checkpoint}"
+          ui: true
+          ui_compare: orca-browser
+
+  legal:
+    description: Terms, privacy, policies served with marketing or in-app links
+    surfaces:
+      pages:
+        path: apps/web/app/legal
+        gates:
+          behavior: "pnpm --filter web test:gate:legal -- --checkpoint={checkpoint}"
+          ui: false
+          ui_compare: none
+
+  ios:
+    description: Native iOS app (example surface keys for factory profiles)
+    surfaces:
+      app:
+        path: apps/ios
+        stacks: [swiftui]
+        platforms: [ios]
+        design: docs/design/ios.md
+        gates:
+          behavior: "./scripts/gate-behavior.sh {checkpoint}"
+          behavior_mode: headless
+          ui: true
+          ui_compare: simulator-screenshot
+
+  ops:
+    description: Store and release operations (metadata, not app source)
+    surfaces:
+      appstore_connect:
+        path: ops/appstore
+        gates:
+          behavior: "./scripts/gate-store-asc.sh {checkpoint}"
+          ui: false
+          ui_compare: none
+      play_console:
+        path: ops/play
+        gates:
+          behavior: "./scripts/gate-store-play.sh {checkpoint}"
+          ui: false
+          ui_compare: none
+      release_ios:
+        path: ops/release/ios
+        gates:
+          behavior: "./scripts/gate-release-ios.sh {checkpoint}"
+          ui: false
+          ui_compare: none
+
+shared:
+  brand: docs/brand/
+  design_tokens: packages/design-tokens/
+  copy_locale: packages/i18n/
+
+policies:
+  decisions: docs/architecture/adr/
+  agent: docs/agent/
+  workflows: docs/agent/workflow.md

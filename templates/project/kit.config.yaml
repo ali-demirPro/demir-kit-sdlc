@@ -1,0 +1,27 @@
+# Product repo — kit wiring (kit-setup). Commit this file.
+
+kit:
+  root: vendor/demir-kit
+  version: "1.7.1" # match vendor/demir-kit/VERSION after setup
+  protocol: "1" # issue demir_kit_version
+
+tracker:
+  provider: github
+  repo: owner/repo # gh repo view --json nameWithOwner
+
+orca:
+  skills_required:
+    - orchestration
+    - orca-cli
+  # Coordinator reads these paths relative to kit.root:
+  integration: references/orca-integration.md
+  gate_contract: references/gate-contract.md
+  orchestration_readme: orchestration/README.md
+
+# Optional: default factory profile for kit-init / factory-routing
+factory:
+  default_profile: web-product
+
+# Greenfield envision gate (health-check reads this)
+product:
+  envision_required: true  # set false only for brownfield-only repos + document in decisions

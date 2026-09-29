@@ -1,0 +1,57 @@
+# Repo kökündeki ecosystem.yaml doğrulama rehberi (JSON Schema benzeri)
+
+type: object
+required: [name, products, shared]
+properties:
+  name:
+    type: string
+  products:
+    type: object
+    additionalProperties:
+      type: object
+      required: [description, surfaces]
+      properties:
+        description: { type: string }
+        surfaces:
+          type: object
+          additionalProperties:
+            type: object
+            required: [path, gates]
+            properties:
+              path: { type: string }
+              stacks: { type: array, items: { type: string } }
+              platforms: { type: array, items: { type: string } }
+              hosts: { type: array, items: { type: string } }
+              gates:
+                type: object
+                required: [behavior, ui]
+                properties:
+                  behavior: { type: string, description: Shell command template, {checkpoint} placeholder }
+                  behavior_mode: { enum: [headless, unit-only, emulator-required] }
+                  ui: { type: boolean }
+                  ui_compare: { enum: [orca-browser, simulator-screenshot, none] }
+                additionalProperties: { type: string, description: Optional platform pack scripts e.g. platform_apple_hig }
+              behavior_cli:
+                type: object
+                properties:
+                  description: { type: string }
+              design: { type: string, description: Path to design doc }
+  shared:
+    type: object
+    properties:
+      brand: { type: string }
+      design_tokens: { type: string }
+      copy_locale: { type: string }
+      analytics: { type: string }
+  policies:
+    type: object
+    properties:
+      decisions: { type: string }
+      agent: { type: string }
+      workflows: { type: string }
+  tracker:
+    type: object
+    required: [provider, repo]
+    properties:
+      provider: { const: github }
+      repo: { type: string, description: "owner/name for gh -R" }

@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>demir-kit checkpoint viewer</title>
+  <style>
+    :root { font-family: system-ui, sans-serif; background: #0f1115; color: #e6e8ec; }
+    body { max-width: 52rem; margin: 2rem auto; padding: 0 1rem; }
+    h1 { font-size: 1.25rem; font-weight: 600; }
+    textarea { width: 100%; min-height: 10rem; background: #1a1d24; color: #e6e8ec; border: 1px solid #333; border-radius: 8px; padding: 0.75rem; font-family: ui-monospace, monospace; font-size: 12px; }
+    button { margin-top: 0.5rem; background: #3b82f6; color: #fff; border: none; padding: 0.5rem 1rem; border-radius: 6px; cursor: pointer; }
+    .cp { border: 1px solid #333; border-radius: 8px; padding: 1rem; margin: 0.75rem 0; }
+    .cp h2 { margin: 0 0 0.5rem; font-size: 1rem; }
+    .meta { font-size: 0.85rem; color: #9aa3b2; }
+    .gates span { display: inline-block; margin-right: 0.5rem; padding: 0.15rem 0.4rem; border-radius: 4px; background: #252830; font-size: 0.75rem; }
+    ul { margin: 0.5rem 0 0; padding-left: 1.25rem; }
+    .err { color: #f87171; margin-top: 0.5rem; }
+  </style>
+</head>
+<body>
+  <h1>Checkpoint viewer</h1>
+  <p class="meta">Paste issue <code>demir-kit</code> YAML or full <code>checkpoints.json</code>.</p>
+  <textarea id="input" placeholder="checkpoints: ..."></textarea>
+  <button type="button" id="render">Render</button>
+  <div id="out"></div>
+  <script>
+    function parseInput(raw) {
+      raw = raw.trim();
+      if (!raw) throw new Error("Empty input");
+      if (raw.startsWith("{")) return JSON.parse(raw);
+      const doc = raw.replace(/^```ya?ml\s*demir-kit?\s*/i, "").replace(/```\s*$/, "");
+      return { checkpoints: (window.jsyaml?.load(doc) || parseMinimalYaml(doc)).checkpoints || [] };
+    }
+    function parseMinimalYaml(text) {
+      try { return JSON.parse(text); } catch {
+        const lines = text.split("\n");
+        const cps = [];
+        let cur = null;
+        for (const line of lines) {
+          const m = line.match(/^\s*-\s*id:\s*(.+)/);
+          if (m) { cur = { id: m[1].trim(), title: "", surfaces: [], gates: {}, acceptance_criteria: [] }; cps.push(cur); continue; }
+          if (!cur) continue;
+          const t = line.match(/^\s*title:\s*(.+)/); if (t) cur.title = t[1].trim();
+          const g = line.match(/^\s*(behavior|ui|adversarial):\s*(true|false)/);
+          if (g) cur.gates[g[1]] = g[2] === "true";
+        }
+        return { checkpoints: cps };
+      }
+    }
+    document.getElementById("render").onclick = () => {
+      const out = document.getElementById("out");
+      out.innerHTML = "";
+      try {
+        const data = parseInput(document.getElementById("input").value);
+        const list = data.checkpoints || [];
+        list.sort((a, b) => (a.order || 0) - (b.order || 0));
+        for (const cp of list) {
+          const el = document.createElement("div");
+          el.className = "cp";
+          const gates = cp.gates || {};
+          el.innerHTML = `
+            <h2>${cp.id}: ${cp.title || ""}</h2>
+            <div class="meta">Surfaces: ${(cp.surfaces || []).join(", ") || "—"} · depends: ${(cp.depends_on || []).join(", ") || "—"}</div>
+            <div class="gates">
+              ${gates.behavior ? "<span>behavior</span>" : ""}
+              ${gates.ui ? "<span>ui</span>" : ""}
+              ${gates.adversarial ? "<span>adversarial</span>" : ""}
+            </div>
+            <ul>${(cp.acceptance_criteria || []).map((c) => `<li>${c}</li>`).join("")}</ul>
+          `;
+          out.appendChild(el);
+        }
+      } catch (e) {
+        out.innerHTML = `<p class="err">${e.message}</p>`;
+      }
+    };
+  </script>
+</body>
+</html>

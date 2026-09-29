@@ -1,0 +1,287 @@
+# Issue YAML factory + entry (demir-kit protokol v1)
+
+entry:
+  type: object
+  required: [kind]
+  properties:
+    kind:
+      enum:
+        - architecture_baseline
+        - commercial_baseline
+        - product_envision
+        - greenfield_product
+        - feature
+        - store_release
+        - compliance_pass
+        - ecosystem_amend
+    summary:
+      type: string
+      description: İnsan dilinde bu iş paketinin türü
+
+factory:
+  type: object
+  required: [profile, quality_tier]
+  properties:
+    profile:
+      type: string
+      description: profiles/<name>.yaml dosya adı (uzantısız)
+    product_class:
+      enum:
+        - native-ios
+        - native-macos
+        - flutter-mobile
+        - flutter-desktop
+        - web-app
+        - game
+        - hybrid
+    stacks:
+      type: array
+      items: { type: string }
+    quality_tier:
+      enum: [standard, platform_excellence]
+    distribution:
+      type: array
+      items:
+        enum:
+          - app_store_connect
+          - testflight
+          - mac_app_store
+          - play_console
+          - web-only
+    platform_packs:
+      type: array
+      description: Profilden merge; mühürde kopyalanır
+      items: { type: string }
+    store_ops_in_scope:
+      type: boolean
+      default: false
+    architecture_baseline_required:
+      type: boolean
+      default: false
+      description: Greenfield feature work must link a completed baseline issue
+    commercial_baseline_required:
+      type: boolean
+      default: false
+      description: Greenfield requires commercial_baseline epic and label commercial-baseline-done
+    waived_baselines:
+      type: array
+      description: Skip baseline epics when envision brief already covered (see product-lifecycle.md)
+      items:
+        enum: [commercial_baseline, architecture_baseline]
+    pilot_mode:
+      type: boolean
+      default: false
+      description: Thin path — may waive both baselines with decisions note; see envision-handoff.md
+    activated_skills:
+      type: array
+      description: Council-style selective activation (merged from profile + triage)
+      items: { type: string }
+    skipped_capabilities:
+      type: array
+      description: Skills/packs intentionally off with rationale (VB selective council)
+      items:
+        type: object
+        required: [id, reason]
+        properties:
+          id: { type: string }
+          reason: { type: string }
+
+envision:
+  type: object
+  description: kit-envision tracking (discovery-brief approval)
+  properties:
+    status:
+      enum: [draft, approved]
+    approved_at:
+      type: string
+    brief_path:
+      type: string
+      default: docs/product/discovery-brief.md
+    platform_decision:
+      enum:
+        - web_continue
+        - mobile_pivot
+        - hybrid
+        - unchanged
+        - tbd
+    factory_profile_recommended:
+      type: string
+    council_synthesis_version:
+      type: integer
+      minimum: 1
+    baselines_covered:
+      type: object
+      properties:
+        commercial: { type: boolean }
+        architecture: { type: boolean }
+    tracking_issue:
+      type: integer
+      description: GitHub issue number for envision (single tracker)
+
+discovery:
+  type: object
+  description: Product context mirror (docs/product/context.md); filled by kit-envision
+  properties:
+    product_type:
+      enum:
+        - mobile_app
+        - web_saas
+        - ecommerce
+        - marketplace
+        - game
+        - api_platform
+        - other
+    audience:
+      enum: [b2c, b2b, b2b2c]
+    platforms:
+      type: array
+      items: { type: string }
+    team_size:
+      enum: [solo, duo, small, agency]
+    timeline_weeks:
+      type: integer
+      minimum: 1
+    budget_band:
+      enum: [bootstrapped, angel, seed, series_a_plus]
+    tech_level:
+      enum: [non_technical, junior, mid, senior]
+    must_have_features:
+      type: array
+      items: { type: string }
+    context_doc_path:
+      type: string
+      default: docs/product/context.md
+
+feasibility:
+  type: object
+  properties:
+    score:
+      type: number
+      minimum: 1
+      maximum: 10
+    go:
+      type: boolean
+    strengths:
+      type: array
+      items: { type: string }
+    risks:
+      type: array
+      items:
+        type: object
+        required: [text]
+        properties:
+          text: { type: string }
+          mitigation: { type: string }
+
+scope_triage:
+  type: object
+  properties:
+    confirmed:
+      type: boolean
+    confirmed_at:
+      type: string
+    items:
+      type: array
+      items:
+        type: object
+        required: [name, decision, reasoning]
+        properties:
+          name: { type: string }
+          decision:
+            enum: [keep, defer, cut]
+          technical: { type: integer, minimum: 1, maximum: 5 }
+          value: { type: integer, minimum: 1, maximum: 5 }
+          effort_hours: { type: number }
+          roi_note: { type: string }
+          reasoning: { type: string }
+          phase: { type: string }
+    overrides:
+      type: array
+      items:
+        type: object
+        required: [name, from, to, user_acknowledged]
+        properties:
+          name: { type: string }
+          from: { enum: [keep, defer, cut] }
+          to: { enum: [keep, defer, cut] }
+          impact_hours: { type: number }
+          user_acknowledged: { type: boolean }
+
+adaptive:
+  type: object
+  description: Weekly loop metadata (orchestration/weekly-adaptive-loop.md)
+  properties:
+    cadence:
+      enum: [weekly, biweekly, off]
+      default: weekly
+    velocity_warning_threshold:
+      type: number
+      default: 0.7
+    consecutive_slow_weeks:
+      type: integer
+      minimum: 0
+      default: 0
+    last_check_in:
+      type: string
+
+commercial:
+  type: object
+  description: Growth / GTM / monetization stewardship
+  properties:
+    steward:
+      enum: [agent, human]
+      default: agent
+    baseline_issue:
+      type: integer
+      description: GitHub issue for commercial_baseline epic
+    frozen_at:
+      type: string
+    strategy_summary:
+      type: string
+    monetization_model:
+      enum:
+        - free
+        - freemium
+        - subscription
+        - iap
+        - ads
+        - b2b_seat
+        - hybrid
+        - other
+    gtm_confirmed:
+      type: boolean
+    review_policy:
+      type: object
+      properties:
+        commercial_review:
+          enum: [required, marketing_surfaces_only, off]
+          default: required
+
+architecture:
+  type: object
+  description: Solution architect stewardship (skill solution-architect)
+  properties:
+    steward:
+      enum: [agent, human]
+      default: agent
+    baseline_issue:
+      type: integer
+      description: GitHub issue number for architecture_baseline epic
+    baseline_commit:
+      type: string
+      description: Git SHA when baseline was frozen (optional)
+    frozen_at:
+      type: string
+      description: ISO date when baseline human-approved
+    review_mode:
+      enum: [baseline, decision, output-review, refactor-proposal, tier-review]
+      description: Orca worker mode override
+    review_policy:
+      type: object
+      properties:
+        output_review:
+          enum: [required, boundary_only, off]
+          default: required
+        tier_review_cadence:
+          enum: [weekly, monthly, on_amend, off]
+          default: monthly

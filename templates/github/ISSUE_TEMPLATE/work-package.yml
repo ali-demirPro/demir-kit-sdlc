@@ -1,0 +1,42 @@
+name: Work package (demir-kit)
+description: Start formal packaging — prefer agent work-package skill after discovery
+title: "[WP] "
+labels: ["intake"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Prefer sealing via the **work-package** skill after a discovery chat.
+        This form is a fallback. Do not duplicate packages as repo markdown files.
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What outcome do we want?
+    validations:
+      required: true
+  - type: checkboxes
+    id: surfaces
+    attributes:
+      label: Surfaces (match ecosystem.yaml)
+      options:
+        - label: game.client
+        - label: marketing.site
+        - label: legal.pages
+        - label: api
+        - label: other (describe in summary)
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: Testable bullets
+    validations:
+      required: true
+  - type: textarea
+    id: out_of_scope
+    attributes:
+      label: Out of scope
+  - type: markdown
+    attributes:
+      value: |
+        After creation, agent will attach a `demir-kit` YAML block to the body and set `agent-approved` when sealed.

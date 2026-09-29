@@ -1,0 +1,19 @@
+[
+  { "name": "intake", "color": "ededed", "description": "Draft, not packaged" },
+  { "name": "packaging", "color": "fbca04", "description": "work-package skill active" },
+  { "name": "agent-approved", "color": "0e8a16", "description": "Sealed; Orca may execute" },
+  { "name": "executing", "color": "1d76db", "description": "Checkpoint loop running" },
+  { "name": "human-qa", "color": "d93f0b", "description": "Ready for product QA" },
+  { "name": "done", "color": "5319e7", "description": "Completed" },
+  { "name": "blocked", "color": "b60205", "description": "External blocker" },
+  { "name": "learning", "color": "c5def5", "description": "Meta learning for agents" },
+  { "name": "discovery-done", "color": "bfdadc", "description": "DEPRECATED — use discovery-approved (kit-envision)" },
+  { "name": "envision-draft", "color": "fef2c0", "description": "Discovery brief in progress" },
+  { "name": "discovery-approved", "color": "0e8a16", "description": "Envision approved; kit-init allowed" },
+  { "name": "scope-confirmed", "color": "006b75", "description": "KEEP/DEFER/CUT locked" },
+  { "name": "architecture-baseline-done", "color": "2c6e49", "description": "Architecture baseline human-approved" },
+  { "name": "architect-revise", "color": "e99695", "description": "Architect output review open" },
+  { "name": "feasibility-hold", "color": "d4c5f9", "description": "Feasibility score or go=false pending decision" },
+  { "name": "commercial-baseline-done", "color": "1d76db", "description": "Commercial baseline human-approved" },
+  { "name": "commercial-revise", "color": "f9d0c4", "description": "Commercial review findings open" }
+]

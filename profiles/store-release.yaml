@@ -1,0 +1,36 @@
+id: store-release
+description: App Store Connect / Play Console release pass (metadata, screenshots, compliance)
+product_class: hybrid
+default_entry: store_release
+default_quality_tier: platform_excellence
+
+platform_packs:
+  - apple-asc
+  - google-play
+  - launch-readiness
+
+required_skills:
+  - gtm-lite
+  - commercial-review
+  - solution-architect
+  - platform-gate
+
+suggested_surfaces:
+  - ops.store.appstore_connect
+  - ops.store.play_console
+
+store_ops_in_scope: true
+
+extra_gates:
+  - id: platform.store
+    after: behavior
+    pack: apple-asc
+  - id: platform.play
+    after: behavior
+    pack: google-play
+  - id: platform.launch
+    after: platform.play
+    pack: launch-readiness
+
+human_qa_rubric:
+  - User explicitly approves submit for review (never automated)
