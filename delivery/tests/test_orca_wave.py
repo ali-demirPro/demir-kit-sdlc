@@ -80,6 +80,21 @@ class WaveTests(unittest.TestCase):
         self.assertIn("12s", text)
         self.assertNotIn("ctx_", text)
 
+    def test_summary_text_failed(self) -> None:
+        summary = {
+            "tasks": [{"id": "A"}],
+            "done": ["ctx_a"],
+            "missing": [],
+            "attention": [],
+            "failed": ["ctx_a"],
+            "duration_seconds": 1,
+        }
+        text = orca_wave.summary_text(summary)
+        self.assertIn("başarısız", text)
+        self.assertNotIn("hepsi tamamlandı", text)
+        command = orca_wave.notify_command(25, summary)
+        self.assertIn("--approval", command)
+
     def test_summary_text_missing(self) -> None:
         summary = {
             "tasks": [{"id": "A"}, {"id": "B"}],
@@ -215,6 +230,166 @@ class NotifyTests(unittest.TestCase):
         ):
             orca_wave.load_plan(argparse.Namespace(from_json=None, issue=33))
         self.assertEqual(captured["cwd"], Path("/tmp/product"))
+
+    def test_topological_waves(self) -> None:
+        tasks = [
+            {"id": "A", "deps": []},
+            {"id": "B", "deps": ["task:A"]},
+            {"id": "C", "deps": ["task:A"]},
+            {"id": "D", "deps": ["task:B", "task:C"]},
+        ]
+        self.assertEqual(
+            orca_wave.topological_waves(tasks), [["A"], ["B", "C"], ["D"]]
+        )
+
+    def test_topological_waves_cycle(self) -> None:
+        with self.assertRaises(ValueError):
+            orca_wave.topological_waves(
+                [{"id": "A", "deps": ["task:B"]}, {"id": "B", "deps": ["task:A"]}]
+            )
+
+    def test_topological_waves_unknown(self) -> None:
+        with self.assertRaises(ValueError):
+            orca_wave.topological_waves([{"id": "A", "deps": ["task:Z"]}])
+
+    def test_dag_dry_run(self) -> None:
+        plan = {
+            "tasks": [
+                {"id": "A", "spec": "A", "deps": []},
+                {"id": "B", "spec": "B", "deps": ["task:A"]},
+                {"id": "C", "spec": "C", "deps": ["task:A"]},
+            ]
+        }
+        args = argparse.Namespace(
+            dry_run=True,
+            json=True,
+            objective="wave",
+            agent="opencode2",
+            worktree="current",
+            timeout_ms=1000,
+        )
+        summary = orca_wave.execute_dag(plan, args)
+        self.assertEqual([wave["tasks"] for wave in summary["waves"]], [["A"], ["B", "C"]])
+        self.assertEqual(len(summary["commands"]), 4)
+
+    def test_dag_executes_waves(self) -> None:
+        calls = []
+        started = []
+
+        def fake(args):
+            calls.append(args)
+            if args[0] == "orchestration" and args[1] == "run-create":
+                return json.dumps({"result": {"run": {"id": "run_x"}}})
+            if args[0] == "orchestration" and args[1] == "worker-start":
+                task_id = args[args.index("--spec") + 1]
+                started.append(task_id)
+                return json.dumps(
+                    {
+                        "ok": True,
+                        "result": {
+                            "taskId": f"task_{task_id}",
+                            "dispatchId": f"ctx_{task_id}",
+                            "effects": [],
+                        },
+                    }
+                )
+            if args[0] == "orchestration" and args[1] == "check" and "--ack" not in args:
+                messages = [
+                    {"type": "worker_done", "payload": {"dispatchId": f"ctx_{task_id}"}}
+                    for task_id in started
+                ]
+                return json.dumps(
+                    {"result": {"deliveryId": "delivery_x", "messages": messages}}
+                )
+            return json.dumps({"ok": True, "result": {}})
+
+        original = orca_wave.orca
+        orca_wave.orca = fake
+        try:
+            plan = {
+                "tasks": [
+                    {"id": "A", "spec": "A", "deps": []},
+                    {"id": "B", "spec": "B", "deps": ["task:A"]},
+                    {"id": "C", "spec": "C", "deps": ["task:A"]},
+                    {"id": "D", "spec": "D", "deps": ["task:B", "task:C"]},
+                ]
+            }
+            args = argparse.Namespace(
+                dry_run=False,
+                json=True,
+                objective="wave",
+                agent="opencode2",
+                worktree="current",
+                timeout_ms=5000,
+            )
+            summary = orca_wave.execute_dag(plan, args)
+        finally:
+            orca_wave.orca = original
+
+        self.assertEqual(started, ["A", "B", "C", "D"])
+        self.assertEqual(summary["missing"], [])
+        self.assertEqual(len(summary["waves"]), 3)
+        self.assertEqual(sum(1 for call in calls if "worker-release" in call), 4)
+
+    def test_failed_prerequisite_stops_dag(self) -> None:
+        started = []
+
+        def fake(args):
+            if args[0] == "orchestration" and args[1] == "run-create":
+                return json.dumps({"result": {"run": {"id": "run_x"}}})
+            if args[0] == "orchestration" and args[1] == "worker-start":
+                task_id = args[args.index("--spec") + 1]
+                started.append(task_id)
+                return json.dumps(
+                    {
+                        "ok": True,
+                        "result": {
+                            "taskId": f"task_{task_id}",
+                            "dispatchId": f"ctx_{task_id}",
+                            "effects": [],
+                        },
+                    }
+                )
+            if args[0] == "orchestration" and args[1] == "check" and "--ack" not in args:
+                return json.dumps(
+                    {
+                        "result": {
+                            "deliveryId": "delivery_x",
+                            "messages": [
+                                {
+                                    "type": "worker_done",
+                                    "payload": {"dispatchId": "ctx_A", "outcome": "failed"},
+                                }
+                            ],
+                        }
+                    }
+                )
+            return json.dumps({"ok": True, "result": {}})
+
+        original = orca_wave.orca
+        orca_wave.orca = fake
+        try:
+            plan = {
+                "tasks": [
+                    {"id": "A", "spec": "A", "deps": []},
+                    {"id": "B", "spec": "B", "deps": ["task:A"]},
+                ]
+            }
+            summary = orca_wave.execute_dag(
+                plan,
+                argparse.Namespace(
+                    dry_run=False,
+                    json=True,
+                    objective="wave",
+                    agent="opencode2",
+                    worktree="current",
+                    timeout_ms=5000,
+                ),
+            )
+        finally:
+            orca_wave.orca = original
+        self.assertEqual(started, ["A"])
+        self.assertEqual(summary["failed"], ["ctx_A"])
 
     def test_dry_run_json_has_commands(self) -> None:
         plan = {
