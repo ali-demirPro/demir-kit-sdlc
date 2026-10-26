@@ -716,6 +716,57 @@ def check_issue_body(
                 and reviews.get("platform") != "pass"
             ):
                 error(f"{cp_id}: profil platform gate'i istiyor (reviews.platform pass)")
+            if risk == "high" and reviews.get("human") != "approved":
+                error(f"{cp_id}: risk high için insan onayı gerekli (reviews.human)")
+            if risk == "critical":
+                if reviews.get("human") != "approved":
+                    error(f"{cp_id}: risk critical için insan onayı gerekli (reviews.human)")
+                if reviews.get("human_second") != "approved":
+                    error(
+                        f"{cp_id}: risk critical için ikinci insan onayı gerekli "
+                        "(reviews.human_second)"
+                    )
+            if (risk == "critical" or gates.get("commercial")) and reviews.get(
+                "commercial"
+            ) != "approved":
+                error(
+                    f"{cp_id}: commercial gate için onay gerekli (reviews.commercial)"
+                )
+            if gates.get("ui"):
+                if reviews.get("comparison_valid") is not True:
+                    error(f"{cp_id}: gates.ui açık ama comparison_valid true değil")
+                if reviews.get("ui_visual") != "pass":
+                    error(f"{cp_id}: gates.ui açık ama visual reviewer pass değil")
+                if reviews.get("ui_interaction") != "pass":
+                    error(f"{cp_id}: gates.ui açık ama interaction reviewer pass değil")
+
+
+def fetch_comments(repo: str, number: int, page_size: int = 100) -> list[dict]:
+    """Fetch every issue comment; GitHub caps a page at 100."""
+    comments: list[dict] = []
+    page = 1
+    while True:
+        raw = run(
+            [
+                "gh",
+                "api",
+                f"repos/{repo}/issues/{number}/comments?per_page={page_size}&page={page}",
+            ]
+        )
+        if not raw:
+            error(f"issue #{number}: yorumlar okunamadı (sayfa {page})")
+            break
+        try:
+            batch = json.loads(raw)
+        except json.JSONDecodeError:
+            break
+        if not isinstance(batch, list) or not batch:
+            break
+        comments.extend(batch)
+        if len(batch) < page_size:
+            break
+        page += 1
+    return comments
 
 
 def check_issue(number: int, checkpoint: str | None = None, root: Path = ROOT) -> None:
@@ -729,11 +780,16 @@ def check_issue(number: int, checkpoint: str | None = None, root: Path = ROOT) -
         error(f"issue #{number}: gh api ile okunamadı")
         return
     payload = json.loads(issue_raw)
-    comments_raw = run(
-        ["gh", "api", f"repos/{repo}/issues/{number}/comments?per_page=100"]
-    )
-    comments = json.loads(comments_raw) if comments_raw else []
+    comments = fetch_comments(repo, number)
     labels = [item.get("name") for item in payload.get("labels", [])]
+    label_set = set(labels)
+    for left, right in (
+        ("leaf-done", "executing"),
+        ("leaf-done", "blocked"),
+        ("epic-done", "epic-reconcile"),
+    ):
+        if left in label_set and right in label_set:
+            error(f"issue #{number}: çelişen etiketler — {left} + {right}")
     bodies = [item.get("body", "") for item in comments]
     body = payload.get("body", "")
     if re.search(r"```yaml\s+demir-kit\s*\n", body):
@@ -753,23 +809,34 @@ def check_issue(number: int, checkpoint: str | None = None, root: Path = ROOT) -
             for message in validate_schema(record, schema, "epic"):
                 error(message)
 
-    closure = re.search(
+    closure_blocks = re.findall(
         r"```yaml\s+demir-kit-closure\s*\n(.*?)```",
         "\n".join([payload.get("body", "")] + bodies),
         re.S,
     )
-    if "epic-done" in labels and not closure:
+    if "epic-done" in labels and not closure_blocks:
         error(f"issue #{number}: epic-done ama closure bloğu yok")
-    if closure:
+    if closure_blocks:
         schema = load_json(DELIVERY / "schemas" / "closure.schema.json")
         try:
-            record = yaml.safe_load(closure.group(1)) or {}
+            record = yaml.safe_load(closure_blocks[-1]) or {}
         except yaml.YAMLError as exc:
             error(f"issue #{number}: closure YAML geçersiz — {exc}")
             record = None
-        if schema and isinstance(record, dict):
-            for message in validate_schema(record, schema, "closure"):
-                error(message)
+        if not isinstance(record, dict):
+            error(f"issue #{number}: closure blok mapping değil")
+        else:
+            if schema:
+                for message in validate_schema(record, schema, "closure"):
+                    error(message)
+            if "epic-done" in labels and record.get("status") != "pass":
+                error(
+                    f"issue #{number}: epic-done ama closure status 'pass' değil"
+                )
+            if "epic-done" in labels and record.get("ready_for_human_qa") is not True:
+                error(
+                    f"issue #{number}: epic-done ama closure ready_for_human_qa true değil"
+                )
 
 
 def check_product(root: Path) -> None:

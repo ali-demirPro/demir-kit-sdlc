@@ -1,5 +1,19 @@
 # Changelog
 
+## 2.3.0 — 2026-10-26
+
+- **Gate integrity** — `doctor` artık `epic-done` için closure `status: pass` ve
+  `ready_for_human_qa: true` arar; `high`/`critical` leaf'te `reviews.human`
+  (critical'da ayrıca `human_second`) olmadan `leaf-done` geçmez.
+- **Commercial + UI** — `gates.commercial` veya risk `critical` için
+  `reviews.commercial: approved`; `gates.ui` için `ui_visual`, `ui_interaction`
+  ve `comparison_valid: true` birlikte zorunlu.
+- **Doctor** — Issue yorumları sayfalanır; `leaf-done` + `executing`/`blocked` ve
+  `epic-done` + `epic-reconcile` çelişkileri hata verir; stale `human-qa` etiketi
+  kapanışı bloklamaz.
+- **Evidence** — `reviews.human`, `human_second`, `ui_visual`, `ui_interaction`
+  alanları eklendi; protokol ve kalite kapıları güncellendi.
+
 ## 2.2.0 — 2026-10-26
 
 - **Contract** — tek durum makinesi (`delivery/CONTRACT.md`): T1–T9 geçişleri,

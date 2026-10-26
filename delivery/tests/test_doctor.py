@@ -9,6 +9,7 @@ import importlib.util
 import json
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import yaml
 
@@ -191,6 +192,126 @@ class EvidenceTests(DoctorTestCase):
         self.assertEqual(doctor.ERRORS, [])
         self.assertTrue(any("agent alanı yok" in item for item in doctor.WARNS))
 
+    def test_high_risk_requires_human_approval(self) -> None:
+        high = leaf(risk={"level": "high", "reasons": ["auth"]})
+        record = evidence(
+            reviews={
+                "architect": "approved",
+                "commercial": "skipped",
+                "ui": "skipped",
+                "adversarial": {"reviewer_a": "approved", "reviewer_b": "approved"},
+                "human": "skipped",
+                "risk": "high",
+            }
+        )
+        doctor.check_issue_body(
+            fenced("demir-kit", high),
+            ["leaf-done"],
+            [fenced("demir-kit-evidence", record)],
+        )
+        self.assertTrue(any("insan onayı" in item for item in doctor.ERRORS))
+
+    def test_high_risk_with_human_approval_passes(self) -> None:
+        high = leaf(risk={"level": "high", "reasons": ["auth"]})
+        record = evidence(
+            reviews={
+                "architect": "approved",
+                "commercial": "skipped",
+                "ui": "skipped",
+                "adversarial": {"reviewer_a": "approved", "reviewer_b": "approved"},
+                "human": "approved",
+                "risk": "high",
+            }
+        )
+        doctor.check_issue_body(
+            fenced("demir-kit", high),
+            ["leaf-done"],
+            [fenced("demir-kit-evidence", record)],
+        )
+        self.assertEqual(doctor.ERRORS, [])
+
+    def test_critical_requires_second_human_and_commercial(self) -> None:
+        critical = leaf(risk={"level": "critical", "reasons": ["store"]})
+        record = evidence(
+            reviews={
+                "architect": "approved",
+                "commercial": "skipped",
+                "ui": "skipped",
+                "adversarial": {"reviewer_a": "approved", "reviewer_b": "approved"},
+                "human": "approved",
+                "human_second": "skipped",
+                "risk": "critical",
+            }
+        )
+        doctor.check_issue_body(
+            fenced("demir-kit", critical),
+            ["leaf-done"],
+            [fenced("demir-kit-evidence", record)],
+        )
+        self.assertTrue(any("ikinci insan" in item for item in doctor.ERRORS))
+        self.assertTrue(any("commercial" in item for item in doctor.ERRORS))
+
+    def test_commercial_gate_requires_approval(self) -> None:
+        gated = leaf()
+        gated["checkpoints"][0]["gates"]["commercial"] = True
+        record = evidence(
+            reviews={
+                "architect": "skipped",
+                "commercial": "skipped",
+                "ui": "skipped",
+                "adversarial": {"reviewer_a": "approved"},
+                "risk": "medium",
+            }
+        )
+        doctor.check_issue_body(
+            fenced("demir-kit", gated),
+            ["leaf-done"],
+            [fenced("demir-kit-evidence", record)],
+        )
+        self.assertTrue(any("commercial" in item for item in doctor.ERRORS))
+
+    def test_ui_gate_requires_valid_comparison(self) -> None:
+        gated = leaf()
+        gated["checkpoints"][0]["gates"]["ui"] = True
+        record = evidence(
+            reviews={
+                "architect": "skipped",
+                "commercial": "skipped",
+                "ui": "pass",
+                "comparison_valid": False,
+                "adversarial": {"reviewer_a": "approved"},
+                "risk": "medium",
+            }
+        )
+        doctor.check_issue_body(
+            fenced("demir-kit", gated),
+            ["leaf-done"],
+            [fenced("demir-kit-evidence", record)],
+        )
+        self.assertTrue(any("comparison_valid" in item for item in doctor.ERRORS))
+
+    def test_ui_gate_requires_both_reviewers(self) -> None:
+        gated = leaf()
+        gated["checkpoints"][0]["gates"]["ui"] = True
+        record = evidence(
+            reviews={
+                "architect": "skipped",
+                "commercial": "skipped",
+                "ui": "pass",
+                "ui_visual": "skipped",
+                "ui_interaction": "pass",
+                "comparison_valid": True,
+                "adversarial": {"reviewer_a": "approved"},
+                "risk": "medium",
+            }
+        )
+        doctor.check_issue_body(
+            fenced("demir-kit", gated),
+            ["leaf-done"],
+            [fenced("demir-kit-evidence", record)],
+        )
+        self.assertTrue(any("visual reviewer" in item for item in doctor.ERRORS))
+
     def test_worker_block_valid(self) -> None:
         record = evidence(
             worker={
@@ -259,6 +380,85 @@ class ClosureTests(DoctorTestCase):
         data.update(overrides)
         return data
 
+    def run_issue(self, body: str, labels: list[str], comments: list[dict]) -> None:
+        issue = {
+            "body": body,
+            "labels": [{"name": name} for name in labels],
+        }
+
+        def fake_run(command):
+            if "/comments" in command[-1]:
+                return json.dumps(comments)
+            return json.dumps(issue)
+
+        with patch.object(doctor, "run", side_effect=fake_run):
+            doctor.check_issue(1, root=ROOT)
+
+    def epic_block(self) -> str:
+        epic = {
+            "demir_kit_version": "2",
+            "summary": "Yeterince uzun bir epic özeti.",
+            "scope_triage": {"keep": [{"item": "bir is"}], "defer": [], "cut": []},
+            "children": [1],
+        }
+        return fenced("demir-kit-epic", epic)
+
+    def test_epic_done_requires_ready_for_human_qa(self) -> None:
+        closure = self.closure(ready_for_human_qa=False)
+        self.run_issue(
+            self.epic_block(),
+            ["epic-done"],
+            [{"body": fenced("demir-kit-closure", closure)}],
+        )
+        self.assertTrue(
+            any("ready_for_human_qa" in item for item in doctor.ERRORS)
+        )
+
+    def test_closure_must_be_a_mapping(self) -> None:
+        self.run_issue(
+            self.epic_block(),
+            ["epic-done"],
+            [{"body": "```yaml demir-kit-closure\n- status: fail\n```\n"}],
+        )
+        self.assertTrue(any("mapping değil" in item for item in doctor.ERRORS))
+
+    def test_latest_closure_wins(self) -> None:
+        passing = fenced("demir-kit-closure", self.closure())
+        failing = fenced("demir-kit-closure", self.closure(status="fail"))
+        self.run_issue(
+            self.epic_block() + passing,
+            ["epic-done"],
+            [{"body": failing}],
+        )
+        self.assertTrue(
+            any("closure status 'pass' değil" in item for item in doctor.ERRORS)
+        )
+
+    def test_epic_done_requires_pass_closure(self) -> None:
+        closure = self.closure(status="fail")
+        epic = {
+            "demir_kit_version": "2",
+            "summary": "Yeterince uzun bir epic özeti.",
+            "scope_triage": {"keep": [{"item": "bir is"}], "defer": [], "cut": []},
+            "children": [1],
+        }
+        issue = {
+            "body": fenced("demir-kit-epic", epic),
+            "labels": [{"name": "epic-done"}],
+        }
+        comments = [{"body": fenced("demir-kit-closure", closure)}]
+
+        def fake_run(command):
+            if "/comments" in command[-1]:
+                return json.dumps(comments)
+            return json.dumps(issue)
+
+        with patch.object(doctor, "run", side_effect=fake_run):
+            doctor.check_issue(1, root=ROOT)
+        self.assertTrue(
+            any("closure status 'pass' değil" in item for item in doctor.ERRORS)
+        )
+
     def test_valid_closure(self) -> None:
         self.assertEqual(
             doctor.validate_schema(self.closure(), CLOSURE_SCHEMA), []
@@ -274,6 +474,57 @@ class ClosureTests(DoctorTestCase):
     def test_pass_requires_no_gaps(self) -> None:
         bad = self.closure(gaps=[{"kind": "test_gap", "note": "eksik test"}])
         self.assertTrue(doctor.validate_schema(bad, CLOSURE_SCHEMA))
+
+
+class PaginationTests(DoctorTestCase):
+    def test_fetch_comments_paginates(self) -> None:
+        pages = {
+            1: [{"body": str(index)} for index in range(100)],
+            2: [{"body": "last"}],
+        }
+
+        def fake_run(command):
+            page = int(command[-1].rsplit("page=", 1)[1])
+            return json.dumps(pages.get(page, []))
+
+        with patch.object(doctor, "run", side_effect=fake_run):
+            comments = doctor.fetch_comments("owner/repo", 1)
+        self.assertEqual(len(comments), 101)
+
+    def test_human_qa_label_with_leaf_done_is_allowed(self) -> None:
+        issue = {
+            "body": fenced("demir-kit", leaf()),
+            "labels": [{"name": "leaf-done"}, {"name": "human-qa"}],
+        }
+        comments = [{"body": fenced("demir-kit-evidence", evidence())}]
+
+        def fake_run(command):
+            if "/comments" in command[-1]:
+                return json.dumps(comments)
+            return json.dumps(issue)
+
+        with patch.object(doctor, "run", side_effect=fake_run):
+            doctor.check_issue(1, root=ROOT)
+        self.assertFalse(
+            any("çelişen etiketler" in item for item in doctor.ERRORS)
+        )
+
+    def test_conflicting_labels_error(self) -> None:
+        issue = {
+            "body": fenced("demir-kit", leaf()),
+            "labels": [{"name": "leaf-done"}, {"name": "executing"}],
+        }
+
+        def fake_run(command):
+            if "/comments" in command[-1]:
+                return "[]"
+            return json.dumps(issue)
+
+        with patch.object(doctor, "run", side_effect=fake_run):
+            doctor.check_issue(1, root=ROOT)
+        self.assertTrue(
+            any("çelişen etiketler" in item for item in doctor.ERRORS)
+        )
 
 
 class FrontmatterTests(DoctorTestCase):

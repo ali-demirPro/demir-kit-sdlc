@@ -29,6 +29,8 @@
         "architect": { "enum": ["approved", "revise_required", "skipped"] },
         "commercial": { "enum": ["approved", "revise_required", "skipped"] },
         "ui": { "enum": ["pass", "invalid", "skipped"] },
+        "ui_visual": { "enum": ["pass", "fail", "skipped"] },
+        "ui_interaction": { "enum": ["pass", "fail", "skipped"] },
         "comparison_valid": { "type": "boolean" },
         "platform": { "enum": ["pass", "fail", "skipped"] },
         "adversarial": {
@@ -40,6 +42,8 @@
             "reviewer_b": { "enum": ["approved", "revise_required", "skipped"] }
           }
         },
+        "human": { "enum": ["approved", "revise_required", "skipped"] },
+        "human_second": { "enum": ["approved", "revise_required", "skipped"] },
         "risk": { "enum": ["low", "medium", "high", "critical"] }
       }
     },

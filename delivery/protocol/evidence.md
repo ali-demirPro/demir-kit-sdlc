@@ -21,8 +21,12 @@ reviews:
   architect: skipped
   commercial: skipped
   ui: skipped
+  ui_visual: skipped
+  ui_interaction: skipped
   comparison_valid: false
   platform: skipped
+  human: skipped
+  human_second: skipped
   adversarial: { reviewer_a: approved, reviewer_b: approved }
   risk: medium
 worker:
@@ -53,6 +57,12 @@ workers:
 - `agent`: CP'yi üreten rol (`developer`, `tester`, …). Yeni evidence'larda zorunlu;
   eski kayıtlarda yoksa doctor uyarı verir.
 - Risk seviyesinin istediği reviewer alanları dolu olmalı; atlanan gate `skipped` yazar.
+- `high` leaf'te `reviews.human: approved`; `critical` leaf'te ayrıca
+  `reviews.human_second: approved` zorunludur. İnsan onayı olmadan `leaf-done` geçmez.
+- `gates.ui` açıksa `ui_visual`, `ui_interaction` ve `comparison_valid: true` birlikte
+  aranır; tek `ui: pass` yeterli değildir.
+- `gates.commercial` açıksa veya risk `critical` ise `reviews.commercial: approved`
+  zorunludur.
 - Açık bulgu (`findings[].status: open`) varsa `status: pass` olamaz.
 - Comment issue'ya `gh issue comment <N> --body-file` ile yazılır.
 - Screenshot/artifact varsa link `notes` alanına eklenir.
