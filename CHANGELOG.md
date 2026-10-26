@@ -1,5 +1,16 @@
 # Changelog
 
+## 2.4.0 — 2026-10-26
+
+- **Evidence v3** — `verification` bloğu: commit SHA, binary diff hash, CI sonucu
+  ve reviewer kimliği/model/prompt hash. `package_version: 2` leaf'lerde zorunlu;
+  eski `package_version: 1` kayıtları geçerli.
+- **Doctor** — commit'in varlığını, diff hash eşleşmesini, CI run'ın aynı commit'te
+  `success` olduğunu ve reviewer ID'lerinin benzersiz/uygulayıcıdan farklı olduğunu
+  doğrular. `high`/`critical` için CI `skipped` reddedilir.
+- **Araç** — `delivery/scripts/evidence.py` verification üretir; `evidence.md`
+  v3 şablonu ve kuralları güncellendi.
+
 ## 2.3.0 — 2026-10-26
 
 - **Gate integrity** — `doctor` artık `epic-done` için closure `status: pass` ve

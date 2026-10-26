@@ -145,12 +145,40 @@ class LeafSchemaTests(DoctorTestCase):
 
 
 class EvidenceTests(DoctorTestCase):
-    def run_leaf_done(self, record: dict) -> None:
+    def run_leaf_done(self, record: dict, data: dict | None = None) -> None:
         doctor.check_issue_body(
-            fenced("demir-kit", leaf()),
+            fenced("demir-kit", data or leaf()),
             ["leaf-done"],
             [fenced("demir-kit-evidence", record)],
         )
+
+    def test_package_version_2_requires_verification(self) -> None:
+        self.run_leaf_done(evidence(), data=leaf(package_version=2))
+        self.assertTrue(
+            any("verification" in item for item in doctor.ERRORS)
+        )
+
+    def test_package_version_2_with_verification(self) -> None:
+        verification = {
+            "commit": "a" * 7,
+            "diff_hash": "sha256:" + "0" * 64,
+            "ci": {"status": "skipped", "reason": "unit test"},
+            "reviewers": [
+                {
+                    "role": "adversarial",
+                    "id": "ses_reviewer",
+                    "model": "test-model",
+                    "prompt_hash": "sha256:" + "1" * 64,
+                    "diff_hash": "sha256:" + "0" * 64,
+                }
+            ],
+        }
+        with patch.object(doctor.evidence_lib, "verify", return_value=[]):
+            self.run_leaf_done(
+                evidence(verification=verification),
+                data=leaf(package_version=2),
+            )
+        self.assertEqual(doctor.ERRORS, [])
 
     def test_valid_evidence(self) -> None:
         self.assertEqual(doctor.validate_schema(evidence(), EVIDENCE_SCHEMA), [])

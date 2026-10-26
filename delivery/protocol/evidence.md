@@ -29,6 +29,19 @@ reviews:
   human_second: skipped
   adversarial: { reviewer_a: approved, reviewer_b: approved }
   risk: medium
+verification:
+  commit: abc1234
+  diff_hash: "sha256:<64 hex>"
+  ci:
+    status: success
+    run_id: "123456"
+    url: https://github.com/owner/repo/actions/runs/123456
+  reviewers:
+    - role: adversarial
+      id: ses_reviewer
+      model: provider/model
+      prompt_hash: "sha256:<64 hex>"
+      diff_hash: "sha256:<64 hex>"
 worker:
   run_id: run_…
   task_id: task_…
@@ -63,11 +76,29 @@ workers:
   aranır; tek `ui: pass` yeterli değildir.
 - `gates.commercial` açıksa veya risk `critical` ise `reviews.commercial: approved`
   zorunludur.
+- `package_version: 2` leaf'lerde `verification` zorunludur: commit SHA, diff hash,
+  CI sonucu ve reviewer kimliği. Eski `package_version: 1` kayıtları geçerlidir.
+- `verification.commit` git'te bulunmalı; `diff_hash` o commit'in binary diff'iyle
+  eşleşmeli. CI `success` ise run aynı commit'te ve başarılı olmalı; `high`/`critical`
+  için CI `skipped` kabul edilmez.
+- Her reviewer `id`, `model`, `prompt_hash` ve `diff_hash` taşır; ID'ler benzersiz,
+  uygulayıcıdan farklı ve inceledikleri diff aynı olmalı.
 - Açık bulgu (`findings[].status: open`) varsa `status: pass` olamaz.
 - Comment issue'ya `gh issue comment <N> --body-file` ile yazılır.
 - Screenshot/artifact varsa link `notes` alanına eklenir.
 - Aynı CP için ikinci evidence yazılmaz; düzeltme gerekiyorsa ilk blok `status: fail`
   kalır, yeni blok eklenir (geçmiş korunur).
+
+## Verification üretme
+
+```bash
+python3 delivery/scripts/evidence.py --commit HEAD \
+  --ci-run 123456 \
+  --reviewer '{"role":"adversarial","id":"ses_x","model":"provider/model","prompt_hash":"sha256:..."}'
+```
+
+`--ci-run` yerine `--ci-skipped "sebep"` kullanılabilir; `high`/`critical` için
+CI zorunludur.
 
 ## Denetim
 

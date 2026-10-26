@@ -25,6 +25,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import evidence as evidence_lib  # noqa: E402
 import routing  # noqa: E402
 
 try:
@@ -75,6 +76,7 @@ REQUIRED_FILES = [
     "delivery/scripts/guard.sh",
     "delivery/scripts/next-leaf.sh",
     "delivery/scripts/vendor_sync.py",
+    "delivery/scripts/evidence.py",
 ]
 
 AGENT_FILES = ["ROLE.md", "how.md", "communicates.md", "dependencies.md", "SKILL.md"]
@@ -536,6 +538,8 @@ def check_issue_body(
     labels: list[str],
     comments: list[str] | None = None,
     checkpoint: str | None = None,
+    root: Path = ROOT,
+    repo: str | None = None,
 ) -> None:
     check("issue seal")
     match = re.search(r"```yaml\s+demir-kit\s*\n(.*?)```", body, re.S)
@@ -556,6 +560,9 @@ def check_issue_body(
         for message in validate_schema(data, schema):
             error(f"issue seal {message}")
 
+    package_version = data.get("package_version", 1)
+    if not isinstance(package_version, int):
+        package_version = 1
     acs = data.get("acceptance_criteria") or []
     ac_ids = [item.get("id") for item in acs if isinstance(item, dict)]
     if len(ac_ids) != len(set(ac_ids)):
@@ -654,6 +661,21 @@ def check_issue_body(
                     record, evidence_schema, f"{record['cp_id']}.evidence"
                 ):
                     error(message)
+            verification = record.get("verification")
+            if package_version >= 2 and not verification:
+                error(
+                    f"{record['cp_id']}: package_version 2 için verification "
+                    "bloğu gerekli"
+                )
+            if verification:
+                for message in evidence_lib.verify(
+                    verification,
+                    root=root,
+                    repo=repo,
+                    risk=risk or "low",
+                    implementer=agent,
+                ):
+                    error(f"{record['cp_id']}: verification — {message}")
             findings = record.get("findings") or []
             if not isinstance(findings, list):
                 error(f"{record['cp_id']}: findings liste değil")
@@ -793,7 +815,7 @@ def check_issue(number: int, checkpoint: str | None = None, root: Path = ROOT) -
     bodies = [item.get("body", "") for item in comments]
     body = payload.get("body", "")
     if re.search(r"```yaml\s+demir-kit\s*\n", body):
-        check_issue_body(body, labels, bodies, checkpoint)
+        check_issue_body(body, labels, bodies, checkpoint, root=root, repo=repo)
     elif "agent-approved" in labels or "leaf-done" in labels:
         error(f"issue #{number}: leaf seal (`demir-kit` bloğu) yok")
 

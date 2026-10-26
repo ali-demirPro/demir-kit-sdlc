@@ -1,4 +1,4 @@
-# Delivery contract — v2.3
+# Delivery contract — v2.4
 
 Bu dosya delivery'nin **tek durum makinesi**dir. Agent, path ve risk verisi
 `registry.yaml`'da; artefakt şekilleri `schemas/` altında; uygulama
@@ -103,7 +103,8 @@ otomatik yükselir; agent düşüremez. Ayrıntı: `policies/quality-gates.md`.
 ## Definition of done
 
 - **CP:** behavior komutu exit 0 + riskin istediği reviewer'lar `approved` +
-  insan kapısı gerekiyorsa `reviews.human`/`human_second` `approved` + evidence comment.
+  insan kapısı gerekiyorsa `reviews.human`/`human_second` `approved` +
+  `package_version: 2` ise doğrulanabilir `verification` + evidence comment.
 - **Leaf:** tüm CP'ler + her AC en az bir test case ile kapsanmış + açık bulgu yok +
   risk `high`/`critical` ise insan QA + `leaf-done`.
 - **Epic:** tüm child'lar `leaf-done` veya `deferred` + closure `pass` + insan kabul +
