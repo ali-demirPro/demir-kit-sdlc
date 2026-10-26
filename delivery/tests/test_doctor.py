@@ -152,6 +152,18 @@ class EvidenceTests(DoctorTestCase):
             [fenced("demir-kit-evidence", record)],
         )
 
+    def test_latest_evidence_wins(self) -> None:
+        failed = evidence(findings=[{"id": "ADV-1", "status": "open"}], status="fail")
+        doctor.check_issue_body(
+            fenced("demir-kit", leaf()),
+            ["leaf-done"],
+            [
+                fenced("demir-kit-evidence", failed),
+                fenced("demir-kit-evidence", evidence()),
+            ],
+        )
+        self.assertEqual(doctor.ERRORS, [])
+
     def test_package_version_2_requires_verification(self) -> None:
         self.run_leaf_done(evidence(), data=leaf(package_version=2))
         self.assertTrue(

@@ -649,24 +649,21 @@ def check_issue_body(
                 error("evidence: cp_id yok")
                 continue
             evidence[record["cp_id"]] = record
+
+        # Only the latest evidence per CP is authoritative; earlier retries stay
+        # in the issue history without blocking the leaf.
+        for cp_id, record in evidence.items():
             agent = record.get("agent")
             if not agent:
-                warn(f"{record['cp_id']}: evidence agent alanı yok")
+                warn(f"{cp_id}: evidence agent alanı yok")
             elif agent not in allowed_agents:
-                error(
-                    f"{record['cp_id']}: agent '{agent}' bu path'te aktif değil ({path_id})"
-                )
+                error(f"{cp_id}: agent '{agent}' bu path'te aktif değil ({path_id})")
             if evidence_schema:
-                for message in validate_schema(
-                    record, evidence_schema, f"{record['cp_id']}.evidence"
-                ):
+                for message in validate_schema(record, evidence_schema, f"{cp_id}.evidence"):
                     error(message)
             verification = record.get("verification")
             if package_version >= 2 and not verification:
-                error(
-                    f"{record['cp_id']}: package_version 2 için verification "
-                    "bloğu gerekli"
-                )
+                error(f"{cp_id}: package_version 2 için verification bloğu gerekli")
             if verification:
                 for message in evidence_lib.verify(
                     verification,
@@ -675,17 +672,17 @@ def check_issue_body(
                     risk=risk or "low",
                     implementer=agent,
                 ):
-                    error(f"{record['cp_id']}: verification — {message}")
+                    error(f"{cp_id}: verification — {message}")
             findings = record.get("findings") or []
             if not isinstance(findings, list):
-                error(f"{record['cp_id']}: findings liste değil")
+                error(f"{cp_id}: findings liste değil")
                 findings = []
             for finding in findings:
                 if not isinstance(finding, dict):
-                    error(f"{record['cp_id']}: findings öğesi mapping değil")
+                    error(f"{cp_id}: findings öğesi mapping değil")
                     continue
                 if finding.get("status") == "open":
-                    error(f"{record['cp_id']}: açık bulgu varken pass olamaz")
+                    error(f"{cp_id}: açık bulgu varken pass olamaz")
 
         cp_gates = {
             cp.get("id"): (cp.get("gates") if isinstance(cp.get("gates"), dict) else {})
