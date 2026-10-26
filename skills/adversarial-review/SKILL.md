@@ -1,36 +1,41 @@
 ---
 name: adversarial-review
 description: >-
-  demir-kit adversarial gate — two independent reviewer workers, fixer, both must approve.
-  Re-run behavior command and ui-gate if UI-visible changes. Then worker_done.
+  Independent reviewers (1 for low/medium, 2 for high/critical), a fixer, and
+  re-review. Every required reviewer must approve; re-run behavior and UI gates
+  after UI-visible fixes.
 ---
 
 # adversarial-review
 
-## Roles (separate Orca workers)
+Matrix: `delivery/policies/quality-gates.md`.
 
-1. **reviewer-a** — assume code is wrong; numbered findings vs `docs/architecture/` (overview, boundaries, quality-attributes, cost-and-tiers), ADRs, UI guidelines, lint. Do not duplicate open `AR-*` architect findings unless still present in diff.
-2. **reviewer-b** — same inputs, **fresh context**; must not see reviewer-a output until both submit (coordinator merges).
-3. **fixer** — only items listed by either reviewer.
+## Roles (separate workers)
+
+1. **reviewer-a** — assume the code is wrong; numbered findings against
+   `docs/architecture/`, ADRs, UI guidelines and lint. Do not repeat open
+   architect findings unless still present in the diff.
+2. **reviewer-b** — same inputs, fresh context; must not see reviewer-a output
+   until both submit. The coordinator merges findings.
+3. **fixer** — only the listed items.
+
+Reviewer count: 1 for `low`/`medium`, 2 for `high`/`critical`.
 
 ## Loop
 
-- If either reviewer has open findings → fixer → re-run **both** reviewers.
-- Max 5 rounds; then coordinator `ask` (human language).
+- Open finding → fixer → re-run the required reviewers.
+- Max 5 rounds, then `blocked` + one human-language question.
 
 ## Approval
 
-Both reviewers return `{ "approved": true, "findings": [] }`.
+Each reviewer returns `{ "approved": true, "findings": [] }`.
 
 ## Regression
 
-1. Run behavior gate command for this CP.
-2. If diff touches UI files (coordinator rule): dispatch `ui-gate` visual + interaction again.
+1. Re-run the behavior gate for this CP.
+2. UI files changed → re-run `ui-gate` visual + interaction.
 
 ## Evidence
 
-Coordinator fills `evidence-comment-template.md` on issue.
-
-## Complete
-
-`worker_done` with `outcome succeeded` only after above.
+Record `reviews.adversarial` in `delivery/protocol/evidence.md`; `worker_done`
+only after approval.

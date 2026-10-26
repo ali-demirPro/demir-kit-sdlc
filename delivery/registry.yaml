@@ -1,0 +1,161 @@
+# delivery/registry.yaml — v2.2
+# Tek kaynak: agent envanteri, path routing, risk glob'ları, etiket adları.
+# Sözleşme: delivery/CONTRACT.md · Denetim: delivery/scripts/doctor.sh
+
+version: 3
+
+protocol:
+  contract: delivery/CONTRACT.md
+  execution: delivery/protocol/execution.md
+  seal: delivery/protocol/seal.md
+  health_check: delivery/protocol/health-check.md
+  evidence: delivery/protocol/evidence.md
+  quality_gates: delivery/policies/quality-gates.md
+  escalation: delivery/policies/escalation.md
+
+labels:
+  intake: intake
+  scope_locked: scope-confirmed
+  leaf_sealed: agent-approved
+  executing: executing
+  blocked: blocked
+  deferred: deferred
+  leaf_complete: leaf-done
+  human_review: human-qa
+  epic_reconcile: epic-reconcile
+  epic_complete: epic-done
+  architect_revise: architect-revise
+  commercial_revise: commercial-revise
+  discovery_approved: discovery-approved
+  architecture_baseline_done: architecture-baseline-done
+  commercial_baseline_done: commercial-baseline-done
+  feasibility_hold: feasibility-hold
+  learning: learning
+
+risk:
+  levels: [low, medium, high, critical]
+  auto_escalate:
+    high:
+      - "**/auth/**"
+      - "**/auth*"
+      - "**/payments/**"
+      - "**/billing/**"
+      - "**/migrations/**"
+      - "**/security/**"
+      - ".github/workflows/deploy*"
+    critical:
+      - "**/store/**"
+      - "**/release/**"
+      - "**/pricing/**"
+      - ".github/workflows/release*"
+  human_gate:
+    low: none
+    medium: on_exhaustion
+    high: leaf
+    critical: always
+
+paths:
+  pure_technical:
+    description: Refactor, bugfix, CI/chore; UI veya store yok.
+    keywords: [refactor, bugfix, fix, chore, ci, tech-debt, dependency]
+    agents: [analist, developer, tester, devops, documenter]
+    on_demand: [architect]
+  ui_feature:
+    description: UI/UX değişikliği olan feature.
+    keywords: [ui, ux, design, screen, component]
+    agents: [analist, designer, developer, tester, devops, documenter]
+    on_demand: [architect]
+  full_product:
+    description: Greenfield veya çok yüzeyli iş; signals belirler.
+    keywords: []
+    agents: [analist, designer, developer, tester, devops, marketing/stores, marketing/landing, documenter]
+    on_demand: [architect, growth/run]
+  store_release:
+    description: ASC / Play Console odaklı sürüm.
+    keywords: [asc, app store, play console, testflight, metadata, release]
+    agents: [analist, designer, developer, tester, devops, marketing/stores, documenter]
+    on_demand: [architect, growth/run]
+  landing_only:
+    description: Landing / SEO / GTM yüzeyi.
+    keywords: [landing, marketing site, seo, gtm]
+    agents: [analist, designer, developer, tester, devops, marketing/landing, documenter]
+    on_demand: [architect, growth/run]
+  experiment:
+    description: A/B test, kademeli rollout, flag ölçümü.
+    extends: ui_feature
+    keywords: [ab test, experiment, rollout, feature flag]
+    agents_add: [growth/run]
+
+signals:
+  - id: ios_app
+    match:
+      stacks: [swiftui, ios, xcode]
+      distribution: [app_store_connect, testflight]
+    default_path: full_product
+    agents:
+      required: [analist, designer, developer, tester, devops, marketing/stores]
+      optional: [documenter, growth/run, marketing/landing]
+      on_demand: [architect]
+  - id: android_app
+    match:
+      stacks: [flutter, kotlin]
+      distribution: [play_console]
+    default_path: full_product
+    agents:
+      required: [analist, designer, developer, tester, devops, marketing/stores]
+      optional: [documenter, growth/run]
+      on_demand: [architect]
+  - id: web_product
+    match:
+      stacks: [web, next, react]
+      surfaces: [web.app, marketing.site]
+    default_path: full_product
+    agents:
+      required: [analist, designer, developer, tester, devops]
+      optional: [marketing/landing, documenter, growth/run]
+      on_demand: [architect]
+  - id: kit_internal
+    match:
+      stacks: [markdown, docs]
+      surfaces: [kit.docs]
+    default_path: pure_technical
+    agents:
+      required: [analist, developer, tester, documenter]
+      optional: [devops]
+      on_demand: [architect]
+
+role_order_default:
+  - architect
+  - analist
+  - designer
+  - developer
+  - tester
+  - devops
+  - marketing/stores
+  - marketing/landing
+  - growth/run
+  - documenter
+
+policies:
+  approval: delivery/policies/approval.md
+  path_routing: delivery/policies/path-routing.md
+  human_qa: delivery/policies/human-qa-done.md
+  quality_gates: delivery/policies/quality-gates.md
+  escalation: delivery/policies/escalation.md
+  epic_closure: delivery/runbooks/epic-closure.md
+
+profiles:
+  default: kit-internal
+  dir: delivery/profiles
+
+skills:
+  dir: skills
+  runtime:
+    - work-package
+    - health-check
+    - behavior-gate
+    - test-plan
+    - ui-gate
+    - adversarial-review
+    - platform-gate
+    - checkpoint-planner

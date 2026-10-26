@@ -1,0 +1,25 @@
+id: kit-internal
+description: demir-kit self-host — delivery docs, schemas and scripts
+product_class: internal-tool
+default_entry: chore
+default_quality_tier: standard
+
+platform_packs: []
+
+architecture_baseline_required: false
+commercial_baseline_required: false
+
+required_skills:
+  - work-package
+  - test-plan
+  - behavior-gate
+
+suggested_surfaces:
+  - kit.docs
+
+extra_gates: []
+
+checkpoint_templates:
+  chore:
+    - { id: CP-1, title: Contract and registry, gates: { behavior: true, architect: false, commercial: false, ui: false, human: false } }
+    - { id: CP-2, title: Verification and docs, gates: { behavior: true, architect: false, commercial: false, ui: false, human: false } }

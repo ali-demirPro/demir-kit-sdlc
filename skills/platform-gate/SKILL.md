@@ -1,8 +1,8 @@
 ---
 name: platform-gate
 description: >-
-  Run a platform pack checklist (apple-hig, apple-a11y, etc.) after core demir-kit
-  gates per factory profile. Coordinator passes pack id.
+  Run a platform pack checklist (apple-hig, apple-a11y, web-ux, …) after the core
+  gates, as ordered by the factory profile.
 ---
 
 # platform-gate
@@ -10,24 +10,25 @@ description: >-
 ## Input
 
 - `pack` id (e.g. `apple-hig`)
-- Issue `factory.platform_packs` and profile `extra_gates`
-- Checklist: `references/packs/<pack>/checklist.md`
+- Profile `platform_packs` and `extra_gates` (issue `factory.profile` selects it)
+- Checklist: `delivery/packs/<pack>/checklist.md`
 
 ## When
 
-Profile `extra_gates` defines order (e.g. after `ui`, after `adversarial`).
+The profile's `extra_gates` defines the order (e.g. after `ui` or `adversarial`).
 
 ## Execution
 
-1. Read checklist.
-2. Run product command from `ecosystem.yaml` if `gates.platform_<pack>` defined; else reviewer-only.
-3. Output JSON pass/fail like `ui-gate`.
+1. Read the checklist.
+2. Run the profile `extra_gates` command from `ecosystem.yaml` if defined;
+   otherwise review-only.
+3. Return JSON pass/fail like `ui-gate`; record `reviews.platform` in evidence.
 
 ## Store packs
 
-`apple-asc`, `google-play`: never auto-submit; document readiness for human QA.
+`apple-asc`, `google-play`: never auto-submit. Document readiness for human QA.
 
-## quality_tier
+## Quality tier
 
-`platform_excellence`: all profile packs required.
-`standard`: only packs listed on issue (may be subset).
+- `platform_excellence`: all profile packs required.
+- `standard`: packs selected by the profile (or issue scope); a subset is allowed.

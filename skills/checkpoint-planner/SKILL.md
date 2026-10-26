@@ -1,28 +1,34 @@
 ---
 name: checkpoint-planner
 description: >-
-  Refine GitHub issue checkpoints for Orca task-create specs. Output task list or
-  ephemeral .orchestration/ artifact — never commit WP to repo.
+  Validate sealed checkpoints for execution: order, gates, surfaces and test
+  coverage. Emit task specs, never a committed work-package file.
 ---
 
 # checkpoint-planner
 
+Full protocol: `delivery/protocol/execution.md`.
+
 ## Input
 
-- `gh issue view` body → `demir-kit` YAML (`reference`, `tests_plan`, `checkpoints`)
+- Issue body `demir-kit` YAML (`reference`, `tests_plan`, `checkpoints`, `risk`)
 - `ecosystem.yaml`
 
-Validate every behavior CP has `tests_plan` entry; every UI CP has `ui_scope`.
+Check every behavior CP has a `tests_plan` entry; every UI CP has `ui_scope`;
+`depends_on` is acyclic.
 
 ## Output
 
-- Orca: one `task-create` per CP with spec from `orchestration/task-spec-template.md`
-- Optional: `.orchestration/checkpoints.json` (gitignored) for coordinator script
+- One Orca `task-create` per CP, spec from `delivery/protocol/execution.md`.
+- Optional ephemeral `.orchestration/checkpoints.json` (gitignored).
 
 ## Refine-only (default)
 
-`checkpoints_preapproved: true` → verify order, gates, surface commands; **no** extra human plan stop.
+If the seal is valid, verify order, gates and surface commands; do not add a human
+plan stop.
 
 ## Generate mode
 
-Missing checkpoints → derive from acceptance_criteria; coordinator **`ask`** user in plain language (`human-communication.md`).
+Missing checkpoints → derive from `acceptance_criteria` **before** seal, then ask
+one human-language question (`delivery/policies/human-communication.md`). After
+seal, adding CPs requires an amend.

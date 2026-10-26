@@ -1,0 +1,27 @@
+# demir-kit self-host wiring. This repo is both kit and product.
+# See delivery/CONTRACT.md and delivery/protocol/execution.md.
+
+kit:
+  root: .
+  version: "2.2.0"
+  protocol: "2"
+  upstream:
+    git: https://github.com/ali-demirPro/demir-kit-sdlc.git
+
+tracker:
+  provider: github
+  repo: ali-demirPro/demir-kit-sdlc
+
+orca:
+  skills_required:
+    - orchestration
+    - orca-cli
+  integration: delivery/protocol/execution.md
+  gate_contract: delivery/policies/quality-gates.md
+  orchestration_readme: delivery/protocol/execution.md
+
+factory:
+  default_profile: kit-internal
+
+product:
+  envision_required: false

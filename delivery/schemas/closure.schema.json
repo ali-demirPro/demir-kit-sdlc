@@ -1,0 +1,92 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://demir-kit.dev/schemas/closure.schema.json",
+  "title": "demir-kit epic closure (v2)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "demir_kit_version",
+    "epic",
+    "status",
+    "gaps",
+    "unnecessary",
+    "deferred",
+    "metrics",
+    "ready_for_human_qa"
+  ],
+  "properties": {
+    "demir_kit_version": { "const": "2" },
+    "epic": { "type": "integer", "minimum": 1 },
+    "status": { "enum": ["pass", "fail"] },
+    "gaps": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "note"],
+        "properties": {
+          "kind": { "enum": ["missing_work", "test_gap", "dependency", "scope_drift"] },
+          "ref": { "type": "integer" },
+          "note": { "type": "string", "minLength": 5 }
+        }
+      }
+    },
+    "unnecessary": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["note"],
+        "properties": {
+          "ref": { "type": "integer" },
+          "note": { "type": "string", "minLength": 5 },
+          "revert": { "type": "boolean" }
+        }
+      }
+    },
+    "deferred": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["issue", "reason"],
+        "properties": {
+          "issue": { "type": "integer", "minimum": 1 },
+          "reason": { "type": "string", "minLength": 5 }
+        }
+      }
+    },
+    "metrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "leaf_count",
+        "cp_count",
+        "gate_retries",
+        "reconcile_issues",
+        "human_interventions",
+        "lead_time_hours"
+      ],
+      "properties": {
+        "leaf_count": { "type": "integer", "minimum": 1 },
+        "cp_count": { "type": "integer", "minimum": 1 },
+        "gate_retries": { "type": "integer", "minimum": 0 },
+        "reconcile_issues": { "type": "integer", "minimum": 0 },
+        "human_interventions": { "type": "integer", "minimum": 0 },
+        "lead_time_hours": { "type": "number", "minimum": 0 }
+      }
+    },
+    "ready_for_human_qa": { "type": "boolean" }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "status": { "const": "pass" } }, "required": ["status"] },
+      "then": {
+        "properties": {
+          "gaps": { "maxItems": 0 },
+          "ready_for_human_qa": { "const": true }
+        }
+      }
+    }
+  ]
+}

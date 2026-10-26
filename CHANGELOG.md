@@ -1,90 +1,27 @@
 # Changelog
 
-## 1.7.3 — 2026-09-29
+## 2.2.0 — 2026-10-26
 
-- **`references/agent-phase-gates.md`** — hard blocks per owner command (F0–F4 kit-feature, kit-build leaf-only, G1–G8)
-- Owner skills rewritten: `kit-feature`, `kit-build`, `scope-triage`, `kit-upgrade`, `kit-build-change`, `kit`, `work-package` entry checks
-- **`tools/kit-agent-guard.sh`** + product template wrapper; anti-pattern example doc
-- `human-communication.md`, `minimum-viable-output.md`, issue template `scope-epic.yml`
+- **Contract** — tek durum makinesi (`delivery/CONTRACT.md`): T1–T9 geçişleri,
+  risk tabanlı insan kapıları (C), DoD ve I1–I10 değişmezleri.
+- **Schemas** — leaf/epic/evidence/closure v2 (`demir_kit_version: "2"`);
+  AC ↔ tests_plan kapsaması ve evidence `pass` koşulu şemayla zorlanır.
+- **Protocol** — execution (kuyruk, claim, heartbeat, resume, bütçe), seal,
+  health-check, evidence.
+- **Policies** — quality-gates ve escalation eklendi; path-routing registry v3
+  ile hizalandı; approval/human-qa risk C'ye göre yenilendi.
+- **Scripts** — `doctor` (link, registry, etiket, şema, sürüm), `guard`
+  (G1 + risk glob), `next-leaf` (bağımlılık kuyruğu), `install` (yerel kaynak,
+  `--legacy` geçiş yolu).
+- **Self-host** — `ecosystem.yaml`, `kit.config.yaml`, `kit-internal` profili;
+  Epic 0 tamamlandı: 5 leaf `leaf-done`, closure `pass`.
+- **Skills** — 8 runtime skill `skills/` altına taşındı; `install.sh` yerel ağaçtan
+  kurulum yapar, sessiz GitHub fallback yok.
+- **CI** — `.github/workflows/doctor.yml` strict modda (push + pull_request).
+- **Metrics** — `delivery/metrics/README.md`; closure altı metriği zorunlu,
+  aylık retro döngüsü tanımlı.
+- `old/` arşiv; `delivery/` runtime'ı arşive referans vermez.
 
-## 1.7.2 — 2026-09-29
+## 2.1.1 — 2026-10-13
 
-- **`kit-upgrade`** owner skill + `tools/kit-upgrade.sh` — sync vendored kit from `kit.upstream.local` / `git`
-- Orca owner set includes `kit-upgrade`; template `scripts/kit-upgrade.sh` wrapper
-- Root `install.sh` (kit checkout); product repos use `scripts/install-orca-user-skills.sh`; optional `templates/project/install.sh` wrapper
-
-## 1.7.1 — 2026-09-29
-
-- **`envision-handoff.md`** — terminology (`*_covered: yes` ⇒ waive), MVO promote matrix, tracking sync, `pilot_mode`
-- `kit-init.sh` — frontmatter `envision.status` check, layout dir materialize, `default_profile` from `kit.config.yaml`
-- `kit-init` skill — agent promote step; brownfield questionnaire file
-- Hub sync: `ARCHITECTURE.md`, `orca-integration.md`, `feature-flow-dag.md`, `capability-activation`, examples, launch-readiness
-- `solution-architect` + commercial skills read approved brief / handoff
-- `kit.config.yaml` → `product.envision_required`; discovery-intake marked internal-only
-
-## 1.7.0 — 2026-09-29
-
-- **Canonical lifecycle:** `references/product-lifecycle.md` — single journey, state labels, baseline dedup
-- `factory.waived_baselines`, `factory.pilot_mode`, `envision.baselines_covered` in factory-schema
-- Stewardship + README + `kit` / `demir-kit` skills aligned to envision → init → triage flow
-- `discovery-intake` = sub-step / brownfield only; **`discovery-done` deprecated** → `discovery-approved`
-- `kit-init.sh` extracts § Proposed ecosystem YAML from approved brief
-- Orca: `orchestration/packaging-run-prompt.md`, updated `automation-prompt.md` (gates, kit.root, envision checks)
-- Discovery brief template: competitors, legal, handoff waivers
-
-## 1.6.0 — 2026-09-29
-
-- **`kit-envision`** — repo scan, vision Q&A, council synthesis, `discovery-brief`, `discovery-approved` before `kit-init`
-- `references/envision-stewardship.md`, `envision-questionnaire.md`, discovery-brief template
-- `entry.kind: product_envision`, issue `envision` block
-- Labels: `envision-draft`, `discovery-approved`
-- `kit-init` requires approved brief; `kit-init.sh` checks (or `--waive-envision`)
-
-## 1.5.0 — 2026-09-29
-
-- **Kit bootstrap:** `kit`, `kit-setup`, `kit-init` skills
-- `kit.config.yaml`, `templates/project/AGENTS.md`, `references/kit-bootstrap-layout.md`
-- Shell: `tools/kit-setup.sh`, `tools/kit-init.sh`, `tools/README.md`
-- Orca ADE: skill paths from `kit.root` (vendor clone), not per-IDE copies
-- `demir-kit` skill → points to `kit` entry
-
-## 1.4.0 — 2026-09-29
-
-- **Commercial / growth layer:** `product-strategy`, `monetization-brief`, `gtm-lite`, `commercial-review` skills
-- `entry.kind: commercial_baseline`, issue `commercial` block, `factory.commercial_baseline_required`
-- Gate `gates.commercial`, pack `launch-readiness`
-- `commercial-stewardship.md`, product doc templates (positioning, monetization, gtm, analytics)
-- Profiller: commercial baseline CP şablonları, launch-readiness pack
-- Örnek: `examples/commercial-baseline-issue-sample.md`
-
-## 1.3.0 — 2026-09-29
-
-- **VB Navigator katmanı:** `discovery-intake`, `scope-triage` skills
-- Issue YAML: `discovery`, `feasibility`, `scope_triage`, `adaptive`
-- `factory.activated_skills`, `factory.skipped_capabilities` (selective council)
-- `minimum-viable-output.md`, `capability-activation.md`, `coordinator-blockers.md`, `user-intents.md`
-- `orchestration/weekly-adaptive-loop.md`, `templates/product/context.md`
-- Labels: `discovery-done`, `scope-confirmed`, `feasibility-hold`, …
-- Örnek: `examples/greenfield-discovery-sample.md`
-- Profiller: discovery/triage in pipeline; game-flutter / apple optional_capabilities
-
-## 1.2.0 — 2026-09-29
-
-- **`solution-architect` skill** — baseline, decision, output-review, refactor-proposal, tier-review
-- **`entry.kind: architecture_baseline`** — greenfield öncesi mimari epic
-- Issue **`architecture`** bloğu + `factory.architecture_baseline_required`
-- Gate **`architect`** (`gates.architect`) — behavior sonrası, ui öncesi
-- `architecture-stewardship.md`, `references/templates/architecture/*`
-- Profiller: baseline CP şablonları, greenfield CP’lerde `architect: true`
-- Örnek: `examples/architecture-baseline-issue-sample.md`
-
-## 1.1.0 — 2026-09-29
-
-- **Fabrika katmanı:** `entry`, `factory` issue alanları, `profiles/`, `factory-routing`, `platform-gate`
-- Platform pack referansları (`references/packs/`)
-- `ecosystem.yaml` şeması: `ops.store`, `ops.ci` yüzey tipleri
-- Örnek profiller: iOS excellence, Flutter, web, game, store release
-
-## 1.0.0 — 2026-09-29
-
-İlk sürüm — iş paketi, kalite kapıları, Orca entegrasyonu, `capability-map.md`.
+- **delivery/agents/analist/** — full product analyst ROLE, how (intake / pre-seal / closure), SKILL templates.

@@ -1,61 +1,62 @@
 ---
 name: ui-gate
 description: >-
-  demir-kit UI gate — scoped screenshot compare, INVALID state, dual reviewers
-  (visual + interaction). Use orca-cli browser or emulator skills. Reviewers must
-  not read project implementation skills.
+  Scoped screenshot compare with INVALID state handling and two independent
+  reviewers (visual + interaction). Reviewers must not read implementation skills.
 ---
 
 # ui-gate
 
-When `gates.ui: true`. Read `checkpoints[].ui_scope` from issue YAML.
+When `gates.ui: true`. Read `checkpoints[].ui_scope` from the issue seal.
 
 ## Reviewer isolation
 
-Workers run with instructions limited to:
+Workers see only:
 
-- `reference` block from issue
-- Prototype artifact / `design-md` paths
-- Captured screenshots only
+- `reference` block from the issue
+- prototype artifact / design paths
+- captured screenshots
 
-**Do not** use generic repo coding shortcuts or “good enough” project norms.
+No repo coding conventions, no "good enough" shortcuts.
 
-## Modes (coordinator dispatches twice)
+## Modes (dispatch twice)
 
 | Mode | Focus |
-|------|--------|
-| `visual` | Structure, spacing, typography, color vs reference/prototype |
-| `interaction` | Same user actions; same outcomes |
+|------|-------|
+| `visual` | Structure, spacing, typography, color vs reference |
+| `interaction` | Same actions, same outcomes |
 
 ## Capture
 
-- Web: `orca-cli` `goto`, `set device`, `screenshot`
+- Web: Orca browser `goto`, `set device`, `screenshot`
 - Mobile: `orca-emulator` / `orca-emulator-android`
-- **Same named state** on reference and implementation (`reference.states`)
+- Same named state on both sides (`reference.states`)
 
-## Comparison output (required JSON)
+## Output (required JSON)
 
 ```json
 {
   "pass": false,
   "comparison_valid": true,
   "findings": [
-    { "severity": "blocker|minor", "location": "hero title", "description": "..." }
+    { "severity": "blocker|minor", "location": "hero title", "description": "…" }
   ]
 }
 ```
 
-- `comparison_valid: false` → **INVALID** (wrong screen/state/section). Do not pass. Coordinator re-captures matching state.
-- Default: visual differences fixable in code are **blockers**.
+- `comparison_valid: false` → INVALID: wrong screen/state. Never pass; re-capture.
+- Fixable visual differences are blockers by default.
+- Scope: if `ui_scope` names a region, ignore the rest of the screenshot.
 
-## Scoped compare
+## Loop
 
-If `ui_scope` is `"navigation bar and title only"`, ignore rest of reference screenshot.
+Fixer → re-capture → both modes again (max 2 re-captures, then ask).
 
-## Fix loop
+## Evidence
 
-Fixer worker → re-capture → both modes again.
+Record in `delivery/protocol/evidence.md`:
+- `reviews.ui: pass`
+- `reviews.comparison_valid: true|false`
+- UI findings as `{ id: UI-1, status: fixed|open }`
 
-## User
-
-Escalate to coordinator `ask` in human language only (`human-communication.md`).
+Escalate in human language only (`delivery/policies/human-communication.md`).

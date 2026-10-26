@@ -1,0 +1,179 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://demir-kit.dev/schemas/leaf.schema.json",
+  "title": "demir-kit leaf seal (v2)",
+  "description": "Sealed leaf issue body. One leaf = one executable unit.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "demir_kit_version",
+    "package_version",
+    "mode",
+    "epic",
+    "entry",
+    "intent",
+    "surfaces",
+    "reference",
+    "acceptance_criteria",
+    "out_of_scope",
+    "risk",
+    "tests_plan",
+    "checkpoints"
+  ],
+  "properties": {
+    "demir_kit_version": { "const": "2" },
+    "package_version": { "type": "integer", "minimum": 1 },
+    "mode": { "enum": ["extend", "bootstrap", "amend"] },
+    "epic": { "type": "integer", "minimum": 1 },
+    "entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind"],
+      "properties": {
+        "kind": {
+          "enum": ["feature", "bugfix", "chore", "architecture_baseline", "commercial_baseline"]
+        }
+      }
+    },
+    "factory": {
+      "type": "object",
+      "properties": {
+        "profile": { "type": "string", "minLength": 1 },
+        "pilot_mode": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    },
+    "intent": { "type": "string", "minLength": 20 },
+    "surfaces": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "reference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "summary"],
+      "properties": {
+        "kind": {
+          "enum": ["github_paths", "running_app", "prototype_url", "design_docs", "product_issue", "mixed"]
+        },
+        "summary": { "type": "string", "minLength": 10 },
+        "paths": { "type": "array", "items": { "type": "string" } },
+        "states": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "acceptance_criteria": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "text"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^AC-[0-9]+$" },
+          "text": { "type": "string", "minLength": 10 }
+        }
+      }
+    },
+    "out_of_scope": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 3 }
+    },
+    "decisions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["date", "text"],
+        "properties": {
+          "date": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" },
+          "author": { "type": "string" },
+          "text": { "type": "string", "minLength": 5 },
+          "adr_required": { "type": "boolean" }
+        }
+      }
+    },
+    "risks": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 5 }
+    },
+    "dependencies": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["issue"],
+        "properties": {
+          "issue": { "type": "integer", "minimum": 1 },
+          "kind": { "enum": ["blocks", "related"] }
+        }
+      }
+    },
+    "risk": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["level"],
+      "properties": {
+        "level": { "enum": ["low", "medium", "high", "critical"] },
+        "reasons": { "type": "array", "items": { "type": "string", "minLength": 3 } }
+      }
+    },
+    "tests_plan": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["checkpoint_id", "cases"],
+        "properties": {
+          "checkpoint_id": { "type": "string", "pattern": "^CP-[0-9]+$" },
+          "cases": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["id", "ac", "text"],
+              "properties": {
+                "id": { "type": "string", "pattern": "^T-[0-9]+$" },
+                "ac": { "type": "string", "pattern": "^AC-[0-9]+$" },
+                "text": { "type": "string", "minLength": 5 }
+              }
+            }
+          }
+        }
+      }
+    },
+    "checkpoints": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "title", "gates"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^CP-[0-9]+$" },
+          "title": { "type": "string", "minLength": 3 },
+          "depends_on": {
+            "type": "array",
+            "items": { "type": "string", "pattern": "^CP-[0-9]+$" }
+          },
+          "surfaces": { "type": "array", "items": { "type": "string" } },
+          "ui_scope": { "type": "array", "items": { "type": "string" } },
+          "gates": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["behavior"],
+            "properties": {
+              "behavior": { "const": true },
+              "architect": { "type": "boolean" },
+              "commercial": { "type": "boolean" },
+              "ui": { "type": "boolean" },
+              "human": { "type": "boolean" }
+            }
+          }
+        }
+      }
+    }
+  }
+}

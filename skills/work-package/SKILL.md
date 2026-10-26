@@ -1,111 +1,78 @@
 ---
 name: work-package
 description: >-
-  Seal a GitHub work package (demir-kit YAML in issue). Mandatory reference,
-  tests_plan, short CP titles. Never WP markdown in repo.
+  Seal a v2 leaf: demir-kit YAML, AC ↔ tests_plan mapping, risk level, then
+  agent-approved. No seal, no source changes.
 ---
 
 # work-package
 
-Apply **`human-communication.md`** to all user-facing text.
+Read first: `delivery/protocol/seal.md`, `delivery/CONTRACT.md`,
+`delivery/schemas/leaf.schema.json`. User-facing text:
+`delivery/policies/human-communication.md`.
 
-**Hard gates:** `${kit.root}/references/agent-phase-gates.md` — read before seal or any `src/` edit.
+## Entry check (block on fail)
 
-## Entry check (block if fail)
-
-1. Invoked via **kit-build** (owner) or coordinator with explicit issue **#N**.
-2. **#N** is a **leaf** executable issue — not a scope-only parent with only `scope_triage`.
-3. Not in **kit-feature** / scope-triage F0–F4 (no seal, no app code there).
-4. Parent epic has **`scope-confirmed`** when **#N** is a child.
+1. Issue is a **leaf**, not a scope-only epic.
+2. Parent epic has `scope-confirmed`.
+3. Risk level declared (`low` / `medium` / `high` / `critical`).
+4. No source edit before seal (`delivery/scripts/guard.sh`).
 
 ## Non-negotiables
 
-- No `docs/work-packages/` or `WP-*.md` in repo.
-- Issue body: summary + ` ```yaml demir-kit ` with **reference**, **tests_plan**, **checkpoints** (short titles).
-- **`minimum-viable-output.md`** — no spec dump trees.
+- No `WP-*.md`, `docs/work-packages/`, or committed checkpoint JSON.
+- One leaf per issue; never seal an epic that has children.
+- Every `AC-n` has at least one `T-n` case; every CP has a `tests_plan` entry.
+- `demir_kit_version: "2"`; `gates.behavior: true` on every CP.
 
-## Protocol phases
+## Steps
 
-### −1 — Envision, ecosystem, scope
+1. Fill the `demir-kit` YAML block.
+2. Run `test-plan`; map cases to AC ids.
+3. Choose risk; `registry.yaml` globs may auto-escalate it.
+4. Validate: `./delivery/scripts/doctor.sh --body /tmp/leaf.md`.
+5. Update the issue body; add `agent-approved`, remove `intake`.
+6. Next: `health-check`, then `delivery/protocol/execution.md`.
 
-**Envision:** If no `discovery-approved` / approved brief — run **`kit-envision`** (or complete **kit-setup** Phase 2 on brownfield). Owner does not run envision as a separate habit after bootstrap.
+## Template
 
-**kit-init (autonomous):** Before seal, if brief is approved and `ecosystem.yaml` is missing or stale vs brief § Proposed ecosystem — run **`kit-init`** (`kit-init.sh` + agent per `envision-handoff.md`). **Do not** ask the owner to invoke kit-init; only escalate on failure or missing approval. **kit-build** alias documents the same rule.
+```yaml demir-kit
+demir_kit_version: "2"
+package_version: 1
+mode: extend
+epic: 12
+entry: { kind: feature }
+factory: { profile: kit-internal }
+intent: "Tek paragraf, ne ve neden."
+surfaces: [kit.docs]
+reference:
+  kind: github_paths
+  summary: "Ne ile doğrulanacak."
+  paths: [delivery/CONTRACT.md]
+acceptance_criteria:
+  - { id: AC-1, text: "Test edilebilir sonuç." }
+out_of_scope: ["Bu leaf'in kapsamı dışındaki iş"]
+risk: { level: low, reasons: ["Doküman değişikliği"] }
+tests_plan:
+  - checkpoint_id: CP-1
+    cases:
+      - { id: T-1, ac: AC-1, text: "Doğrulama adımı." }
+checkpoints:
+  - id: CP-1
+    title: Kısa başlık
+    gates:
+      behavior: true
+      architect: false
+      commercial: false
+      ui: false
+      human: false
+```
 
-If `greenfield_product` / bootstrap epic and no `scope_triage.confirmed`:
+## Failure modes
 
-1. **`scope-triage`** or owner **kit-feature** (may reuse brief § Development bets) → `scope-confirmed`
-2. If `feasibility.go: false` or score &lt; 6 → `ask` before seal
-
-`out_of_scope` must include all **cut** items from triage.
-
-### 0 — Factory routing
-
-If `entry` / `factory` not set: run **`factory-routing`** first (human language).
-
-Load `profiles/<factory.profile>.yaml`; merge `platform_packs`, `tests_plan_seeds`, suggest `checkpoints` from `checkpoint_templates[entry.kind]`.
-
-If `entry.kind: architecture_baseline` → require `solution-architect` baseline CPs; `tests_plan` may use doc-only expectations.
-
-If `greenfield_product` or `feature` and `factory.architecture_baseline_required` and `architecture_baseline` ∉ `factory.waived_baselines` → require `architecture.baseline_issue` and label `architecture-baseline-done` (or user `ask` waive).
-
-If `factory.commercial_baseline_required` and `commercial_baseline` ∉ `factory.waived_baselines` → require `commercial.baseline_issue` and `commercial-baseline-done`. Waived path: brief § Handoff + `envision-handoff.md` MVO files on disk.
-
-If `factory.pilot_mode: true` → treat as dual baseline waive only when `decisions` documents pilot; still enforce MVO for marketing/store CPs.
-
-Set `commercial.review_policy.commercial_review` default `required` when `marketing.site` or store surfaces in scope.
-
-`entry.kind: commercial_baseline` → CP-COM-* map to `product-strategy`, `monetization-brief`, `gtm-lite`; no feature behavior until docs done.
-
-Default `architecture.review_policy.output_review: required` for new greenfield children; set `gates.architect: true` on implementation CPs unless waived in ADR.
-
-Fill `factory.activated_skills` / `skipped_capabilities` per **`capability-activation.md`**.
-
-Epic issues: optional `adaptive` block for weekly loop.
-
-### 1 — Intent & ecosystem
-
-Map `products` / `surfaces`; read `ecosystem.yaml`.
-
-### 2 — Reference (spec)
-
-Fill `reference` block (`work-package-issue-body.schema.yaml`):
-
-- `kind`: github_paths | running_app | prototype_url | design_docs | product_issue | mixed
-- `summary`: plain language
-- `paths` / `states` as needed
-
-**Referans sözleşmesi** — uzun anlatım spec yerine koda, tasarıma veya prototype’a işaret et.
-
-### 3 — Users & acceptance
-
-`acceptance_criteria` testable; surface tags optional.
-
-### 4 — Boundaries & decisions
-
-`out_of_scope`; `decisions` with `adr_required` when needed.
-
-### 5 — Checkpoints
-
-- **Titles: few words** — one-glance review on GitHub.
-- `depends_on`, `gates`, `surfaces`, `ui_scope` when `gates.ui: true`.
-- Invoke **`test-plan`** skill → complete `tests_plan` before seal.
-
-### 6 — Review & seal
-
-Plain summary. adjust / seal / abort.
-
-On **seal**:
-
-1. Issue body with full YAML (`demir_kit_version: "1"`).
-2. `gh issue create` / `edit` (`tracker.repo`).
-3. Labels: `agent-approved`.
-4. Next steps: `health-check` then Orca (`orchestration/README.md`), `orca worktree create --issue N`.
-
-## Modes
-
-`extend` | `bootstrap` (epic + children) | use `work-package-amend` for amend.
-
-## See
-
-`examples/issue-body-sample.md`
+| Hata | Sonuç |
+|------|-------|
+| AC testsiz | `doctor` fail |
+| `behavior: false` | şema fail |
+| Risk düşük yazıldı | `guard.sh` glob ile bloklar |
+| Epic mühürlendi | contract ihlali |

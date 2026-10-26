@@ -1,0 +1,19 @@
+[
+  { "name": "intake", "color": "ededed", "description": "Draft; scope not locked" },
+  { "name": "scope-confirmed", "color": "006b75", "description": "Epic scope locked (KEEP/DEFER/CUT)" },
+  { "name": "agent-approved", "color": "0e8a16", "description": "Leaf sealed; execution allowed" },
+  { "name": "executing", "color": "1d76db", "description": "Claimed; checkpoint loop open" },
+  { "name": "blocked", "color": "b60205", "description": "External blocker or budget exhausted" },
+  { "name": "deferred", "color": "fbca04", "description": "Consciously postponed; defer issue linked" },
+  { "name": "leaf-done", "color": "2c6e49", "description": "Leaf gates + evidence complete" },
+  { "name": "human-qa", "color": "d93f0b", "description": "Waiting for human decision" },
+  { "name": "epic-reconcile", "color": "d93f0b", "description": "Closure gaps; fix before epic-done" },
+  { "name": "epic-done", "color": "5319e7", "description": "Closure pass + human acceptance" },
+  { "name": "architect-revise", "color": "e99695", "description": "Architect findings open" },
+  { "name": "commercial-revise", "color": "f9d0c4", "description": "Commercial findings open" },
+  { "name": "discovery-approved", "color": "0e8a16", "description": "Discovery direction approved" },
+  { "name": "architecture-baseline-done", "color": "2c6e49", "description": "Architecture baseline accepted" },
+  { "name": "commercial-baseline-done", "color": "1d76db", "description": "Commercial baseline accepted" },
+  { "name": "feasibility-hold", "color": "d4c5f9", "description": "Feasibility decision pending" },
+  { "name": "learning", "color": "c5def5", "description": "Retro / agent learning record" }
+]

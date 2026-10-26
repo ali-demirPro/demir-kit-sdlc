@@ -1,0 +1,142 @@
+# Delivery contract — v2.2
+
+Bu dosya delivery'nin **tek durum makinesi**dir. Agent, path ve risk verisi
+`registry.yaml`'da; artefakt şekilleri `schemas/` altında; uygulama
+`scripts/doctor.sh` ile denetlenir.
+
+Eski v1 yürütmesi arşivdedir (`old/`). Yeni runtime yalnızca `delivery/`,
+`skills/`, `schemas/` ve `scripts/` üzerinden çalışır.
+
+## Artefaktlar
+
+| Artefakt | Taşıyıcı | Şema | Üreten | Onaylayan |
+|----------|----------|------|--------|-----------|
+| Epic | GitHub issue + KEEP tablosu | `schemas/epic.schema.json` | owner + orchestrator | insan (`scope-confirmed`) |
+| Leaf seal | issue body içinde `demir-kit` YAML bloğu | `schemas/leaf.schema.json` | seal | orchestrator (`agent-approved`) |
+| Evidence | issue comment | `schemas/evidence.schema.json` | coordinator + documenter | gate sonuçları |
+| Closure | issue comment | `schemas/closure.schema.json` | documenter | orchestrator + insan |
+| Ecosystem | repo kökü `ecosystem.yaml` | — | devops | health-check |
+
+## Durum makinesi
+
+```mermaid
+stateDiagram-v2
+  [*] --> intake
+  intake --> scope_confirmed: kapsam triage
+  scope_confirmed --> agent_approved: leaf mühürü
+  agent_approved --> executing: health-check + claim
+  executing --> executing: CP döngüsü
+  executing --> blocked: blocker
+  blocked --> executing: blocker çözüldü
+  agent_approved --> deferred: insan kararı
+  executing --> deferred: insan kararı
+  executing --> leaf_done: CP + evidence + gate
+  leaf_done --> leaf_done: sonraki leaf
+  leaf_done --> epic_reconcile: closure fail
+  epic_reconcile --> agent_approved: düzeltme leaf'i
+  leaf_done --> epic_done: closure pass + kabul
+  epic_done --> [*]
+  deferred --> [*]
+```
+
+`epic_reconcile` ve `epic_done` epic seviyesindedir; leaf etiketleriyle karışmaz.
+
+## Geçişler
+
+| # | From | To | Kim | Guard | Kanıt | Etiket |
+|---|------|----|-----|-------|-------|--------|
+| T1 | `intake` | `scope-confirmed` | orchestrator | KEEP/DEFER/CUT tablosu + child listesi | epic comment | `+scope-confirmed` |
+| T2 | `scope-confirmed` | `agent-approved` | seal | leaf şeması geçerli, AC ↔ tests_plan tam | issue body YAML | `+agent-approved` |
+| T3 | `agent-approved` | `executing` | coordinator | health-check `ready`, bağımlılıklar kapalı, claim | run comment | `+executing` |
+| T4 | `executing` | `leaf-done` | coordinator | tüm CP evidence + risk gate'leri | evidence comment'leri | `+leaf-done -executing` |
+| T5 | `executing` | `blocked` | coordinator | `policies/escalation.md` maddesi | blocker comment | `+blocked` |
+| T6 | `blocked` | `executing` | coordinator / insan | blocker çözüldü | unblock comment | `-blocked` |
+| T7 | `agent-approved` / `executing` | `deferred` | insan | defer issue linki | karar comment | `-executing +deferred` |
+| T8 | tüm leaf'ler `leaf-done`/`deferred` | closure | orchestrator | `runbooks/epic-closure.md` | closure report | — / `+epic-reconcile` |
+| T9 | closure `pass` | `epic-done` | insan | rapor `pass` + kabul | human-qa comment | `+epic-done` |
+
+Kurallar:
+
+- T2–T6 otomatiktir; insan sormaz. Yalnız T7, T9 ve risk yüksek leaf QA insan ister.
+- T4, evidence şeması geçerli değilse **imkânsızdır** (`doctor.sh --issue N`).
+- T9, closure `status: pass` değilse yasaktır; "epic bitti" demek contract ihlalidir.
+- Her geçiş idempotenttir: aynı hedef durumda tekrar çalıştırmak no-op'tur.
+
+## Etiket sözlüğü
+
+Kanonik set `templates/github-labels.json` ile birebir aynıdır.
+
+| Etiket | Anlam | Kim koyar |
+|--------|-------|-----------|
+| `intake` | Taslak; kapsam kilitli değil | owner |
+| `scope-confirmed` | Epic kapsamı kilitli | orchestrator |
+| `agent-approved` | Leaf mühürlü; yürütülebilir | seal |
+| `executing` | Claim edildi, CP döngüsü açık | coordinator |
+| `blocked` | Dış bağımlılık / bütçe aşımı | coordinator |
+| `deferred` | Bilinçli ertelendi, issue linki var | insan |
+| `leaf-done` | Leaf gate + evidence tamam | coordinator |
+| `human-qa` | İnsan kararı bekliyor | coordinator |
+| `epic-reconcile` | Closure gap'i var | orchestrator |
+| `epic-done` | Closure pass + insan kabulü | insan |
+| `architect-revise` | Architect bulgusu açık | coordinator |
+| `commercial-revise` | Commercial bulgusu açık | coordinator |
+| `discovery-approved` | Keşif yönü onaylı | insan |
+| `architecture-baseline-done` | Mimari baseline kabul | insan |
+| `commercial-baseline-done` | Ticari baseline kabul | insan |
+| `feasibility-hold` | Fizibilite kararı bekliyor | orchestrator |
+| `learning` | Retro/öğrenme kaydı | documenter |
+
+Emekli: `done`, `packaging`, `discovery-done`. Yeni issue'larda kullanılmaz.
+
+## Risk modeli (insan kapısı = C)
+
+| Seviye | Kapsam | Zorunlu gate'ler | İnsan |
+|--------|--------|------------------|-------|
+| `low` | docs, copy, test, izole UI, config | behavior + 1 reviewer + evidence | yok (spot-check) |
+| `medium` | feature UI, API sözleşmesi, geri alınabilir migration | behavior + 1 adversarial + UI (UI ise) | bütçe aşılırsa |
+| `high` | auth, ödeme, izin, veri göçü, prod infra, güvenlik | behavior + architect + 2 adversarial + platform | leaf QA |
+| `critical` | store submit, prod deploy, fiyat, yıkıcı migration | high + ikinci insan | her zaman |
+
+`registry.yaml` `risk.auto_escalate` glob'larından biri diff'e değerse seviye
+otomatik yükselir; agent düşüremez. Ayrıntı: `policies/quality-gates.md`.
+
+## Definition of done
+
+- **CP:** behavior komutu exit 0 + riskin istediği reviewer'lar `approved` + evidence comment.
+- **Leaf:** tüm CP'ler + her AC en az bir test case ile kapsanmış + açık bulgu yok +
+  risk `high`/`critical` ise insan QA + `leaf-done`.
+- **Epic:** tüm child'lar `leaf-done` veya `deferred` + closure `pass` + insan kabul +
+  metrikler yazıldı + `epic-done`.
+
+## Değişmezler
+
+| # | Kural |
+|---|-------|
+| I1 | `agent-approved` olmadan uygulama kaynağı değişmez (`scripts/guard.sh`). |
+| I2 | Evidence şeması dolmadan `leaf-done` yok. |
+| I3 | Closure `pass` olmadan `epic-done` yok. |
+| I4 | Uygulayan onaylayamaz; reviewer temiz context'te çalışır. |
+| I5 | Reviewer'lar birbirinin çıktısını görmez. |
+| I6 | `delivery/` içinden arşive runtime referansı verilmez (`doctor.sh --strict`). |
+| I7 | Epic başına tek leaf yürür; ikinci leaf ancak `depends_on` ayrıksa. |
+| I8 | Aynı duruma tekrar geçiş no-op; tamamlanan CP yeniden koşmaz. |
+| I9 | Contract değişikliği VERSION + CHANGELOG + doctor yeşili ister. |
+| I10 | İnsan kapısı yalnız: risk `high`/`critical` leaf, geri dönülemez işlem, epic kabul. |
+
+## Yürütme
+
+- Kuyruk, claim, resume ve bütçeler: `protocol/execution.md`
+- Mühür: `protocol/seal.md`
+- Hazırlık: `protocol/health-check.md`
+- Kanıt: `protocol/evidence.md`
+- Gate matrisi: `policies/quality-gates.md`
+- Blocker: `policies/escalation.md`
+- İnsan dili: `policies/human-communication.md`
+
+## Denetim
+
+```bash
+./delivery/scripts/doctor.sh            # tüm statik kontroller
+./delivery/scripts/doctor.sh --strict   # uyarılar da hata
+./delivery/scripts/doctor.sh --issue 12 # seal + evidence tutarlılığı
+```

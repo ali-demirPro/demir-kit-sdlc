@@ -1,0 +1,21 @@
+# demir-kit self-host — this repo is its own product (dogfooding).
+# Schema: delivery/CONTRACT.md
+
+name: demir-kit
+products:
+  kit:
+    description: Delivery contract, schemas, scripts and role definitions.
+    surfaces:
+      kit.docs:
+        path: delivery
+        stacks: [markdown]
+        platforms: [any]
+        gates:
+          behavior: ./delivery/scripts/doctor.sh --checkpoint {checkpoint}
+          behavior_mode: unit-only
+          ui: false
+          ui_compare: none
+
+tracker:
+  provider: github
+  repo: ali-demirPro/demir-kit-sdlc
