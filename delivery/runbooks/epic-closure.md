@@ -67,18 +67,7 @@ ready_for_human_qa: true
 
 Closure `pass` sonrası iki şey yapılır:
 
-1. **Detaylı iş raporu** — epic issue'suna tek yorum:
-
-```bash
-python3 delivery/scripts/report.py --issue <epic> --post
-```
-
-- Kim (ana agent, reviewer, worker, insan), süreç, süre, maliyet/token,
-  kararlar, sorunlar, kanıt.
-- Teknik ID'ler `<details>` içinde; ana metin insan dili.
-- Maliyet ölçülemediyse “ölçülemedi” yazar; tahmin edilmez.
-
-2. **Kısa onay notu** — aynı issue'ya:
+1. **Kısa onay notu** — epic issue'suna:
 
 ```bash
 python3 delivery/scripts/update.py --issue <epic> --kind summary \
@@ -88,7 +77,20 @@ python3 delivery/scripts/update.py --issue <epic> --kind summary \
 ```
 
 - Onay satırı zorunlu; `--approval yes` `human-qa` etiketini ekler.
-- Aynı özet sohbet sonunda da verilir.
+
+2. **Detaylı iş raporu** — aynı issue'ya, kısa özetten **sonra**:
+
+```bash
+python3 delivery/scripts/report.py --issue <epic> --post
+```
+
+- Kim (ana agent, reviewer, worker, insan), süreç, süre, maliyet/token,
+  kararlar, sorunlar, kanıt.
+- Teknik ID'ler `<details>` içinde; ana metin insan dili.
+- Maliyet ölçülemediyse “ölçülemedi” yazar; tahmin edilmez.
+- Ana oturum toplamı epic'e atfedilemiyorsa ayrı satırda gösterilir.
+
+- Aynı kısa özet sohbet sonunda da verilir.
 - İnsan onayı: [human-qa-done](../policies/human-qa-done.md) epic bölümü →
   label **`epic-done`**.
 

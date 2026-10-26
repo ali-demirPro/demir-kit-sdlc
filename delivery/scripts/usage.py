@@ -94,6 +94,15 @@ def run(args: list[str]) -> str:
     return result.stdout
 
 
+def api_session_info(session_id: str) -> dict:
+    raw = run([BIN, "api", "GET", f"/api/session/{session_id}"])
+    payload = json.loads(raw)
+    data = payload.get("data") if isinstance(payload, dict) else None
+    if not isinstance(data, dict):
+        raise ValueError("session info missing")
+    return data
+
+
 def collect(since: datetime, until: datetime) -> dict:
     since_ms = int(since.timestamp() * 1000)
     until_ms = int(until.timestamp() * 1000)
@@ -117,34 +126,55 @@ def collect(since: datetime, until: datetime) -> dict:
             )
             summary = summarize_export(export, since_ms, until_ms)
         except (json.JSONDecodeError, SystemExit):
-            summary = {
-                "cost": None,
-                "tokens": token_totals(None),
-                "model": None,
-                "duration_seconds": None,
-                "confidence": "unavailable",
-            }
+            try:
+                info = api_session_info(session["id"])
+                summary = summarize_export(
+                    {"info": info, "messages": []}, since_ms, until_ms
+                )
+            except (json.JSONDecodeError, SystemExit, ValueError):
+                summary = {
+                    "cost": None,
+                    "tokens": token_totals(None),
+                    "model": None,
+                    "duration_seconds": None,
+                    "confidence": "unavailable",
+                }
         rows.append(
             {
                 "id": session["id"],
                 "title": session.get("title", ""),
                 "created": session.get("created"),
                 "updated": session.get("updated"),
+                "spans_window": session.get("created", 0) < since_ms,
                 **summary,
             }
         )
 
-    measured = [row for row in rows if row["cost"] is not None]
+    measured = [
+        row
+        for row in rows
+        if row["cost"] is not None
+        and not (row["confidence"] == "session_total" and row.get("spans_window"))
+    ]
+    session_totals = [
+        row
+        for row in rows
+        if row["cost"] is not None
+        and row["confidence"] == "session_total"
+        and row.get("spans_window")
+    ]
     if measured:
         cost = round(sum(row["cost"] for row in measured), 6)
     else:
         cost = None
-    if len(measured) < len(rows):
+    if len(measured) < len(rows) - len(session_totals):
         confidence = "partial"
-    elif all(row["confidence"] == "exact" for row in rows):
+    elif measured and all(row["confidence"] == "exact" for row in measured):
         confidence = "exact"
-    else:
+    elif measured:
         confidence = "session_total"
+    else:
+        confidence = "partial"
 
     totals = {
         "cost": cost,
@@ -153,6 +183,10 @@ def collect(since: datetime, until: datetime) -> dict:
         "cache_read": sum(row["tokens"]["cache_read"] for row in measured),
         "sessions": len(rows),
         "measured_sessions": len(measured),
+        "session_total_cost": round(sum(row["cost"] for row in session_totals), 6)
+        if session_totals
+        else None,
+        "session_total_sessions": len(session_totals),
         "confidence": confidence,
     }
     return {
@@ -182,6 +216,11 @@ def render(data: dict) -> str:
         cost = "—" if row["cost"] is None else f"${row['cost']:.4f}"
         lines.append(
             f"- {row['title'][:50]} · {cost} · {row['confidence']}"
+        )
+    if totals.get("session_total_cost") is not None:
+        lines.append(
+            f"Ana oturum toplamı: ${totals['session_total_cost']:.4f} "
+            f"({totals.get('session_total_sessions', 0)} oturum; epic'e atfedilemedi)"
         )
     if data["unavailable"]:
         lines.append(

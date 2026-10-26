@@ -69,6 +69,25 @@ class UsageTests(unittest.TestCase):
             (root / "kit.config.yaml").write_text("kit:\n  root: demir-kit\n")
             self.assertEqual(usage.project_root(root), root)
 
+    def test_render_session_total(self) -> None:
+        data = {
+            "totals": {
+                "sessions": 2,
+                "input": 10,
+                "output": 2,
+                "cache_read": 3,
+                "cost": 0.01,
+                "measured_sessions": 1,
+                "session_total_cost": 0.5,
+                "session_total_sessions": 1,
+                "confidence": "exact",
+            },
+            "sessions": [],
+            "unavailable": [],
+        }
+        text = usage.render(data)
+        self.assertIn("Ana oturum toplamı: $0.5000", text)
+
     def test_render_marks_unavailable(self) -> None:
         data = {
             "totals": {"sessions": 1, "input": 10, "output": 2, "cache_read": 3, "cost": None, "measured_sessions": 0, "confidence": "partial"},

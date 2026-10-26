@@ -130,6 +130,25 @@ class ReportTests(unittest.TestCase):
         text = report.build_report(issue(), [], usage, [], start, end)
         self.assertIn("**Süre:** 16:05–16:20 UTC · 15 dk", text)
 
+    def test_report_shows_session_total(self) -> None:
+        usage = {
+            "totals": {
+                "sessions": 2,
+                "input": 10,
+                "output": 2,
+                "cache_read": 3,
+                "cost": 0.01,
+                "measured_sessions": 1,
+                "session_total_cost": 0.5,
+                "session_total_sessions": 1,
+                "confidence": "exact",
+            },
+            "sessions": [],
+            "unavailable": [],
+        }
+        text = report.build_report(issue(), [], usage, [])
+        self.assertIn("Ana oturum toplamı: $0.5000", text)
+
     def test_report_marks_unavailable_cost(self) -> None:
         usage = {
             "totals": {"sessions": 1, "input": 0, "output": 0, "cache_read": 0, "cost": 0},

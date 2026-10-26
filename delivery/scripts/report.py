@@ -256,6 +256,11 @@ def build_report(issue: dict, children: list[dict], usage: dict, commits: list[s
         f"{totals.get('input', 0):,} in / {totals.get('output', 0):,} out · "
         f"{totals.get('cache_read', 0):,} cache · {cost_text}"
     )
+    if totals.get("session_total_cost") is not None:
+        lines.append(
+            f"Ana oturum toplamı: ${totals['session_total_cost']:.4f} "
+            f"({totals.get('session_total_sessions', 0)} oturum; epic'e atfedilemedi)"
+        )
     if unavailable or totals.get("confidence") == "partial":
         lines.append("Not: bazı oturumların maliyeti ölçülemedi.")
 
