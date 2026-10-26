@@ -372,23 +372,31 @@ def main() -> int:
             print("no work")
         return 0
 
-    if args.json:
+    if args.json and not args.claim:
         print(json.dumps(eligible, indent=2))
         return 0
 
-    if args.list:
+    if args.list and not args.claim:
         for item in eligible:
             print(f"#{item['number']}  {item['title']}  [{item['risk']}]")
         return 0
 
-    first = eligible[0]
     if args.claim:
-        status = claim(first["number"], first["epic"], first["risk"])
+        target = None
+        if args.issue:
+            target = next(
+                (item for item in eligible if item["number"] == args.issue), None
+            )
+            if not target:
+                sys.exit(f"next-leaf: #{args.issue} uygun değil")
+        else:
+            target = eligible[0]
+        status = claim(target["number"], target["epic"], target["risk"])
         if status == 0:
-            print(first["number"])
+            print(target["number"])
         return status
 
-    print(first["number"])
+    print(eligible[0]["number"])
     return 0
 
 

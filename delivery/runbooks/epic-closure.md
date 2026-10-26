@@ -93,7 +93,8 @@ python3 delivery/scripts/report.py --issue <epic> --post
 
 - Aynı kısa özet sohbet sonunda da verilir.
 - İnsan onayı: [human-qa-done](../policies/human-qa-done.md) epic bölümü →
-  label **`epic-done`**.
+  `transition.sh --issue N --to epic-done --accept "<ad>"`; bu
+  `demir-kit-accept` bloğunu yazar ve `epic-done` etiketini koyar.
 
 ## Kurallar
 

@@ -474,6 +474,56 @@ class ClosureTests(DoctorTestCase):
             any("closure status 'pass' değil" in item for item in doctor.ERRORS)
         )
 
+    def test_epic_done_requires_accept_block(self) -> None:
+        self.run_issue(
+            self.epic_block(),
+            ["epic-done"],
+            [{"body": fenced("demir-kit-closure", self.closure())}],
+        )
+        self.assertTrue(
+            any("demir-kit-accept" in item for item in doctor.ERRORS)
+        )
+
+    def test_assumed_epic_done_skips_accept_gate(self) -> None:
+        issue = {
+            "body": self.epic_block(),
+            "labels": [{"name": "scope-confirmed"}],
+        }
+        comments = [{"body": fenced("demir-kit-closure", self.closure())}]
+
+        def fake_run(command):
+            if "/comments" in command[-1]:
+                return json.dumps(comments)
+            return json.dumps(issue)
+
+        with patch.object(doctor, "run", side_effect=fake_run):
+            doctor.check_issue(
+                1, root=ROOT, assume_labels={"epic-done"}
+            )
+        self.assertFalse(
+            any("demir-kit-accept" in item for item in doctor.ERRORS)
+        )
+
+    def test_epic_done_with_accept(self) -> None:
+        accept = fenced(
+            "demir-kit-accept",
+            {
+                "demir_kit_version": "2",
+                "epic": 1,
+                "by": "ali",
+                "decision": "accepted",
+            },
+        )
+        self.run_issue(
+            self.epic_block(),
+            ["epic-done"],
+            [
+                {"body": fenced("demir-kit-closure", self.closure())},
+                {"body": accept},
+            ],
+        )
+        self.assertEqual(doctor.ERRORS, [])
+
     def test_epic_done_requires_pass_closure(self) -> None:
         closure = self.closure(status="fail")
         epic = {
@@ -530,6 +580,26 @@ class PaginationTests(DoctorTestCase):
         with patch.object(doctor, "run", side_effect=fake_run):
             comments = doctor.fetch_comments("owner/repo", 1)
         self.assertEqual(len(comments), 101)
+
+    def test_assume_label_runs_leaf_done_checks(self) -> None:
+        issue = {
+            "body": fenced("demir-kit", leaf()),
+            "labels": [{"name": "executing"}],
+        }
+
+        def fake_run(command):
+            if "/comments" in command[-1]:
+                return "[]"
+            return json.dumps(issue)
+
+        with patch.object(doctor, "run", side_effect=fake_run):
+            doctor.check_issue(
+                1,
+                root=ROOT,
+                assume_labels={"leaf-done"},
+                drop_labels={"executing"},
+            )
+        self.assertTrue(any("evidence yok" in item for item in doctor.ERRORS))
 
     def test_human_qa_label_with_leaf_done_is_allowed(self) -> None:
         issue = {

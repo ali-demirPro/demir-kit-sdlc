@@ -1,5 +1,18 @@
 # Changelog
 
+## 2.5.0 — 2026-10-26
+
+- **Transition CLI** — `transition.py`/`transition.sh` T1–T9 geçişlerini tek
+  yazıcıya alır: hedef state'i doğrular, doctor preflight'ını hedef etiket
+  varsayımıyla çalıştırır, ancak sonra label delta'sını uygular. `--dry-run`
+  yazmaz; aynı hedefe geçiş no-op'tur.
+- **Doctor** — `--assume-label` / `--drop-label` eklendi; geçiş öncesi hedef
+  etiketle doğrulama yapılabilir.
+- **Claim** — `next-leaf --claim --issue N` belirli bir leaf'i kiralar;
+  `executing` geçişi buna delege edilir.
+- **Epic kabulü** — `epic-done` closure `pass` + `--accept` insan adı ister;
+  kabul `demir-kit-accept` yorumuyla kaydedilir.
+
 ## 2.4.0 — 2026-10-26
 
 - **Evidence v3** — `verification` bloğu: commit SHA, binary diff hash, CI sonucu

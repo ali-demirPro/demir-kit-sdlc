@@ -1,4 +1,4 @@
-# Delivery — v2.4
+# Delivery — v2.5
 
 Epic → leaf → kanıt → closure → epic kabulü. Tek runtime `delivery/`;
 arşiv `archive/v1.7/` yalnız referans içindir.
@@ -12,7 +12,7 @@ arşiv `archive/v1.7/` yalnız referans içindir.
 | [policies/](policies/approval.md) | Onay, path, kalite, eskalasyon, human-qa |
 | [runbooks/](runbooks/epic-intake.md) | Intake ve closure |
 | [schemas/](schemas/leaf.schema.json) | Epic, leaf, evidence, closure şemaları |
-| [scripts/](scripts/doctor.sh) | doctor, guard, next-leaf, evidence, install |
+| [scripts/](scripts/doctor.sh) | doctor, guard, next-leaf, transition, evidence, install |
 | `agents/`, `templates/`, `profiles/`, `packs/` | Roller ve kaynaklar |
 
 ## Komutlar
@@ -22,6 +22,7 @@ arşiv `archive/v1.7/` yalnız referans içindir.
 ./delivery/scripts/doctor.sh --issue 12 # seal + evidence
 ./delivery/scripts/next-leaf.sh --claim # sıradaki leaf + lease
 ./delivery/scripts/next-leaf.sh --release --issue N # bayat lease bırak
+./delivery/scripts/transition.sh --issue N --to leaf-done # tek yazıcı geçiş
 ./delivery/scripts/guard.sh --issue 12  # G1 + risk
 ./delivery/scripts/vendor_sync.sh --target ../Product --check
 ./delivery/scripts/vendor_sync.sh --target ../Product --apply

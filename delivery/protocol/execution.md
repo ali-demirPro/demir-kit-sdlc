@@ -110,9 +110,12 @@ Bu algoritma idempotenttir; aynı leaf iki kez yürütülse bile sonuç aynıdı
 Tüm CP'ler `pass` ve risk gate'leri tamam ise:
 
 ```bash
-./delivery/scripts/doctor.sh --issue <N>
-gh issue edit <N> --add-label leaf-done --remove-label executing
+./delivery/scripts/transition.sh --issue <N> --to leaf-done
 ```
+
+`transition.sh` doctor preflight'ını hedef etiket varsayımıyla çalıştırır;
+geçmezse etiket değiştirmez. Etiketleri elle `gh issue edit` ile değiştirmek
+contract ihlalidir.
 
 `high` / `critical` ise önce `human-qa` etiketi ve insan kararı gerekir.
 `low` / `medium` otomatik kapanır; insan spot-check yapar.
@@ -127,7 +130,24 @@ Epic seviyesinde otomatik closure başlar: `runbooks/epic-closure.md`.
 
 Orca komutları ve task spec kuralları: [orca.md](orca.md).
 
-## 8. Yasaklar
+## 8. State geçişleri
+
+Tüm geçişler tek yazıcıdan yapılır:
+
+```bash
+./delivery/scripts/transition.sh --issue N --to scope-confirmed
+./delivery/scripts/transition.sh --issue N --to agent-approved
+./delivery/scripts/transition.sh --issue N --to executing      # claim'e delege
+./delivery/scripts/transition.sh --issue N --to blocked --reason "…"
+./delivery/scripts/transition.sh --issue N --to deferred --reason "…" --issue-link "#…"
+./delivery/scripts/transition.sh --issue N --to leaf-done
+./delivery/scripts/transition.sh --issue N --to epic-reconcile
+./delivery/scripts/transition.sh --issue N --to epic-done --accept "ad"
+```
+
+`--dry-run` yalnız planı gösterir; `--json` makine çıktısı verir.
+
+## 9. Yasaklar
 
 - `leaf-done` olmadan closure başlatmak.
 - Evidence'sız CP'yi geçmiş saymak.

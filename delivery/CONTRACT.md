@@ -1,4 +1,4 @@
-# Delivery contract — v2.4
+# Delivery contract — v2.5
 
 Bu dosya delivery'nin **tek durum makinesi**dir. Agent, path ve risk verisi
 `registry.yaml`'da; artefakt şekilleri `schemas/` altında; uygulama
@@ -107,8 +107,8 @@ otomatik yükselir; agent düşüremez. Ayrıntı: `policies/quality-gates.md`.
   `package_version: 2` ise doğrulanabilir `verification` + evidence comment.
 - **Leaf:** tüm CP'ler + her AC en az bir test case ile kapsanmış + açık bulgu yok +
   risk `high`/`critical` ise insan QA + `leaf-done`.
-- **Epic:** tüm child'lar `leaf-done` veya `deferred` + closure `pass` + insan kabul +
-  metrikler yazıldı + `epic-done`.
+- **Epic:** tüm child'lar `leaf-done` veya `deferred` + closure `pass` +
+  `demir-kit-accept` insan kabulü + metrikler yazıldı + `epic-done`.
 
 ## Değişmezler
 
@@ -124,6 +124,7 @@ otomatik yükselir; agent düşüremez. Ayrıntı: `policies/quality-gates.md`.
 | I8 | Aynı duruma tekrar geçiş no-op; tamamlanan CP yeniden koşmaz. |
 | I9 | Contract değişikliği VERSION + CHANGELOG + doctor yeşili ister. |
 | I10 | İnsan kapısı yalnız: risk `high`/`critical` leaf, geri dönülemez işlem, epic kabul. |
+| I11 | Etiket geçişleri yalnız `scripts/transition.sh` ile yapılır; doğrudan etiket yazımı yasaktır. |
 
 ## Yürütme
 

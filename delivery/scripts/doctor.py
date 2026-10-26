@@ -77,6 +77,8 @@ REQUIRED_FILES = [
     "delivery/scripts/next-leaf.sh",
     "delivery/scripts/vendor_sync.py",
     "delivery/scripts/evidence.py",
+    "delivery/scripts/transition.py",
+    "delivery/scripts/transition.sh",
 ]
 
 AGENT_FILES = ["ROLE.md", "how.md", "communicates.md", "dependencies.md", "SKILL.md"]
@@ -788,7 +790,13 @@ def fetch_comments(repo: str, number: int, page_size: int = 100) -> list[dict]:
     return comments
 
 
-def check_issue(number: int, checkpoint: str | None = None, root: Path = ROOT) -> None:
+def check_issue(
+    number: int,
+    checkpoint: str | None = None,
+    root: Path = ROOT,
+    assume_labels: set[str] | None = None,
+    drop_labels: set[str] | None = None,
+) -> None:
     ecosystem = load_yaml(root / "ecosystem.yaml") or {}
     repo = (ecosystem.get("tracker") or {}).get("repo")
     if not repo:
@@ -801,7 +809,13 @@ def check_issue(number: int, checkpoint: str | None = None, root: Path = ROOT) -
     payload = json.loads(issue_raw)
     comments = fetch_comments(repo, number)
     labels = [item.get("name") for item in payload.get("labels", [])]
+    actual_labels = set(labels)
     label_set = set(labels)
+    if drop_labels:
+        label_set -= set(drop_labels)
+    if assume_labels:
+        label_set |= set(assume_labels)
+    labels = sorted(label_set)
     for left, right in (
         ("leaf-done", "executing"),
         ("leaf-done", "blocked"),
@@ -856,6 +870,30 @@ def check_issue(number: int, checkpoint: str | None = None, root: Path = ROOT) -
                 error(
                     f"issue #{number}: epic-done ama closure ready_for_human_qa true değil"
                 )
+
+    accept_blocks = re.findall(
+        r"```yaml\s+demir-kit-accept\s*\n(.*?)```",
+        "\n".join([payload.get("body", "")] + bodies),
+        re.S,
+    )
+    if "epic-done" in actual_labels:
+        if not accept_blocks:
+            error(f"issue #{number}: epic-done ama demir-kit-accept bloğu yok")
+        else:
+            try:
+                accept = yaml.safe_load(accept_blocks[-1]) or {}
+            except yaml.YAMLError as exc:
+                error(f"issue #{number}: kabul YAML geçersiz — {exc}")
+                accept = None
+            if not isinstance(accept, dict):
+                error(f"issue #{number}: kabul bloğu mapping değil")
+            else:
+                if accept.get("epic") != number:
+                    error(f"issue #{number}: kabul epic numarası eşleşmiyor")
+                if not str(accept.get("by") or "").strip():
+                    error(f"issue #{number}: kabul by alanı yok")
+                if accept.get("decision") != "accepted":
+                    error(f"issue #{number}: kabul decision accepted değil")
 
 
 def check_product(root: Path) -> None:
@@ -927,6 +965,18 @@ def main() -> int:
     parser.add_argument("--issue", type=int, help="seal + evidence doğrula")
     parser.add_argument("--body", type=Path, help="seal YAML içeren dosya")
     parser.add_argument("--checkpoint", help="behavior gate uyumu için (statik)")
+    parser.add_argument(
+        "--assume-label",
+        action="append",
+        default=[],
+        help="geçiş öncesi hedef etiketi varsay",
+    )
+    parser.add_argument(
+        "--drop-label",
+        action="append",
+        default=[],
+        help="geçiş öncesi kaldırılacak etiketi yok say",
+    )
     parser.add_argument("--verbose", action="store_true", help="tüm uyarıları göster")
     parser.add_argument("--product", action="store_true", help="ürün reposu kontrolleri")
     parser.add_argument("--root", type=Path, help="ürün kökü (--product)")
@@ -953,7 +1003,13 @@ def main() -> int:
         error(f"checkpoint '{args.checkpoint}' geçersiz (CP-n bekleniyor)")
 
     if args.issue:
-        check_issue(args.issue, args.checkpoint, product_root if args.product else ROOT)
+        check_issue(
+            args.issue,
+            args.checkpoint,
+            product_root if args.product else ROOT,
+            assume_labels=set(args.assume_label),
+            drop_labels=set(args.drop_label),
+        )
     if args.body:
         check_issue_body(
             args.body.read_text(encoding="utf-8"), [], None, checkpoint=args.checkpoint
