@@ -23,12 +23,15 @@ Sıra: en eski `createdAt` önce. Seçim sonucu issue numarasıdır.
 ./delivery/scripts/next-leaf.sh --claim
 ```
 
-Claim şunları yapar: `+executing`, assignee, `run: <id>` comment. Kalp atışı her CP
-sonunda evidence comment'idir.
+Claim şunları yapar: `run claim` lease comment'i (`lease_until`, 2 saat),
+`+executing`, assignee. Kalp atışı her CP sonunda evidence comment'idir.
 
-- Son kalp atışı > 2 saat ise claim bayatlar: `-executing`, `blocked` **değil**,
-  "stale claim released" comment. Sonraki tur devralır.
-- İki worker aynı leaf'e claim atamaz; ikincisi `executing` görüp çıkar.
+- Eşzamanlı iki claim varsa **en küçük comment ID** kazanır; kaybeden assignee'sini
+  bırakır ve sayı basmaz. Aynı leaf'e iki worker başlamaz.
+- Lease bayatlarsa `next-leaf --release --issue N` ile bırakılır; `executing` ve
+  assignee temizlenir, `run release` comment'i yazılır. Sonraki tur devralır.
+- `--force --reason "..."` yalnız lease'den sonra evidence varsa veya aktif iş
+  bilinçli bırakılıyorsa kullanılır; gerekçe comment'e yazılır.
 
 ## 3. Run
 
