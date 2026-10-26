@@ -133,6 +133,29 @@ otomatik yükselir; agent düşüremez. Ayrıntı: `policies/quality-gates.md`.
 - Blocker: `policies/escalation.md`
 - İnsan dili: `policies/human-communication.md`
 
+## İlerleme güncellemesi
+
+İş bir issue'ya bağlıysa timeline **issue yorumlarıdır**; ayrı dosya yok.
+Anlamlı dönüm noktalarında kısa Türkçe yorum yazılır:
+
+| An | İçerik |
+|----|--------|
+| T2 seal | ne mühürlendi, risk |
+| T3 claim | kim başladı, ilk adım |
+| CP / review sonu | ne oldu, karar veya sorun |
+| T4 leaf-done | ne bitti, sırada ne var |
+| T8 closure | epic için tek özet yorumu |
+
+Format: `## İlerleme — …`; **Kim / Ne oldu / Karar / Sorun / Sırada / Onay**.
+En fazla ~6 satır; teknik ID ana metinde yok. Onay gerekiyorsa `human-qa`.
+
+```bash
+python3 delivery/scripts/update.py --issue N --who developer --what "…" --next "…"
+```
+
+Onay isteniyorsa `--approval yes --ask "…"`. Issue yoksa komut stdout'a yazar;
+sohbet sonunda aynı özet verilir.
+
 ## Denetim
 
 ```bash

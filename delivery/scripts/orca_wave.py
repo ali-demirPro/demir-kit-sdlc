@@ -73,6 +73,47 @@ def attention_messages(messages: list[dict]) -> list[dict]:
     ]
 
 
+def summary_text(summary: dict) -> str:
+    total = len(summary.get("tasks") or [])
+    done = len(summary.get("done") or [])
+    missing = len(summary.get("missing") or [])
+    attention = len(summary.get("attention") or [])
+    duration = summary.get("duration_seconds")
+    suffix = f" ({duration}s)" if duration is not None else ""
+    if missing:
+        return f"{total} görevden {done} tamamlandı; {missing} eksik{suffix}."
+    if attention:
+        return f"{total} görevden {done} tamamlandı; insan kararı gerekiyor{suffix}."
+    return f"{total} worker paralel çalıştı; hepsi tamamlandı{suffix}."
+
+
+def notify_command(issue: int, summary: dict) -> list[str]:
+    command = [
+        sys.executable,
+        str(SCRIPTS / "update.py"),
+        "--issue",
+        str(issue),
+        "--kind",
+        "summary",
+        "--who",
+        "Orca wave",
+        "--what",
+        summary_text(summary),
+        "--decision",
+        "Bağımsız görevler aynı run'da paralel çalıştırıldı.",
+        "--next",
+        "Sonuçları issue'da inceleyin.",
+    ]
+    if summary.get("missing") or summary.get("attention"):
+        command += [
+            "--approval",
+            "yes",
+            "--ask",
+            "Eksik worker'ı inceleyip yeni bir dalga başlatalım mı?",
+        ]
+    return command
+
+
 def load_plan(args) -> dict:
     if args.from_json:
         return json.loads(Path(args.from_json).read_text(encoding="utf-8"))
@@ -113,6 +154,7 @@ def execute_wave(plan: dict, args) -> dict:
         orca(["orchestration", "run-create", "--objective", args.objective, "--json"])
     )["result"]["run"]
     run_id = run["id"]
+    started = time.monotonic()
 
     receipts = []
     for task in tasks:
@@ -196,6 +238,7 @@ def execute_wave(plan: dict, args) -> dict:
             {"type": item.get("type"), "subject": item.get("subject")} for item in attention
         ],
         "commands": [],
+        "duration_seconds": round(time.monotonic() - started),
     }
     return summary
 
@@ -206,6 +249,7 @@ def main() -> int:
     parser.add_argument("--from-json", help="plan-like JSON with tasks[]")
     parser.add_argument("--execute", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--notify", action="store_true", help="post one human summary comment")
     parser.add_argument("--objective", default="demir-kit wave")
     parser.add_argument("--agent", default="opencode2")
     parser.add_argument("--worktree", default="current")
@@ -219,6 +263,25 @@ def main() -> int:
 
     plan = load_plan(args)
     summary = execute_wave(plan, args)
+
+    if args.notify:
+        if not args.issue:
+            sys.exit("orca_wave: --notify requires --issue")
+        if args.dry_run:
+            message = "[notify skipped: dry-run] " + " ".join(notify_command(args.issue, summary))
+            print(message, file=sys.stderr if args.json else sys.stdout)
+        else:
+            result = subprocess.run(
+                notify_command(args.issue, summary),
+                cwd=ROOT,
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode != 0:
+                sys.exit(
+                    "orca_wave: human summary could not be posted — "
+                    + (result.stderr.strip() or result.stdout.strip())
+                )
 
     if args.json:
         print(json.dumps(summary, ensure_ascii=False, indent=2))

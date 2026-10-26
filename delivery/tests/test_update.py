@@ -1,0 +1,79 @@
+"""Tests for the human progress comment."""
+
+from __future__ import annotations
+
+import importlib.util
+import sys
+import unittest
+from datetime import datetime, timezone
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[2]
+SCRIPTS = ROOT / "delivery" / "scripts"
+sys.path.insert(0, str(SCRIPTS))
+
+spec = importlib.util.spec_from_file_location("update", SCRIPTS / "update.py")
+update = importlib.util.module_from_spec(spec)
+assert spec.loader is not None
+spec.loader.exec_module(update)
+
+NOW = datetime(2026, 10, 26, 15, 30, tzinfo=timezone.utc)
+
+
+class UpdateTests(unittest.TestCase):
+    def test_progress_comment(self) -> None:
+        body = update.render(
+            "progress",
+            "developer",
+            "Wave runner tamamlandı.",
+            decision="Önce dry-run yapıldı.",
+            problem="İlk agent seçimi yanlıştı.",
+            next_step="Epic kapanışı.",
+            now=NOW,
+        )
+        self.assertIn("## İlerleme — 2026-10-26 15:30 UTC", body)
+        self.assertIn("**Kim:** developer", body)
+        self.assertIn("**Ne oldu:** Wave runner tamamlandı.", body)
+        self.assertIn("**Karar:** Önce dry-run yapıldı.", body)
+        self.assertIn("**Sorun:** İlk agent seçimi yanlıştı.", body)
+        self.assertIn("**Sırada:** Epic kapanışı.", body)
+        self.assertIn("**Onay:** gerekmiyor", body)
+        self.assertNotIn("```", body)
+
+    def test_summary_comment(self) -> None:
+        body = update.render(
+            "summary",
+            "owner",
+            "Epic 6 tamamlandı.",
+            next_step="Yeni epic.",
+            approval=True,
+            ask="Kapanışı onaylıyor musun?",
+            now=NOW,
+        )
+        self.assertIn("## Özet —", body)
+        self.assertIn("**Ne bitti:** Epic 6 tamamlandı.", body)
+        self.assertIn("**Kalan:** Yeni epic.", body)
+        self.assertIn("**Onay:** gerekiyor — Kapanışı onaylıyor musun?", body)
+
+    def test_optional_fields_omitted(self) -> None:
+        body = update.render("progress", "ekip", "Bir şey oldu.", now=NOW)
+        self.assertNotIn("**Karar:**", body)
+        self.assertNotIn("**Sorun:**", body)
+        self.assertNotIn("**Sırada:**", body)
+        self.assertIn("**Onay:** gerekmiyor", body)
+
+    def test_line_count_stays_short(self) -> None:
+        body = update.render(
+            "progress",
+            "developer",
+            "Kısa.",
+            decision="Karar.",
+            problem="Sorun.",
+            next_step="Sırada.",
+            now=NOW,
+        )
+        self.assertLessEqual(len([line for line in body.splitlines() if line.strip()]), 8)
+
+
+if __name__ == "__main__":
+    unittest.main()

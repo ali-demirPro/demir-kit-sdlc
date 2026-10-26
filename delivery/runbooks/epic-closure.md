@@ -63,10 +63,22 @@ ready_for_human_qa: true
 - Doğrulama: `doctor.sh --issue <epic>` closure bloğunu (issue body veya comment)
   şemaya göre denetler. `epic-done` öncesi çalıştır.
 
-## 5 — İnsan kabulü
+## 5 — İnsan özeti ve kabul
 
-[policies/human-qa-done.md](../policies/human-qa-done.md) epic bölümü → label
-**`epic-done`**.
+Closure `pass` sonrası epic issue'suna **tek** insan dili özet yorumu yazılır:
+
+```bash
+python3 delivery/scripts/update.py --issue <epic> --kind summary \
+  --who orchestrator --what "Ne bitti" --decision "Ana karar" \
+  --problem "Sorun / yok" --next "Kalan iş" \
+  --approval yes --ask "Epic'i kapatıyor muyuz?"
+```
+
+- Alanlar: **Ne bitti / Karar / Sorun / Kalan / Onay**.
+- Onay satırı zorunlu; `--approval yes` `human-qa` etiketini ekler.
+- Aynı özet sohbet sonunda da verilir.
+- İnsan onayı: [human-qa-done](../policies/human-qa-done.md) epic bölümü →
+  label **`epic-done`**.
 
 ## Kurallar
 

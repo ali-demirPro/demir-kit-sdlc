@@ -64,6 +64,8 @@ python3 delivery/scripts/orca_wave.py --issue <N> --execute --json
   messages. Process the whole batch, acknowledge it once, then wait again.
 - Release each settled dispatch; leave a missing worker for inspection.
 - Dependencies belong to a later wave, not to a pending task in this one.
+- `--notify --issue N` posts one short human summary (no task/dispatch IDs) after
+  the wave; if anything is missing it requests approval.
 
 ## Evidence
 

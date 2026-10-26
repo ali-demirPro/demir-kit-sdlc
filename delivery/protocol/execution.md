@@ -114,6 +114,12 @@ gh issue edit <N> --add-label leaf-done --remove-label executing
 `high` / `critical` ise önce `human-qa` etiketi ve insan kararı gerekir.
 `low` / `medium` otomatik kapanır; insan spot-check yapar.
 
+Kapanışta kısa bir ilerleme yorumu yaz:
+
+```bash
+python3 delivery/scripts/update.py --issue N --who developer --what "Leaf kapandı" --next "Epic kapanışı"
+```
+
 Epic seviyesinde otomatik closure başlar: `runbooks/epic-closure.md`.
 
 Orca komutları ve task spec kuralları: [orca.md](orca.md).

@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import importlib.util
+import io
 import json
 import sys
+import types
 import unittest
 from pathlib import Path
 
@@ -62,6 +65,120 @@ class WaveTests(unittest.TestCase):
         self.assertEqual(command[:4], ["orca", "orchestration", "worker-start", "--spec"])
         self.assertIn("opencode2", command)
         self.assertIn("current", command)
+
+    def test_summary_text_all_done(self) -> None:
+        summary = {
+            "tasks": [{"id": "A"}, {"id": "B"}],
+            "done": ["ctx_a", "ctx_b"],
+            "missing": [],
+            "attention": [],
+            "duration_seconds": 12,
+        }
+        text = orca_wave.summary_text(summary)
+        self.assertIn("2 worker", text)
+        self.assertIn("12s", text)
+        self.assertNotIn("ctx_", text)
+
+    def test_summary_text_missing(self) -> None:
+        summary = {
+            "tasks": [{"id": "A"}, {"id": "B"}],
+            "done": ["ctx_a"],
+            "missing": ["ctx_b"],
+            "attention": [],
+            "duration_seconds": 5,
+        }
+        text = orca_wave.summary_text(summary)
+        self.assertIn("1 eksik", text)
+        command = orca_wave.notify_command(25, summary)
+        self.assertIn("update.py", " ".join(command))
+        self.assertIn("--approval", command)
+        self.assertNotIn("ctx_b", " ".join(command))
+
+    def test_notify_command_no_ids(self) -> None:
+        summary = {
+            "tasks": [{"id": "A"}],
+            "done": ["ctx_a"],
+            "missing": [],
+            "attention": [],
+            "duration_seconds": 3,
+        }
+        command = orca_wave.notify_command(25, summary)
+        joined = " ".join(command)
+        self.assertIn("--issue", command)
+        self.assertIn("25", command)
+        self.assertIn("--kind", command)
+        self.assertIn("summary", command)
+        self.assertNotIn("ctx_a", joined)
+
+
+class NotifyTests(unittest.TestCase):
+    SUMMARY = {
+        "dry_run": False,
+        "run_id": "run_x",
+        "tasks": [{"id": "A"}],
+        "done": ["ctx_a"],
+        "missing": [],
+        "attention": [],
+        "commands": [],
+        "duration_seconds": 3,
+    }
+
+    def run_main(self, argv, summary=None):
+        original_load = orca_wave.load_plan
+        original_execute = orca_wave.execute_wave
+        original_run = orca_wave.subprocess.run
+        original_argv = sys.argv
+        calls = []
+
+        def fake_run(command, **kwargs):
+            calls.append(command)
+            return types.SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        orca_wave.load_plan = lambda args: {"tasks": [{"id": "A"}]}
+        orca_wave.execute_wave = lambda plan, args: summary or self.SUMMARY
+        orca_wave.subprocess.run = fake_run
+        sys.argv = ["orca_wave.py", *argv]
+        try:
+            with contextlib.redirect_stdout(io.StringIO()) as out, contextlib.redirect_stderr(
+                io.StringIO()
+            ):
+                code = orca_wave.main()
+        finally:
+            orca_wave.load_plan = original_load
+            orca_wave.execute_wave = original_execute
+            orca_wave.subprocess.run = original_run
+            sys.argv = original_argv
+        return code, calls, out.getvalue()
+
+    def test_notify_off_by_default(self) -> None:
+        code, calls, _ = self.run_main(["--issue", "25", "--execute", "--json"])
+        self.assertEqual(code, 0)
+        self.assertEqual(calls, [])
+
+    def test_notify_posts_one_summary(self) -> None:
+        code, calls, _ = self.run_main(["--issue", "25", "--execute", "--notify", "--json"])
+        self.assertEqual(code, 0)
+        self.assertEqual(len(calls), 1)
+        command = calls[0]
+        self.assertIn("update.py", " ".join(command))
+        self.assertIn("--kind", command)
+        self.assertIn("summary", command)
+
+    def test_notify_requires_issue(self) -> None:
+        with self.assertRaises(SystemExit):
+            self.run_main(["--notify", "--execute", "--json"])
+
+    def test_notify_dry_run_does_not_post(self) -> None:
+        code, calls, _ = self.run_main(
+            ["--issue", "25", "--notify", "--dry-run", "--json"]
+        )
+        self.assertEqual(code, 0)
+        self.assertEqual(calls, [])
+
+    def test_notify_json_stdout_is_clean(self) -> None:
+        _, _, output = self.run_main(["--issue", "25", "--execute", "--notify", "--json"])
+        json.loads(output)
+        self.assertNotIn("[notify", output)
 
     def test_dry_run_json_has_commands(self) -> None:
         plan = {

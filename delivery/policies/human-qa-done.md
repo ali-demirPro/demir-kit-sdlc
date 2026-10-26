@@ -27,7 +27,8 @@ Epic closure raporu (`runbooks/epic-closure.md`) **geçtikten sonra**:
 | 3 | Gereksiz / yanlış iş (revert önerisi) |
 | 4 | Tüm leaf'ler `leaf-done` veya bilinçli `deferred` |
 | 5 | Metrikler (lead time, gate retry, insan müdahalesi) |
-| 6 | Karar → **`epic-done`** |
+| 6 | İnsan özeti: ne bitti / karar / sorun / kalan / onay |
+| 7 | Karar → **`epic-done`** |
 
 ## Şablon (issue comment)
 
@@ -39,7 +40,15 @@ Epic closure raporu (`runbooks/epic-closure.md`) **geçtikten sonra**:
 **Kanıt:** …
 **Follow-up:** #… / yok
 **Risk:** …
+**Onay:** gerekiyor / gerekmiyor — …
 **Karar:** leaf-done | epic-done | düzelt #N
 ```
 
 Türkçe, kısa, jargon yok ([escalation.md](escalation.md)).
+
+## İlerleme yorumları
+
+- Her anlamlı adımda `update.py` ile kısa yorum yazılır
+  ([CONTRACT](../CONTRACT.md#i̇lerleme-güncellemesi)).
+- Onay satırı her yorumda bulunur; onay gerekiyorsa `human-qa` etiketi eklenir.
+- Teknik ID’ler ana metne değil, yalnız gerekiyorsa dipnota yazılır.

@@ -60,6 +60,18 @@ Docs are Turkish with English headings, labels and YAML keys. User-facing text:
 short Turkish, max two sentences, no jargon (checkpoint, gate, YAML, worktree) —
 see `delivery/policies/human-communication.md`.
 
+## Observability
+
+- Timeline = GitHub issue comments. Do **not** add timeline markdown files to the repo.
+- Post a short Turkish update at seal, claim, CP/review result, leaf-done and epic
+  closure: `python3 delivery/scripts/update.py --issue N --who … --what …`.
+- Every update has an explicit `Onay:` line; request approval with
+  `--approval yes --ask "…"` (adds `human-qa`).
+- Epic closure: post one `--kind summary` comment (what finished, decisions,
+  problems, remaining, approval) and repeat the same summary in chat.
+- End a work session with the same summary in chat.
+- Never log chain-of-thought, prompts or secrets; only outcomes, decisions and problems.
+
 ## Verification
 
 `./delivery/scripts/doctor.sh --strict` before finishing (0 warnings). CI strict is
