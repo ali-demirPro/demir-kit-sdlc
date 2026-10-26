@@ -10,6 +10,7 @@
     "demir_kit_version": { "const": "2" },
     "cp_id": { "type": "string", "pattern": "^CP-[0-9]+$" },
     "issue": { "type": "integer", "minimum": 1 },
+    "agent": { "type": "string", "minLength": 2 },
     "commit": { "type": "string" },
     "behavior": {
       "type": "object",

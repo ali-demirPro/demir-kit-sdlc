@@ -11,6 +11,7 @@ demir-kit-evidence
 demir_kit_version: "2"
 cp_id: CP-1
 issue: 12
+agent: developer
 commit: abc1234
 behavior:
   command: ./delivery/scripts/doctor.sh --checkpoint CP-1
@@ -35,6 +36,8 @@ status: pass
 ## Kurallar
 
 - `status: pass` için behavior `exit_code: 0` ve tüm testler `pass` olmalı (şema zorlar).
+- `agent`: CP'yi üreten rol (`developer`, `tester`, …). Yeni evidence'larda zorunlu;
+  eski kayıtlarda yoksa doctor uyarı verir.
 - Risk seviyesinin istediği reviewer alanları dolu olmalı; atlanan gate `skipped` yazar.
 - Açık bulgu (`findings[].status: open`) varsa `status: pass` olamaz.
 - Comment issue'ya `gh issue comment <N> --body-file` ile yazılır.

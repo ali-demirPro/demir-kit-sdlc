@@ -82,6 +82,7 @@ def evidence(**overrides) -> dict:
         "demir_kit_version": "2",
         "cp_id": "CP-1",
         "issue": 8,
+        "agent": "developer",
         "behavior": {"command": "true", "exit_code": 0},
         "reviews": {
             "architect": "skipped",
@@ -174,6 +175,21 @@ class EvidenceTests(DoctorTestCase):
             ["```yaml demir-kit-evidence\n- not-a-mapping\n```\n"],
         )
         self.assertTrue(any("mapping değil" in item for item in doctor.ERRORS))
+
+    def test_inactive_agent_blocks_pass(self) -> None:
+        self.run_leaf_done(evidence(agent="designer"))
+        self.assertTrue(any("aktif değil" in item for item in doctor.ERRORS))
+
+    def test_on_demand_agent_allowed(self) -> None:
+        self.run_leaf_done(evidence(agent="architect"))
+        self.assertEqual(doctor.ERRORS, [])
+
+    def test_missing_agent_warns(self) -> None:
+        record = evidence()
+        record.pop("agent")
+        self.run_leaf_done(record)
+        self.assertEqual(doctor.ERRORS, [])
+        self.assertTrue(any("agent alanı yok" in item for item in doctor.WARNS))
 
 
 class ClosureTests(DoctorTestCase):

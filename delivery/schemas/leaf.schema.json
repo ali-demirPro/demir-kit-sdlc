@@ -39,7 +39,9 @@
       "type": "object",
       "properties": {
         "profile": { "type": "string", "minLength": 1 },
-        "pilot_mode": { "type": "boolean" }
+        "pilot_mode": { "type": "boolean" },
+        "stacks": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "distribution": { "type": "array", "items": { "type": "string", "minLength": 1 } }
       },
       "additionalProperties": false
     },

@@ -22,6 +22,10 @@ import subprocess
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import routing  # noqa: E402
+
 try:
     import yaml
 except ImportError:  # pragma: no cover
@@ -525,6 +529,9 @@ def check_issue_body(
     except yaml.YAMLError as exc:
         error(f"issue: seal YAML geçersiz — {exc}")
         return
+    if not isinstance(data, dict):
+        error("issue seal: kök mapping değil")
+        return
 
     schema = load_json(DELIVERY / "schemas" / "leaf.schema.json")
     if schema:
@@ -589,6 +596,15 @@ def check_issue_body(
         (profile or {}).get("platform_packs") or (profile or {}).get("extra_gates")
     )
 
+    registry = load_yaml(DELIVERY / "registry.yaml") or {}
+    path_id, signal = routing.detect_path(registry, "", body, data)
+    path_agents = routing.resolve_agents(registry, path_id, signal)
+    allowed_agents = (
+        set(path_agents["active"])
+        | set(path_agents["on_demand"])
+        | set(path_agents["optional"])
+    )
+
     if "leaf-done" in labels and comments is not None:
         evidence_schema = load_json(DELIVERY / "schemas" / "evidence.schema.json")
         evidence: dict[str, dict] = {}
@@ -608,6 +624,13 @@ def check_issue_body(
                 error("evidence: cp_id yok")
                 continue
             evidence[record["cp_id"]] = record
+            agent = record.get("agent")
+            if not agent:
+                warn(f"{record['cp_id']}: evidence agent alanı yok")
+            elif agent not in allowed_agents:
+                error(
+                    f"{record['cp_id']}: agent '{agent}' bu path'te aktif değil ({path_id})"
+                )
             if evidence_schema:
                 for message in validate_schema(
                     record, evidence_schema, f"{record['cp_id']}.evidence"
