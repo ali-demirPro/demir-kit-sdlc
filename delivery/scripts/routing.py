@@ -38,6 +38,18 @@ def project_root(kit_root: Path, cwd: Path | None = None) -> Path:
     return current if (current / "kit.config.yaml").is_file() else kit_root
 
 
+def kit_prefix(kit_root: Path, cwd: Path | None = None) -> str:
+    project = project_root(kit_root, cwd)
+    if project == kit_root:
+        return ""
+    try:
+        config = yaml.safe_load((project / "kit.config.yaml").read_text(encoding="utf-8")) or {}
+    except (FileNotFoundError, yaml.YAMLError):
+        config = {}
+    root = str((config.get("kit") or {}).get("root") or "demir-kit").strip("/")
+    return f"{root}/" if root else ""
+
+
 def load_registry(root: Path) -> dict:
     path = root / "delivery" / "registry.yaml"
     data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
@@ -186,11 +198,11 @@ def inactive_agents(registry: dict, agents: dict) -> list[dict]:
     ]
 
 
-def role_docs(role: str) -> list[str]:
+def role_docs(role: str, prefix: str = "") -> list[str]:
     if role == "orchestrator":
-        base = "delivery/orchestrator"
+        base = f"{prefix}delivery/orchestrator"
     else:
-        base = f"delivery/agents/{role}"
+        base = f"{prefix}delivery/agents/{role}"
     return [f"{base}/{name}" for name in ("ROLE.md", "how.md", "communicates.md", "dependencies.md", "SKILL.md")]
 
 

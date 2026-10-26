@@ -39,7 +39,14 @@ def repo_name() -> str:
     return repo
 
 
-def build_plan(registry: dict, issue: int, title: str, body: str, labels: set[str]) -> dict:
+def build_plan(
+    registry: dict,
+    issue: int,
+    title: str,
+    body: str,
+    labels: set[str],
+    prefix: str = "",
+) -> dict:
     seal = routing.seal_body(body)
     if not seal:
         raise ValueError("issue seal (`demir-kit` bloğu) yok")
@@ -58,22 +65,23 @@ def build_plan(registry: dict, issue: int, title: str, body: str, labels: set[st
         cp_id = cp.get("id")
         gates = cp.get("gates") or {}
         role = "designer" if gates.get("ui") else "developer"
-        docs = "\n".join(f"- {item}" for item in routing.role_docs(role))
+        docs = "\n".join(f"- {item}" for item in routing.role_docs(role, prefix))
         deps = [f"task:{item}" for item in cp.get("depends_on") or []]
         spec = (
             f"demir-kit #{issue} {cp_id}: {cp.get('title', '')}\n"
             f"Target: issue #{issue}, epic #{epic}, surfaces: {surfaces}\n"
             f"Role: {role}\n"
             f"Read:\n{docs}\n"
-            f"- delivery/CONTRACT.md\n"
-            f"- delivery/policies/quality-gates.md\n"
+            f"- {prefix}delivery/CONTRACT.md\n"
+            f"- {prefix}delivery/policies/quality-gates.md\n"
             f"Change: implement only {cp_id} for this sealed leaf.\n"
             f"Ownership: edit only files required by {cp_id}; never touch other CPs, "
             f"the contract, CI or another agent's files. Surfaces: {surfaces}.\n"
             f"Constraints: no work outside issue #{issue}; do not self-approve; "
             f"do not touch other CPs; risk is {risk}.\n"
-            f"Acceptance: `./delivery/scripts/doctor.sh --issue {issue} --checkpoint {cp_id}` "
-            f"exit 0, then post evidence with agent: {role}.\n"
+            f"Acceptance: `./{prefix}delivery/scripts/doctor.sh"
+            + (" --product --root ." if prefix else "")
+            + f" --issue {issue} --checkpoint {cp_id}` exit 0, then post evidence with agent: {role}.\n"
         )
         tasks.append(
             {
@@ -124,6 +132,7 @@ def main() -> int:
             payload.get("title", ""),
             payload.get("body", "") or "",
             labels,
+            routing.kit_prefix(ROOT),
         )
     except ValueError as exc:
         sys.exit(f"orca_plan: {exc}")

@@ -7,6 +7,7 @@ import json
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -55,7 +56,17 @@ class OrcaPlanTests(unittest.TestCase):
         self.assertIn(
             "doctor.sh --issue 17 --checkpoint CP-1", first["spec"]
         )
+        self.assertNotIn("--product", first["spec"])
         self.assertIn("delivery/agents/designer/SKILL.md", second["spec"])
+
+    def test_product_prefix(self) -> None:
+        plan = orca_plan.build_plan(
+            REGISTRY, 35, "Product", BODY, {"agent-approved"}, prefix="demir-kit/"
+        )
+        spec = plan["tasks"][0]["spec"]
+        self.assertIn("demir-kit/delivery/CONTRACT.md", spec)
+        self.assertIn("demir-kit/delivery/agents/developer/SKILL.md", spec)
+        self.assertIn("--product --root .", spec)
 
     def test_write_plan(self) -> None:
         plan = orca_plan.build_plan(
@@ -84,6 +95,23 @@ class OrcaPlanTests(unittest.TestCase):
             sort_keys=True,
         )
         self.assertEqual(first, second)
+
+    def test_main_passes_product_prefix(self) -> None:
+        captured = {}
+
+        def fake_build(registry, issue, title, body, labels, prefix=""):
+            captured["prefix"] = prefix
+            return {"issue": issue, "title": title, "tasks": [], "path_id": "x"}
+
+        with patch.object(orca_plan, "repo_name", return_value="owner/product"), patch.object(
+            orca_plan, "gh", return_value=json.dumps({"title": "t", "body": "b", "labels": []})
+        ), patch.object(orca_plan.routing, "kit_prefix", return_value="demir-kit/"), patch.object(
+            orca_plan, "build_plan", fake_build
+        ), patch.object(
+            sys, "argv", ["orca_plan.py", "35", "--json"]
+        ):
+            orca_plan.main()
+        self.assertEqual(captured["prefix"], "demir-kit/")
 
     def test_leaf_without_checkpoints(self) -> None:
         body = "```yaml demir-kit\nsurfaces: [kit.docs]\ncheckpoints: []\n```"

@@ -136,6 +136,13 @@ class RoutingTests(unittest.TestCase):
         self.assertIn("no-op", routing.next_action({"leaf-done"}, False))
         self.assertIn("epic kapandı", routing.next_action({"epic-done"}, True))
 
+    def test_kit_prefix(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "kit.config.yaml").write_text("kit:\n  root: demir-kit\n")
+            self.assertEqual(routing.kit_prefix(Path("/kit"), root), "demir-kit/")
+            self.assertEqual(routing.kit_prefix(root, root), "")
+
     def test_project_root(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -163,6 +170,12 @@ class BriefTests(unittest.TestCase):
         self.assertIn("delivery/agents/developer/ROLE.md", data["docs"])
         self.assertIn("health-check", data["next_action"])
         self.assertTrue(any(item["id"] == "designer" for item in data["inactive"]))
+
+    def test_brief_product_prefix(self) -> None:
+        data = brief.build_brief(
+            REGISTRY, 35, "Product", seal(), {"agent-approved"}, prefix="demir-kit/"
+        )
+        self.assertIn("demir-kit/delivery/agents/developer/ROLE.md", data["docs"])
 
     def test_build_brief_for_epic(self) -> None:
         body = "```yaml demir-kit-epic\ndemir_kit_version: \"2\"\n```\n"

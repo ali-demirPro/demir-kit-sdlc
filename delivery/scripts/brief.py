@@ -39,7 +39,14 @@ def repo_name() -> str:
     return repo
 
 
-def build_brief(registry: dict, number: int, title: str, body: str, labels: set[str]) -> dict:
+def build_brief(
+    registry: dict,
+    number: int,
+    title: str,
+    body: str,
+    labels: set[str],
+    prefix: str = "",
+) -> dict:
     seal = routing.seal_body(body)
     epic = routing.is_epic(body) or ("scope-confirmed" in labels and not seal)
     path_id, signal = routing.detect_path(registry, title, body, seal)
@@ -48,7 +55,7 @@ def build_brief(registry: dict, number: int, title: str, body: str, labels: set[
     docs_roles = agents["active"] + agents["on_demand"]
     docs: list[str] = []
     for role in docs_roles:
-        docs.extend(routing.role_docs(role))
+        docs.extend(routing.role_docs(role, prefix))
 
     return {
         "issue": number,
@@ -146,6 +153,7 @@ def main() -> int:
         issue.get("title", ""),
         issue.get("body", "") or "",
         labels,
+        routing.kit_prefix(ROOT),
     )
 
     if args.json:
