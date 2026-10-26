@@ -67,8 +67,9 @@ see `delivery/policies/human-communication.md`.
   closure: `python3 delivery/scripts/update.py --issue N --who … --what …`.
 - Every update has an explicit `Onay:` line; request approval with
   `--approval yes --ask "…"` (adds `human-qa`).
-- Epic closure: post one `--kind summary` comment (what finished, decisions,
-  problems, remaining, approval) and repeat the same summary in chat.
+- Epic closure: post a detailed `report.py` comment (who, process, duration,
+  cost/tokens, decisions, problems, evidence) and then the short `--kind summary`
+  comment; repeat the short summary in chat.
 - End a work session with the same summary in chat.
 - Never log chain-of-thought, prompts or secrets; only outcomes, decisions and problems.
 

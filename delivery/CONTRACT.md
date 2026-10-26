@@ -144,7 +144,7 @@ Anlamlı dönüm noktalarında kısa Türkçe yorum yazılır:
 | T3 claim | kim başladı, ilk adım |
 | CP / review sonu | ne oldu, karar veya sorun |
 | T4 leaf-done | ne bitti, sırada ne var |
-| T8 closure | epic için tek özet yorumu |
+| T8 closure | detaylı iş raporu (`report.py`) + kısa onay notu |
 
 Format: `## İlerleme — …`; **Kim / Ne oldu / Karar / Sorun / Sırada / Onay**.
 En fazla ~6 satır; teknik ID ana metinde yok. Onay gerekiyorsa `human-qa`.

@@ -27,8 +27,9 @@ Epic closure raporu (`runbooks/epic-closure.md`) **geçtikten sonra**:
 | 3 | Gereksiz / yanlış iş (revert önerisi) |
 | 4 | Tüm leaf'ler `leaf-done` veya bilinçli `deferred` |
 | 5 | Metrikler (lead time, gate retry, insan müdahalesi) |
-| 6 | İnsan özeti: ne bitti / karar / sorun / kalan / onay |
-| 7 | Karar → **`epic-done`** |
+| 6 | Detaylı iş raporu: kim / süreç / süre / maliyet / karar / sorun / kanıt |
+| 7 | Kısa onay notu: ne bitti / karar / sorun / kalan / onay |
+| 8 | Karar → **`epic-done`** |
 
 ## Şablon (issue comment)
 
