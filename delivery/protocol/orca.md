@@ -28,16 +28,20 @@ observable acceptance (`doctor.sh --issue N --checkpoint CP-x`).
 
 ```bash
 orca orchestration run-create --objective "demir-kit #N" --json
-orca orchestration worker-start --spec "<spec>" --worktree current --agent opencode --json
+orca orchestration worker-start --spec "<spec>" --worktree current --agent opencode2 --json
 orca orchestration check --wait --types worker_done,escalation,question --timeout-ms 900000 --json
 orca orchestration worker-release --dispatch <dispatch_id> --json
 ```
 
+On this host the working launcher is `opencode2`; `opencode` may be disabled.
+`--name`, `--setup` and `--repo` are new-worktree options — with
+`--worktree current` Orca rejects them.
+
 Rules:
 
 - `worker-start --spec` creates the Task and attempt; capture `taskId` and
-  `dispatchId` from the receipt. `--setup` is only for new worktrees; Orca
-  rejects it with `--worktree current`.
+  `dispatchId` from the receipt. `--setup`/`--name` are only for new worktrees;
+  Orca rejects them with `--worktree current`.
 - Workers send `worker_done` themselves (injected preamble); never encode success
   only in prose.
 - A timeout is a checkpoint, not a failure. Inspect `worker-list` before acting.
@@ -52,8 +56,8 @@ Record the Orca identity in the evidence block:
 worker:
   run_id: run_…
   task_id: task_…
-  dispatch_id: dispatch_…
-  agent: opencode
+  dispatch_id: ctx_…
+  agent: opencode2
   outcome: succeeded
 ```
 

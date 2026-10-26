@@ -191,6 +191,24 @@ class EvidenceTests(DoctorTestCase):
         self.assertEqual(doctor.ERRORS, [])
         self.assertTrue(any("agent alanı yok" in item for item in doctor.WARNS))
 
+    def test_worker_block_valid(self) -> None:
+        record = evidence(
+            worker={
+                "run_id": "run_x",
+                "task_id": "task_x",
+                "dispatch_id": "ctx_x",
+                "agent": "opencode2",
+                "outcome": "succeeded",
+            }
+        )
+        self.assertEqual(doctor.validate_schema(record, EVIDENCE_SCHEMA), [])
+
+    def test_worker_block_bad_outcome(self) -> None:
+        record = evidence(
+            worker={"run_id": "run_x", "task_id": "task_x", "outcome": "unknown"}
+        )
+        self.assertTrue(doctor.validate_schema(record, EVIDENCE_SCHEMA))
+
 
 class ClosureTests(DoctorTestCase):
     def closure(self, **overrides) -> dict:

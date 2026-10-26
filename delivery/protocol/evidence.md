@@ -25,6 +25,12 @@ reviews:
   platform: skipped
   adversarial: { reviewer_a: approved, reviewer_b: approved }
   risk: medium
+worker:
+  run_id: run_…
+  task_id: task_…
+  dispatch_id: ctx_…
+  agent: opencode2
+  outcome: succeeded
 tests:
   - { case: T-1, result: pass, note: doküman kontrolü }
 findings: []
