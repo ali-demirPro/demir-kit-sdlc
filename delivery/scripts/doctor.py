@@ -479,6 +479,8 @@ def validate_schema(instance, schema, path: str = "$") -> list[str]:
     if isinstance(instance, list):
         if "minItems" in schema and len(instance) < schema["minItems"]:
             errors.append(f"{path}: en az {schema['minItems']} öğe")
+        if "maxItems" in schema and len(instance) > schema["maxItems"]:
+            errors.append(f"{path}: en fazla {schema['maxItems']} öğe")
         if "items" in schema:
             for index, item in enumerate(instance):
                 errors += validate_schema(item, schema["items"], f"{path}[{index}]")
