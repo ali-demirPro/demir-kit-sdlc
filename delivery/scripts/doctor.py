@@ -67,6 +67,7 @@ REQUIRED_FILES = [
     "delivery/protocol/seal.md",
     "delivery/protocol/health-check.md",
     "delivery/protocol/evidence.md",
+    "delivery/protocol/orca.md",
     "delivery/policies/quality-gates.md",
     "delivery/policies/escalation.md",
     "delivery/metrics/README.md",

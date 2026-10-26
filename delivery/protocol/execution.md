@@ -116,6 +116,8 @@ gh issue edit <N> --add-label leaf-done --remove-label executing
 
 Epic seviyesinde otomatik closure başlar: `runbooks/epic-closure.md`.
 
+Orca komutları ve task spec kuralları: [orca.md](orca.md).
+
 ## 8. Yasaklar
 
 - `leaf-done` olmadan closure başlatmak.
