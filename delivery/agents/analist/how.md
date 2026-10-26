@@ -46,3 +46,10 @@ Checkbox listesi. Gherkin yalnızca kritik akış (ödeme, kayıt, izin).
 ## Success signal (opsiyonel)
 - …
 ```
+
+## Contract
+- **Input:** epic body, children, reference, tests_plan.
+- **Output:** `## Product analysis` / `## Scope gap` comment, AC ↔ test mapping.
+- **Done when:** `status: ready`; every AC mapped.
+- **Forbidden:** code, seal, `epic-done`.
+- **Handoff:** orchestrator (plan), tester (AC frozen).

@@ -5,3 +5,10 @@
 3. Her CP: testi önce yaz (red), sonra uygula (green).
 4. Gate: `doctor.sh --issue N --checkpoint CP-x` exit 0.
 5. Evidence yaz ([evidence](../../protocol/evidence.md)); tester'a bildir.
+
+## Contract
+- **Input:** sealed leaf, `tests_plan`, reference.
+- **Output:** code + behavior evidence.
+- **Done when:** gate exit 0; scope respected.
+- **Forbidden:** scope expansion, self-approval.
+- **Handoff:** tester.

@@ -513,6 +513,21 @@ def validate_schema(instance, schema, path: str = "$") -> list[str]:
     return errors
 
 
+def check_role_contracts() -> None:
+    check("role contracts")
+    registry = load_yaml(DELIVERY / "registry.yaml") or {}
+    roles = registry.get("role_order_default") if isinstance(registry, dict) else []
+    if not isinstance(roles, list) or not roles:
+        error("registry.role_order_default boş")
+        return
+    for role in roles:
+        path = DELIVERY / "agents" / role / "how.md"
+        if not path.is_file():
+            error(f"{rel(path)}: yok")
+        elif "## Contract" not in path.read_text(encoding="utf-8"):
+            error(f"{rel(path)}: ## Contract eksik")
+
+
 def check_issue_body(
     body: str,
     labels: list[str],
@@ -772,6 +787,7 @@ def main() -> int:
     check_version()
     check_ecosystem()
     check_skills()
+    check_role_contracts()
 
     if args.checkpoint and args.checkpoint != "CP-HEALTH" and not re.match(
         r"^CP-[0-9]+$", args.checkpoint
