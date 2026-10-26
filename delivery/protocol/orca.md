@@ -48,6 +48,23 @@ Rules:
 - Release only after an accepted settlement.
 - Read-only smoke first; coding workers only on sealed leaves.
 
+## Parallel waves
+
+Start every independent task before waiting; do not serialize tasks that have no
+dependency.
+
+```bash
+python3 delivery/scripts/orca_wave.py --issue <N> --execute --json
+```
+
+- `--dry-run` (default) prints the exact `run-create` + `worker-start` commands.
+- `--from-json` accepts a plan-like `{tasks: [{id, spec, deps}]}` for smoke or
+  custom waves.
+- `check --wait` may return a batch with one **or several** `worker_done`
+  messages. Process the whole batch, acknowledge it once, then wait again.
+- Release each settled dispatch; leave a missing worker for inspection.
+- Dependencies belong to a later wave, not to a pending task in this one.
+
 ## Evidence
 
 Record the Orca identity in the evidence block:
