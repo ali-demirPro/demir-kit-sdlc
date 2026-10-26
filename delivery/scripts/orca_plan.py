@@ -31,7 +31,8 @@ def gh(args: list[str]) -> str:
 
 
 def repo_name() -> str:
-    ecosystem = yaml.safe_load((ROOT / "ecosystem.yaml").read_text(encoding="utf-8")) or {}
+    project = routing.project_root(ROOT)
+    ecosystem = yaml.safe_load((project / "ecosystem.yaml").read_text(encoding="utf-8")) or {}
     repo = (ecosystem.get("tracker") or {}).get("repo")
     if not repo:
         sys.exit("orca_plan: ecosystem.yaml tracker.repo yok")

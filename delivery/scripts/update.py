@@ -21,10 +21,13 @@ from pathlib import Path
 import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import routing  # noqa: E402
 
 
 def repo_name() -> str:
-    ecosystem = yaml.safe_load((ROOT / "ecosystem.yaml").read_text(encoding="utf-8")) or {}
+    project = routing.project_root(ROOT)
+    ecosystem = yaml.safe_load((project / "ecosystem.yaml").read_text(encoding="utf-8")) or {}
     repo = (ecosystem.get("tracker") or {}).get("repo")
     if not repo:
         sys.exit("update: ecosystem.yaml tracker.repo yok")

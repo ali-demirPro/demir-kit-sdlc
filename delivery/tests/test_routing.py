@@ -5,6 +5,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -134,6 +135,15 @@ class RoutingTests(unittest.TestCase):
         self.assertIn("resume", routing.next_action({"executing"}, False))
         self.assertIn("no-op", routing.next_action({"leaf-done"}, False))
         self.assertIn("epic kapandı", routing.next_action({"epic-done"}, True))
+
+    def test_project_root(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "kit.config.yaml").write_text("kit:\n  root: demir-kit\n")
+            self.assertEqual(routing.project_root(Path("/kit"), root), root)
+            other = root / "other"
+            other.mkdir()
+            self.assertEqual(routing.project_root(Path("/kit"), other), Path("/kit"))
 
     def test_human_gates(self) -> None:
         self.assertIn("leaf QA (high)", routing.human_gates("high", False))

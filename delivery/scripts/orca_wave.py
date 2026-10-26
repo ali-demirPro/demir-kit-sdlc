@@ -20,6 +20,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPTS = Path(__file__).resolve().parent
+sys.path.insert(0, str(SCRIPTS))
+import routing  # noqa: E402
+
+PROJECT = routing.project_root(ROOT)
 
 
 def orca(args: list[str]) -> str:
@@ -122,7 +126,7 @@ def load_plan(args) -> dict:
     output = subprocess.check_output(
         [sys.executable, str(SCRIPTS / "orca_plan.py"), str(args.issue), "--json"],
         text=True,
-        cwd=ROOT,
+        cwd=PROJECT,
     )
     return json.loads(output)
 
@@ -273,7 +277,7 @@ def main() -> int:
         else:
             result = subprocess.run(
                 notify_command(args.issue, summary),
-                cwd=ROOT,
+                cwd=PROJECT,
                 capture_output=True,
                 text=True,
             )

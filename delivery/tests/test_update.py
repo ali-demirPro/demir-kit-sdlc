@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import importlib.util
 import sys
+import tempfile
 import unittest
+from unittest.mock import patch
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -61,6 +63,13 @@ class UpdateTests(unittest.TestCase):
         self.assertNotIn("**Sorun:**", body)
         self.assertNotIn("**Sırada:**", body)
         self.assertIn("**Onay:** gerekmiyor", body)
+
+    def test_repo_name_uses_project_root(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "ecosystem.yaml").write_text("tracker:\n  repo: owner/product\n")
+            with patch.object(update.routing, "project_root", return_value=root):
+                self.assertEqual(update.repo_name(), "owner/product")
 
     def test_line_count_stays_short(self) -> None:
         body = update.render(

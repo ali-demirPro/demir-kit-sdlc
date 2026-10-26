@@ -15,6 +15,10 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPTS = Path(__file__).resolve().parent
+sys.path.insert(0, str(SCRIPTS))
+import routing  # noqa: E402
+
+PROJECT = routing.project_root(ROOT)
 
 
 def gh(args: list[str]) -> str:
@@ -36,7 +40,7 @@ def parse_time(value: str | None) -> datetime | None:
 
 
 def repo_name() -> str:
-    ecosystem = yaml.safe_load((ROOT / "ecosystem.yaml").read_text(encoding="utf-8")) or {}
+    ecosystem = yaml.safe_load((PROJECT / "ecosystem.yaml").read_text(encoding="utf-8")) or {}
     repo = (ecosystem.get("tracker") or {}).get("repo")
     if not repo:
         sys.exit("report: ecosystem.yaml tracker.repo yok")
@@ -130,6 +134,7 @@ def collect_usage(since: datetime, until: datetime) -> dict:
             ],
             text=True,
             stderr=subprocess.DEVNULL,
+            cwd=PROJECT,
         )
         return json.loads(raw)
     except Exception:  # noqa: BLE001
@@ -152,7 +157,7 @@ def collect_commits(since: datetime, until: datetime) -> list[str]:
                 "--pretty=format:%h %s",
             ],
             text=True,
-            cwd=ROOT,
+            cwd=PROJECT,
         )
     except subprocess.CalledProcessError:
         return []

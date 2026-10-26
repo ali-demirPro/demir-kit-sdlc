@@ -10,6 +10,7 @@ import json
 import sys
 import types
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -175,10 +176,45 @@ class NotifyTests(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual(calls, [])
 
+    def test_notify_uses_project_cwd(self) -> None:
+        calls = []
+        original = (orca_wave.load_plan, orca_wave.execute_wave, orca_wave.subprocess.run)
+        original_argv = sys.argv
+
+        def fake_run(command, **kwargs):
+            calls.append(kwargs)
+            return types.SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        orca_wave.load_plan = lambda args: {"tasks": [{"id": "A"}]}
+        orca_wave.execute_wave = lambda plan, args: self.SUMMARY
+        orca_wave.subprocess.run = fake_run
+        sys.argv = ["orca_wave.py", "--issue", "25", "--execute", "--notify", "--json"]
+        try:
+            with patch.object(orca_wave, "PROJECT", Path("/tmp/product")):
+                with contextlib.redirect_stdout(io.StringIO()):
+                    orca_wave.main()
+        finally:
+            orca_wave.load_plan, orca_wave.execute_wave, orca_wave.subprocess.run = original
+            sys.argv = original_argv
+        self.assertEqual(calls[0]["cwd"], Path("/tmp/product"))
+
     def test_notify_json_stdout_is_clean(self) -> None:
         _, _, output = self.run_main(["--issue", "25", "--execute", "--notify", "--json"])
         json.loads(output)
         self.assertNotIn("[notify", output)
+
+    def test_load_plan_uses_project_cwd(self) -> None:
+        captured = {}
+
+        def fake(args, **kwargs):
+            captured.update(kwargs)
+            return json.dumps({"tasks": []})
+
+        with patch.object(orca_wave, "PROJECT", Path("/tmp/product")), patch.object(
+            orca_wave.subprocess, "check_output", fake
+        ):
+            orca_wave.load_plan(argparse.Namespace(from_json=None, issue=33))
+        self.assertEqual(captured["cwd"], Path("/tmp/product"))
 
     def test_dry_run_json_has_commands(self) -> None:
         plan = {

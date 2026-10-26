@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import importlib.util
 import sys
+import tempfile
 import unittest
+from unittest.mock import patch
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -90,6 +92,32 @@ class ReportTests(unittest.TestCase):
         self.assertIn("abc123 test commit", text)
         self.assertIn("**Onay:** gerekiyor", text)
         self.assertNotIn("```yaml", text)
+
+    def test_repo_name_uses_project(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "ecosystem.yaml").write_text("tracker:\n  repo: owner/product\n")
+            with patch.object(report, "PROJECT", root):
+                self.assertEqual(report.repo_name(), "owner/product")
+
+    def test_collect_commits_uses_project(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            captured = {}
+
+            def fake(args, **kwargs):
+                captured.update(kwargs)
+                return "abc commit"
+
+            with patch.object(report, "PROJECT", root), patch.object(
+                report.subprocess, "check_output", fake
+            ):
+                commits = report.collect_commits(
+                    datetime(2026, 10, 26, tzinfo=timezone.utc),
+                    datetime(2026, 10, 27, tzinfo=timezone.utc),
+                )
+            self.assertEqual(commits, ["abc commit"])
+            self.assertEqual(captured["cwd"], root)
 
     def test_report_marks_unavailable_cost(self) -> None:
         usage = {

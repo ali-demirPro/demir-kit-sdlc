@@ -14,6 +14,11 @@ ROOT = Path(__file__).resolve().parents[2]
 BIN = "opencode2"
 
 
+def project_root(cwd: Path | None = None) -> Path:
+    current = Path(cwd) if cwd else Path.cwd()
+    return current if (current / "kit.config.yaml").is_file() else ROOT
+
+
 def parse_time(value: str | None, default: datetime) -> datetime:
     if not value:
         return default
@@ -99,9 +104,10 @@ def collect(since: datetime, until: datetime) -> dict:
     except FileNotFoundError:
         sys.exit(f"usage: {BIN} bulunamadı")
 
+    project = project_root()
     rows = []
     for session in sessions:
-        if session.get("directory") != str(ROOT):
+        if session.get("directory") != str(project):
             continue
         if session.get("updated", 0) < since_ms or session.get("created", 0) > until_ms:
             continue

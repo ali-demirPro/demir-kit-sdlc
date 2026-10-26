@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -61,6 +62,12 @@ class UsageTests(unittest.TestCase):
         result = usage.summarize_export({"info": {"time": {}}, "messages": []}, 0, 1)
         self.assertEqual(result["confidence"], "unavailable")
         self.assertIsNone(result["cost"])
+
+    def test_project_root_uses_cwd_with_kit_config(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "kit.config.yaml").write_text("kit:\n  root: demir-kit\n")
+            self.assertEqual(usage.project_root(root), root)
 
     def test_render_marks_unavailable(self) -> None:
         data = {

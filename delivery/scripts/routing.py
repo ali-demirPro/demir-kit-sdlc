@@ -33,6 +33,11 @@ INACTIVE_REASONS = {
 }
 
 
+def project_root(kit_root: Path, cwd: Path | None = None) -> Path:
+    current = Path(cwd) if cwd else Path.cwd()
+    return current if (current / "kit.config.yaml").is_file() else kit_root
+
+
 def load_registry(root: Path) -> dict:
     path = root / "delivery" / "registry.yaml"
     data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
