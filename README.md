@@ -1,6 +1,6 @@
 # demir-kit
 
-**2.2.0** — Delivery-first agent system. Runtime `delivery/`; v1 arşivi `old/`.
+**2.2.0** — Delivery-first agent system. Runtime `delivery/`; v1 arşivi `archive/v1.7/`.
 
 ## Yapı
 
@@ -9,7 +9,7 @@
 | `delivery/` | Sözleşme, protokol, roller, şemalar, scriptler |
 | `skills/` | v2 yürütme skill'leri |
 | `discovery/` | Sonraki faz (growth/plan stub) |
-| v1 arşivi: `old/` | Legacy 1.x — runtime referansı üretilmez |
+| v1 arşivi: `archive/v1.7/` | Legacy 1.x — runtime referansı üretilmez |
 
 ## Delivery (özet)
 

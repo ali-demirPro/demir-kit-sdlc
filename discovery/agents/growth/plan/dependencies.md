@@ -1,7 +1,7 @@
 # Dependencies
 
-discovery-approved; discovery-brief (old/).
+discovery-approved; discovery-brief (archive/v1.7/).
 
 ## Legacy
 
-old/skills/product-strategy, gtm-lite
+archive/v1.7/skills/product-strategy, gtm-lite

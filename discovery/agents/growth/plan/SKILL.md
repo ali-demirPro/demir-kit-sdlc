@@ -5,4 +5,4 @@ description: Discovery growth — funnels and experiment backlog.
 
 # growth/plan
 
-old/references/templates/product/analytics-growth.md
+archive/v1.7/references/templates/product/analytics-growth.md

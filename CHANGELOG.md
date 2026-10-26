@@ -20,7 +20,7 @@
 - **CI** — `.github/workflows/doctor.yml` strict modda (push + pull_request).
 - **Metrics** — `delivery/metrics/README.md`; closure altı metriği zorunlu,
   aylık retro döngüsü tanımlı.
-- `old/` arşiv; `delivery/` runtime'ı arşive referans vermez.
+- `archive/v1.7/` arşiv; `delivery/` runtime'ı arşive referans vermez.
 
 ## 2.1.1 — 2026-10-13
 

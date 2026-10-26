@@ -23,7 +23,7 @@
 ## Legacy (referans)
 
 - `delivery/runbooks/epic-intake.md` — F0–F1 kapsam disiplini (delivery’de analist sürdürür).
-- Arşiv (faz 4): `old/references/minimum-viable-output.md` — issue body disiplini.
+- Arşiv (faz 4): `archive/v1.7/references/minimum-viable-output.md` — issue body disiplini.
 
 ## Çıktılar
 

@@ -9,4 +9,4 @@ Read: `ROLE.md`, `dependencies.md`, `communicates.md`, `how.md`.
 
 ## Execute
 
-`delivery/policies/quality-gates.md` (ui) · arşiv: old/skills/design-md, ui-gate
+`delivery/policies/quality-gates.md` (ui) · arşiv: archive/v1.7/skills/design-md, ui-gate

@@ -4,7 +4,7 @@ Bu dosya delivery'nin **tek durum makinesi**dir. Agent, path ve risk verisi
 `registry.yaml`'da; artefakt şekilleri `schemas/` altında; uygulama
 `scripts/doctor.sh` ile denetlenir.
 
-Eski v1 yürütmesi arşivdedir (`old/`). Yeni runtime yalnızca `delivery/`,
+Eski v1 yürütmesi arşivdedir (`archive/v1.7/`). Yeni runtime yalnızca `delivery/`,
 `skills/`, `schemas/` ve `scripts/` üzerinden çalışır.
 
 ## Artefaktlar

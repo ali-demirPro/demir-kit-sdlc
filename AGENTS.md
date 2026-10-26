@@ -26,7 +26,7 @@ Scripts are bash wrappers over `python3` (PyYAML required). There is no `make`.
 | Path | Role |
 |------|------|
 | `delivery/` | Active runtime: contract, protocol, policies, agents, schemas, scripts |
-| v1 archive: `old/` | Legacy 1.x — never reference it as runtime; move paths when touching a file |
+| v1 archive: `archive/v1.7/` | Legacy 1.x — never reference it as runtime; move paths when touching a file |
 | `skills/` | v2 runtime skills, installed by `./install.sh` |
 | `discovery/` | Stub for the next phase (`growth/plan` only) |
 | `ecosystem.yaml`, `kit.config.yaml` | Self-host wiring; this repo is its own product |

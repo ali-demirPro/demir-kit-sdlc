@@ -1,7 +1,7 @@
 # Delivery — v2.2
 
 Epic → leaf → kanıt → closure → epic kabulü. Tek runtime `delivery/`;
-arşiv `old/` yalnız referans içindir.
+arşiv `archive/v1.7/` yalnız referans içindir.
 
 | Dosya | Ne |
 |-------|-----|

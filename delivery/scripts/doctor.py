@@ -81,7 +81,7 @@ PATH_PREFIXES = (
     "profiles/",
     "packs/",
     "skills/",
-    "old/",
+    "archive/",
 )
 LINK_RE = re.compile(r"\[[^\]]*\]\(([^)\s]+)\)")
 TICK_RE = re.compile(r"`([A-Za-z0-9_./-]+)`")
@@ -284,16 +284,12 @@ def check_links() -> None:
             target = match.group(1)
             if target.startswith(("http://", "https://", "mailto:", "#")):
                 continue
-            if target.startswith("old/"):
-                continue
             resolved = resolve_target(path, target)
             if resolved is not None and not resolved.exists():
                 error(f"{rel(path)}: kırık link — {target}")
 
         for match in TICK_RE.finditer(text):
             target = match.group(1)
-            if target.startswith("old/"):
-                continue
             if not target.startswith(PATH_PREFIXES):
                 continue
             if "." not in target.rsplit("/", 1)[-1]:
@@ -322,14 +318,14 @@ def check_legacy(verbose: bool) -> None:
 
     for path in targets:
         for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
-            match = re.search(r"(?<![A-Za-z0-9_])old/", line)
+            match = re.search(r"(?<![A-Za-z0-9_])(?:old/|archive/)", line)
             if match is None:
                 continue
             prefix = line[max(0, match.start() - 40) : match.start()]
             if not re.search(r"arşiv|archive", prefix, re.I):
                 hits.append(f"{rel(path)}:{number}")
     if hits:
-        warn(f"{len(hits)} runtime referansı arşive (`old/`) kaldı — dokunulan dosyada yeni yola geçir")
+        warn(f"{len(hits)} runtime referansı arşive (`archive/v1.7/`) kaldı — dokunulan dosyada yeni yola geçir")
         if verbose:
             for hit in hits:
                 print(f"  · {hit}")

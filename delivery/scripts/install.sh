@@ -77,9 +77,9 @@ if [[ ${#SKILLS[@]} -eq 0 ]]; then
 fi
 
 if [[ "$LEGACY" == true ]]; then
-  SRC="file://${ROOT}/old"
-  SKILL_ROOT="${ROOT}/old/skills"
-  echo "WARNING: --legacy selected; installing the v1 archive from old/." >&2
+  SRC="file://${ROOT}/archive/v1.7"
+  SKILL_ROOT="${ROOT}/archive/v1.7/skills"
+  echo "WARNING: --legacy selected; installing the v1 archive from archive/v1.7/." >&2
 else
   if [[ ! -e "$ROOT/.git" ]]; then
     echo "install.sh: ${ROOT} is not a git checkout root (no .git)." >&2
