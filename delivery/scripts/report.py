@@ -164,7 +164,7 @@ def collect_commits(since: datetime, until: datetime) -> list[str]:
     return [line for line in output.splitlines() if line.strip()]
 
 
-def build_report(issue: dict, children: list[dict], usage: dict, commits: list[str]) -> str:
+def build_report(issue: dict, children: list[dict], usage: dict, commits: list[str], start=None, end=None) -> str:
     all_items = [issue] + children
     agents = sorted(
         {
@@ -188,10 +188,12 @@ def build_report(issue: dict, children: list[dict], usage: dict, commits: list[s
         if (record.get("reviews") or {}).get("adversarial", {}).get("reviewer_a") == "approved"
     )
 
-    starts = [parse_ts(item.get("created_at")) for item in all_items]
-    ends = [parse_ts(item.get("updated_at")) for item in all_items]
-    start = min((item for item in starts if item), default=None)
-    end = max((item for item in ends if item), default=None)
+    if not start:
+        starts = [parse_ts(item.get("created_at")) for item in all_items]
+        start = min((item for item in starts if item), default=None)
+    if not end:
+        ends = [parse_ts(item.get("updated_at")) for item in all_items]
+        end = max((item for item in ends if item), default=None)
 
     who = []
     if agents:
@@ -296,7 +298,7 @@ def main() -> int:
 
     usage = collect_usage(start, end)
     commits = collect_commits(start, end)
-    report = build_report(epic, children, usage, commits)
+    report = build_report(epic, children, usage, commits, start, end)
 
     if args.json:
         print(json.dumps({"issue": args.issue, "report": report, "usage": usage, "commits": commits}, ensure_ascii=False, indent=2))
