@@ -130,6 +130,22 @@ class ReportTests(unittest.TestCase):
         text = report.build_report(issue(), [], usage, [], start, end)
         self.assertIn("**Süre:** 16:05–16:20 UTC · 15 dk", text)
 
+    def test_report_shows_epic_delta(self) -> None:
+        usage = {
+            "totals": {"sessions": 0, "input": 0, "output": 0, "cache_read": 0, "cost": None, "measured_sessions": 0, "confidence": "partial"},
+            "sessions": [],
+            "unavailable": [],
+        }
+        delta = {
+            "cost": 0.01,
+            "tokens": {"input": 100, "output": 10},
+            "duration_seconds": 60,
+            "confidence": "exact",
+        }
+        text = report.build_report(issue(), [], usage, [], delta=delta)
+        self.assertIn("Ana oturum (epic): $0.0100", text)
+        self.assertIn("100 in / 10 out", text)
+
     def test_report_shows_session_total(self) -> None:
         usage = {
             "totals": {

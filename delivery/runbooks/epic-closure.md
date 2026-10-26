@@ -88,7 +88,8 @@ python3 delivery/scripts/report.py --issue <epic> --post
   kararlar, sorunlar, kanıt.
 - Teknik ID'ler `<details>` içinde; ana metin insan dili.
 - Maliyet ölçülemediyse “ölçülemedi” yazar; tahmin edilmez.
-- Ana oturum toplamı epic'e atfedilemiyorsa ayrı satırda gösterilir.
+- Claim snapshot'ı varsa **ana oturum (epic)** delta'sı; yoksa ana oturum
+  toplamı ayrı satırda gösterilir.
 
 - Aynı kısa özet sohbet sonunda da verilir.
 - İnsan onayı: [human-qa-done](../policies/human-qa-done.md) epic bölümü →

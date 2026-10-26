@@ -146,6 +146,26 @@ def collect_usage(since: datetime, until: datetime) -> dict:
         }
 
 
+def collect_delta(issue: int) -> dict | None:
+    try:
+        raw = subprocess.check_output(
+            [
+                sys.executable,
+                str(SCRIPTS / "usage.py"),
+                "--delta",
+                "--issue",
+                str(issue),
+                "--json",
+            ],
+            text=True,
+            cwd=PROJECT,
+            stderr=subprocess.DEVNULL,
+        )
+        return json.loads(raw)
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def collect_commits(since: datetime, until: datetime) -> list[str]:
     try:
         output = subprocess.check_output(
@@ -164,7 +184,15 @@ def collect_commits(since: datetime, until: datetime) -> list[str]:
     return [line for line in output.splitlines() if line.strip()]
 
 
-def build_report(issue: dict, children: list[dict], usage: dict, commits: list[str], start=None, end=None) -> str:
+def build_report(
+    issue: dict,
+    children: list[dict],
+    usage: dict,
+    commits: list[str],
+    start=None,
+    end=None,
+    delta: dict | None = None,
+) -> str:
     all_items = [issue] + children
     agents = sorted(
         {
@@ -256,7 +284,14 @@ def build_report(issue: dict, children: list[dict], usage: dict, commits: list[s
         f"{totals.get('input', 0):,} in / {totals.get('output', 0):,} out · "
         f"{totals.get('cache_read', 0):,} cache · {cost_text}"
     )
-    if totals.get("session_total_cost") is not None:
+    if delta:
+        tokens = delta.get("tokens") or {}
+        lines.append(
+            f"Ana oturum (epic): ${delta.get('cost', 0):.4f} · "
+            f"{tokens.get('input', 0):,} in / {tokens.get('output', 0):,} out · "
+            f"{delta.get('duration_seconds', 0)}s"
+        )
+    elif totals.get("session_total_cost") is not None:
         lines.append(
             f"Ana oturum toplamı: ${totals['session_total_cost']:.4f} "
             f"({totals.get('session_total_sessions', 0)} oturum; epic'e atfedilemedi)"
@@ -303,7 +338,7 @@ def main() -> int:
 
     usage = collect_usage(start, end)
     commits = collect_commits(start, end)
-    report = build_report(epic, children, usage, commits, start, end)
+    report = build_report(epic, children, usage, commits, start, end, collect_delta(args.issue))
 
     if args.json:
         print(json.dumps({"issue": args.issue, "report": report, "usage": usage, "commits": commits}, ensure_ascii=False, indent=2))

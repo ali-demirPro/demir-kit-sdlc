@@ -70,6 +70,8 @@ see `delivery/policies/human-communication.md`.
 - Epic closure: post the short `--kind summary` comment first (so decisions and
   problems are captured), then the detailed `report.py` comment; repeat the
   short summary in chat.
+- Claim snapshots the main session cost (`.orchestration/usage-N.json`); the
+  closure report shows the epic delta, not the whole-session total.
 - End a work session with the same summary in chat.
 - Never log chain-of-thought, prompts or secrets; only outcomes, decisions and problems.
 

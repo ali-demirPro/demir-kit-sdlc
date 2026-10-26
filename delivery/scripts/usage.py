@@ -5,8 +5,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -101,6 +103,85 @@ def api_session_info(session_id: str) -> dict:
     if not isinstance(data, dict):
         raise ValueError("session info missing")
     return data
+
+
+def snapshot_path(issue: int, project: Path | None = None) -> Path:
+    project = project or project_root()
+    return project / ".orchestration" / f"usage-{issue}.json"
+
+
+def current_session(project: Path | None = None) -> dict:
+    project = project or project_root()
+    sessions = json.loads(
+        run([BIN, "session", "list", "-n", "200", "--format", "json"])
+    )
+    candidates = [row for row in sessions if row.get("directory") == str(project)]
+    if not candidates:
+        raise ValueError("no session in project")
+    env_id = os.environ.get("OPENCODE_SESSION_ID")
+    if env_id:
+        for row in candidates:
+            if row.get("id") == env_id:
+                return row
+    now_ms = time.time() * 1000
+    recent = [row for row in candidates if row.get("updated", 0) >= now_ms - 3_600_000]
+    pool = recent or candidates
+    return max(
+        pool,
+        key=lambda row: row.get("updated", 0) - row.get("created", 0),
+    )
+
+
+def write_snapshot(issue: int) -> dict:
+    project = project_root()
+    session = current_session(project)
+    info = api_session_info(session["id"])
+    data = {
+        "issue": issue,
+        "session_id": session["id"],
+        "cost": info.get("cost"),
+        "tokens": info.get("tokens"),
+        "time": info.get("time"),
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    path = snapshot_path(issue, project)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    return data
+
+
+def read_snapshot(issue: int) -> dict | None:
+    path = snapshot_path(issue)
+    if not path.is_file():
+        return None
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def compute_delta(snapshot: dict, current: dict) -> dict:
+    if snapshot.get("session_id") != current.get("id"):
+        raise ValueError("session mismatch")
+    snap_tokens = token_totals(snapshot.get("tokens"))
+    cur_tokens = token_totals(current.get("tokens"))
+    snap_time = (snapshot.get("time") or {}).get("updated") or 0
+    cur_time = (current.get("time") or {}).get("updated") or 0
+    return {
+        "session_id": current.get("id"),
+        "cost": round(max(0.0, float(current.get("cost") or 0) - float(snapshot.get("cost") or 0)), 6),
+        "tokens": {
+            key: max(0, cur_tokens[key] - snap_tokens[key])
+            for key in ("input", "output", "reasoning", "cache_read", "cache_write")
+        },
+        "duration_seconds": round(max(0, cur_time - snap_time) / 1000, 1),
+        "confidence": "exact",
+    }
+
+
+def session_delta(issue: int) -> dict:
+    snapshot = read_snapshot(issue)
+    if not snapshot:
+        raise ValueError("no snapshot")
+    current = api_session_info(snapshot["session_id"])
+    return compute_delta(snapshot, current)
 
 
 def collect(since: datetime, until: datetime) -> dict:
@@ -235,7 +316,20 @@ def main() -> int:
     parser.add_argument("--until")
     parser.add_argument("--hours", type=float, default=24)
     parser.add_argument("--json", action="store_true")
+    parser.add_argument("--snapshot", action="store_true")
+    parser.add_argument("--delta", action="store_true")
+    parser.add_argument("--issue", type=int)
     args = parser.parse_args()
+
+    if args.snapshot or args.delta:
+        if not args.issue:
+            sys.exit("usage: --snapshot/--delta requires --issue")
+        try:
+            data = write_snapshot(args.issue) if args.snapshot else session_delta(args.issue)
+        except (ValueError, SystemExit, json.JSONDecodeError) as exc:
+            sys.exit(f"usage: {exc}")
+        print(json.dumps(data, ensure_ascii=False, indent=2))
+        return 0
 
     until = parse_time(args.until, datetime.now(timezone.utc))
     since = parse_time(args.since, until - timedelta(hours=args.hours))

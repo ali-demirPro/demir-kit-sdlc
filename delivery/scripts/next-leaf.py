@@ -9,6 +9,7 @@ import re
 import subprocess
 import sys
 from datetime import datetime, timezone
+from pathlib import Path
 
 import yaml
 
@@ -137,6 +138,23 @@ def main() -> int:
                     f"run claim: `{run_id}`\n\nEpic: #{first['epic']} · risk: {first['risk']}",
                 ]
             )
+            snapshot = subprocess.run(
+                [
+                    sys.executable,
+                    str(Path(__file__).resolve().parent / "usage.py"),
+                    "--snapshot",
+                    "--issue",
+                    str(first["number"]),
+                ],
+                cwd=Path.cwd(),
+                capture_output=True,
+                text=True,
+            )
+            if snapshot.returncode != 0:
+                print(
+                    f"next-leaf: usage snapshot skipped — {snapshot.stderr.strip()}",
+                    file=sys.stderr,
+                )
             print(f"claimed #{first['number']} ({run_id})", file=sys.stderr)
     return 0
 
