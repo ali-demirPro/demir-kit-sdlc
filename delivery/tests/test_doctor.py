@@ -209,6 +209,33 @@ class EvidenceTests(DoctorTestCase):
         )
         self.assertTrue(doctor.validate_schema(record, EVIDENCE_SCHEMA))
 
+    def test_workers_array_valid(self) -> None:
+        record = evidence(
+            workers=[
+                {
+                    "run_id": "run_x",
+                    "task_id": "task_a",
+                    "dispatch_id": "ctx_a",
+                    "agent": "opencode2",
+                    "outcome": "succeeded",
+                },
+                {
+                    "run_id": "run_x",
+                    "task_id": "task_b",
+                    "dispatch_id": "ctx_b",
+                    "agent": "opencode2",
+                    "outcome": "succeeded",
+                },
+            ]
+        )
+        self.assertEqual(doctor.validate_schema(record, EVIDENCE_SCHEMA), [])
+
+    def test_workers_array_requires_dispatch(self) -> None:
+        record = evidence(
+            workers=[{"run_id": "run_x", "task_id": "task_a", "agent": "opencode2"}]
+        )
+        self.assertTrue(doctor.validate_schema(record, EVIDENCE_SCHEMA))
+
 
 class ClosureTests(DoctorTestCase):
     def closure(self, **overrides) -> dict:

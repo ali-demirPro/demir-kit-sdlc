@@ -39,6 +39,14 @@ status: pass
 ```
 ````
 
+Paralel wave'lerde aynı alanları `workers:` listesi olarak yaz:
+
+```yaml
+workers:
+  - { run_id: run_…, task_id: task_…, dispatch_id: ctx_…, agent: opencode2, outcome: succeeded }
+  - { run_id: run_…, task_id: task_…, dispatch_id: ctx_…, agent: opencode2, outcome: succeeded }
+```
+
 ## Kurallar
 
 - `status: pass` için behavior `exit_code: 0` ve tüm testler `pass` olmalı (şema zorlar).

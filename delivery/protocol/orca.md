@@ -78,6 +78,14 @@ worker:
   outcome: succeeded
 ```
 
+For a parallel wave use a `workers:` list with one entry per dispatch.
+
+```yaml
+workers:
+  - { run_id: run_…, task_id: task_…, dispatch_id: ctx_…, agent: opencode2, outcome: succeeded }
+  - { run_id: run_…, task_id: task_…, dispatch_id: ctx_…, agent: opencode2, outcome: succeeded }
+```
+
 ## Degrade mode
 
 No Orca → single-pane protocol in [execution.md](execution.md). The same gates,
