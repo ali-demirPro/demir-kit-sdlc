@@ -22,6 +22,8 @@ arşiv `archive/v1.7/` yalnız referans içindir.
 ./delivery/scripts/doctor.sh --issue 12 # seal + evidence
 ./delivery/scripts/next-leaf.sh --claim # sıradaki leaf
 ./delivery/scripts/guard.sh --issue 12  # G1 + risk
+./delivery/scripts/vendor_sync.sh --target ../Product --check
+./delivery/scripts/vendor_sync.sh --target ../Product --apply
 ./install.sh --with-platform            # Orca skill kurulumu
 ```
 

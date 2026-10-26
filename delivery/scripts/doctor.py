@@ -74,6 +74,7 @@ REQUIRED_FILES = [
     "delivery/metrics/README.md",
     "delivery/scripts/guard.sh",
     "delivery/scripts/next-leaf.sh",
+    "delivery/scripts/vendor_sync.py",
 ]
 
 AGENT_FILES = ["ROLE.md", "how.md", "communicates.md", "dependencies.md", "SKILL.md"]
