@@ -79,6 +79,9 @@ REQUIRED_FILES = [
     "delivery/scripts/evidence.py",
     "delivery/scripts/transition.py",
     "delivery/scripts/transition.sh",
+    ".github/workflows/issue-doctor.yml",
+    ".github/pull_request_template.md",
+    "delivery/runbooks/pr-flow.md",
 ]
 
 AGENT_FILES = ["ROLE.md", "how.md", "communicates.md", "dependencies.md", "SKILL.md"]

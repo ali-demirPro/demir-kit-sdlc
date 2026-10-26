@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.6.0 — 2026-10-26
+
+- **Issue doctor** — `.github/workflows/issue-doctor.yml` issue açıldığında,
+  düzenlendiğinde veya state etiketi değiştiğinde `doctor.sh --issue N` çalıştırır;
+  `scope-confirmed`, `agent-approved`, `leaf-done`, `epic-done` durumlarını denetler.
+- **PR akışı** — `.github/pull_request_template.md` ve `delivery/runbooks/pr-flow.md`
+  eklendi: zorunlu kontroller, merge commit kuralı, branch protection insan adımı.
+- **Doctor** — issue workflow, PR şablonu ve PR runbook'u zorunlu dosyalara eklendi;
+  workflow/şablon/runbook statik testlerle doğrulanır.
+
 ## 2.5.0 — 2026-10-26
 
 - **Transition CLI** — `transition.py`/`transition.sh` T1–T9 geçişlerini tek

@@ -1,0 +1,38 @@
+name: issue-doctor
+
+on:
+  issues:
+    types: [opened, edited, labeled, unlabeled, reopened]
+
+permissions:
+  contents: read
+  issues: read
+  actions: read
+
+concurrency:
+  group: issue-doctor-${{ github.event.issue.number }}
+  cancel-in-progress: true
+
+jobs:
+  doctor:
+    name: issue-doctor
+    runs-on: ubuntu-latest
+    if: >-
+      contains(github.event.issue.labels.*.name, 'scope-confirmed') ||
+      contains(github.event.issue.labels.*.name, 'agent-approved') ||
+      contains(github.event.issue.labels.*.name, 'leaf-done') ||
+      contains(github.event.issue.labels.*.name, 'epic-done')
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: python3 -m pip install --disable-pip-version-check "pyyaml==6.*"
+      - name: Issue doctor
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash ./delivery/scripts/doctor.sh --issue ${{ github.event.issue.number }}
