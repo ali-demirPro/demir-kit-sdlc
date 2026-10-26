@@ -6,7 +6,14 @@
 #   ./delivery/scripts/guard.sh --staged
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+KIT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+PRODUCT_ROOT="${PRODUCT_ROOT:-$(git -C "${PWD}" rev-parse --show-toplevel 2>/dev/null || pwd)}"
+if [[ -f "${PRODUCT_ROOT}/kit.config.yaml" ]]; then
+  ROOT="${PRODUCT_ROOT}"
+else
+  ROOT="${KIT_ROOT}"
+fi
 cd "$ROOT"
 
 ISSUE=""
@@ -31,9 +38,12 @@ done < <(
 import yaml
 try:
     config = yaml.safe_load(open("kit.config.yaml")) or {}
-    paths = (config.get("factory") or {}).get("app_paths") or ["delivery", "skills"]
 except FileNotFoundError:
-    paths = ["delivery", "skills"]
+    config = {}
+paths = (config.get("factory") or {}).get("app_paths")
+if not paths:
+    kit_root = str((config.get("kit") or {}).get("root", ""))
+    paths = ["delivery", "skills"] if kit_root in (".", "") else ["src", "app", "lib"]
 print("\n".join(paths))
 PY
 )

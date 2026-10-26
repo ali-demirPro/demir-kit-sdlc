@@ -18,6 +18,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import shlex
 import subprocess
 import sys
 from pathlib import Path
@@ -716,8 +717,8 @@ def check_issue_body(
                 error(f"{cp_id}: profil platform gate'i istiyor (reviews.platform pass)")
 
 
-def check_issue(number: int, checkpoint: str | None = None) -> None:
-    ecosystem = load_yaml(ROOT / "ecosystem.yaml") or {}
+def check_issue(number: int, checkpoint: str | None = None, root: Path = ROOT) -> None:
+    ecosystem = load_yaml(root / "ecosystem.yaml") or {}
     repo = (ecosystem.get("tracker") or {}).get("repo")
     if not repo:
         error("issue: ecosystem.yaml tracker.repo yok")
@@ -770,6 +771,69 @@ def check_issue(number: int, checkpoint: str | None = None) -> None:
                 error(message)
 
 
+def check_product(root: Path) -> None:
+    check("product")
+    config = load_yaml(root / "kit.config.yaml")
+    if not isinstance(config, dict):
+        error(f"{root}/kit.config.yaml: eksik veya geçersiz")
+        config = {}
+    kit = config.get("kit") or {}
+    if str(kit.get("protocol")) != "2":
+        error("kit.config.yaml: kit.protocol '2' değil")
+    kit_root = kit.get("root") or "demir-kit"
+    if not (root / kit_root / "delivery" / "scripts" / "doctor.py").is_file():
+        error(f"vendored kit bulunamadı: {kit_root}/delivery")
+
+    factory = config.get("factory") or {}
+    app_paths = factory.get("app_paths") or ["src", "app", "lib"]
+    if not isinstance(app_paths, list) or not app_paths:
+        error("kit.config.yaml: factory.app_paths liste değil")
+        app_paths = []
+    for path in app_paths:
+        if not (root / path).exists():
+            warn(f"app path yok: {path}")
+
+    eco = load_yaml(root / "ecosystem.yaml")
+    if not isinstance(eco, dict):
+        error("ecosystem.yaml: eksik veya geçersiz")
+        eco = {}
+    products = eco.get("products") or {}
+    if not products:
+        error("ecosystem.yaml: products boş")
+    for pname, product in products.items():
+        for sname, spec in (product.get("surfaces") or {}).items():
+            spec = spec or {}
+            surface_path = spec.get("path")
+            if not surface_path:
+                error(f"ecosystem.{pname}.{sname}: path yok")
+                continue
+            if not (root / surface_path).exists():
+                error(f"ecosystem.{pname}.{sname}: path yok — {surface_path}")
+            gate = (spec.get("gates") or {}).get("behavior")
+            if not gate:
+                error(f"ecosystem.{pname}.{sname}: gates.behavior yok")
+                continue
+            try:
+                first = shlex.split(gate)[0]
+            except ValueError:
+                first = ""
+            if first.startswith(("./", "scripts/")) and not (root / first).is_file():
+                error(f"ecosystem.{pname}.{sname}: gate script yok — {first}")
+
+    package = root / "package.json"
+    if not package.is_file():
+        warn("package.json yok")
+    else:
+        data = load_json(package)
+        if isinstance(data, dict):
+            scripts = data.get("scripts") or {}
+            for name in ("typecheck", "lint"):
+                if name not in scripts:
+                    warn(f"package.json: '{name}' script yok")
+    if not (root / "AGENTS.md").is_file():
+        warn("AGENTS.md yok")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="demir-kit delivery doctor")
     parser.add_argument("--strict", action="store_true", help="uyarıları da hata say")
@@ -777,18 +841,24 @@ def main() -> int:
     parser.add_argument("--body", type=Path, help="seal YAML içeren dosya")
     parser.add_argument("--checkpoint", help="behavior gate uyumu için (statik)")
     parser.add_argument("--verbose", action="store_true", help="tüm uyarıları göster")
+    parser.add_argument("--product", action="store_true", help="ürün reposu kontrolleri")
+    parser.add_argument("--root", type=Path, help="ürün kökü (--product)")
     args = parser.parse_args()
 
-    check_files()
-    check_schemas()
-    check_registry()
-    check_labels()
-    check_links()
-    check_legacy(args.verbose)
-    check_version()
-    check_ecosystem()
-    check_skills()
-    check_role_contracts()
+    product_root = (args.root or Path.cwd()).resolve()
+    if args.product:
+        check_product(product_root)
+    else:
+        check_files()
+        check_schemas()
+        check_registry()
+        check_labels()
+        check_links()
+        check_legacy(args.verbose)
+        check_version()
+        check_ecosystem()
+        check_skills()
+        check_role_contracts()
 
     if args.checkpoint and args.checkpoint != "CP-HEALTH" and not re.match(
         r"^CP-[0-9]+$", args.checkpoint
@@ -796,7 +866,7 @@ def main() -> int:
         error(f"checkpoint '{args.checkpoint}' geçersiz (CP-n bekleniyor)")
 
     if args.issue:
-        check_issue(args.issue, args.checkpoint)
+        check_issue(args.issue, args.checkpoint, product_root if args.product else ROOT)
     if args.body:
         check_issue_body(
             args.body.read_text(encoding="utf-8"), [], None, checkpoint=args.checkpoint
