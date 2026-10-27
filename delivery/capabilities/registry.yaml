@@ -280,7 +280,6 @@ capabilities:
     description: "App Store Connect, TestFlight, metadata, privacy label ve inceleme riski."
     match:
       distribution: [app_store_connect, testflight]
-      surfaces: [ios.app]
       keywords: [app store, testflight, asc, inceleme]
     roles:
       release: expert
@@ -300,7 +299,6 @@ capabilities:
     description: "Play Console track, data safety, görsel spec ve kademeli rollout."
     match:
       distribution: [play_console]
-      surfaces: [android.app]
       keywords: [play console, google play, rollout, track]
     roles:
       release: expert
@@ -319,7 +317,6 @@ capabilities:
     description: "Prod deploy, CDN, preview/production ayrımı ve geri dönüş."
     match:
       distribution: [web_deploy, vercel, netlify, cloudflare]
-      surfaces: [web.app]
       keywords: [deploy, yayın, production, canlı, rollout]
     roles:
       release: expert
