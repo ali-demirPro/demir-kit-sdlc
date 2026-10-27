@@ -27,6 +27,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import capabilities as capabilities_lib  # noqa: E402
 import evidence as evidence_lib  # noqa: E402
+import variants as variants_lib  # noqa: E402
 import routing  # noqa: E402
 
 try:
@@ -82,6 +83,8 @@ REQUIRED_FILES = [
     "delivery/scripts/transition.sh",
     "delivery/scripts/capabilities.py",
     "delivery/scripts/risk_filter.py",
+    "delivery/scripts/variants.py",
+    "delivery/schemas/agent.schema.json",
     "delivery/capabilities/registry.yaml",
     "delivery/capabilities/role-matrix.yaml",
     "delivery/capabilities/levels.md",
@@ -317,6 +320,46 @@ def check_capabilities() -> None:
         registry, matrix, roles, packs, roles
     ):
         error(f"capabilities: {message}")
+
+
+def check_agent_variants() -> None:
+    check("agent variants")
+    registry_config = load_yaml(DELIVERY / "registry.yaml") or {}
+    variants_config = registry_config.get("agent_variants") or {}
+    roles = variants_config.get("roles") or []
+    schema = load_json(DELIVERY / "schemas" / "agent.schema.json")
+    capability_config = load_yaml(DELIVERY / "capabilities" / "registry.yaml") or {}
+    capabilities = capability_config.get("capabilities") or {}
+    matrix = load_yaml(DELIVERY / "capabilities" / "role-matrix.yaml") or {}
+    known_roles = set(registry_config.get("role_order_default") or []) | {
+        "orchestrator"
+    }
+
+    for role in roles:
+        path = DELIVERY / "agents" / role / "agent.yaml"
+        if not path.is_file():
+            error(f"agent variant: {role}/agent.yaml yok")
+            continue
+        agent = load_yaml(path)
+        if not isinstance(agent, dict):
+            continue
+        if schema:
+            for message in validate_schema(agent, schema, f"agent.{role}"):
+                error(message)
+        for message in variants_lib.validate_agent(
+            role, agent, capabilities, known_roles, matrix=matrix
+        ):
+            error(f"agent variant: {message}")
+
+    for directory in (DELIVERY / "agents").iterdir():
+        if not directory.is_dir():
+            continue
+        if (directory / "variants").is_dir() and not (
+            directory / "agent.yaml"
+        ).is_file():
+            error(
+                f"agent variant: {directory.name}/variants var ama agent.yaml yok"
+            )
 
 
 def check_links() -> None:
@@ -1031,6 +1074,7 @@ def main() -> int:
         check_schemas()
         check_registry()
         check_capabilities()
+        check_agent_variants()
         check_labels()
         check_links()
         check_legacy(args.verbose)

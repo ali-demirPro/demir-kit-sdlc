@@ -1,5 +1,16 @@
 # Changelog
 
+## 2.8.0 — 2026-10-27
+
+- **Agent variants** — `designer` ve `tester` için `agent.yaml` capability →
+  variant/eval/min_level eşlemesi; web, iOS ve Android davranış modülleri.
+- **Kriterler** — Her variant platforma özgü yöntem, state/kanıt matrisi, gate
+  rubriği, anti-pattern ve handoff taşır; her eval seti 8+ senaryo içerir.
+- **Şema/doctor** — `agent.schema.json`; doctor capability, rol, dosya ve seviye
+  referanslarını doğrular. `variants.py --role` aracı eklendi.
+- **Pilot sınırı** — Variant kapsamı web/iOS/Android; diğer capability'ler
+  sonraki leaf'lerde.
+
 ## 2.7.0 — 2026-10-27
 
 - **Capability Matrix** — `delivery/capabilities/` eklendi: platform/domain/
