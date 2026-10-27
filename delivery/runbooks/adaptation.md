@@ -8,6 +8,15 @@ Proje capability seti iki kaynaktan gelir:
 `adapt.py` ikisini birleştirir; **mevcut leaf'leri yeniden mühürlemez**. Yeni
 leaf'ler güncel setle açılır.
 
+## Fingerprint
+
+```bash
+./delivery/scripts/detect.py --project . --json
+```
+
+Read-only tarama: stack, surface, distribution, test komutları, app path ve risk
+hotspot. Çıktı `kit init` için girdidir; hiçbir dosya yazmaz.
+
 ## Dosya
 
 ```yaml

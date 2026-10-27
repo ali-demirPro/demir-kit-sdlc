@@ -1,4 +1,4 @@
-# Delivery flow — v2.18
+# Delivery flow — v2.19
 
 Sözleşme: [CONTRACT.md](CONTRACT.md). Etiketler orada tanımlı.
 
