@@ -93,6 +93,28 @@ class AdoptTests(unittest.TestCase):
             gate = (root / "scripts/gate-behavior.sh").read_text(encoding="utf-8")
             self.assertIn("pytest", gate)
 
+    def test_monorepo_web_api(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            write(
+                root,
+                "web/package.json",
+                json.dumps(
+                    {
+                        "dependencies": {"next": "1", "react": "1"},
+                        "scripts": {"test": "vitest"},
+                    }
+                ),
+            )
+            write(root, "api/pyproject.toml", "[tool.pytest.ini_options]\n")
+            write(root, "api/main.py", "print(1)\n")
+            data = adopt.apply(root)
+            self.assertTrue(data["verify"]["ok"], data["verify"]["issues"])
+            self.assertEqual(data["profiles"], ["web-app", "api-service"])
+            gate = (root / "scripts/gate-behavior.sh").read_text(encoding="utf-8")
+            self.assertIn("(cd api && pytest)", gate)
+            self.assertIn("(cd web && npm test)", gate)
+
     def test_cli_apply_and_failure_exit(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

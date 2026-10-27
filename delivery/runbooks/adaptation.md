@@ -30,7 +30,9 @@ idempotenttir.
 ```
 
 Read-only tarama: stack, surface, distribution, test komutları, app path ve risk
-hotspot. Çıktı `kit init` için girdidir; hiçbir dosya yazmaz.
+hotspot. Kök manifest yoksa 1–2 seviye alt dizinler (monorepo) taranır; komutlar
+`(cd yol && ...)` biçiminde kapsanır. Çıktı `kit init` için girdidir; hiçbir dosya
+yazmaz.
 
 ## Init
 

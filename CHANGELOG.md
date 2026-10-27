@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.25.0 — 2026-10-27
+
+- **Monorepo tespiti** — kök yüzey yoksa 1–2 seviye alt dizinlerde manifest
+  taranır (Node, Python, Flutter, Swift, Go, Rust); yüzey yolu gerçek dizin olur.
+- **Güvenli komutlar** — alt dizin test komutları `(cd yol && ...)` alt
+  kabuğunda birleşir; `node_modules`, `Pods`, `build` gibi dizinler atlanır.
+- **Kök önceliği** — kök manifest varsa eski davranış korunur, nested tarama
+  çalışmaz; aynı yüzey iki kez sayılmaz.
+- **Test** — Flutter monorepo, web+API, node_modules ve kök-öncelik; 337 test.
+
 ## 2.24.0 — 2026-10-27
 
 - **Tek komutla adopt** — `adopt.py` hedef projeye agentic SDLC kurar:
