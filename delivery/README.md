@@ -1,4 +1,4 @@
-# Delivery — v2.22
+# Delivery — v2.23
 
 Epic → leaf → kanıt → closure → epic kabulü. Tek runtime `delivery/`;
 arşiv `archive/v1.7/` yalnız referans içindir.
@@ -30,6 +30,7 @@ arşiv `archive/v1.7/` yalnız referans içindir.
 ./delivery/scripts/detect.py --project . --json   # read-only fingerprint
 ./delivery/scripts/profiles.py --project .        # profile composition
 ./delivery/scripts/standards.py --project .        # project standards
+./delivery/scripts/verify.py --project .          # read-only adaptation check
 ./delivery/scripts/init.py --project . --apply      # project wiring
 ./delivery/scripts/adapt.py --add platform.android # capability diff / --apply
 ./delivery/scripts/protect_main.sh --apply   # main PR + required check
