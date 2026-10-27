@@ -735,17 +735,40 @@ def check_issue_body(
         "include": declared.get("include") or [],
         "exclude": [],
     }
-    matched = resolver_lib.apply_declared(
-        resolver_lib.match_capabilities(
-            capability_registry,
-            signals,
-            f"{title}\n{routing.strip_seal(body)}",
-        ),
+    resolution = resolver_lib.resolve(
         capability_registry,
-        declared_for_issue,
+        resolver_lib.load_matrix(),
+        resolver_lib.load_agent_variants(),
+        path_id,
+        signals,
+        f"{title}\n{data.get('intent', '')}\n{routing.strip_seal(body)}",
+        declared=declared_for_issue,
     )
-    for capability in matched.values():
-        allowed_agents.update((capability.get("roles") or {}).keys())
+    for capability in resolution["capabilities"]:
+        allowed_agents.update(
+            ((capability_registry.get("capabilities") or {}).get(capability) or {})
+            .get("roles", {})
+            .keys()
+        )
+    risk_floor = resolution.get("risk_floor", "low")
+    if resolver_lib.RISK_ORDER.get(risk_floor, 0) > resolver_lib.RISK_ORDER.get(
+        risk or "low", 0
+    ):
+        error(
+            f"issue seal: capability risk_floor '{risk_floor}' seal risk "
+            f"'{risk}' üstünde; seal riskini yükselt"
+        )
+    if risk in {"high", "critical"}:
+        seen_gaps = set()
+        for gap in resolution.get("variant_gaps") or []:
+            key = (gap.get("role"), gap.get("capability"))
+            if key in seen_gaps:
+                continue
+            seen_gaps.add(key)
+            error(
+                f"capability gap: {gap.get('role')} / {gap.get('capability')} — "
+                f"{gap.get('reason')}"
+            )
 
     if "leaf-done" in labels and comments is not None:
         evidence_schema = load_json(DELIVERY / "schemas" / "evidence.schema.json")

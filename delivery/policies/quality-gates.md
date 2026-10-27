@@ -70,7 +70,8 @@ Risk tabanlı gate matrisi. Sözleşme: [CONTRACT.md](../CONTRACT.md) · Risk ve
 
 `registry.yaml` `risk.auto_escalate.high` glob'larından biri diff'e değerse seviye
 `high` olur; `critical` glob'u ise `critical`. Agent düşüremez; seal'de gerekçe yazar.
-`scripts/guard.sh` bu kuralı diff üzerinde uygular.
+`scripts/guard.sh` bu kuralı **registry'den okuyarak** diff üzerinde uygular;
+capability `risk_floor` seal riskinin altına inemez (`doctor`).
 
 ## Bağımsızlık
 

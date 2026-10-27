@@ -18,6 +18,27 @@ spec.loader.exec_module(risk_filter)
 
 
 class RiskFilterTests(unittest.TestCase):
+    def test_registry_risk_classification(self) -> None:
+        registry = {
+            "risk": {
+                "auto_escalate": {
+                    "critical": ["**/store/**", "**/release/**"],
+                    "high": ["**/auth/**", "**/payments/**"],
+                }
+            }
+        }
+        self.assertEqual(
+            risk_filter.risk_for_paths(["src/auth/login.ts"], registry), "high"
+        )
+        self.assertEqual(
+            risk_filter.risk_for_paths(["store/metadata.json"], registry), "critical"
+        )
+        self.assertEqual(
+            risk_filter.risk_for_paths(["auth/login.ts"], registry), "high"
+        )
+        self.assertEqual(
+            risk_filter.risk_for_paths(["src/web/page.ts"], registry), "none"
+        )
     def test_agent_and_docs_are_excluded(self) -> None:
         paths = [
             "delivery/agents/security/ROLE.md",

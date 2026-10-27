@@ -11,6 +11,29 @@ from pathlib import Path
 import yaml
 
 
+def _matches(path: str, pattern: str) -> bool:
+    if fnmatch.fnmatch(path, pattern):
+        return True
+    # fnmatch's `**/x` needs a slash; registry patterns must also match root x.
+    if pattern.startswith("**/") and fnmatch.fnmatch(path, pattern[3:]):
+        return True
+    return False
+
+
+def risk_for_paths(paths: list[str], registry: dict) -> str:
+    risk = registry.get("risk") if isinstance(registry, dict) else {}
+    escalate = (risk or {}).get("auto_escalate") or {}
+    critical = escalate.get("critical") or []
+    high = escalate.get("high") or []
+    level = "none"
+    for path in paths:
+        if any(_matches(path, pattern) for pattern in critical):
+            return "critical"
+        if any(_matches(path, pattern) for pattern in high):
+            level = "high"
+    return level
+
+
 def filter_paths(paths: list[str], exclude: list[str]) -> list[str]:
     kept: list[str] = []
     for raw in paths:
@@ -27,6 +50,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="risk path filter")
     parser.add_argument("--registry", type=Path, required=True)
     parser.add_argument("--exclude", action="append", default=[])
+    parser.add_argument("--risk", action="store_true")
     args = parser.parse_args()
 
     exclude = list(args.exclude)
@@ -38,7 +62,11 @@ def main() -> int:
     if isinstance(configured, list):
         exclude.extend(str(item) for item in configured)
 
-    for path in filter_paths(sys.stdin.read().splitlines(), exclude):
+    paths = filter_paths(sys.stdin.read().splitlines(), exclude)
+    if args.risk:
+        print(risk_for_paths(paths, data))
+        return 0
+    for path in paths:
         print(path)
     return 0
 

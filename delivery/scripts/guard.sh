@@ -64,15 +64,25 @@ for path in "${APP_PATHS[@]}"; do
   done <<< "$CHANGED"
 done
 
-if [[ ${#VIOLATIONS[@]} -eq 0 ]]; then
-  echo "guard: OK (uygulama yolu değişmedi)"
+RISK_REQUIRED="$(printf '%s\n' "$RISK_CHANGED" | python3 "${KIT_ROOT}/delivery/scripts/risk_filter.py" --registry "${KIT_ROOT}/delivery/registry.yaml" --risk)"
+NEED_ISSUE=false
+if [[ ${#VIOLATIONS[@]} -gt 0 || "$RISK_REQUIRED" != "none" ]]; then
+  NEED_ISSUE=true
+fi
+if ! $NEED_ISSUE; then
+  echo "guard: OK (uygulama yolu ve risk glob'u değişmedi)"
   exit 0
 fi
 
 if [[ -z "$ISSUE" ]]; then
-  echo "guard: BLOCKED — uygulama yolu değişti, issue yok:" >&2
-  printf '  %s\n' "${VIOLATIONS[@]}" >&2
-  echo "  Önce leaf mühürle (agent-approved), sonra --issue N ile tekrar çalıştır." >&2
+  if [[ ${#VIOLATIONS[@]} -gt 0 ]]; then
+    echo "guard: BLOCKED — uygulama yolu değişti, issue yok:" >&2
+    printf '  %s\n' "${VIOLATIONS[@]}" >&2
+    echo "  Önce leaf mühürle (agent-approved), sonra --issue N ile tekrar çalıştır." >&2
+  else
+    echo "guard: BLOCKED — risk glob'u '${RISK_REQUIRED}', issue yok" >&2
+    echo "  --issue N ile leaf riskini doğrula." >&2
+  fi
   exit 1
 fi
 
@@ -111,15 +121,13 @@ except Exception:
     print("")
 ')"
 
-CRITICAL_RE='(^|/)(auth|payments|billing|migrations|security)(/|$)|^\.github/workflows/(deploy|release)'
-HIGH_RE='(^|/)(auth|payments|billing|migrations|security)(/|$)|^\.github/workflows/deploy'
-if grep -Eq "$CRITICAL_RE" <<< "$RISK_CHANGED" && [[ "$RISK" != "high" && "$RISK" != "critical" ]]; then
-  echo "guard: BLOCKED — risk glob'u critical/high, seal riski '${RISK:-yok}'" >&2
+if [[ "$RISK_REQUIRED" == "critical" && "$RISK" != "high" && "$RISK" != "critical" ]]; then
+  echo "guard: BLOCKED — registry critical glob'u, seal riski '${RISK:-yok}'" >&2
   echo "  Seal'de risk seviyesini yükselt (registry.yaml risk.auto_escalate)." >&2
   exit 1
 fi
-if grep -Eq "$HIGH_RE" <<< "$RISK_CHANGED" && [[ "$RISK" == "low" ]]; then
-  echo "guard: BLOCKED — risk glob'u en az high; seal 'low'" >&2
+if [[ "$RISK_REQUIRED" == "high" && "$RISK" != "high" && "$RISK" != "critical" ]]; then
+  echo "guard: BLOCKED — registry high glob'u, seal '${RISK:-yok}'" >&2
   exit 1
 fi
 
