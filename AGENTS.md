@@ -18,6 +18,7 @@ Version lives in `VERSION`; bump it with `CHANGELOG.md` and the README header.
 ./delivery/scripts/guard.sh --issue 12    # source gate (G1) + risk escalation
 ./delivery/scripts/transition.sh --issue N --to leaf-done  # single-writer transition
 ./delivery/scripts/capabilities.py --matrix   # role x capability matrix
+./delivery/scripts/variants.py --role designer # capability -> variant map
 ./delivery/scripts/vendor_sync.sh --target ../Product --check
 ./delivery/scripts/vendor_sync.sh --target ../Product --apply
 ./install.sh --with-platform              # Orca + v2 skills (local source)

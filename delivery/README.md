@@ -1,4 +1,4 @@
-# Delivery — v2.7
+# Delivery — v2.8
 
 Epic → leaf → kanıt → closure → epic kabulü. Tek runtime `delivery/`;
 arşiv `archive/v1.7/` yalnız referans içindir.
@@ -25,6 +25,7 @@ arşiv `archive/v1.7/` yalnız referans içindir.
 ./delivery/scripts/transition.sh --issue N --to leaf-done # tek yazıcı geçiş
 ./delivery/scripts/capabilities.py --matrix      # rol × yetenek matrisi
 ./delivery/scripts/capabilities.py --validate    # referans bütünlüğü
+./delivery/scripts/variants.py --role designer    # variant eşleşmesi
 ./delivery/scripts/guard.sh --issue 12  # G1 + risk
 ./delivery/scripts/vendor_sync.sh --target ../Product --check
 ./delivery/scripts/vendor_sync.sh --target ../Product --apply

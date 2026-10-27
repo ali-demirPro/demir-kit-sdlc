@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://demir-kit.dev/schemas/agent.schema.json",
+  "title": "demir-kit agent variant map (v1)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "version",
+    "mission",
+    "base_docs",
+    "capabilities_required",
+    "variants",
+    "handoffs",
+    "escalation"
+  ],
+  "properties": {
+    "id": { "type": "string", "pattern": "^[a-z][a-z0-9_-]*$" },
+    "version": { "const": 1 },
+    "mission": { "type": "string", "minLength": 20 },
+    "base_docs": {
+      "type": "array",
+      "minItems": 5,
+      "items": { "type": "string", "minLength": 3 }
+    },
+    "capabilities_required": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "pattern": "^(platform|domain|distribution|quality)\\.[a-z0-9_]+$" }
+    },
+    "variants": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["doc", "eval", "min_level"],
+        "properties": {
+          "doc": { "type": "string", "pattern": "^variants/[a-z0-9_-]+\\.md$" },
+          "eval": { "type": "string", "pattern": "^evals/[a-z0-9_-]+\\.md$" },
+          "min_level": { "enum": ["aware", "practitioner", "expert"] }
+        }
+      }
+    },
+    "handoffs": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 3 }
+    },
+    "escalation": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 3 }
+    }
+  }
+}

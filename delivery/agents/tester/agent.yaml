@@ -1,0 +1,24 @@
+# Tester — capability → variant map (pilot: web/iOS/Android)
+id: tester
+version: 1
+mission: "Risk tabanlı doğrulama, platform davranışını kanıtlama ve bağımsız ikinci görüş üretmek."
+base_docs: [ROLE.md, how.md, communicates.md, dependencies.md, SKILL.md]
+capabilities_required:
+  - platform.web
+  - platform.ios
+  - platform.android
+variants:
+  platform.web:
+    doc: variants/web.md
+    eval: evals/web.md
+    min_level: expert
+  platform.ios:
+    doc: variants/ios.md
+    eval: evals/ios.md
+    min_level: expert
+  platform.android:
+    doc: variants/android.md
+    eval: evals/android.md
+    min_level: expert
+handoffs: [developer, orchestrator]
+escalation: [coverage_gap, flaky_test, device_unavailable, environment_down]
