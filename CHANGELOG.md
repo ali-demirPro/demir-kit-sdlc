@@ -1,5 +1,16 @@
 # Changelog
 
+## 2.15.0 — 2026-10-27
+
+- **Capability enforcement** — `doctor` capability `risk_floor`'u seal riskiyle
+  karşılaştırır; yüksekse seal riski yükseltilmeden geçmez. High/critical
+  leaf'te variant gap varsa `leaf-done` engellenir.
+- **Risk glob** — `guard.sh` artık `registry.yaml risk.auto_escalate` glob'larını
+  kullanır; hardcoded auth/payments regex'i kaldırıldı.
+- **Matching** — seal `intent` capability eşleşmesine dahil edildi (brief ve
+  doctor aynı metni kullanır).
+- **Test** — risk floor, high-risk gap, registry glob; 237 test.
+
 ## 2.14.0 — 2026-10-27
 
 - **Branch protection** — `protect_main.sh` main için PR + `delivery-doctor`

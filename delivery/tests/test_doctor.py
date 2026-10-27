@@ -254,6 +254,33 @@ class EvidenceTests(DoctorTestCase):
             )
             self.assertEqual(doctor.ERRORS, [])
 
+    def test_capability_risk_floor_blocks_seal(self) -> None:
+        doctor.check_issue_body(
+            fenced("demir-kit", leaf(surfaces=["web.app"], intent="auth login")),
+            [],
+            None,
+        )
+        self.assertTrue(
+            any("capability risk_floor" in item for item in doctor.ERRORS)
+        )
+
+    def test_high_risk_variant_gap_blocks_seal(self) -> None:
+        doctor.check_issue_body(
+            fenced(
+                "demir-kit",
+                leaf(
+                    risk={"level": "high", "reasons": ["auth"]},
+                    surfaces=["web.app"],
+                    intent="auth login",
+                ),
+            ),
+            [],
+            None,
+        )
+        self.assertTrue(
+            any("capability gap:" in item for item in doctor.ERRORS)
+        )
+
     def test_capability_role_allowed_for_evidence(self) -> None:
         self.run_leaf_done(
             evidence(agent="security"),
