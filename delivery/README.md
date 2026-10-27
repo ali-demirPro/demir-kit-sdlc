@@ -1,4 +1,4 @@
-# Delivery — v2.11
+# Delivery — v2.12
 
 Epic → leaf → kanıt → closure → epic kabulü. Tek runtime `delivery/`;
 arşiv `archive/v1.7/` yalnız referans içindir.
@@ -10,7 +10,7 @@ arşiv `archive/v1.7/` yalnız referans içindir.
 | [registry.yaml](registry.yaml) | Path, agent, risk glob, etiket kaynağı |
 | [protocol/](protocol/execution.md) | Kuyruk, claim, resume, seal, health, evidence |
 | [policies/](policies/approval.md) | Onay, path, kalite, eskalasyon, human-qa |
-| [runbooks/](runbooks/epic-intake.md) | Intake, closure ve PR akışı |
+| [runbooks/](runbooks/epic-intake.md) | Intake, closure, PR ve adaptasyon |
 | [schemas/](schemas/leaf.schema.json) | Epic, leaf, evidence, closure şemaları |
 | [scripts/](scripts/doctor.sh) | doctor, guard, next-leaf, transition, evidence, install |
 | `agents/`, `capabilities/`, `templates/`, `profiles/`, `packs/` | Roller, yetenek matrisi ve kaynaklar |
@@ -27,6 +27,7 @@ arşiv `archive/v1.7/` yalnız referans içindir.
 ./delivery/scripts/capabilities.py --validate    # referans bütünlüğü
 ./delivery/scripts/variants.py --role designer    # variant eşleşmesi
 ./delivery/scripts/resolver.py --surface web.app --platform web --stack next
+./delivery/scripts/adapt.py --add platform.android # capability diff / --apply
 ./delivery/scripts/guard.sh --issue 12  # G1 + risk
 ./delivery/scripts/vendor_sync.sh --target ../Product --check
 ./delivery/scripts/vendor_sync.sh --target ../Product --apply

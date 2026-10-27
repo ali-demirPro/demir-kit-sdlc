@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -231,6 +232,27 @@ class EvidenceTests(DoctorTestCase):
         self.run_leaf_done(record)
         self.assertEqual(doctor.ERRORS, [])
         self.assertTrue(any("agent alanı yok" in item for item in doctor.WARNS))
+
+    def test_declared_exclude_does_not_break_sealed_leaf(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "ecosystem.yaml").write_text(
+                "products:\n  app:\n    surfaces:\n      web:\n"
+                "        platforms: [web]\n        stacks: [next]\n",
+                encoding="utf-8",
+            )
+            (root / ".kit").mkdir()
+            (root / ".kit" / "capabilities.yaml").write_text(
+                "version: 1\ninclude: []\nexclude: [platform.web]\n",
+                encoding="utf-8",
+            )
+            doctor.check_issue_body(
+                fenced("demir-kit", leaf(surfaces=["web.app"])),
+                ["leaf-done"],
+                [fenced("demir-kit-evidence", evidence(agent="security"))],
+                root=root,
+            )
+            self.assertEqual(doctor.ERRORS, [])
 
     def test_capability_role_allowed_for_evidence(self) -> None:
         self.run_leaf_done(

@@ -44,6 +44,37 @@ def load_matrix() -> dict:
     return load_yaml(ROOT / "delivery" / "capabilities" / "role-matrix.yaml")
 
 
+def declared_path(project: Path) -> Path:
+    return project / ".kit" / "capabilities.yaml"
+
+
+def load_declared(project: Path) -> dict:
+    path = declared_path(project)
+    if not path.is_file():
+        return {"version": 1, "include": [], "exclude": []}
+    data = load_yaml(path)
+    include = data.get("include") if isinstance(data.get("include"), list) else []
+    exclude = data.get("exclude") if isinstance(data.get("exclude"), list) else []
+    return {
+        "version": data.get("version", 1),
+        "include": [str(item) for item in include],
+        "exclude": [str(item) for item in exclude],
+    }
+
+
+def apply_declared(capabilities: dict, registry: dict, declared: dict | None) -> dict:
+    if not declared:
+        return capabilities
+    result = dict(capabilities)
+    available = registry.get("capabilities") or {}
+    for cap_id in declared.get("include") or []:
+        if cap_id in available:
+            result[cap_id] = available[cap_id]
+    for cap_id in declared.get("exclude") or []:
+        result.pop(cap_id, None)
+    return result
+
+
 def load_agent_variants() -> dict[str, dict]:
     variants: dict[str, dict] = {}
     for directory in AGENTS.rglob("agent.yaml"):
@@ -152,10 +183,12 @@ def resolve(
     signals: list[dict],
     text: str = "",
     delivery_registry: dict | None = None,
+    declared: dict | None = None,
 ) -> dict:
     delivery = delivery_registry or load_yaml(ROOT / "delivery" / "registry.yaml")
     path_agents = routing.resolve_agents(delivery, path_id)
     capabilities = match_capabilities(registry, signals, text)
+    capabilities = apply_declared(capabilities, registry, declared)
     capability_roles: set[str] = set()
     for capability in capabilities.values():
         capability_roles.update((capability.get("roles") or {}).keys())

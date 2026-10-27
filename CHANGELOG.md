@@ -1,5 +1,16 @@
 # Changelog
 
+## 2.12.0 — 2026-10-27
+
+- **Adapter** — `.kit/capabilities.yaml` (`include`/`exclude`) ve `adapt.py`:
+  proje capability setini açıkça yönetir; varsayılan dry-run, `--apply` yazar.
+- **Diff** — capability/rol/variant/gap/risk farkı; web→web+Android, iOS→web ve
+  capability kaldırma senaryoları.
+- **Resolver** — declared include/exclude derived set ile birleşir; brief yalnız
+  aktif seti yükler.
+- **Doctor** — `doctor --product` bilinmeyen declared capability'yi reddeder.
+- **Runbook** — `delivery/runbooks/adaptation.md`; 215 test.
+
 ## 2.11.0 — 2026-10-27
 
 - **Resolver** — `resolver.py`: ecosystem surfaces + leaf seal + capability
