@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.26.1 — 2026-10-27
+
+- **CI gürültüsü** — `issue-doctor` artık taslak düzenlemelerde (`edited`/`opened`)
+  çalışmıyor; yalnız etiket/kapanış olaylarında tetikleniyor. `agent-approved`
+  anındaki seal hatası uyarıya düşer, `leaf-done`/`epic-done` denetimi sert kalır.
+
 ## 2.26.0 — 2026-10-27
 
 - **Ölü kod temizliği** — kullanılmayan ürün şablonu kaldırıldı; `brief`

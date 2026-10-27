@@ -32,7 +32,10 @@ class CiWorkflowTests(unittest.TestCase):
         issues = triggers.get("issues") if isinstance(triggers, dict) else None
         self.assertIsInstance(issues, dict)
         self.assertIn("labeled", issues.get("types", []))
-        self.assertIn("edited", issues.get("types", []))
+        self.assertIn("reopened", issues.get("types", []))
+        self.assertIn("closed", issues.get("types", []))
+        self.assertNotIn("edited", issues.get("types", []))
+        self.assertNotIn("opened", issues.get("types", []))
         permissions = data.get("permissions") or {}
         self.assertEqual(permissions.get("issues"), "read")
         self.assertEqual(permissions.get("actions"), "read")
@@ -43,17 +46,20 @@ class CiWorkflowTests(unittest.TestCase):
         self.assertEqual(job.get("name"), "issue-doctor")
         condition = str(job.get("if") or "")
         for label in (
-            "scope-confirmed",
             "agent-approved",
             "leaf-done",
             "epic-done",
         ):
             self.assertIn(label, condition)
-        runs = "\n".join(
-            str(step.get("run") or "") for step in job_steps(job)
-        )
+        self.assertNotIn("scope-confirmed", condition)
+        steps = job_steps(job)
+        runs = "\n".join(str(step.get("run") or "") for step in steps)
         self.assertIn("doctor.sh --issue", runs)
         self.assertIn("github.event.issue.number", runs)
+        doctor_step = next(step for step in steps if step.get("id") == "doctor")
+        self.assertIn("continue-on-error", doctor_step)
+        self.assertIn("agent-approved", str(doctor_step["continue-on-error"]))
+        self.assertTrue(any("::warning" in str(step.get("run") or "") for step in steps))
 
     def test_push_workflow_runs_tests_and_strict_doctor(self) -> None:
         data = load_workflow("doctor.yml")

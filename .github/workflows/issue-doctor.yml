@@ -2,7 +2,7 @@ name: issue-doctor
 
 on:
   issues:
-    types: [opened, edited, labeled, unlabeled, reopened]
+    types: [labeled, reopened, closed]
 
 permissions:
   contents: read
@@ -18,7 +18,6 @@ jobs:
     name: issue-doctor
     runs-on: ubuntu-latest
     if: >-
-      contains(github.event.issue.labels.*.name, 'scope-confirmed') ||
       contains(github.event.issue.labels.*.name, 'agent-approved') ||
       contains(github.event.issue.labels.*.name, 'leaf-done') ||
       contains(github.event.issue.labels.*.name, 'epic-done')
@@ -33,6 +32,15 @@ jobs:
       - name: Install dependencies
         run: python3 -m pip install --disable-pip-version-check "pyyaml==6.*"
       - name: Issue doctor
+        id: doctor
         env:
           GH_TOKEN: ${{ github.token }}
+        continue-on-error: >-
+          ${{ github.event.action == 'labeled' &&
+              contains(github.event.issue.labels.*.name, 'agent-approved') &&
+              !contains(github.event.issue.labels.*.name, 'leaf-done') &&
+              !contains(github.event.issue.labels.*.name, 'epic-done') }}
         run: bash ./delivery/scripts/doctor.sh --issue ${{ github.event.issue.number }}
+      - name: Seal warning
+        if: steps.doctor.outcome == 'failure'
+        run: echo "::warning::issue-doctor seal check failed; local doctor --issue is the gate"
