@@ -1,5 +1,16 @@
 # Changelog
 
+## 2.7.0 — 2026-10-27
+
+- **Capability Matrix** — `delivery/capabilities/` eklendi: platform/domain/
+  distribution/quality taksonomisi, `aware → practitioner → expert → authority`
+  seviye doktrini, rol-capability matrisi ve risk eşleşmesi.
+- **Roller** — `security`, `data`, `release` rolleri temel contract'larıyla
+  eklendi; `role_order_default` güncellendi. Variant içerikleri sonraki leaf'lerde.
+- **Şemalar** — `capability.schema.json` ve `role-matrix.schema.json`; doctor
+  rol/pack/seviye referans bütünlüğünü doğrular.
+- **Araç** — `capabilities.py --list/--matrix/--role/--capability/--validate`.
+
 ## 2.6.0 — 2026-10-26
 
 - **Issue doctor** — `.github/workflows/issue-doctor.yml` issue açıldığında,

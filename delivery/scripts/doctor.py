@@ -25,6 +25,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import capabilities as capabilities_lib  # noqa: E402
 import evidence as evidence_lib  # noqa: E402
 import routing  # noqa: E402
 
@@ -79,6 +80,13 @@ REQUIRED_FILES = [
     "delivery/scripts/evidence.py",
     "delivery/scripts/transition.py",
     "delivery/scripts/transition.sh",
+    "delivery/scripts/capabilities.py",
+    "delivery/capabilities/registry.yaml",
+    "delivery/capabilities/role-matrix.yaml",
+    "delivery/capabilities/levels.md",
+    "delivery/capabilities/README.md",
+    "delivery/schemas/capability.schema.json",
+    "delivery/schemas/role-matrix.schema.json",
     ".github/workflows/issue-doctor.yml",
     ".github/pull_request_template.md",
     "delivery/runbooks/pr-flow.md",
@@ -279,6 +287,35 @@ def resolve_target(source: Path, target: str) -> Path | None:
         if candidate.exists():
             return candidate
     return candidates[0] if candidates else None
+
+
+def check_capabilities() -> None:
+    check("capabilities")
+    registry = load_yaml(DELIVERY / "capabilities" / "registry.yaml")
+    matrix = load_yaml(DELIVERY / "capabilities" / "role-matrix.yaml")
+    if not isinstance(registry, dict) or not isinstance(matrix, dict):
+        return
+
+    capability_schema = load_json(DELIVERY / "schemas" / "capability.schema.json")
+    matrix_schema = load_json(DELIVERY / "schemas" / "role-matrix.schema.json")
+    if capability_schema:
+        for message in validate_schema(registry, capability_schema, "capability"):
+            error(message)
+    if matrix_schema:
+        for message in validate_schema(matrix, matrix_schema, "role-matrix"):
+            error(message)
+
+    registry_config = load_yaml(DELIVERY / "registry.yaml") or {}
+    roles = set(registry_config.get("role_order_default") or []) | {"orchestrator"}
+    packs = {
+        path.name
+        for path in (DELIVERY / "packs").iterdir()
+        if path.is_dir()
+    }
+    for message in capabilities_lib.validate_references(
+        registry, matrix, roles, packs, roles
+    ):
+        error(f"capabilities: {message}")
 
 
 def check_links() -> None:
@@ -992,6 +1029,7 @@ def main() -> int:
         check_files()
         check_schemas()
         check_registry()
+        check_capabilities()
         check_labels()
         check_links()
         check_legacy(args.verbose)

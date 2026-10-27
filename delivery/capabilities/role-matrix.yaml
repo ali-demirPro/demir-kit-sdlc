@@ -1,0 +1,257 @@
+# delivery/capabilities/role-matrix.yaml — rol yetenek profili v1
+# default_level: capability listelenmemişse geçerli seviye.
+# capabilities: rolün kanıtlanmış seviyesi; risk.minimum bunun altına inemez.
+# Şema: delivery/schemas/role-matrix.schema.json · Doktrin: levels.md
+
+version: 1
+
+roles:
+  analist:
+    class: product
+    mission: "Belirsiz intent'i test edilebilir kapsama ve AC'ye çevirmek."
+    default_level: aware
+    capabilities:
+      domain.analytics: expert
+      domain.auth: practitioner
+      domain.payments: practitioner
+      domain.i18n: practitioner
+      platform.web: practitioner
+      platform.api: practitioner
+      quality.privacy: practitioner
+    focus: [scope, acceptance criteria, traceability, success signal]
+    evidence: [AC map, scope gap comment, traceability matrix]
+
+  architect:
+    class: design
+    mission: "Sınırları, NFR'leri ve teknik tradeoff'ları kararlaştırmak."
+    default_level: aware
+    capabilities:
+      platform.web: expert
+      platform.ios: expert
+      platform.android: expert
+      platform.api: expert
+      platform.cli: practitioner
+      domain.auth: expert
+      domain.payments: expert
+      domain.data: expert
+      domain.offline: expert
+      quality.security: expert
+      quality.privacy: practitioner
+      quality.performance: practitioner
+      quality.observability: practitioner
+      distribution.app_store: practitioner
+      distribution.play: practitioner
+      distribution.web: practitioner
+    focus: [ADR, boundary, NFR, CP DAG, tradeoff]
+    evidence: [ADR-*, AR-* findings, boundary review, NFR list]
+
+  designer:
+    class: design
+    mission: "Platform kuralına uygun, erişilebilir ve tutarlı deneyim tasarlamak."
+    default_level: aware
+    capabilities:
+      platform.web: expert
+      platform.ios: expert
+      platform.android: expert
+      quality.a11y: expert
+      quality.performance: practitioner
+      quality.privacy: practitioner
+      domain.i18n: practitioner
+      domain.analytics: aware
+    focus: [state matrix, design system, a11y, handoff]
+    evidence: [screenshots, state matrix, a11y audit, tokens]
+
+  developer:
+    class: build
+    mission: "Mühürlü kapsamda minimal, test edilebilir ve geri alınabilir değişiklik yapmak."
+    default_level: practitioner
+    capabilities:
+      platform.web: expert
+      platform.ios: expert
+      platform.android: expert
+      platform.api: expert
+      platform.cli: expert
+      domain.auth: practitioner
+      domain.payments: practitioner
+      domain.data: practitioner
+      domain.offline: practitioner
+      domain.i18n: practitioner
+      domain.analytics: practitioner
+      quality.security: practitioner
+      quality.privacy: practitioner
+      quality.a11y: practitioner
+      quality.performance: practitioner
+      quality.observability: practitioner
+      distribution.web: practitioner
+    focus: [TDD, minimal diff, standards, error handling]
+    evidence: [red-green test, lint/typecheck, migration/rollback note]
+
+  tester:
+    class: verify
+    mission: "Risk tabanlı doğrulama ve bağımsız ikinci görüş üretmek."
+    default_level: practitioner
+    capabilities:
+      platform.web: expert
+      platform.ios: expert
+      platform.android: expert
+      platform.api: expert
+      platform.cli: expert
+      domain.auth: expert
+      domain.payments: expert
+      domain.data: expert
+      domain.offline: expert
+      domain.analytics: practitioner
+      domain.i18n: practitioner
+      quality.security: expert
+      quality.a11y: expert
+      quality.performance: expert
+      quality.privacy: practitioner
+      quality.observability: practitioner
+      distribution.web: practitioner
+    focus: [risk-based test, edge cases, regression, adversarial]
+    evidence: [test matrix, ADV-*, regression set, failure injection]
+
+  security:
+    class: verify
+    mission: "Güven sınırlarını, yetkiyi ve tedarik zincirini görünür kılmak."
+    default_level: aware
+    capabilities:
+      platform.web: expert
+      platform.ios: expert
+      platform.android: expert
+      platform.api: expert
+      domain.auth: expert
+      domain.payments: expert
+      domain.data: expert
+      quality.security: expert
+      quality.privacy: expert
+      quality.observability: practitioner
+      distribution.app_store: practitioner
+      distribution.play: practitioner
+      distribution.web: practitioner
+    focus: [threat model, authz, secrets, supply chain]
+    evidence: [SEC-*, threat model, authz matrix, dependency audit]
+
+  data:
+    class: build
+    mission: "Şema, migration ve veri akışını geri dönüşüyle birlikte tasarlamak."
+    default_level: aware
+    capabilities:
+      domain.data: expert
+      domain.analytics: expert
+      quality.security: practitioner
+      quality.privacy: practitioner
+      platform.api: practitioner
+    focus: [schema, migration, backfill, retention]
+    evidence: [DM-*, migration plan, rollback dry-run, data validation]
+
+  devops:
+    class: operate
+    mission: "Build, deploy, gözlemlenebilirlik ve geri dönüşü birlikte işletmek."
+    default_level: aware
+    capabilities:
+      platform.web: expert
+      platform.api: expert
+      platform.ios: practitioner
+      platform.android: practitioner
+      platform.cli: practitioner
+      domain.data: practitioner
+      quality.security: practitioner
+      quality.privacy: practitioner
+      quality.performance: practitioner
+      quality.observability: expert
+      distribution.app_store: expert
+      distribution.play: expert
+      distribution.web: expert
+    focus: [CI/CD, environments, SLO, rollback, secrets]
+    evidence: [pipeline diff, SLO, alert runbook, rollback drill]
+
+  release:
+    class: operate
+    mission: "Sürümün çıkabilir olduğunu kanıtlamak ve geri dönüş planını hazırlamak."
+    default_level: aware
+    capabilities:
+      platform.web: practitioner
+      platform.ios: practitioner
+      platform.android: practitioner
+      platform.api: practitioner
+      quality.security: practitioner
+      quality.privacy: practitioner
+      distribution.app_store: expert
+      distribution.play: expert
+      distribution.web: expert
+    focus: [version, metadata, go/no-go, rollout]
+    evidence: [REL-*, store checklist, rollout/rollback plan]
+
+  marketing/stores:
+    class: market
+    mission: "Store görünürlüğünü, metadata bütünlüğünü ve inceleme riskini yönetmek."
+    default_level: aware
+    capabilities:
+      platform.ios: practitioner
+      platform.android: practitioner
+      domain.analytics: practitioner
+      domain.i18n: practitioner
+      quality.privacy: practitioner
+      distribution.app_store: expert
+      distribution.play: expert
+      distribution.web: practitioner
+    focus: [ASO, metadata, screenshots, review rules]
+    evidence: [store metadata, screenshot set, privacy labels]
+
+  marketing/landing:
+    class: market
+    mission: "Landing/SEO yüzeyini ölçülebilir dönüşüme bağlamak."
+    default_level: aware
+    capabilities:
+      platform.web: expert
+      domain.analytics: expert
+      domain.i18n: practitioner
+      quality.a11y: practitioner
+      quality.performance: expert
+      distribution.web: practitioner
+    focus: [SEO, content, CWV, analytics]
+    evidence: [landing audit, event schema, CWV report]
+
+  growth/run:
+    class: market
+    mission: "Deneyi tasarlamak, guardrail'ları izlemek ve karar üretmek."
+    default_level: aware
+    capabilities:
+      platform.web: practitioner
+      domain.analytics: expert
+      domain.i18n: practitioner
+      quality.performance: practitioner
+    focus: [experiment design, guardrails, rollout, readout]
+    evidence: [experiment brief, guardrail dashboard, decision note]
+
+  documenter:
+    class: product
+    mission: "Doğru dokümanı doğru zamanda, kanıta bağlı üretmek."
+    default_level: aware
+    capabilities:
+      platform.web: practitioner
+      platform.api: practitioner
+      domain.analytics: practitioner
+      domain.i18n: practitioner
+      quality.security: aware
+      quality.privacy: aware
+    focus: [doc type, freshness, link integrity, closure report]
+    evidence: [doc diff, link check, freshness note]
+
+  orchestrator:
+    class: lead
+    mission: "Risk, bağımlılık ve kapasiteye göre doğru işi doğru sırada yürütmek."
+    default_level: aware
+    capabilities:
+      platform.web: practitioner
+      platform.ios: practitioner
+      platform.android: practitioner
+      platform.api: practitioner
+      domain.analytics: practitioner
+      quality.security: practitioner
+      distribution.app_store: aware
+      distribution.play: aware
+      distribution.web: aware
+    focus: [queue, WIP, budget, human gates, closure]
+    evidence: [delivery_path, queue rationale, budget/closure metrics]

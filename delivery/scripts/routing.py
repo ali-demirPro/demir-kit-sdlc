@@ -30,6 +30,9 @@ INACTIVE_REASONS = {
     "growth/run": "experiment/rollout kapsamda değil",
     "devops": "altyapı/CI kapsamda değil",
     "architect": "boundary riski yok",
+    "security": "güvenlik yüzeyi yok",
+    "data": "veri/migration kapsamda değil",
+    "release": "dağıtım kapsamda değil",
 }
 
 

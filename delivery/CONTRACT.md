@@ -1,4 +1,4 @@
-# Delivery contract — v2.6
+# Delivery contract — v2.7
 
 Bu dosya delivery'nin **tek durum makinesi**dir. Agent, path ve risk verisi
 `registry.yaml`'da; artefakt şekilleri `schemas/` altında; uygulama
@@ -16,6 +16,7 @@ Eski v1 yürütmesi arşivdedir (`archive/v1.7/`). Yeni runtime yalnızca `deliv
 | Evidence | issue comment | `schemas/evidence.schema.json` | coordinator + documenter | gate sonuçları |
 | Closure | issue comment | `schemas/closure.schema.json` | documenter | orchestrator + insan |
 | Ecosystem | repo kökü `ecosystem.yaml` | — | devops | health-check |
+| Capability registry | `delivery/capabilities/registry.yaml` + `role-matrix.yaml` | `capability.schema.json` | architect | doctor |
 
 ## Durum makinesi
 
@@ -125,6 +126,7 @@ otomatik yükselir; agent düşüremez. Ayrıntı: `policies/quality-gates.md`.
 | I9 | Contract değişikliği VERSION + CHANGELOG + doctor yeşili ister. |
 | I10 | İnsan kapısı yalnız: risk `high`/`critical` leaf, geri dönülemez işlem, epic kabul. |
 | I11 | Etiket geçişleri yalnız `scripts/transition.sh` ile yapılır; doğrudan etiket yazımı yasaktır. |
+| I12 | Capability seviyesi kanıtla atanır; agent `expert` üstüne çıkamaz, `authority` insan/principal içindir. |
 
 ## Yürütme
 
