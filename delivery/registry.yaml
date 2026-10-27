@@ -1,8 +1,13 @@
-# delivery/registry.yaml — v2.6
+# delivery/registry.yaml — v2.7
 # Tek kaynak: agent envanteri, path routing, risk glob'ları, etiket adları.
 # Sözleşme: delivery/CONTRACT.md · Denetim: delivery/scripts/doctor.sh
 
 version: 3
+
+capabilities:
+  registry: delivery/capabilities/registry.yaml
+  matrix: delivery/capabilities/role-matrix.yaml
+  levels: delivery/capabilities/levels.md
 
 protocol:
   contract: delivery/CONTRACT.md
@@ -35,6 +40,16 @@ labels:
 
 risk:
   levels: [low, medium, high, critical]
+  exclude:
+    - "delivery/agents/**"
+    - "delivery/capabilities/**"
+    - "delivery/runbooks/**"
+    - "delivery/protocol/**"
+    - "delivery/schemas/**"
+    - "delivery/tests/**"
+    - "skills/**"
+    - "*.md"
+    - "**/*.md"
   auto_escalate:
     high:
       - "**/auth/**"
@@ -131,7 +146,10 @@ role_order_default:
   - designer
   - developer
   - tester
+  - security
+  - data
   - devops
+  - release
   - marketing/stores
   - marketing/landing
   - growth/run

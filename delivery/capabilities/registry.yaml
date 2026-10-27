@@ -1,0 +1,420 @@
+# delivery/capabilities/registry.yaml — capability taxonomy v1
+# Tek kaynak: platform/domain/distribution/quality yetenekleri, rol seviyeleri,
+# pack bağları, risk tabanı ve kanıt beklentisi.
+# Şema: delivery/schemas/capability.schema.json · Doktrin: levels.md
+
+version: 1
+
+levels:
+  - aware
+  - practitioner
+  - expert
+  - authority
+
+risk_requirements:
+  low:
+    minimum: practitioner
+    approvers: [tester]
+    human_gate: none
+    human_count: 0
+  medium:
+    minimum: practitioner
+    approvers: [tester]
+    human_gate: exhaustion
+    human_count: 0
+  high:
+    minimum: expert
+    approvers: [architect, tester, security]
+    human_gate: leaf
+    human_count: 1
+  critical:
+    minimum: expert
+    approvers: [architect, tester, security, release]
+    human_gate: always
+    human_count: 2
+
+capabilities:
+  # ---------------------------------------------------------------- platform
+  platform.web:
+    kind: platform
+    label: Web
+    description: "Tarayıcıda çalışan ürün yüzeyi; responsive, erişilebilir ve ölçülebilir."
+    match:
+      platforms: [web, browser]
+      stacks: [next, react, vite, svelte, vue]
+      surfaces: [web.app, web, marketing.site]
+      keywords: [web, tarayıcı, browser, responsive]
+    roles:
+      architect: expert
+      designer: expert
+      developer: expert
+      tester: expert
+      devops: practitioner
+      security: practitioner
+      documenter: aware
+      analist: aware
+      growth/run: practitioner
+      marketing/landing: expert
+    packs: [web-ux]
+    risk_floor: low
+    gates: [behavior, ui]
+    evidence: [screenshot, cwv, e2e]
+
+  platform.ios:
+    kind: platform
+    label: iOS
+    description: "iPhone/iPad uygulaması; HIG, erişilebilirlik, privacy ve App Store dağıtımı."
+    match:
+      platforms: [ios]
+      stacks: [swiftui, uikit, xcode]
+      surfaces: [ios.app]
+      distribution: [app_store_connect, testflight]
+      keywords: [ios, iphone, ipad, testflight, swiftui]
+    roles:
+      architect: expert
+      designer: expert
+      developer: expert
+      tester: expert
+      devops: expert
+      security: practitioner
+      release: expert
+      marketing/stores: expert
+      documenter: aware
+      analist: aware
+    packs: [apple-hig, apple-a11y, apple-privacy, apple-asc]
+    risk_floor: medium
+    gates: [behavior, ui, platform]
+    evidence: [device_matrix, screenshot, testflight_build]
+
+  platform.android:
+    kind: platform
+    label: Android
+    description: "Android uygulaması; Material, erişilebilirlik ve Play dağıtımı."
+    match:
+      platforms: [android]
+      stacks: [kotlin, compose, flutter]
+      surfaces: [android.app]
+      distribution: [play_console]
+      keywords: [android, play store, apk, kotlin, compose]
+    roles:
+      architect: expert
+      designer: expert
+      developer: expert
+      tester: expert
+      devops: expert
+      security: practitioner
+      release: expert
+      marketing/stores: expert
+      documenter: aware
+      analist: aware
+    packs: [google-play]
+    risk_floor: medium
+    gates: [behavior, ui, platform]
+    evidence: [device_matrix, screenshot, play_track]
+
+  platform.api:
+    kind: platform
+    label: API
+    description: "Sunucu tarafı sözleşme yüzeyi; REST/GraphQL/RPC, hata ve sürüm disiplini."
+    match:
+      platforms: [api, backend]
+      stacks: [node, python, go, java, graphql, rest, grpc]
+      surfaces: [api]
+      keywords: [api, rest, graphql, endpoint, servis, backend]
+    roles:
+      architect: expert
+      developer: expert
+      tester: expert
+      devops: practitioner
+      security: expert
+      documenter: practitioner
+      analist: practitioner
+      data: practitioner
+    packs: []
+    risk_floor: medium
+    gates: [behavior, architect]
+    evidence: [contract_tests, error_matrix, load_smoke]
+
+  platform.cli:
+    kind: platform
+    label: CLI
+    description: "Komut satırı veya masaüstü aracı; argüman, çıkış kodu ve geri uyumluluk."
+    match:
+      platforms: [cli, desktop]
+      stacks: [python, node, go, rust]
+      surfaces: [cli]
+      keywords: [cli, command, terminal, komut]
+    roles:
+      architect: practitioner
+      developer: expert
+      tester: expert
+      devops: aware
+      security: practitioner
+      documenter: practitioner
+    packs: []
+    risk_floor: low
+    gates: [behavior]
+    evidence: [e2e, exit_code_matrix, help_text]
+
+  # ------------------------------------------------------------------ domain
+  domain.auth:
+    kind: domain
+    label: Auth
+    description: "Kimlik, oturum ve yetki; varsayılan red, ayrıcalık yükseltme ve hesap güvenliği."
+    match:
+      keywords: [auth, login, giriş, oturum, session, sso, mfa, oauth, yetki]
+      surfaces: [auth]
+    roles:
+      architect: expert
+      developer: expert
+      tester: expert
+      security: expert
+      devops: practitioner
+      data: practitioner
+      documenter: aware
+    packs: []
+    risk_floor: high
+    gates: [behavior, architect]
+    evidence: [threat_model, authz_matrix, auth_tests]
+
+  domain.payments:
+    kind: domain
+    label: Payments
+    description: "Ödeme, abonelik ve iade; para akışı, idempotency ve store kuralları."
+    match:
+      keywords: [payment, ödeme, checkout, iap, subscription, abonelik, billing, fatura, iade]
+      surfaces: [payments]
+    roles:
+      architect: expert
+      developer: expert
+      tester: expert
+      security: expert
+      data: practitioner
+      devops: practitioner
+      release: practitioner
+      marketing/stores: practitioner
+    packs: [launch-readiness]
+    risk_floor: high
+    gates: [behavior, architect, commercial]
+    evidence: [payment_matrix, refund_test, idempotency_proof]
+
+  domain.data:
+    kind: domain
+    label: Data
+    description: "Şema, migration, backfill ve geri dönüş; veri kaybı ve kilit riski."
+    match:
+      keywords: [migration, şema, schema, backfill, veri, database, db, tablo]
+      surfaces: [data]
+    roles:
+      architect: expert
+      developer: expert
+      tester: expert
+      data: expert
+      devops: practitioner
+      security: practitioner
+      documenter: aware
+    packs: []
+    risk_floor: high
+    gates: [behavior, architect]
+    evidence: [migration_plan, rollback_dry_run, data_validation]
+
+  domain.analytics:
+    kind: domain
+    label: Analytics
+    description: "Event şeması, metrik tanımı ve karar üreten ölçüm."
+    match:
+      keywords: [analytics, event, metric, funnel, ölçüm, telemetry, kpi]
+      surfaces: [analytics]
+    roles:
+      analist: expert
+      growth/run: expert
+      developer: practitioner
+      tester: practitioner
+      data: practitioner
+      documenter: aware
+    packs: []
+    risk_floor: low
+    gates: [behavior]
+    evidence: [event_schema, metric_definition, dashboard]
+
+  domain.offline:
+    kind: domain
+    label: Offline
+    description: "Çevrimdışı çalışma, senkronizasyon ve çakışma çözümü."
+    match:
+      keywords: [offline, çevrimdışı, sync, senkron, conflict, queue, kuyruk]
+      surfaces: [offline]
+    roles:
+      architect: expert
+      developer: expert
+      tester: expert
+      data: practitioner
+    packs: []
+    risk_floor: medium
+    gates: [behavior, architect]
+    evidence: [conflict_matrix, replay_test, queue_drain]
+
+  domain.i18n:
+    kind: domain
+    label: i18n
+    description: "Çok dilli içerik, locale, para/tarih biçimi ve çeviri bütünlüğü."
+    match:
+      keywords: [i18n, localization, çeviri, translation, locale, dil]
+      surfaces: [i18n]
+    roles:
+      designer: practitioner
+      developer: practitioner
+      tester: practitioner
+      documenter: practitioner
+      marketing/stores: practitioner
+      marketing/landing: practitioner
+    packs: []
+    risk_floor: low
+    gates: [behavior]
+    evidence: [locale_matrix, pseudo_locale, copy_review]
+
+  # ------------------------------------------------------------ distribution
+  distribution.app_store:
+    kind: distribution
+    label: App Store
+    description: "App Store Connect, TestFlight, metadata, privacy label ve inceleme riski."
+    match:
+      distribution: [app_store_connect, testflight]
+      surfaces: [ios.app]
+      keywords: [app store, testflight, asc, inceleme]
+    roles:
+      release: expert
+      marketing/stores: expert
+      devops: expert
+      security: practitioner
+      tester: practitioner
+      documenter: aware
+    packs: [apple-asc, launch-readiness]
+    risk_floor: critical
+    gates: [behavior, platform, commercial, human]
+    evidence: [store_metadata, screenshots, privacy_labels, review_notes]
+
+  distribution.play:
+    kind: distribution
+    label: Google Play
+    description: "Play Console track, data safety, görsel spec ve kademeli rollout."
+    match:
+      distribution: [play_console]
+      surfaces: [android.app]
+      keywords: [play console, google play, rollout, track]
+    roles:
+      release: expert
+      marketing/stores: expert
+      devops: expert
+      security: practitioner
+      tester: practitioner
+    packs: [google-play, launch-readiness]
+    risk_floor: critical
+    gates: [behavior, platform, commercial, human]
+    evidence: [store_metadata, data_safety, rollout_plan]
+
+  distribution.web:
+    kind: distribution
+    label: Web deploy
+    description: "Prod deploy, CDN, preview/production ayrımı ve geri dönüş."
+    match:
+      distribution: [web_deploy, vercel, netlify, cloudflare]
+      surfaces: [web.app]
+      keywords: [deploy, yayın, production, canlı, rollout]
+    roles:
+      release: expert
+      devops: expert
+      security: practitioner
+      tester: practitioner
+      marketing/landing: practitioner
+    packs: [launch-readiness]
+    risk_floor: medium
+    gates: [behavior, commercial]
+    evidence: [deploy_plan, preview_url, rollback]
+
+  # --------------------------------------------------------------- quality
+  quality.security:
+    kind: quality
+    label: Security
+    description: "Tehdit modeli, yetki, secret, bağımlılık ve tedarik zinciri."
+    match:
+      keywords: [security, güvenlik, authz, secret, owasp, cve, threat, sızma]
+    roles:
+      architect: expert
+      developer: practitioner
+      tester: expert
+      security: expert
+      devops: practitioner
+      data: practitioner
+    packs: []
+    risk_floor: high
+    gates: [behavior, architect]
+    evidence: [threat_model, sast, dependency_audit]
+
+  quality.privacy:
+    kind: quality
+    label: Privacy
+    description: "Veri minimizasyonu, izin, saklama, KVKK/GDPR ve privacy manifest."
+    match:
+      keywords: [privacy, gizlilik, kvkk, gdpr, consent, izin, att, saklama]
+    roles:
+      security: expert
+      data: practitioner
+      designer: practitioner
+      developer: practitioner
+      release: practitioner
+      marketing/stores: practitioner
+    packs: [apple-privacy]
+    risk_floor: high
+    gates: [behavior, commercial]
+    evidence: [data_map, privacy_manifest, consent_flow]
+
+  quality.a11y:
+    kind: quality
+    label: Accessibility
+    description: "WCAG/HIG/TalkBack, kontrast, odak, Dynamic Type ve hareket."
+    match:
+      keywords: [a11y, accessibility, erişilebilirlik, voiceover, talkback, wcag, kontrast]
+    roles:
+      designer: expert
+      developer: practitioner
+      tester: expert
+      documenter: aware
+      marketing/landing: practitioner
+    packs: [apple-a11y, web-ux]
+    risk_floor: medium
+    gates: [behavior, ui]
+    evidence: [a11y_audit, focus_order, screenshots]
+
+  quality.performance:
+    kind: quality
+    label: Performance
+    description: "CWV, p95, startup, bellek ve yük altında davranış."
+    match:
+      keywords: [performance, performans, cwv, latency, gecikme, startup, p95, bellek]
+    roles:
+      architect: practitioner
+      developer: expert
+      tester: expert
+      devops: practitioner
+    packs: [web-ux]
+    risk_floor: medium
+    gates: [behavior]
+    evidence: [cwv, load_test, budget]
+
+  quality.observability:
+    kind: quality
+    label: Observability
+    description: "Log, metric, trace, SLO ve alarm; arıza görünürlüğü."
+    match:
+      keywords: [observability, gözlemlenebilirlik, logging, metric, trace, slo, alert, alarm]
+    roles:
+      architect: practitioner
+      developer: practitioner
+      tester: practitioner
+      devops: expert
+      security: practitioner
+    packs: []
+    risk_floor: medium
+    gates: [behavior]
+    evidence: [slo, dashboard, alert_runbook]
