@@ -1,5 +1,16 @@
 # Changelog
 
+## 2.22.0 — 2026-10-27
+
+- **Standart keşfi** — `standards.py` kök ve birinci seviye alt dizinlerde paket
+  yöneticisini, test/tip/lint/biçim komutlarını ve stil dosyalarını bulur
+  (Node, Python, Go, Swift, Rust). Komut yoksa uydurmaz.
+- **AGENTS.md enjeksiyonu** — `--apply` yönetilen bloğu yazar; mevcut içerik
+  korunur, tekrar çalıştırma idempotenttir, dosya yoksa oluşturulur. `--check`
+  eksik veya bayat bloğu bildirir.
+- **Test** — Node/Python/Go/Swift, çok dilli repo, yanlış pozitif, koruma,
+  idempotency ve check; 308 test.
+
 ## 2.21.0 — 2026-10-27
 
 - **Profil kompozisyonu** — Profil artık tek seçim değil; repo birden fazla base

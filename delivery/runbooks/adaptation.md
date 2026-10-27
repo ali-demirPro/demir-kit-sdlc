@@ -34,6 +34,28 @@ hotspot. Çıktı `kit init` için girdidir; hiçbir dosya yazmaz.
 scripts/gate-behavior.sh üretir. `--apply` varsayılan olarak mevcut dosyayı
 ezmez; `--force` açık istekle üzerine yazar.
 
+## Standartlar
+
+Mevcut mühendislik konvansiyonlarını keşfeder ve `AGENTS.md` içine yönetilen bir
+blok yazar:
+
+```bash
+# Keşif (yazmaz)
+./delivery/scripts/standards.py --project .
+
+# AGENTS.md bloğunu yaz/yenile
+./delivery/scripts/standards.py --project . --apply
+
+# Blok güncel mi?
+./delivery/scripts/standards.py --project . --check
+```
+
+Kök ve birinci seviye alt dizinlerdeki manifestleri tarar: `package.json`,
+`pyproject.toml`, `go.mod`, `Package.swift`, `Cargo.toml`. Paket yöneticisi,
+test/tip/lint/biçim komutları ve stil dosyaları yazılır; tespit edilmeyen komut
+uydurulmaz. Blok `demir-kit:standards` işaretleri arasındadır; mevcut
+`AGENTS.md` içeriği korunur ve tekrar çalıştırma aynı sonucu verir.
+
 ## Profiller
 
 Profil tek seçim değildir; repo birden fazla base ve overlay barındırabilir.
