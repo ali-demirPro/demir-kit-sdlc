@@ -85,9 +85,9 @@ def load_agent_variants() -> dict[str, dict]:
     return variants
 
 
-def project_signals(ecosystem: dict) -> list[dict]:
+def project_signals(ecosystem: dict | None) -> list[dict]:
     signals: list[dict] = []
-    for product in (ecosystem.get("products") or {}).values():
+    for product in ((ecosystem or {}).get("products") or {}).values():
         for name, spec in (product.get("surfaces") or {}).items():
             spec = spec if isinstance(spec, dict) else {}
             surfaces = [name]
@@ -102,6 +102,55 @@ def project_signals(ecosystem: dict) -> list[dict]:
                 }
             )
     return signals
+
+
+def _surface_match(left: str, right: str) -> bool:
+    left = left.lower()
+    right = right.lower()
+    return (
+        left == right
+        or left.startswith(right + ".")
+        or right.startswith(left + ".")
+    )
+
+
+def scoped_signals(ecosystem: dict, seal: dict) -> list[dict]:
+    """Merge project surface metadata into the leaf's sealed surfaces."""
+    project = project_signals(ecosystem)
+    sealed = seal_signals(seal)
+    if not sealed:
+        return project
+    result: list[dict] = []
+    for signal in sealed:
+        matched = [
+            item
+            for item in project
+            if any(
+                _surface_match(surface, name)
+                for surface in signal["surfaces"]
+                for name in item["surfaces"]
+            )
+        ]
+        if not matched:
+            result.append(signal)
+            continue
+        for item in matched:
+            result.append(
+                {
+                    "name": signal["name"],
+                    "surfaces": list(
+                        dict.fromkeys(signal["surfaces"] + item["surfaces"])
+                    ),
+                    "platforms": list(
+                        dict.fromkeys(item["platforms"] + signal["platforms"])
+                    ),
+                    "stacks": list(dict.fromkeys(item["stacks"] + signal["stacks"])),
+                    "distribution": list(
+                        dict.fromkeys(item["distribution"] + signal["distribution"])
+                    ),
+                }
+            )
+    return result
 
 
 def seal_signals(seal: dict) -> list[dict]:

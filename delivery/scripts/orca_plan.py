@@ -20,6 +20,7 @@ import yaml
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import resolver  # noqa: E402
 import routing  # noqa: E402
 
 
@@ -39,6 +40,40 @@ def repo_name() -> str:
     return repo
 
 
+def project_ecosystem() -> dict:
+    project = routing.project_root(ROOT)
+    try:
+        data = yaml.safe_load((project / "ecosystem.yaml").read_text(encoding="utf-8"))
+    except (FileNotFoundError, yaml.YAMLError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def required_reviewers(gates: dict, risk: str, resolution: dict) -> list[str]:
+    caps = set(resolution.get("capabilities") or [])
+    reviewers = {"tester"}
+    if gates.get("ui"):
+        reviewers.add("designer")
+    if gates.get("architect") or risk in {"high", "critical"}:
+        reviewers.add("architect")
+    if risk in {"high", "critical"} or caps & {
+        "domain.auth",
+        "domain.payments",
+        "quality.security",
+        "quality.privacy",
+    }:
+        reviewers.add("security")
+    if gates.get("commercial") or risk == "critical":
+        reviewers.update({"marketing/stores", "release"})
+    if caps & {"distribution.app_store", "distribution.play"}:
+        reviewers.update({"marketing/stores", "release"})
+    if "distribution.web" in caps:
+        reviewers.update({"marketing/landing", "release"})
+    if "quality.a11y" in caps:
+        reviewers.add("designer")
+    return sorted(reviewers)
+
+
 def build_plan(
     registry: dict,
     issue: int,
@@ -46,6 +81,7 @@ def build_plan(
     body: str,
     labels: set[str],
     prefix: str = "",
+    ecosystem: dict | None = None,
 ) -> dict:
     seal = routing.seal_body(body)
     if not seal:
@@ -57,6 +93,31 @@ def build_plan(
     surfaces = ", ".join(seal.get("surfaces") or []) or "n/a"
     epic = seal.get("epic")
     risk = (seal.get("risk") or {}).get("level", "n/a")
+    project = routing.project_root(ROOT)
+    ecosystem = ecosystem if ecosystem is not None else project_ecosystem()
+    signals = resolver.scoped_signals(ecosystem, seal)
+    resolution = resolver.resolve(
+        resolver.load_capabilities(),
+        resolver.load_matrix(),
+        resolver.load_agent_variants(),
+        path_id,
+        signals,
+        f"{title}\n{seal.get('intent', '')}\n{routing.strip_seal(body)}",
+        declared=resolver.load_declared(project),
+    )
+    capabilities = resolution["capabilities"]
+    active_variants = resolution["active_variants"]
+    risk_order = {"low": 0, "medium": 1, "high": 2, "critical": 3}
+    effective_risk = max(
+        (risk if risk in risk_order else "low"),
+        resolution["risk_floor"],
+        key=lambda value: risk_order.get(value, 0),
+    )
+    reviewers = required_reviewers(
+        {"ui": False, "architect": False, "commercial": False},
+        effective_risk,
+        resolution,
+    )
 
     tasks = []
     for cp in seal.get("checkpoints") or []:
@@ -65,12 +126,22 @@ def build_plan(
         cp_id = cp.get("id")
         gates = cp.get("gates") or {}
         role = "designer" if gates.get("ui") else "developer"
-        docs = "\n".join(f"- {item}" for item in routing.role_docs(role, prefix))
+        docs_list = routing.role_docs(role, prefix)
+        for item in active_variants:
+            if item["role"] == role:
+                doc = f"{prefix}delivery/agents/{role}/{item['doc']}"
+                if doc not in docs_list:
+                    docs_list.append(doc)
+        docs = "\n".join(f"- {item}" for item in docs_list)
+        cp_reviewers = required_reviewers(gates, effective_risk, resolution)
+        reviewers = sorted(set(reviewers) | set(cp_reviewers))
         deps = [f"task:{item}" for item in cp.get("depends_on") or []]
         spec = (
             f"demir-kit #{issue} {cp_id}: {cp.get('title', '')}\n"
             f"Target: issue #{issue}, epic #{epic}, surfaces: {surfaces}\n"
             f"Role: {role}\n"
+            f"Capabilities: {', '.join(capabilities) or '-'}\n"
+            f"Required reviewers: {', '.join(cp_reviewers)}\n"
             f"Read:\n{docs}\n"
             f"- {prefix}delivery/CONTRACT.md\n"
             f"- {prefix}delivery/policies/quality-gates.md\n"
@@ -78,7 +149,7 @@ def build_plan(
             f"Ownership: edit only files required by {cp_id}; never touch other CPs, "
             f"the contract, CI or another agent's files. Surfaces: {surfaces}.\n"
             f"Constraints: no work outside issue #{issue}; do not self-approve; "
-            f"do not touch other CPs; risk is {risk}.\n"
+            f"do not touch other CPs; risk is {effective_risk} (seal {risk}).\n"
             f"Acceptance: `./{prefix}delivery/scripts/doctor.sh"
             + (" --product --root ." if prefix else "")
             + f" --issue {issue} --checkpoint {cp_id}` exit 0, then post evidence with agent: {role}.\n"
@@ -88,6 +159,8 @@ def build_plan(
                 "id": cp_id,
                 "role": role,
                 "deps": deps,
+                "reviewers": cp_reviewers,
+                "capabilities": capabilities,
                 "spec": spec,
             }
         )
@@ -99,7 +172,14 @@ def build_plan(
         "path_id": path_id,
         "signal": signal.get("id") if signal else None,
         "risk": risk,
+        "effective_risk": effective_risk,
         "active_agents": agents["active"],
+        "capability_agents": resolution["active_roles"],
+        "capabilities": capabilities,
+        "active_variants": active_variants,
+        "variant_gaps": resolution["variant_gaps"],
+        "risk_floor": resolution["risk_floor"],
+        "reviewers": reviewers,
         "tasks": tasks,
     }
 

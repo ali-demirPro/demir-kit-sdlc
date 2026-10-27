@@ -63,7 +63,11 @@ def build_brief(
     path_id, signal = routing.detect_path(registry, title, body, seal)
     agents = routing.resolve_agents(registry, path_id, signal)
     risk = (seal.get("risk") or {}).get("level", "n/a")
-    signals = resolver.project_signals(ecosystem or {}) + resolver.seal_signals(seal)
+    signals = (
+        resolver.scoped_signals(ecosystem, seal)
+        if seal
+        else resolver.project_signals(ecosystem or {})
+    )
     text = f"{title}\n{seal.get('intent', '')}\n{routing.strip_seal(body)}"
     resolution = resolver.resolve(
         resolver.load_capabilities(),

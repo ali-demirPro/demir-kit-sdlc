@@ -128,6 +128,15 @@ python3 delivery/scripts/update.py --issue N --who developer --what "Leaf kapand
 
 Epic seviyesinde otomatik closure başlar: `runbooks/epic-closure.md`.
 
+Orca task spec'leri capability-aware'dir: `orca_plan` aktif capability/variant
+dokümanlarını, gerekli reviewer rolleri ve variant gap'lerini taşır; plan çıktısı
+`capabilities`, `active_variants`, `reviewers` alanlarını içerir.
+
+`role` ve `reviewers` koordinasyon metadata'sıdır: mevcut `orca_wave` tek agent
+(`opencode2`) başlatır; reviewer'lar ayrı worker/human olarak çağrılmalı ve
+evidence'a rol/oturum kimliğiyle yazılmalıdır. Plan, reviewer'ı otomatik
+başlatmaz.
+
 Orca komutları ve task spec kuralları: [orca.md](orca.md).
 
 ## 8. State geçişleri

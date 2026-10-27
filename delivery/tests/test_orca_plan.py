@@ -59,6 +59,211 @@ class OrcaPlanTests(unittest.TestCase):
         self.assertNotIn("--product", first["spec"])
         self.assertIn("delivery/agents/designer/SKILL.md", second["spec"])
 
+    def test_capability_aware_web_plan(self) -> None:
+        body = """```yaml demir-kit
+epic: 16
+surfaces: [web.app]
+factory: {stacks: [next]}
+risk: {level: medium}
+checkpoints:
+  - {id: CP-1, title: Web, gates: {behavior: true}}
+  - {id: CP-2, title: UI, depends_on: [CP-1], gates: {behavior: true, ui: true}}
+```"""
+        ecosystem = {
+            "products": {
+                "app": {
+                    "surfaces": {
+                        "web": {"platforms": ["web"], "stacks": ["next"]}
+                    }
+                }
+            }
+        }
+        plan = orca_plan.build_plan(
+            REGISTRY, 72, "Web leaf", body, {"agent-approved"}, ecosystem=ecosystem
+        )
+        self.assertIn("platform.web", plan["capabilities"])
+        self.assertEqual(plan["tasks"][0]["role"], "developer")
+        self.assertEqual(plan["tasks"][1]["role"], "designer")
+        self.assertIn("developer/variants/web.md", plan["tasks"][0]["spec"])
+        self.assertIn("designer/variants/web.md", plan["tasks"][1]["spec"])
+        self.assertIn("tester", plan["tasks"][0]["reviewers"])
+
+    def test_capability_aware_ios_and_api(self) -> None:
+        ios_body = """```yaml demir-kit
+epic: 16
+surfaces: [ios.app]
+factory: {stacks: [swiftui]}
+risk: {level: critical}
+checkpoints:
+  - {id: CP-1, title: iOS, gates: {behavior: true}}
+```"""
+        ios_ecosystem = {
+            "products": {
+                "app": {
+                    "surfaces": {
+                        "ios": {
+                            "platforms": ["ios"],
+                            "stacks": ["swiftui"],
+                            "distribution": ["app_store_connect"],
+                        }
+                    }
+                }
+            }
+        }
+        plan = orca_plan.build_plan(
+            REGISTRY, 72, "iOS leaf", ios_body, {"agent-approved"}, ecosystem=ios_ecosystem
+        )
+        self.assertIn("platform.ios", plan["capabilities"])
+        self.assertIn("distribution.app_store", plan["capabilities"])
+        self.assertIn("developer/variants/ios.md", plan["tasks"][0]["spec"])
+        self.assertEqual(plan["effective_risk"], "critical")
+        self.assertIn("release", plan["tasks"][0]["reviewers"])
+        self.assertIn("marketing/stores", plan["tasks"][0]["reviewers"])
+        self.assertIn("architect", plan["tasks"][0]["reviewers"])
+        self.assertIn("security", plan["tasks"][0]["reviewers"])
+
+        api_body = """```yaml demir-kit
+epic: 16
+surfaces: [api]
+factory: {stacks: [python]}
+risk: {level: medium}
+checkpoints:
+  - {id: CP-1, title: API, gates: {behavior: true}}
+```"""
+        api_ecosystem = {
+            "products": {
+                "app": {
+                    "surfaces": {
+                        "api": {"platforms": ["api"], "stacks": ["python"]}
+                    }
+                }
+            }
+        }
+        plan = orca_plan.build_plan(
+            REGISTRY, 72, "API leaf", api_body, {"agent-approved"}, ecosystem=api_ecosystem
+        )
+        self.assertIn("platform.api", plan["capabilities"])
+        self.assertIn("developer/variants/api.md", plan["tasks"][0]["spec"])
+        self.assertNotIn("designer/variants/web.md", plan["tasks"][0]["spec"])
+
+    def test_high_risk_plan_adds_security_and_architect(self) -> None:
+        body = """```yaml demir-kit
+epic: 16
+surfaces: [web.app]
+factory: {stacks: [next]}
+risk: {level: high}
+checkpoints:
+  - {id: CP-1, title: Web, gates: {behavior: true}}
+```"""
+        plan = orca_plan.build_plan(
+            REGISTRY,
+            72,
+            "High risk web leaf",
+            body,
+            {"agent-approved"},
+            ecosystem={
+                "products": {
+                    "app": {
+                        "surfaces": {
+                            "web": {"platforms": ["web"], "stacks": ["next"]}
+                        }
+                    }
+                }
+            },
+        )
+        self.assertEqual(plan["effective_risk"], "high")
+        self.assertIn("architect", plan["tasks"][0]["reviewers"])
+        self.assertIn("security", plan["tasks"][0]["reviewers"])
+        self.assertFalse(plan["variant_gaps"])
+
+    def test_critical_plan_adds_commercial_reviewers(self) -> None:
+        body = """```yaml demir-kit
+epic: 16
+surfaces: [web.app]
+factory: {stacks: [next]}
+risk: {level: critical}
+checkpoints:
+  - {id: CP-1, title: Web, gates: {behavior: true}}
+```"""
+        plan = orca_plan.build_plan(
+            REGISTRY,
+            72,
+            "Critical web",
+            body,
+            {"agent-approved"},
+            ecosystem={
+                "products": {
+                    "app": {
+                        "surfaces": {
+                            "web": {"platforms": ["web"], "stacks": ["next"]}
+                        }
+                    }
+                }
+            },
+        )
+        self.assertIn("release", plan["tasks"][0]["reviewers"])
+        self.assertIn("marketing/stores", plan["tasks"][0]["reviewers"])
+
+    def test_leaf_surface_filters_multi_surface_project(self) -> None:
+        body = """```yaml demir-kit
+epic: 16
+surfaces: [web.app]
+factory: {stacks: [next]}
+risk: {level: medium}
+checkpoints:
+  - {id: CP-1, title: Web, gates: {behavior: true}}
+```"""
+        ecosystem = {
+            "products": {
+                "app": {
+                    "surfaces": {
+                        "web": {"platforms": ["web"], "stacks": ["next"]},
+                        "ios": {
+                            "platforms": ["ios"],
+                            "stacks": ["swiftui"],
+                            "distribution": ["app_store_connect"],
+                        },
+                    }
+                }
+            }
+        }
+        plan = orca_plan.build_plan(
+            REGISTRY, 72, "Web leaf", body, {"agent-approved"}, ecosystem=ecosystem
+        )
+        self.assertEqual(plan["capabilities"], ["platform.web"])
+        self.assertNotIn("platform.ios", plan["capabilities"])
+        self.assertNotIn("developer/variants/ios.md", plan["tasks"][0]["spec"])
+
+    def test_distribution_web_uses_landing_not_stores(self) -> None:
+        body = """```yaml demir-kit
+epic: 16
+surfaces: [web.app]
+factory: {stacks: [next]}
+risk: {level: medium}
+checkpoints:
+  - {id: CP-1, title: Web, gates: {behavior: true}}
+```"""
+        ecosystem = {
+            "products": {
+                "app": {
+                    "surfaces": {
+                        "web": {
+                            "platforms": ["web"],
+                            "stacks": ["next"],
+                            "distribution": ["web_deploy"],
+                        }
+                    }
+                }
+            }
+        }
+        plan = orca_plan.build_plan(
+            REGISTRY, 72, "Web deploy", body, {"agent-approved"}, ecosystem=ecosystem
+        )
+        self.assertIn("distribution.web", plan["capabilities"])
+        self.assertIn("release", plan["tasks"][0]["reviewers"])
+        self.assertIn("marketing/landing", plan["tasks"][0]["reviewers"])
+        self.assertNotIn("marketing/stores", plan["tasks"][0]["reviewers"])
+
     def test_product_prefix(self) -> None:
         plan = orca_plan.build_plan(
             REGISTRY, 35, "Product", BODY, {"agent-approved"}, prefix="demir-kit/"

@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.16.0 — 2026-10-27
+
+- **Capability-aware plan** — `orca_plan` capability setini, aktif variant
+  dokümanlarını, variant gap'lerini ve risk tabanını taşır; implementer task
+  spec'i ilgili variant'ı okur.
+- **Reviewer planı** — UI CP designer, high/critical/auth/payments security +
+  architect, distribution release/marketing reviewer'ları plana eklenir.
+- **Test** — web/iOS/API/high-risk/critical planları; 243 test.
+
 ## 2.15.0 — 2026-10-27
 
 - **Capability enforcement** — `doctor` capability `risk_floor`'u seal riskiyle
