@@ -24,5 +24,7 @@ jobs:
         run: python3 -m pip install --disable-pip-version-check "pyyaml==6.*"
       - name: Doctor unit tests
         run: python3 -m unittest discover -s delivery/tests -v
+      - name: Eval scenario check
+        run: python3 delivery/scripts/eval.py --check
       - name: Contract doctor (strict)
         run: bash ./delivery/scripts/doctor.sh --strict

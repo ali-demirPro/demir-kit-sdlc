@@ -1,6 +1,6 @@
 # Designer web — eval set
 
-> En az 8 senaryo. `expert` seviyesi: uç durumu fark eder, gerekçeli öneri
+> En az 10 senaryo. `expert` seviyesi: uç durumu fark eder, gerekçeli öneri
 > üretir ve handoff'ta eksik bırakmaz.
 
 | ID | Senaryo | Beklenen | Fail sinyali |
