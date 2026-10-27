@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.24.0 — 2026-10-27
+
+- **Tek komutla adopt** — `adopt.py` hedef projeye agentic SDLC kurar:
+  `init` → eksikse `vendor_sync` → `AGENTS.md` standartları → read-only
+  `verify`. Varsayılan dry-run; `--apply` yalnız hedef projeye yazar.
+- **Güvenlik** — kaynak/hedef kit çakışırsa yazmadan reddeder; mevcut dosyalar
+  ezilmez; ikinci çalıştırma idempotenttir.
+- **Test** — dry-run, apply, AGENTS koruma, idempotency, overlap ve boş proje;
+  327 test.
+
 ## 2.23.1 — 2026-10-27
 
 - **Proje bağımsızlığı** — kabul kanıtındaki proje adları ve yerel yollar

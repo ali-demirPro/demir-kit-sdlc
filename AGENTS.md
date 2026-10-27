@@ -22,6 +22,7 @@ Version lives in `VERSION`; bump it with `CHANGELOG.md` and the README header.
 ./delivery/scripts/profiles.py --project .        # profile composition
 ./delivery/scripts/standards.py --project . --check # project standards
 ./delivery/scripts/verify.py --project .          # read-only adaptation check
+./delivery/scripts/adopt.py --project . --apply   # one-command SDLC injection
 ./delivery/scripts/resolver.py --surface web.app --platform web --stack next
 ./delivery/scripts/adapt.py --add platform.android  # capability diff; --apply writes .kit/capabilities.yaml
 ./delivery/scripts/eval.py --check           # eval scenarios (10+ per variant)
