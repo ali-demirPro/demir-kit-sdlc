@@ -58,6 +58,17 @@ class VariantTests(unittest.TestCase):
                 [],
             )
 
+    def test_developer_and_marketing_are_valid(self) -> None:
+        for role in ("developer", "marketing/stores", "marketing/landing"):
+            agent = variants.load_agent(role)
+            self.assertEqual(doctor.validate_schema(agent, SCHEMA), [])
+            self.assertEqual(
+                variants.validate_agent(
+                    role, agent, CAPABILITIES, ROLES, matrix=MATRIX
+                ),
+                [],
+            )
+
     def test_unknown_capability(self) -> None:
         agent = copy.deepcopy(variants.load_agent("designer"))
         agent["capabilities_required"].append("platform.unknown")

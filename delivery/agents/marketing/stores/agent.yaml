@@ -1,0 +1,25 @@
+# Marketing / Stores — capability → variant map
+id: marketing/stores
+version: 1
+mission: "Store görünürlüğünü, metadata bütünlüğünü ve inceleme riskini yönetmek."
+base_docs: [ROLE.md, how.md, communicates.md, dependencies.md, SKILL.md]
+capabilities_required:
+  - platform.ios
+  - platform.android
+  - domain.analytics
+  - domain.i18n
+  - quality.privacy
+  - distribution.app_store
+  - distribution.play
+  - distribution.web
+variants:
+  platform.ios: { doc: variants/apple.md, eval: evals/stores.md, min_level: practitioner }
+  platform.android: { doc: variants/google.md, eval: evals/stores.md, min_level: practitioner }
+  domain.analytics: { doc: variants/aso.md, eval: evals/stores.md, min_level: practitioner }
+  domain.i18n: { doc: variants/aso.md, eval: evals/stores.md, min_level: practitioner }
+  quality.privacy: { doc: variants/aso.md, eval: evals/stores.md, min_level: practitioner }
+  distribution.app_store: { doc: variants/apple.md, eval: evals/stores.md, min_level: expert }
+  distribution.play: { doc: variants/google.md, eval: evals/stores.md, min_level: expert }
+  distribution.web: { doc: variants/aso.md, eval: evals/stores.md, min_level: practitioner }
+handoffs: [release, marketing/landing, developer, documenter, growth/run]
+escalation: [store_rejection, metadata_conflict, privacy_gap, localization_block]

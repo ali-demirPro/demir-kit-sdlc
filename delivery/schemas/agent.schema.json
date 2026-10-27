@@ -15,7 +15,7 @@
     "escalation"
   ],
   "properties": {
-    "id": { "type": "string", "pattern": "^[a-z][a-z0-9_-]*$" },
+    "id": { "type": "string", "pattern": "^[a-z][a-z0-9_-]*(/[a-z][a-z0-9_-]*)?$" },
     "version": { "const": 1 },
     "mission": { "type": "string", "minLength": 20 },
     "base_docs": {

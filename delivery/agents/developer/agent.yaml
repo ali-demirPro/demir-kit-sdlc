@@ -1,0 +1,43 @@
+# Developer — capability → variant map
+id: developer
+version: 1
+mission: "Mühürlü kapsamda minimal, test edilebilir ve geri alınabilir değişiklik yapmak."
+base_docs: [ROLE.md, how.md, communicates.md, dependencies.md, SKILL.md]
+capabilities_required:
+  - platform.web
+  - platform.ios
+  - platform.android
+  - platform.api
+  - platform.cli
+  - domain.auth
+  - domain.payments
+  - domain.data
+  - domain.offline
+  - domain.i18n
+  - domain.analytics
+  - quality.security
+  - quality.privacy
+  - quality.a11y
+  - quality.performance
+  - quality.observability
+  - distribution.web
+variants:
+  platform.web: { doc: variants/web.md, eval: evals/platform.md, min_level: expert }
+  platform.ios: { doc: variants/ios.md, eval: evals/platform.md, min_level: expert }
+  platform.android: { doc: variants/android.md, eval: evals/platform.md, min_level: expert }
+  platform.api: { doc: variants/api.md, eval: evals/platform.md, min_level: expert }
+  platform.cli: { doc: variants/api.md, eval: evals/platform.md, min_level: expert }
+  domain.auth: { doc: variants/domain.md, eval: evals/domain.md, min_level: practitioner }
+  domain.payments: { doc: variants/domain.md, eval: evals/domain.md, min_level: practitioner }
+  domain.data: { doc: variants/domain.md, eval: evals/domain.md, min_level: practitioner }
+  domain.offline: { doc: variants/domain.md, eval: evals/domain.md, min_level: practitioner }
+  domain.i18n: { doc: variants/domain.md, eval: evals/domain.md, min_level: practitioner }
+  domain.analytics: { doc: variants/domain.md, eval: evals/domain.md, min_level: practitioner }
+  quality.security: { doc: variants/quality.md, eval: evals/quality.md, min_level: practitioner }
+  quality.privacy: { doc: variants/quality.md, eval: evals/quality.md, min_level: practitioner }
+  quality.a11y: { doc: variants/quality.md, eval: evals/quality.md, min_level: practitioner }
+  quality.performance: { doc: variants/quality.md, eval: evals/quality.md, min_level: practitioner }
+  quality.observability: { doc: variants/quality.md, eval: evals/quality.md, min_level: practitioner }
+  distribution.web: { doc: variants/delivery.md, eval: evals/delivery.md, min_level: practitioner }
+handoffs: [tester, architect, devops, documenter, security]
+escalation: [scope_gap, dependency_blocked, failing_gate, unclear_contract]

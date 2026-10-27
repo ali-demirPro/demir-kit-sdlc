@@ -1,0 +1,21 @@
+# Marketing / Landing — capability → variant map
+id: marketing/landing
+version: 1
+mission: "Landing/SEO yüzeyini ölçülebilir dönüşüme ve hızlı deneyime bağlamak."
+base_docs: [ROLE.md, how.md, communicates.md, dependencies.md, SKILL.md]
+capabilities_required:
+  - platform.web
+  - domain.analytics
+  - domain.i18n
+  - quality.a11y
+  - quality.performance
+  - distribution.web
+variants:
+  platform.web: { doc: variants/landing.md, eval: evals/landing.md, min_level: expert }
+  quality.a11y: { doc: variants/landing.md, eval: evals/landing.md, min_level: practitioner }
+  distribution.web: { doc: variants/landing.md, eval: evals/landing.md, min_level: practitioner }
+  domain.analytics: { doc: variants/seo.md, eval: evals/landing.md, min_level: expert }
+  domain.i18n: { doc: variants/seo.md, eval: evals/landing.md, min_level: practitioner }
+  quality.performance: { doc: variants/seo.md, eval: evals/landing.md, min_level: expert }
+handoffs: [developer, designer, growth/run, documenter]
+escalation: [brand_conflict, tracking_gap, seo_block, content_unclear]
