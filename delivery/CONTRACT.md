@@ -1,4 +1,4 @@
-# Delivery contract — v2.12
+# Delivery contract — v2.13
 
 Bu dosya delivery'nin **tek durum makinesi**dir. Agent, path ve risk verisi
 `registry.yaml`'da; artefakt şekilleri `schemas/` altında; uygulama
@@ -56,13 +56,14 @@ stateDiagram-v2
 | T6 | `blocked` | `executing` | coordinator / insan | blocker çözüldü | unblock comment | `-blocked` |
 | T7 | `agent-approved` / `executing` | `deferred` | insan | defer issue linki | karar comment | `-executing +deferred` |
 | T8 | tüm leaf'ler `leaf-done`/`deferred` | closure | orchestrator | `runbooks/epic-closure.md` | closure report | — / `+epic-reconcile` |
-| T9 | closure `pass` | `epic-done` | insan | rapor `pass` + kabul | human-qa comment | `+epic-done` |
+| T9 | closure `pass` | `epic-done` | insan | rapor `pass` + tüm child `leaf-done/deferred` + insan-authored `demir-kit-accept` | human comment | `+epic-done` |
 
 Kurallar:
 
 - T2–T6 otomatiktir; insan sormaz. Yalnız T7, T9 ve risk yüksek leaf QA insan ister.
 - T4, evidence şeması geçerli değilse **imkânsızdır** (`doctor.sh --issue N`).
-- T9, closure `status: pass` değilse yasaktır; "epic bitti" demek contract ihlalidir.
+- T9, closure `status: pass` değilse, açık child varsa veya kabul bloğu insan
+  tarafından yazılmadıysa yasaktır; "epic bitti" demek contract ihlalidir.
 - Her geçiş idempotenttir: aynı hedef durumda tekrar çalıştırmak no-op'tur.
 
 ## Etiket sözlüğü
@@ -129,6 +130,7 @@ otomatik yükselir; agent düşüremez. Ayrıntı: `policies/quality-gates.md`.
 | I10 | İnsan kapısı yalnız: risk `high`/`critical` leaf, geri dönülemez işlem, epic kabul. |
 | I11 | Etiket geçişleri yalnız `scripts/transition.sh` ile yapılır; doğrudan etiket yazımı yasaktır. |
 | I12 | Capability seviyesi kanıtla atanır; agent `expert` üstüne çıkamaz, `authority` insan/principal içindir. |
+| I13 | `epic-done` yalnız insan-authored `demir-kit-accept` + kapalı child'larla; agent kendi kabulünü yazamaz. |
 
 ## Yürütme
 

@@ -25,6 +25,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import approvals as approvals_lib  # noqa: E402
 import capabilities as capabilities_lib  # noqa: E402
 import evidence as evidence_lib  # noqa: E402
 import resolver as resolver_lib  # noqa: E402
@@ -87,6 +88,7 @@ REQUIRED_FILES = [
     "delivery/scripts/variants.py",
     "delivery/scripts/resolver.py",
     "delivery/scripts/adapt.py",
+    "delivery/scripts/approvals.py",
     "delivery/schemas/agent.schema.json",
     "delivery/capabilities/registry.yaml",
     "delivery/capabilities/role-matrix.yaml",
@@ -94,6 +96,7 @@ REQUIRED_FILES = [
     "delivery/capabilities/README.md",
     "delivery/schemas/capability.schema.json",
     "delivery/schemas/role-matrix.schema.json",
+    "delivery/schemas/accept.schema.json",
     ".github/workflows/issue-doctor.yml",
     ".github/pull_request_template.md",
     "delivery/runbooks/pr-flow.md",
@@ -873,6 +876,17 @@ def check_issue_body(
                     error(f"{cp_id}: gates.ui açık ama interaction reviewer pass değil")
 
 
+def fetch_issue_labels(repo: str, number: int) -> set[str]:
+    raw = run(["gh", "api", f"repos/{repo}/issues/{number}"])
+    if not raw:
+        return set()
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        return set()
+    return {item.get("name") for item in data.get("labels", [])}
+
+
 def fetch_comments(repo: str, number: int, page_size: int = 100) -> list[dict]:
     """Fetch every issue comment; GitHub caps a page at 100."""
     comments: list[dict] = []
@@ -990,30 +1004,45 @@ def check_issue(
                     f"issue #{number}: epic-done ama closure ready_for_human_qa true değil"
                 )
 
-    accept_blocks = re.findall(
-        r"```yaml\s+demir-kit-accept\s*\n(.*?)```",
-        "\n".join([payload.get("body", "")] + bodies),
-        re.S,
-    )
     if "epic-done" in actual_labels:
-        if not accept_blocks:
-            error(f"issue #{number}: epic-done ama demir-kit-accept bloğu yok")
-        else:
+        epic_record = None
+        if epic_block:
             try:
-                accept = yaml.safe_load(accept_blocks[-1]) or {}
-            except yaml.YAMLError as exc:
-                error(f"issue #{number}: kabul YAML geçersiz — {exc}")
-                accept = None
-            if not isinstance(accept, dict):
-                error(f"issue #{number}: kabul bloğu mapping değil")
-            else:
-                if accept.get("epic") != number:
-                    error(f"issue #{number}: kabul epic numarası eşleşmiyor")
-                if not str(accept.get("by") or "").strip():
-                    error(f"issue #{number}: kabul by alanı yok")
-                if accept.get("decision") != "accepted":
-                    error(f"issue #{number}: kabul decision accepted değil")
-
+                epic_record = yaml.safe_load(epic_block.group(1)) or {}
+            except yaml.YAMLError:
+                epic_record = None
+        children = [
+            int(item)
+            for item in (epic_record or {}).get("children") or []
+            if isinstance(item, int)
+        ]
+        closure_value = None
+        if closure_blocks:
+            try:
+                closure_value = yaml.safe_load(closure_blocks[-1]) or {}
+            except yaml.YAMLError:
+                closure_value = None
+        metrics = (
+            closure_value.get("metrics")
+            if isinstance(closure_value, dict)
+            else {}
+        )
+        leaf_count = (metrics or {}).get("leaf_count")
+        if children and leaf_count != len(children):
+            error(
+                f"issue #{number}: closure metrics.leaf_count child sayısıyla "
+                f"eşleşmiyor ({leaf_count} != {len(children)})"
+            )
+        for child in children:
+            child_labels = fetch_issue_labels(repo, child)
+            if not child_labels & {"leaf-done", "deferred"}:
+                error(f"issue #{number}: child #{child} leaf-done/deferred değil")
+        acceptance = approvals_lib.human_acceptance(comments, number)
+        if not acceptance:
+            error(
+                f"issue #{number}: epic-done için insan authored "
+                "demir-kit-accept comment'i gerekli"
+            )
 
 def check_product(root: Path) -> None:
     check("product")

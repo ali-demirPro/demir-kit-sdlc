@@ -93,8 +93,21 @@ python3 delivery/scripts/report.py --issue <epic> --post
 
 - Aynı kısa özet sohbet sonunda da verilir.
 - İnsan onayı: [human-qa-done](../policies/human-qa-done.md) epic bölümü →
-  `transition.sh --issue N --to epic-done --accept "<ad>"`; bu
-  `demir-kit-accept` bloğunu yazar ve `epic-done` etiketini koyar.
+  İnsan, issue'ya `demir-kit-accept` bloğunu **kendi GitHub hesabıyla** yazar;
+  ardından `transition.sh --issue N --to epic-done` çalışır. Transition bloğu
+  yazmaz; yalnız insan-authored bloğu doğrular. `--accept "<login>"` yalnız
+  ek doğrulama içindir. Şablon:
+
+```yaml
+demir-kit-accept
+demir_kit_version: "2"
+epic: <epic-no>
+by: <github-login>
+decision: accepted
+```
+
+  `by` GitHub login'iyle eşleşmezse veya son insan kararı `rejected` ise epic
+  kapanmaz.
 
 ## Kurallar
 

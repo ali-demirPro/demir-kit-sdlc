@@ -449,15 +449,35 @@ class ClosureTests(DoctorTestCase):
         data.update(overrides)
         return data
 
-    def run_issue(self, body: str, labels: list[str], comments: list[dict]) -> None:
+    def run_issue(
+        self,
+        body: str,
+        labels: list[str],
+        comments: list[dict],
+        child_labels: set[str] | None = None,
+    ) -> None:
         issue = {
             "body": body,
             "labels": [{"name": name} for name in labels],
         }
+        normalized = []
+        for comment in comments:
+            item = dict(comment)
+            item.setdefault("user", {"login": "human"})
+            item.setdefault("author_association", "MEMBER")
+            normalized.append(item)
 
         def fake_run(command):
-            if "/comments" in command[-1]:
-                return json.dumps(comments)
+            url = command[-1]
+            if "/comments" in url:
+                return json.dumps(normalized)
+            if url.rstrip("/").endswith(("/issues/2", "/issues/3")):
+                labels_value = (
+                    child_labels if child_labels is not None else {"leaf-done"}
+                )
+                return json.dumps(
+                    {"labels": [{"name": name} for name in labels_value]}
+                )
             return json.dumps(issue)
 
         with patch.object(doctor, "run", side_effect=fake_run):
@@ -468,7 +488,7 @@ class ClosureTests(DoctorTestCase):
             "demir_kit_version": "2",
             "summary": "Yeterince uzun bir epic özeti.",
             "scope_triage": {"keep": [{"item": "bir is"}], "defer": [], "cut": []},
-            "children": [1],
+            "children": [2, 3],
         }
         return fenced("demir-kit-epic", epic)
 
@@ -501,6 +521,93 @@ class ClosureTests(DoctorTestCase):
         )
         self.assertTrue(
             any("closure status 'pass' değil" in item for item in doctor.ERRORS)
+        )
+
+    def test_reject_after_accept_blocks_epic_done(self) -> None:
+        accept = fenced("demir-kit-accept", {
+            "demir_kit_version": "2",
+            "epic": 1,
+            "by": "human",
+            "decision": "accepted",
+        })
+        reject = fenced("demir-kit-accept", {
+            "demir_kit_version": "2",
+            "epic": 1,
+            "by": "human",
+            "decision": "rejected",
+        })
+        self.run_issue(
+            self.epic_block(),
+            ["epic-done"],
+            [
+                {"body": fenced("demir-kit-closure", self.closure())},
+                {"body": accept},
+                {"body": reject},
+            ],
+        )
+        self.assertTrue(
+            any("insan authored" in item for item in doctor.ERRORS)
+        )
+
+    def test_bot_acceptance_is_rejected(self) -> None:
+        accept = fenced(
+            "demir-kit-accept",
+            {
+                "demir_kit_version": "2",
+                "epic": 1,
+                "by": "github-actions[bot]",
+                "decision": "accepted",
+            },
+        )
+        self.run_issue(
+            self.epic_block(),
+            ["epic-done"],
+            [
+                {"body": fenced("demir-kit-closure", self.closure())},
+                {
+                    "body": accept,
+                    "user": {"login": "github-actions[bot]"},
+                    "author_association": "NONE",
+                },
+            ],
+        )
+        self.assertTrue(any("insan authored" in item for item in doctor.ERRORS))
+
+    def test_open_child_blocks_epic_done(self) -> None:
+        self.run_issue(
+            self.epic_block(),
+            ["epic-done"],
+            [
+                {"body": fenced("demir-kit-closure", self.closure())},
+                {"body": fenced("demir-kit-accept", {
+                    "demir_kit_version": "2",
+                    "epic": 1,
+                    "by": "human",
+                    "decision": "accepted",
+                })},
+            ],
+            child_labels={"executing"},
+        )
+        self.assertTrue(any("child #2" in item for item in doctor.ERRORS))
+
+    def test_leaf_count_mismatch_blocks_epic_done(self) -> None:
+        closure = self.closure()
+        closure["metrics"]["leaf_count"] = 1
+        self.run_issue(
+            self.epic_block(),
+            ["epic-done"],
+            [
+                {"body": fenced("demir-kit-closure", closure)},
+                {"body": fenced("demir-kit-accept", {
+                    "demir_kit_version": "2",
+                    "epic": 1,
+                    "by": "human",
+                    "decision": "accepted",
+                })},
+            ],
+        )
+        self.assertTrue(
+            any("leaf_count" in item for item in doctor.ERRORS)
         )
 
     def test_epic_done_requires_accept_block(self) -> None:
@@ -539,7 +646,7 @@ class ClosureTests(DoctorTestCase):
             {
                 "demir_kit_version": "2",
                 "epic": 1,
-                "by": "ali",
+                "by": "human",
                 "decision": "accepted",
             },
         )
@@ -559,7 +666,7 @@ class ClosureTests(DoctorTestCase):
             "demir_kit_version": "2",
             "summary": "Yeterince uzun bir epic özeti.",
             "scope_triage": {"keep": [{"item": "bir is"}], "defer": [], "cut": []},
-            "children": [1],
+            "children": [2, 3],
         }
         issue = {
             "body": fenced("demir-kit-epic", epic),
