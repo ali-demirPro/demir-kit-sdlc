@@ -27,6 +27,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import capabilities as capabilities_lib  # noqa: E402
 import evidence as evidence_lib  # noqa: E402
+import resolver as resolver_lib  # noqa: E402
 import variants as variants_lib  # noqa: E402
 import routing  # noqa: E402
 
@@ -84,6 +85,7 @@ REQUIRED_FILES = [
     "delivery/scripts/capabilities.py",
     "delivery/scripts/risk_filter.py",
     "delivery/scripts/variants.py",
+    "delivery/scripts/resolver.py",
     "delivery/schemas/agent.schema.json",
     "delivery/capabilities/registry.yaml",
     "delivery/capabilities/role-matrix.yaml",
@@ -626,6 +628,7 @@ def check_issue_body(
     checkpoint: str | None = None,
     root: Path = ROOT,
     repo: str | None = None,
+    title: str = "",
 ) -> None:
     check("issue seal")
     match = re.search(r"```yaml\s+demir-kit\s*\n(.*?)```", body, re.S)
@@ -715,6 +718,16 @@ def check_issue_body(
         | set(path_agents["on_demand"])
         | set(path_agents["optional"])
     )
+    capability_registry = load_yaml(DELIVERY / "capabilities" / "registry.yaml") or {}
+    ecosystem = load_yaml(root / "ecosystem.yaml") or {}
+    signals = resolver_lib.project_signals(ecosystem) + resolver_lib.seal_signals(data)
+    matched = resolver_lib.match_capabilities(
+        capability_registry,
+        signals,
+        f"{title}\n{routing.strip_seal(body)}",
+    )
+    for capability in matched.values():
+        allowed_agents.update((capability.get("roles") or {}).keys())
 
     if "leaf-done" in labels and comments is not None:
         evidence_schema = load_json(DELIVERY / "schemas" / "evidence.schema.json")
@@ -910,7 +923,15 @@ def check_issue(
     bodies = [item.get("body", "") for item in comments]
     body = payload.get("body", "")
     if re.search(r"```yaml\s+demir-kit\s*\n", body):
-        check_issue_body(body, labels, bodies, checkpoint, root=root, repo=repo)
+        check_issue_body(
+            body,
+            labels,
+            bodies,
+            checkpoint,
+            root=root,
+            repo=repo,
+            title=payload.get("title", ""),
+        )
     elif "agent-approved" in labels or "leaf-done" in labels:
         error(f"issue #{number}: leaf seal (`demir-kit` bloğu) yok")
 

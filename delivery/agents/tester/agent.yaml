@@ -7,6 +7,8 @@ capabilities_required:
   - platform.web
   - platform.ios
   - platform.android
+  - platform.api
+  - platform.cli
 variants:
   platform.web:
     doc: variants/web.md
@@ -19,6 +21,14 @@ variants:
   platform.android:
     doc: variants/android.md
     eval: evals/android.md
+    min_level: expert
+  platform.api:
+    doc: variants/api.md
+    eval: evals/api.md
+    min_level: expert
+  platform.cli:
+    doc: variants/api.md
+    eval: evals/api.md
     min_level: expert
 handoffs: [developer, orchestrator]
 escalation: [coverage_gap, flaky_test, device_unavailable, environment_down]

@@ -232,6 +232,13 @@ class EvidenceTests(DoctorTestCase):
         self.assertEqual(doctor.ERRORS, [])
         self.assertTrue(any("agent alanı yok" in item for item in doctor.WARNS))
 
+    def test_capability_role_allowed_for_evidence(self) -> None:
+        self.run_leaf_done(
+            evidence(agent="security"),
+            data=leaf(surfaces=["web.app"]),
+        )
+        self.assertEqual(doctor.ERRORS, [])
+
     def test_high_risk_requires_human_approval(self) -> None:
         high = leaf(risk={"level": "high", "reasons": ["auth"]})
         record = evidence(

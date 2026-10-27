@@ -1,5 +1,18 @@
 # Changelog
 
+## 2.11.0 — 2026-10-27
+
+- **Resolver** — `resolver.py`: ecosystem surfaces + leaf seal + capability
+  registry'den aktif capability, rol, variant, pasif variant, gap ve risk tabanı.
+- **Brief** — capability/variant özeti; yalnız aktif variant dokümanları yüklenir.
+  Web-only projede iOS/Android dokümanları, iOS-only projede web dokümanları
+  yüklenmez.
+- **Doctor** — capability'nin zorunlu kıldığı roller evidence için kabul edilir
+  (ör. web leaf'inde security).
+- **Tester API/CLI variant** — contract, authz, idempotency, rate limit ve CLI
+  çıkış kodu testleri; API-only projede variant gap'i kapatıldı.
+- **Test** — web/iOS/web+iOS/API senaryoları; 203 test.
+
 ## 2.10.0 — 2026-10-27
 
 - **Developer variants** — web, iOS, Android, API/CLI, domain (auth/payments/

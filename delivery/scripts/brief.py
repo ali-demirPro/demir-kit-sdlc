@@ -20,6 +20,7 @@ import yaml
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import resolver  # noqa: E402
 import routing  # noqa: E402
 
 
@@ -39,6 +40,15 @@ def repo_name() -> str:
     return repo
 
 
+def project_ecosystem() -> dict:
+    project = routing.project_root(ROOT)
+    try:
+        data = yaml.safe_load((project / "ecosystem.yaml").read_text(encoding="utf-8"))
+    except (FileNotFoundError, yaml.YAMLError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
 def build_brief(
     registry: dict,
     number: int,
@@ -46,16 +56,24 @@ def build_brief(
     body: str,
     labels: set[str],
     prefix: str = "",
+    ecosystem: dict | None = None,
 ) -> dict:
     seal = routing.seal_body(body)
     epic = routing.is_epic(body) or ("scope-confirmed" in labels and not seal)
     path_id, signal = routing.detect_path(registry, title, body, seal)
     agents = routing.resolve_agents(registry, path_id, signal)
     risk = (seal.get("risk") or {}).get("level", "n/a")
-    docs_roles = agents["active"] + agents["on_demand"]
-    docs: list[str] = []
-    for role in docs_roles:
-        docs.extend(routing.role_docs(role, prefix))
+    signals = resolver.project_signals(ecosystem or {}) + resolver.seal_signals(seal)
+    text = f"{title}\n{routing.strip_seal(body)}"
+    resolution = resolver.resolve(
+        resolver.load_capabilities(),
+        resolver.load_matrix(),
+        resolver.load_agent_variants(),
+        path_id,
+        signals,
+        text,
+    )
+    docs = [f"{prefix}{doc}" for doc in resolution["docs"]]
 
     return {
         "issue": number,
@@ -64,8 +82,23 @@ def build_brief(
         "path_id": path_id,
         "signal": signal.get("id") if signal else None,
         "agents": agents,
-        "inactive": routing.inactive_agents(registry, agents),
+        "active_roles": resolution["active_roles"],
+        "on_demand_roles": resolution["on_demand_roles"],
+        "inactive": [
+            {
+                "id": role,
+                "reason": routing.INACTIVE_REASONS.get(
+                    role, "bu path'te aktif değil"
+                ),
+            }
+            for role in resolution["inactive_roles"]
+        ],
+        "capabilities": resolution["capabilities"],
+        "active_variants": resolution["active_variants"],
+        "inactive_variants": resolution["inactive_variants"],
+        "variant_gaps": resolution["variant_gaps"],
         "risk": risk,
+        "risk_floor": resolution["risk_floor"],
         "next_action": routing.next_action(labels, epic),
         "human_gates": routing.human_gates(risk, epic),
         "docs": docs,
@@ -78,14 +111,28 @@ def render(data: dict) -> str:
         f"state: {data['state']}",
         f"path: {data['path_id']}"
         + (f" (signal: {data['signal']})" if data["signal"] else ""),
-        "active: " + ", ".join(data["agents"]["active"]),
-        "on_demand: " + (", ".join(data["agents"]["on_demand"]) or "-"),
+        "capabilities: " + (", ".join(data["capabilities"]) or "-"),
+        "active: " + ", ".join(data["active_roles"]),
+        "on_demand: " + (", ".join(data["on_demand_roles"]) or "-"),
         "optional: " + (", ".join(data["agents"]["optional"]) or "-"),
-        "inactive:",
+        "active variants:",
     ]
+    for item in data["active_variants"]:
+        lines.append(
+            f"  - {item['role']} / {item['capability']} -> {item['doc']} "
+            f"({item['min_level']})"
+        )
+    lines.append("inactive:")
     for item in data["inactive"]:
         lines.append(f"  - {item['id']}: {item['reason']}")
+    lines.append("inactive variants:")
+    for item in data["inactive_variants"]:
+        lines.append(f"  - {item['role']} / {item['capability']}: {item['reason']}")
+    lines.append("variant gaps:")
+    for item in data["variant_gaps"]:
+        lines.append(f"  - {item['role']} / {item['capability']}: {item['reason']}")
     lines += [
+        f"risk floor: {data['risk_floor']}",
         f"next: {data['next_action']}",
         "human gates:",
     ]
@@ -100,10 +147,15 @@ def comment_body(data: dict) -> str:
         "delivery_path": {
             "path_id": data["path_id"],
             "signal": data["signal"],
-            "active_agents": data["agents"]["active"],
+            "capabilities": data["capabilities"],
+            "active_agents": data["active_roles"],
             "optional_agents": data["agents"]["optional"],
-            "on_demand": data["agents"]["on_demand"],
+            "on_demand": data["on_demand_roles"],
             "inactive": data["inactive"],
+            "active_variants": data["active_variants"],
+            "inactive_variants": data["inactive_variants"],
+            "variant_gaps": data["variant_gaps"],
+            "risk_floor": data["risk_floor"],
             "next_action": data["next_action"],
             "human_gates": data["human_gates"],
         }
@@ -154,6 +206,7 @@ def main() -> int:
         issue.get("body", "") or "",
         labels,
         routing.kit_prefix(ROOT),
+        project_ecosystem(),
     )
 
     if args.json:
