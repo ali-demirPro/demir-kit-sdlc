@@ -1,4 +1,4 @@
-# delivery/registry.yaml — v2.9
+# delivery/registry.yaml — v2.10
 # Tek kaynak: agent envanteri, path routing, risk glob'ları, etiket adları.
 # Sözleşme: delivery/CONTRACT.md · Denetim: delivery/scripts/doctor.sh
 
@@ -11,7 +11,7 @@ capabilities:
 
 agent_variants:
   schema: delivery/schemas/agent.schema.json
-  roles: [designer, tester, architect, devops, security]
+  roles: [designer, tester, architect, devops, security, developer, marketing/stores, marketing/landing]
 
 protocol:
   contract: delivery/CONTRACT.md

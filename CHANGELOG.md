@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.10.0 — 2026-10-27
+
+- **Developer variants** — web, iOS, Android, API/CLI, domain (auth/payments/
+  data/offline/i18n/analytics), quality ve delivery playbook'ları; 3 eval seti.
+- **Marketing/stores** — Apple, Google ve ASO/analytics/i18n variant'ları;
+  metadata, privacy, rollout ve dönüşüm kriterleri.
+- **Marketing/landing** — landing ve SEO/analytics/i18n variant'ları; CWV,
+  a11y, event ve canonical/hreflang kriterleri.
+- **Kapsam** — 12 variant dokümanı, 5 eval seti (10+ senaryo); 195 test.
+
 ## 2.9.0 — 2026-10-27
 
 - **Architect variants** — web, mobile, API/CLI, data/offline, security,
