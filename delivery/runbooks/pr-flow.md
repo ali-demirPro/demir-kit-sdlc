@@ -17,16 +17,20 @@ kapısı ve ikinci göz olmadan `main`'in değişmemesi.
    evidence commit'ini `main` üzerinde görebilsin.
 7. `doctor.sh --issue N` bir kez daha çalıştırılır.
 
-## Branch protection (insan adımı)
+## Branch protection
 
-GitHub → Settings → Branches → `main`:
+Koruma kodla uygulanır:
 
-- Require a pull request before merging.
-- Require status check: `delivery-doctor` (PR'da çalışan tek kontrol).
-  `issue-doctor` merge sonrası doğrulamadır; required check değildir.
-- Do not allow bypassing (veya yalnız acil durum için admin bypass).
+```bash
+./delivery/scripts/protect_main.sh --apply
+./delivery/scripts/protect_main.sh --check
+```
 
-Bu ayar UI'dan yapılır; repo dosyasıyla taşınmaz.
+- PR zorunlu.
+- Required check: `delivery-doctor`.
+- `enforce_admins: true`; admin bypass kapalı.
+- Force push ve branch deletion kapalı.
+- `issue-doctor` PR gate'i değildir; merge sonrası issue doğrulamasıdır.
 
 ## Rollback
 

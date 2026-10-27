@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.14.0 — 2026-10-27
+
+- **Branch protection** — `protect_main.sh` main için PR + `delivery-doctor`
+  required check, `enforce_admins`, force-push/deletion kapalı korumayı uygular;
+  `--check` doğrular. Koruma canlı repo'da uygulandı.
+- **PR runbook** — branch protection artık UI adımı değil, kodla uygulanan
+  kontrol.
+- **Test** — protection scripti davranış testleri (pass/no-PR/admin bypass); 234 test.
+
 ## 2.13.0 — 2026-10-27
 
 - **Human acceptance** — `epic-done` artık insan-authored `demir-kit-accept`
