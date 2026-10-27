@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.19.0 — 2026-10-27
+
+- **Project fingerprint** — `detect.py`: package/Next/React, Swift/Xcode, Gradle/
+  Android, Flutter, Python, Docker ve CI sinyallerinden stack/surface/
+  distribution/test/app path/risk hotspot üretir.
+- **Read-only** — detect hiçbir dosya yazmaz; `kit init` için girdi.
+- **Test** — web/iOS/Android/Flutter/Python temp projeleri; 256 test.
+
 ## 2.18.0 — 2026-10-27
 
 - **Eval runner** — `eval.py`: eval tablolarını parse eder, her variant için

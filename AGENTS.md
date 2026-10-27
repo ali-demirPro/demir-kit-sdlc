@@ -22,6 +22,7 @@ Version lives in `VERSION`; bump it with `CHANGELOG.md` and the README header.
 ./delivery/scripts/resolver.py --surface web.app --platform web --stack next
 ./delivery/scripts/adapt.py --add platform.android  # capability diff; --apply writes .kit/capabilities.yaml
 ./delivery/scripts/eval.py --check           # eval scenarios (10+ per variant)
+./delivery/scripts/detect.py --project . --json # project fingerprint
 ./delivery/scripts/vendor_sync.sh --target ../Product --check
 ./delivery/scripts/vendor_sync.sh --target ../Product --apply
 ./install.sh --with-platform              # Orca + v2 skills (local source)
