@@ -13,6 +13,8 @@ from pathlib import Path
 
 import yaml
 
+import approvals
+
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPTS = Path(__file__).resolve().parent
 
@@ -90,6 +92,18 @@ def parse_seal(body: str) -> dict:
     except yaml.YAMLError:
         return {}
     return data if isinstance(data, dict) else {}
+
+
+def epic_children(issue: dict) -> list[int]:
+    match = re.search(r"```yaml\s+demir-kit-epic\s*\n(.*?)```", issue.get("body") or "", re.S)
+    if not match:
+        return []
+    try:
+        data = yaml.safe_load(match.group(1)) or {}
+    except yaml.YAMLError:
+        return []
+    children = data.get("children") if isinstance(data, dict) else []
+    return [int(item) for item in children or [] if isinstance(item, int)]
 
 
 def closure_record(issue: dict) -> dict | None:
@@ -206,8 +220,6 @@ def validate(issue: dict, target: str, args) -> tuple[bool, str]:
     elif target == "epic-done":
         if not epic:
             return False, "epic-done yalnız epic için"
-        if not (args.accept or "").strip():
-            return False, "epic-done için --accept <insan> gerekli"
         closure = closure_record(issue)
         if not closure:
             return False, "epic-done için closure bloğu yok"
@@ -215,6 +227,30 @@ def validate(issue: dict, target: str, args) -> tuple[bool, str]:
             return False, "epic-done için closure status pass değil"
         if closure.get("ready_for_human_qa") is not True:
             return False, "epic-done için ready_for_human_qa true değil"
+        children = epic_children(issue)
+        metrics = closure.get("metrics") or {}
+        if metrics.get("leaf_count") != len(children):
+            return False, (
+                "closure metrics.leaf_count child sayısıyla eşleşmiyor "
+                f"({metrics.get('leaf_count')} != {len(children)})"
+            )
+        for child in children:
+            try:
+                child_issue = fetch_issue(child)
+            except (SystemExit, ValueError):
+                return False, f"child #{child} okunamadı"
+            labels = labels_of(child_issue)
+            if not labels & {"leaf-done", "deferred"}:
+                return False, f"child #{child} leaf-done/deferred değil"
+        acceptance = approvals.human_acceptance(
+            issue.get("comments") or [], issue.get("number") or 0
+        )
+        if not acceptance:
+            return False, (
+                "epic-done için insan authored demir-kit-accept comment'i gerekli"
+            )
+        if args.accept and str(args.accept) != acceptance["by"]:
+            return False, f"--accept '{args.accept}' insan onayıyla eşleşmiyor"
     return True, ""
 
 
@@ -258,7 +294,9 @@ def main() -> int:
     parser.add_argument("--by", default="coordinator")
     parser.add_argument("--reason", default="")
     parser.add_argument("--issue-link", default="")
-    parser.add_argument("--accept", default="", help="epic-done insan adı")
+    parser.add_argument(
+        "--accept", default="", help="epic-done insan login doğrulaması (opsiyonel)"
+    )
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
@@ -321,16 +359,6 @@ def main() -> int:
     else:
         # Audit trail before labels: a failed comment must not leave a silent
         # state change that a re-run would treat as a no-op.
-        if args.to == "epic-done":
-            accept = (
-                "```yaml demir-kit-accept\n"
-                'demir_kit_version: "2"\n'
-                f"epic: {args.issue}\n"
-                f"by: {args.accept}\n"
-                "decision: accepted\n"
-                "```"
-            )
-            post_comment(args.issue, accept)
         post_comment(args.issue, transition_comment)
         added, removed = apply_delta(args.issue, labels_of(issue), args.to)
         applied = {"add": added, "remove": removed}

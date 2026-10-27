@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.13.0 — 2026-10-27
+
+- **Human acceptance** — `epic-done` artık insan-authored `demir-kit-accept`
+  comment'i ister; agent'ın `--accept` string'i tek başına yetmez. Bot/agent
+  yazarı reddedilir. Transition kabul bloğu yazmaz.
+- **Epic closure integrity** — tüm child'lar `leaf-done`/`deferred` olmalı;
+  closure `metrics.leaf_count` child sayısıyla eşleşmeli. Doctor ve transition
+  bunu zorlar.
+- **Tests** — human/bot, açık child, leaf_count uyuşmazlığı; 225 test.
+
 ## 2.12.0 — 2026-10-27
 
 - **Adapter** — `.kit/capabilities.yaml` (`include`/`exclude`) ve `adapt.py`:

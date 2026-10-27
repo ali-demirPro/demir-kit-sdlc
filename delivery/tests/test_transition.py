@@ -140,29 +140,94 @@ class TransitionTests(unittest.TestCase):
             ["scope-confirmed"],
             comments=[{"body": fenced("demir-kit-closure", closure())}],
         )
-        with patch.object(transition, "fetch_issue", return_value=issue):
-            with self.assertRaises(SystemExit):
+        child = leaf_issue(["leaf-done"])
+        with patch.object(
+            transition, "fetch_issue", side_effect=lambda n: issue if n == 44 else child
+        ):
+            with self.assertRaises(SystemExit) as error:
                 run_transition(["--issue", "44", "--to", "epic-done"])
+        self.assertIn("insan authored", str(error.exception))
 
-    def test_epic_done_accept_records_human(self) -> None:
+    def test_accept_flag_alone_is_rejected(self) -> None:
         issue = epic_issue(
-            ["scope-confirmed", "human-qa"],
+            ["scope-confirmed"],
             comments=[{"body": fenced("demir-kit-closure", closure())}],
         )
+        child = leaf_issue(["leaf-done"])
+        with patch.object(
+            transition, "fetch_issue", side_effect=lambda n: issue if n == 44 else child
+        ):
+            with self.assertRaises(SystemExit) as error:
+                run_transition(["--issue", "44", "--to", "epic-done", "--accept", "human"])
+        self.assertIn("insan authored", str(error.exception))
+
+    def test_human_reject_revokes_acceptance(self) -> None:
+        accepted = {
+            "body": fenced("demir-kit-accept", {
+                "demir_kit_version": "2",
+                "epic": 44,
+                "by": "human",
+                "decision": "accepted",
+            }),
+            "user": {"login": "human"},
+            "author_association": "MEMBER",
+        }
+        rejected = dict(accepted)
+        rejected["body"] = accepted["body"].replace(
+            "decision: accepted", "decision: rejected"
+        )
+        issue = epic_issue(
+            ["scope-confirmed"],
+            comments=[
+                {"body": fenced("demir-kit-closure", closure())},
+                accepted,
+                rejected,
+            ],
+        )
+        child = leaf_issue(["leaf-done"])
+        with patch.object(
+            transition, "fetch_issue", side_effect=lambda n: issue if n == 44 else child
+        ):
+            with self.assertRaises(SystemExit) as error:
+                run_transition(["--issue", "44", "--to", "epic-done"])
+        self.assertIn("insan authored", str(error.exception))
+
+    def test_epic_done_accepts_human_comment(self) -> None:
+        accept = {
+            "body": fenced(
+                "demir-kit-accept",
+                {
+                    "demir_kit_version": "2",
+                    "epic": 44,
+                    "by": "human",
+                    "decision": "accepted",
+                },
+            ),
+            "user": {"login": "human"},
+            "author_association": "MEMBER",
+        }
+        issue = epic_issue(
+            ["scope-confirmed", "human-qa"],
+            comments=[
+                {"body": fenced("demir-kit-closure", closure())},
+                accept,
+            ],
+        )
+        child = leaf_issue(["leaf-done"])
         comments: list[str] = []
-        with patch.object(transition, "fetch_issue", return_value=issue), patch.object(
+        with patch.object(
+            transition, "fetch_issue", side_effect=lambda n: issue if n == 44 else child
+        ), patch.object(
             transition, "doctor_ok", return_value=(True, "")
         ), patch.object(transition, "gh", return_value=""), patch.object(
             transition, "post_comment", side_effect=lambda number, body: comments.append(body)
         ):
             self.assertEqual(
-                run_transition(
-                    ["--issue", "44", "--to", "epic-done", "--accept", "ali"]
-                ),
+                run_transition(["--issue", "44", "--to", "epic-done"]),
                 0,
             )
-        self.assertTrue(any("demir-kit-accept" in body for body in comments))
-        self.assertTrue(any("by: ali" in body for body in comments))
+        self.assertTrue(any("run transition:" in body for body in comments))
+        self.assertFalse(any("demir-kit-accept" in body for body in comments))
 
     def test_agent_approved_requires_parent_scope(self) -> None:
         leaf = leaf_issue(["intake"])

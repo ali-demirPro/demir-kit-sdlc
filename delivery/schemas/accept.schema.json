@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://demir-kit.dev/schemas/accept.schema.json",
+  "title": "demir-kit epic acceptance",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["demir_kit_version", "epic", "by", "decision"],
+  "properties": {
+    "demir_kit_version": { "const": "2" },
+    "epic": { "type": "integer", "minimum": 1 },
+    "by": { "type": "string", "minLength": 2 },
+    "decision": { "enum": ["accepted", "rejected"] },
+    "note": { "type": "string" }
+  }
+}
