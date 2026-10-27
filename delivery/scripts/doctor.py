@@ -90,6 +90,7 @@ REQUIRED_FILES = [
     "delivery/scripts/adapt.py",
     "delivery/scripts/eval.py",
     "delivery/scripts/detect.py",
+    "delivery/scripts/init.py",
     "delivery/scripts/approvals.py",
     "delivery/scripts/protect_main.sh",
     "delivery/schemas/agent.schema.json",
