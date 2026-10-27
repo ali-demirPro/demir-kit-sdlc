@@ -95,6 +95,7 @@ REQUIRED_FILES = [
     "delivery/scripts/profiles.py",
     "delivery/scripts/standards.py",
     "delivery/scripts/verify.py",
+    "delivery/scripts/adopt.py",
     "delivery/schemas/profile.schema.json",
     "delivery/scripts/approvals.py",
     "delivery/scripts/protect_main.sh",

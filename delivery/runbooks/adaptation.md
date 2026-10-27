@@ -8,6 +8,21 @@ Proje capability seti iki kaynaktan gelir:
 `adapt.py` ikisini birleştirir; **mevcut leaf'leri yeniden mühürlemez**. Yeni
 leaf'ler güncel setle açılır.
 
+## Adopt (tek komut)
+
+```bash
+# Öneri (yazmaz)
+./delivery/scripts/adopt.py --project .
+
+# Kur: init + gerekliyse vendor + standartlar + verify
+./delivery/scripts/adopt.py --project . --apply
+```
+
+Sıra: `init` → eksikse `vendor_sync` → `standards` → read-only `verify`.
+Mevcut dosyalar ezilmez; `--force` init dosyalarını yeniler. Kaynak kit ile
+hedef kit çakışırsa (kit'in kendi reposu) yazmadan reddeder. İkinci çalıştırma
+idempotenttir.
+
 ## Fingerprint
 
 ```bash
