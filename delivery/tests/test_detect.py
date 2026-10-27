@@ -49,7 +49,7 @@ class DetectTests(unittest.TestCase):
             )
             self.assertEqual(data["surfaces"][0]["platforms"], ["web"])
             self.assertIn("next", [item["name"] for item in data["stacks"]])
-            self.assertEqual(data["test_commands"]["behavior"], "npm test")
+            self.assertEqual(data["test_commands"]["behavior"], "npm run test")
             self.assertIn("web_deploy", [item["type"] for item in data["distribution"]])
             self.assertEqual(data["suggested_profile"], "web-app")
             self.assertNotIn(
@@ -160,6 +160,38 @@ class DetectTests(unittest.TestCase):
             self.assertIn("src/auth", data["risk_hotspots"])
             self.assertEqual(data["suggested_profile"], "api-service")
 
+    def test_pnpm_commands(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            write(
+                root,
+                "package.json",
+                json.dumps(
+                    {
+                        "dependencies": {"next": "1"},
+                        "scripts": {
+                            "test": "vitest",
+                            "typecheck": "tsc",
+                            "lint": "eslint .",
+                        },
+                    }
+                ),
+            )
+            write(root, "pnpm-lock.yaml", "lockfileVersion: 9\n")
+            data = detect_mod.detect(root)
+            self.assertEqual(data["test_commands"]["behavior"], "pnpm run test")
+            self.assertEqual(data["test_commands"]["typecheck"], "pnpm run typecheck")
+            self.assertEqual(data["test_commands"]["lint"], "pnpm run lint")
+
+    def test_python_uv_command(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            write(root, "pyproject.toml", "[tool.pytest.ini_options]\n")
+            write(root, "uv.lock", "version = 1\n")
+            write(root, "app/main.py", "print(1)\n")
+            data = detect_mod.detect(root)
+            self.assertEqual(data["test_commands"]["behavior"], "uv run pytest")
+
     def test_nested_flutter_monorepo(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -202,7 +234,7 @@ class DetectTests(unittest.TestCase):
             paths = {item["path"] for item in data["surfaces"]}
             self.assertEqual(paths, {"web", "api"})
             self.assertIn("(cd api && pytest)", data["test_commands"]["behavior"])
-            self.assertIn("(cd web && npm test)", data["test_commands"]["behavior"])
+            self.assertIn("(cd web && npm run test)", data["test_commands"]["behavior"])
             self.assertEqual(data["app_paths"], ["web", "api"])
 
     def test_nested_node_surfaces_use_own_deps(self) -> None:

@@ -24,6 +24,9 @@ IGNORE = {
     "dist",
     "target",
     "DerivedData",
+    "Pods",
+    "vendor",
+    "third_party",
     "__pycache__",
 }
 
@@ -108,6 +111,15 @@ def manager_for(root: Path, base: Path, locks: tuple) -> str:
     return "npm"
 
 
+def python_manager(root: Path, base: Path) -> str:
+    for directory in (base, root):
+        if (directory / "uv.lock").is_file():
+            return "uv"
+        if (directory / "poetry.lock").is_file():
+            return "poetry"
+    return ""
+
+
 def set_manager(found: dict, language: str, manager: str) -> None:
     current = found["package_managers"].get(language)
     if not current:
@@ -158,14 +170,7 @@ def python_standards(root: Path, base: Path, found: dict) -> None:
     )
     if not has_python:
         return
-    manager = ""
-    for directory in (base, root):
-        if (directory / "uv.lock").is_file():
-            manager = "uv"
-            break
-        if (directory / "poetry.lock").is_file():
-            manager = "poetry"
-            break
+    manager = python_manager(root, base)
     if manager:
         set_manager(found, "python", manager)
     found["languages"].append("python")
@@ -254,7 +259,7 @@ def rust_standards(root: Path, base: Path, found: dict) -> None:
 
 
 def manifest_roots(root: Path) -> list[Path]:
-    """Root plus immediate subdirectories that hold a known manifest."""
+    """Root plus package roots up to two levels below it."""
     names = {
         "package.json",
         "pyproject.toml",
@@ -263,14 +268,30 @@ def manifest_roots(root: Path) -> list[Path]:
         "go.mod",
         "Package.swift",
         "Cargo.toml",
+        "Podfile",
     }
     roots = [root]
-    for child in sorted(root.iterdir()):
-        if child.is_dir() and child.name not in IGNORE:
-            if any((child / name).exists() for name in names) or any(
-                child.glob("*.xcodeproj")
+
+    def walk(base: Path, depth: int) -> None:
+        for child in sorted(base.iterdir()):
+            if child.is_symlink():
+                continue
+            if (
+                not child.is_dir()
+                or child.name in IGNORE
+                or child.name.startswith(".")
             ):
+                continue
+            manifest = any((child / name).exists() for name in names) or any(
+                child.glob("*.xcodeproj")
+            )
+            if manifest:
                 roots.append(child)
+                continue
+            if depth < 2:
+                walk(child, depth + 1)
+
+    walk(root, 1)
     return roots
 
 

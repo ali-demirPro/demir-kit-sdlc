@@ -1,16 +1,9 @@
 id: web-app
 description: Web application — Next/React/Vite, UI and API surfaces
 product_class: web-app
-default_entry: feature
-default_quality_tier: standard
 capabilities: [platform.web, quality.a11y, quality.performance]
 platform_packs: [web-ux]
 architecture_baseline_required: false
 commercial_baseline_required: false
 required_skills: [work-package, test-plan, behavior-gate, ui-gate]
-suggested_surfaces: [web]
 extra_gates: []
-checkpoint_templates:
-  feature:
-    - { id: CP-1, title: Implement, gates: { behavior: true, architect: false, commercial: false, ui: false, human: false } }
-    - { id: CP-2, title: Verify, gates: { behavior: true, architect: false, commercial: false, ui: true, human: false } }

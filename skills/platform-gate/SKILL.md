@@ -28,7 +28,7 @@ The profile's `extra_gates` defines the order (e.g. after `ui` or `adversarial`)
 
 `apple-asc`, `google-play`: never auto-submit. Document readiness for human QA.
 
-## Quality tier
+## Packs
 
-- `platform_excellence`: all profile packs required.
-- `standard`: packs selected by the profile (or issue scope); a subset is allowed.
+Profildeki tüm `platform_packs` checklist'leri zorunludur. Kapsam dışı pack
+varsa issue `decisions` kaydında gerekçeli waive gerekir.

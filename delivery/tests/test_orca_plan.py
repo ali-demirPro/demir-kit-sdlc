@@ -59,6 +59,36 @@ class OrcaPlanTests(unittest.TestCase):
         self.assertNotIn("--product", first["spec"])
         self.assertIn("delivery/agents/designer/SKILL.md", second["spec"])
 
+    def test_profile_skills_packs_and_gates(self) -> None:
+        profile = {
+            "extra_gates": ["architect", "commercial"],
+            "required_skills": ["ui-gate"],
+            "platform_packs": ["web-ux"],
+        }
+        with patch.object(orca_plan.profiles_mod, "compose", return_value=profile):
+            plan = orca_plan.build_plan(
+                REGISTRY, 17, "Orca: plan adapter", BODY, {"agent-approved"}
+            )
+        first = plan["tasks"][0]
+        self.assertIn("skills/ui-gate/SKILL.md", first["spec"])
+        self.assertIn("packs/web-ux/checklist.md", first["spec"])
+        self.assertIn("architect", first["reviewers"])
+        self.assertIn("marketing/stores", first["reviewers"])
+
+    def test_seal_profile_gates(self) -> None:
+        body = """```yaml demir-kit
+epic: 16
+factory: {profile: auth}
+surfaces: [web.app]
+risk: {level: medium}
+checkpoints:
+  - {id: CP-1, title: Auth, gates: {behavior: true}}
+```"""
+        plan = orca_plan.build_plan(
+            REGISTRY, 18, "Auth leaf", body, {"agent-approved"}
+        )
+        self.assertIn("architect", plan["tasks"][0]["reviewers"])
+
     def test_capability_aware_web_plan(self) -> None:
         body = """```yaml demir-kit
 epic: 16

@@ -113,7 +113,7 @@ class AdoptTests(unittest.TestCase):
             self.assertEqual(data["profiles"], ["web-app", "api-service"])
             gate = (root / "scripts/gate-behavior.sh").read_text(encoding="utf-8")
             self.assertIn("(cd api && pytest)", gate)
-            self.assertIn("(cd web && npm test)", gate)
+            self.assertIn("(cd web && npm run test)", gate)
 
     def test_cli_apply_and_failure_exit(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -131,7 +131,9 @@ class AdoptTests(unittest.TestCase):
                 sys, "argv", ["adopt.py", "--project", directory, "--apply", "--json"]
             ), contextlib.redirect_stdout(output):
                 self.assertEqual(adopt.main(), 1)
-            self.assertFalse(json.loads(output.getvalue())["verify"]["ok"])
+            data = json.loads(output.getvalue())
+            self.assertTrue(data["issues"])
+            self.assertFalse(data["applied"])
 
     def test_missing_project_and_bad_config(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -172,6 +174,15 @@ class AdoptTests(unittest.TestCase):
                 (root / "AGENTS.md").read_text(encoding="utf-8"), agents
             )
 
+    def test_target_inside_source_is_refused(self) -> None:
+        with tempfile.TemporaryDirectory(dir=ROOT / "delivery" / "tests") as directory:
+            root = Path(directory)
+            web_project(root)
+            data = adopt.apply(root)
+            self.assertFalse(data["applied"])
+            self.assertTrue(any("içinde" in item for item in data["issues"]))
+            self.assertFalse((root / "kit.config.yaml").exists())
+
     def test_overlap_is_refused_without_writes(self) -> None:
         before = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
         data = adopt.apply(ROOT)
@@ -179,12 +190,26 @@ class AdoptTests(unittest.TestCase):
         self.assertTrue(data["issues"])
         self.assertEqual((ROOT / "AGENTS.md").read_text(encoding="utf-8"), before)
 
-    def test_empty_project_apply_fails_verify(self) -> None:
+    def test_empty_project_apply_refuses_without_writes(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            data = adopt.apply(Path(directory))
-            self.assertTrue(data["applied"])
-            self.assertFalse(data["verify"]["ok"])
-            self.assertTrue(any("yüzey" in item for item in data["verify"]["issues"]))
+            root = Path(directory)
+            data = adopt.apply(root)
+            self.assertFalse(data["applied"])
+            self.assertTrue(any("yüzey" in item for item in data["issues"]))
+            self.assertFalse((root / "kit.config.yaml").exists())
+            self.assertFalse((root / "AGENTS.md").exists())
+
+    def test_vendored_kit_allows_adopt(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            web_project(root)
+            (root / "demir-kit").symlink_to(ROOT, target_is_directory=True)
+            data = adopt.apply(root)
+            self.assertTrue(data["applied"], data["issues"])
+            self.assertTrue(data["verify"]["ok"], data["verify"]["issues"])
+            self.assertFalse(data["vendor"])
+            self.assertTrue((root / "kit.config.yaml").is_file())
+            self.assertTrue((root / "AGENTS.md").is_file())
 
 
 if __name__ == "__main__":

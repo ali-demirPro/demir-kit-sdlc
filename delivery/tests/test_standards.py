@@ -175,6 +175,29 @@ class DiscoverTests(unittest.TestCase):
                 data["commands"]["test"], ["cd 'api app' && go test ./..."]
             )
 
+    def test_vendor_tree_is_ignored(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            write(root, "Cargo.toml", "[package]\nname = 'app'\n")
+            write(root, "src/main.rs", "fn main() {}\n")
+            write(root, "vendor/crate/Cargo.toml", "[package]\nname = 'dep'\n")
+            data = standards.discover(root)
+            self.assertEqual(data["commands"]["test"], ["cargo test"])
+            self.assertFalse(
+                any("vendor/" in item for item in data["commands"]["test"])
+            )
+
+    def test_depth_two_monorepo(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            write(root, "apps/api/pyproject.toml", "[tool.pytest.ini_options]\n")
+            write(root, "apps/api/app.py", "print(1)\n")
+            write(root, "apps/api/uv.lock", "version = 1\n")
+            data = standards.discover(root)
+            self.assertEqual(
+                data["commands"]["test"], ["cd apps/api && uv run pytest"]
+            )
+
     def test_empty_project_has_no_invented_commands(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             data = standards.discover(Path(directory))

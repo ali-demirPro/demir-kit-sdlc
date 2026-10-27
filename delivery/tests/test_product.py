@@ -171,18 +171,11 @@ class ProductDoctorTests(unittest.TestCase):
             self.assertIn("BLOCKED", result.stdout + result.stderr)
             self.assertIn("src/app.ts", result.stdout + result.stderr)
 
-    def test_template_and_profile_exist(self) -> None:
-        template = ROOT / "delivery" / "templates" / "product"
-        for name in (
-            "kit.config.yaml",
-            "ecosystem.yaml",
-            "scripts/gate-behavior.sh",
-            "scripts/install-orca-user-skills.sh",
-        ):
-            self.assertTrue((template / name).is_file(), name)
-        self.assertIn("protocol: \"2\"", (template / "kit.config.yaml").read_text())
-        self.assertIn("typecheck", (template / "scripts" / "gate-behavior.sh").read_text())
-        self.assertTrue((ROOT / "delivery" / "profiles" / "web-product.yaml").is_file())
+    def test_legacy_profile_exists(self) -> None:
+        self.assertTrue(
+            (ROOT / "delivery" / "profiles" / "web-product.yaml").is_file()
+        )
+        self.assertFalse((ROOT / "delivery" / "templates" / "product").exists())
 
     def test_product_issue_reads_product_tracker(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

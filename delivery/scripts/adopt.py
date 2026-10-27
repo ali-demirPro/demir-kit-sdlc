@@ -29,15 +29,15 @@ def kit_root(project: Path, init_plan: dict | None = None) -> Path:
     return project / "demir-kit"
 
 
-def overlaps_source(project: Path) -> bool:
+def source_relation(project: Path) -> tuple[bool, bool, bool, bool]:
     source = ROOT.resolve()
     target = project.resolve()
     kit = kit_root(project).resolve()
     return (
-        source == target
-        or source == kit
-        or source in kit.parents
-        or kit in source.parents
+        target == source,
+        kit == source,
+        source in kit.parents,
+        source in target.parents,
     )
 
 
@@ -68,11 +68,19 @@ def plan(project: Path, force: bool = False, vendor: bool = False) -> dict:
         init_plan = init_mod.build(root)
     except (ValueError, yaml.YAMLError, OSError) as exc:
         return empty_plan(root, [f"kit.config.yaml okunamadı: {exc}"])
+    target_is_source, vendored, inside_source, target_inside_source = source_relation(root)
     needs_vendor = vendor or not (kit / "delivery").is_dir()
     standards = standards_mod.discover(root)
     issues: list[str] = []
-    if overlaps_source(root):
-        issues.append("kaynak ve hedef kit çakışıyor; adopt reddedildi")
+    if not init_plan["fingerprint"].get("surfaces"):
+        issues.append("yüzey tespit edilmedi; adopt yazmadan durdu")
+    if target_is_source:
+        issues.append("kaynak ve hedef aynı; adopt kendi reposunda çalışmaz")
+    elif inside_source or target_inside_source:
+        issues.append("hedef kaynak kit'in içinde; adopt reddedildi")
+    if needs_vendor and vendored:
+        # Kit zaten ürünün içinde; vendor adımı atlanır, init/standards çalışır.
+        needs_vendor = False
     preview = verify_mod.verify_project(root)
     return {
         "project": str(root),

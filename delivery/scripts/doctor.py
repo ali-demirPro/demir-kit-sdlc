@@ -362,6 +362,9 @@ def check_profiles() -> None:
         for pack in data.get("platform_packs") or []:
             if pack not in pack_names:
                 error(f"{rel(path)}: bilinmeyen pack {pack}")
+        for skill in data.get("required_skills") or []:
+            if not (ROOT / "skills" / str(skill) / "SKILL.md").is_file():
+                error(f"{rel(path)}: bilinmeyen skill {skill}")
     for message in profiles_lib.validate_project(ROOT, capabilities, pack_names):
         error(f"profiles: {message}")
 
@@ -482,6 +485,17 @@ def check_version() -> None:
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     if f"**{version}**" not in readme:
         warn(f"README.md sürüm başlığı {version} değil")
+    short = ".".join(version.split(".")[:2])
+    for name, prefix in (
+        ("delivery/FLOW.md", "# Delivery flow — v"),
+        ("delivery/CONTRACT.md", "# Delivery contract — v"),
+    ):
+        path = ROOT / name
+        if path.is_file() and prefix + short not in path.read_text(encoding="utf-8"):
+            error(f"{name}: sürüm başlığı v{short} değil")
+    registry = (ROOT / "delivery" / "registry.yaml").read_text(encoding="utf-8")
+    if f"— v{short}" not in registry:
+        error(f"delivery/registry.yaml: sürüm başlığı v{short} değil")
 
 
 def check_ecosystem() -> None:
@@ -752,11 +766,14 @@ def check_issue_body(
         project_profiles = profiles_lib.compose(root)
     except ValueError:
         project_profiles = {}
+    profile_extra_gates = set((profile or {}).get("extra_gates") or [])
+    if not profile_name:
+        profile_extra_gates = set(project_profiles.get("extra_gates") or [])
     needs_platform = bool(
         (profile or {}).get("platform_packs")
         or (profile or {}).get("extra_gates")
         or project_profiles.get("platform_packs")
-        or project_profiles.get("extra_gates")
+        or profile_extra_gates
     )
 
     registry = load_yaml(DELIVERY / "registry.yaml") or {}
@@ -897,6 +914,20 @@ def check_issue_body(
                 error(f"{cp_id}: gates.ui açık ama UI onayı yok")
             if gates.get("architect") and reviews.get("architect") != "approved":
                 error(f"{cp_id}: gates.architect açık ama architect onayı yok")
+            if "architect" in profile_extra_gates and reviews.get(
+                "architect"
+            ) != "approved":
+                error(f"{cp_id}: profil architect gate'i istiyor")
+            if "commercial" in profile_extra_gates and reviews.get(
+                "commercial"
+            ) != "approved":
+                error(f"{cp_id}: profil commercial gate'i istiyor")
+            if "human" in profile_extra_gates and reviews.get("human") != "approved":
+                error(f"{cp_id}: profil human gate'i istiyor")
+            if "platform" in profile_extra_gates and reviews.get(
+                "platform"
+            ) != "pass":
+                error(f"{cp_id}: profil platform gate'i istiyor")
             behavior = record.get("behavior")
             if not isinstance(behavior, dict):
                 behavior = {}

@@ -65,7 +65,7 @@ class InitTests(unittest.TestCase):
             self.assertIn("ecosystem.yaml", plan["files"])
             self.assertIn(".kit/capabilities.yaml", plan["files"])
             self.assertIn("scripts/gate-behavior.sh", plan["files"])
-            self.assertIn("npm test", plan["files"]["scripts/gate-behavior.sh"])
+            self.assertIn("npm run test", plan["files"]["scripts/gate-behavior.sh"])
             eco = yaml.safe_load(plan["files"]["ecosystem.yaml"])
             self.assertEqual(eco["products"]["app"]["surfaces"]["web"]["platforms"], ["web"])
 
@@ -134,6 +134,30 @@ class InitTests(unittest.TestCase):
                 self.assertEqual(
                     init_mod.repo_name(Path(directory)), "acme/foo.js"
                 )
+
+    def test_distribution_matches_surface(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            write(
+                root,
+                "package.json",
+                json.dumps(
+                    {
+                        "dependencies": {"next": "1", "react": "1"},
+                        "scripts": {"test": "vitest"},
+                    }
+                ),
+            )
+            write(root, "src/app.ts", "1")
+            write(root, "vercel.json", "{}")
+            (root / "ios").mkdir()
+            (root / "ios/App.xcodeproj").mkdir()
+            write(root, "fastlane/Fastfile", "app_store\n")
+            plan = init_mod.build(root)
+            eco = yaml.safe_load(plan["files"]["ecosystem.yaml"])
+            surfaces = eco["products"]["app"]["surfaces"]
+            self.assertEqual(surfaces["web"]["distribution"], ["web_deploy"])
+            self.assertEqual(surfaces["ios"]["distribution"], ["app_store_connect"])
 
     def test_apply_does_not_overwrite(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
