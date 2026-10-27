@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.18.0 — 2026-10-27
+
+- **Eval runner** — `eval.py`: eval tablolarını parse eder, her variant için
+  en az 10 senaryo, benzersiz ID ve dolu expected/fail alanı ister.
+- **Results** — `--results` tüm senaryoların pass/fail/skip sonucunu ister;
+  eksik/fazla/duplicate/fail reddedilir. `--template` iskelet üretir.
+- **CI** — `delivery-doctor` workflow `eval.py --check` çalıştırır; branch
+  protection bunu required check içinde tutar.
+- **Test** — 250 test.
+
 ## 2.17.0 — 2026-10-27
 
 - **Designer variants** — a11y, performance, privacy, i18n, analytics; 5 yeni

@@ -64,6 +64,7 @@ class CiWorkflowTests(unittest.TestCase):
         )
         self.assertIn("unittest discover", runs)
         self.assertIn("doctor.sh --strict", runs)
+        self.assertIn("eval.py --check", runs)
 
     def test_pr_template_requires_evidence(self) -> None:
         text = (ROOT / ".github" / "pull_request_template.md").read_text(

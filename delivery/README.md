@@ -1,4 +1,4 @@
-# Delivery — v2.17
+# Delivery — v2.18
 
 Epic → leaf → kanıt → closure → epic kabulü. Tek runtime `delivery/`;
 arşiv `archive/v1.7/` yalnız referans içindir.
@@ -29,6 +29,7 @@ arşiv `archive/v1.7/` yalnız referans içindir.
 ./delivery/scripts/resolver.py --surface web.app --platform web --stack next
 ./delivery/scripts/adapt.py --add platform.android # capability diff / --apply
 ./delivery/scripts/protect_main.sh --apply   # main PR + required check
+./delivery/scripts/eval.py --check              # eval scenario enforcement
 ./delivery/scripts/guard.sh --issue 12  # G1 + risk
 ./delivery/scripts/vendor_sync.sh --target ../Product --check
 ./delivery/scripts/vendor_sync.sh --target ../Product --apply
