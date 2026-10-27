@@ -17,6 +17,23 @@ leaf'ler güncel setle açılır.
 Read-only tarama: stack, surface, distribution, test komutları, app path ve risk
 hotspot. Çıktı `kit init` için girdidir; hiçbir dosya yazmaz.
 
+## Init
+
+```bash
+# Öneri (yazmaz)
+./delivery/scripts/init.py --project .
+
+# Yeni dosyaları yaz; mevcutları atla
+./delivery/scripts/init.py --project . --apply
+
+# Mevcut dosyaları da yenile (dikkat)
+./delivery/scripts/init.py --project . --apply --force
+```
+
+`kit.config.yaml`, `ecosystem.yaml`, `.kit/capabilities.yaml` ve
+scripts/gate-behavior.sh üretir. `--apply` varsayılan olarak mevcut dosyayı
+ezmez; `--force` açık istekle üzerine yazar.
+
 ## Dosya
 
 ```yaml

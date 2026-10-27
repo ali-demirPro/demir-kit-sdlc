@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.20.0 — 2026-10-27
+
+- **kit init** — `init.py` fingerprint'ten `kit.config.yaml`, `ecosystem.yaml`,
+  `.kit/capabilities.yaml` ve `scripts/gate-behavior.sh` üretir.
+- **Güvenli apply** — varsayılan dry-run; `--apply` yalnız yeni dosyaları yazar,
+  mevcutları atlar; `--force` açık istekle üzerine yazar.
+- **Test** — web/iOS app_store, dotted repo, no-write, skip, force; 267 test.
+
 ## 2.19.0 — 2026-10-27
 
 - **Project fingerprint** — `detect.py`: package/Next/React, Swift/Xcode, Gradle/
