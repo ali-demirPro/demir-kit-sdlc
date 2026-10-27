@@ -9,6 +9,18 @@ capabilities_required:
   - platform.android
   - platform.api
   - platform.cli
+  - domain.auth
+  - domain.payments
+  - domain.data
+  - domain.offline
+  - domain.analytics
+  - domain.i18n
+  - quality.security
+  - quality.a11y
+  - quality.performance
+  - quality.privacy
+  - quality.observability
+  - distribution.web
 variants:
   platform.web:
     doc: variants/web.md
@@ -30,5 +42,53 @@ variants:
     doc: variants/api.md
     eval: evals/api.md
     min_level: expert
+  domain.auth:
+    doc: variants/auth-payments.md
+    eval: evals/domain-risk.md
+    min_level: expert
+  domain.payments:
+    doc: variants/auth-payments.md
+    eval: evals/domain-risk.md
+    min_level: expert
+  domain.data:
+    doc: variants/data-offline.md
+    eval: evals/domain-risk.md
+    min_level: expert
+  domain.offline:
+    doc: variants/data-offline.md
+    eval: evals/domain-risk.md
+    min_level: expert
+  domain.analytics:
+    doc: variants/analytics-i18n.md
+    eval: evals/quality.md
+    min_level: practitioner
+  domain.i18n:
+    doc: variants/analytics-i18n.md
+    eval: evals/quality.md
+    min_level: practitioner
+  quality.security:
+    doc: variants/security-privacy.md
+    eval: evals/domain-risk.md
+    min_level: expert
+  quality.a11y:
+    doc: variants/a11y-performance.md
+    eval: evals/quality.md
+    min_level: expert
+  quality.performance:
+    doc: variants/a11y-performance.md
+    eval: evals/quality.md
+    min_level: expert
+  quality.privacy:
+    doc: variants/security-privacy.md
+    eval: evals/domain-risk.md
+    min_level: practitioner
+  quality.observability:
+    doc: variants/observability.md
+    eval: evals/quality.md
+    min_level: practitioner
+  distribution.web:
+    doc: variants/delivery.md
+    eval: evals/delivery.md
+    min_level: practitioner
 handoffs: [developer, orchestrator]
 escalation: [coverage_gap, flaky_test, device_unavailable, environment_down]

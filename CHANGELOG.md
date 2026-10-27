@@ -1,5 +1,16 @@
 # Changelog
 
+## 2.17.0 — 2026-10-27
+
+- **Designer variants** — a11y, performance, privacy, i18n, analytics; 5 yeni
+  doküman, 2 eval seti.
+- **Tester variants** — auth/payments, data/offline, analytics/i18n,
+  security/privacy, a11y/performance, observability, delivery; 7 yeni doküman,
+  3 eval seti.
+- **Coverage** — designer/tester rol matrisi ↔ variant gap'i sıfır; eval
+  setlerinde en az 10 senaryo testle zorlanır.
+- **Test** — 245 test.
+
 ## 2.16.0 — 2026-10-27
 
 - **Capability-aware plan** — `orca_plan` capability setini, aktif variant

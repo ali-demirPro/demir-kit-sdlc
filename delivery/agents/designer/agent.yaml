@@ -7,6 +7,11 @@ capabilities_required:
   - platform.web
   - platform.ios
   - platform.android
+  - quality.a11y
+  - quality.performance
+  - quality.privacy
+  - domain.i18n
+  - domain.analytics
 variants:
   platform.web:
     doc: variants/web.md
@@ -20,5 +25,25 @@ variants:
     doc: variants/android.md
     eval: evals/android.md
     min_level: expert
+  quality.a11y:
+    doc: variants/a11y.md
+    eval: evals/quality.md
+    min_level: expert
+  quality.performance:
+    doc: variants/performance.md
+    eval: evals/quality.md
+    min_level: practitioner
+  quality.privacy:
+    doc: variants/privacy.md
+    eval: evals/quality.md
+    min_level: practitioner
+  domain.i18n:
+    doc: variants/i18n.md
+    eval: evals/domain.md
+    min_level: practitioner
+  domain.analytics:
+    doc: variants/analytics.md
+    eval: evals/domain.md
+    min_level: aware
 handoffs: [developer, tester]
 escalation: [unclear_ac, missing_design_system, device_unavailable, brand_conflict]

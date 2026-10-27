@@ -69,6 +69,26 @@ class VariantTests(unittest.TestCase):
                 [],
             )
 
+    def test_designer_tester_cover_role_matrix(self) -> None:
+        for role in ("designer", "tester"):
+            agent = variants.load_agent(role)
+            expected = set(
+                (MATRIX["roles"][role].get("capabilities") or {}).keys()
+            )
+            self.assertEqual(set(agent["capabilities_required"]), expected)
+
+    def test_eval_sets_have_ten_rows(self) -> None:
+        for role in ("designer", "tester"):
+            for path in (variants.AGENTS / role / "evals").glob("*.md"):
+                rows = [
+                    line
+                    for line in path.read_text(encoding="utf-8").splitlines()
+                    if line.startswith("|") and "---" not in line
+                ]
+                self.assertGreaterEqual(
+                    len(rows) - 1, 10, f"{path} en az 10 senaryo içermeli"
+                )
+
     def test_unknown_capability(self) -> None:
         agent = copy.deepcopy(variants.load_agent("designer"))
         agent["capabilities_required"].append("platform.unknown")
