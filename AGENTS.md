@@ -20,6 +20,7 @@ Version lives in `VERSION`; bump it with `CHANGELOG.md` and the README header.
 ./delivery/scripts/capabilities.py --matrix   # role x capability matrix
 ./delivery/scripts/variants.py --role designer # capability -> variant map
 ./delivery/scripts/resolver.py --surface web.app --platform web --stack next
+./delivery/scripts/adapt.py --add platform.android  # capability diff; --apply writes .kit/capabilities.yaml
 ./delivery/scripts/vendor_sync.sh --target ../Product --check
 ./delivery/scripts/vendor_sync.sh --target ../Product --apply
 ./install.sh --with-platform              # Orca + v2 skills (local source)

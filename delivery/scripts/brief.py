@@ -72,6 +72,7 @@ def build_brief(
         path_id,
         signals,
         text,
+        declared=resolver.load_declared(routing.project_root(ROOT)),
     )
     docs = [f"{prefix}{doc}" for doc in resolution["docs"]]
 

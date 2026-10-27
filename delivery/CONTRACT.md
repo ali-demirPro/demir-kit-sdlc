@@ -1,4 +1,4 @@
-# Delivery contract — v2.11
+# Delivery contract — v2.12
 
 Bu dosya delivery'nin **tek durum makinesi**dir. Agent, path ve risk verisi
 `registry.yaml`'da; artefakt şekilleri `schemas/` altında; uygulama
@@ -18,6 +18,7 @@ Eski v1 yürütmesi arşivdedir (`archive/v1.7/`). Yeni runtime yalnızca `deliv
 | Ecosystem | repo kökü `ecosystem.yaml` | — | devops | health-check |
 | Capability registry | `delivery/capabilities/registry.yaml` + `role-matrix.yaml` | `capability.schema.json` | architect | doctor |
 | Agent variant | `delivery/agents/<rol>/agent.yaml` | `agent.schema.json` | architect | doctor |
+| Project capabilities | `.kit/capabilities.yaml` | — | adapt | doctor --product |
 
 ## Durum makinesi
 

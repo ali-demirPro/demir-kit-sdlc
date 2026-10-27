@@ -70,6 +70,30 @@ class ProductDoctorTests(unittest.TestCase):
             doctor.check_product(root)
             self.assertTrue(any("protocol" in item for item in doctor.ERRORS))
 
+    def test_declared_capability_unknown(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            make_product(root)
+            (root / ".kit").mkdir()
+            (root / ".kit" / "capabilities.yaml").write_text(
+                "version: 1\ninclude: [platform.unknown]\nexclude: []\n"
+            )
+            doctor.check_product(root)
+            self.assertTrue(
+                any("bilinmeyen capability" in item for item in doctor.ERRORS)
+            )
+
+    def test_declared_capability_valid(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            make_product(root)
+            (root / ".kit").mkdir()
+            (root / ".kit" / "capabilities.yaml").write_text(
+                "version: 1\ninclude: [platform.web]\nexclude: []\n"
+            )
+            doctor.check_product(root)
+            self.assertEqual(doctor.ERRORS, [])
+
     def test_missing_gate_script(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

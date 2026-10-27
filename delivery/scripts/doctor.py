@@ -86,6 +86,7 @@ REQUIRED_FILES = [
     "delivery/scripts/risk_filter.py",
     "delivery/scripts/variants.py",
     "delivery/scripts/resolver.py",
+    "delivery/scripts/adapt.py",
     "delivery/schemas/agent.schema.json",
     "delivery/capabilities/registry.yaml",
     "delivery/capabilities/role-matrix.yaml",
@@ -96,6 +97,7 @@ REQUIRED_FILES = [
     ".github/workflows/issue-doctor.yml",
     ".github/pull_request_template.md",
     "delivery/runbooks/pr-flow.md",
+    "delivery/runbooks/adaptation.md",
 ]
 
 AGENT_FILES = ["ROLE.md", "how.md", "communicates.md", "dependencies.md", "SKILL.md"]
@@ -721,10 +723,22 @@ def check_issue_body(
     capability_registry = load_yaml(DELIVERY / "capabilities" / "registry.yaml") or {}
     ecosystem = load_yaml(root / "ecosystem.yaml") or {}
     signals = resolver_lib.project_signals(ecosystem) + resolver_lib.seal_signals(data)
-    matched = resolver_lib.match_capabilities(
+    declared = resolver_lib.load_declared(root)
+    # Historical evidence must stay valid after a project-level exclude; the
+    # seal's own surfaces decide which roles could have produced it.
+    declared_for_issue = {
+        "version": 1,
+        "include": declared.get("include") or [],
+        "exclude": [],
+    }
+    matched = resolver_lib.apply_declared(
+        resolver_lib.match_capabilities(
+            capability_registry,
+            signals,
+            f"{title}\n{routing.strip_seal(body)}",
+        ),
         capability_registry,
-        signals,
-        f"{title}\n{routing.strip_seal(body)}",
+        declared_for_issue,
     )
     for capability in matched.values():
         allowed_agents.update((capability.get("roles") or {}).keys())
@@ -1062,6 +1076,20 @@ def check_product(root: Path) -> None:
                     warn(f"package.json: '{name}' script yok")
     if not (root / "AGENTS.md").is_file():
         warn("AGENTS.md yok")
+
+    declared_path = root / ".kit" / "capabilities.yaml"
+    if declared_path.is_file():
+        declared = resolver_lib.load_declared(root)
+        if declared.get("version") != 1:
+            error(".kit/capabilities.yaml: version 1 olmalı")
+        available = set(
+            (load_yaml(DELIVERY / "capabilities" / "registry.yaml") or {})
+            .get("capabilities", {})
+            .keys()
+        )
+        for cap_id in declared.get("include", []) + declared.get("exclude", []):
+            if cap_id not in available:
+                error(f".kit/capabilities.yaml: bilinmeyen capability — {cap_id}")
 
 
 def main() -> int:
