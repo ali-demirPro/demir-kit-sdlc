@@ -55,6 +55,7 @@ else
   CHANGED+=$'\n'"$(git ls-files --others --exclude-standard)"
 fi
 CHANGED="$(printf '%s\n' "$CHANGED" | sed '/^$/d' | sort -u)"
+RISK_CHANGED="$(printf '%s\n' "$CHANGED" | python3 "${KIT_ROOT}/delivery/scripts/risk_filter.py" --registry "${KIT_ROOT}/delivery/registry.yaml")"
 
 VIOLATIONS=()
 for path in "${APP_PATHS[@]}"; do
@@ -112,12 +113,12 @@ except Exception:
 
 CRITICAL_RE='(^|/)(auth|payments|billing|migrations|security)(/|$)|^\.github/workflows/(deploy|release)'
 HIGH_RE='(^|/)(auth|payments|billing|migrations|security)(/|$)|^\.github/workflows/deploy'
-if grep -Eq "$CRITICAL_RE" <<< "$CHANGED" && [[ "$RISK" != "high" && "$RISK" != "critical" ]]; then
+if grep -Eq "$CRITICAL_RE" <<< "$RISK_CHANGED" && [[ "$RISK" != "high" && "$RISK" != "critical" ]]; then
   echo "guard: BLOCKED — risk glob'u critical/high, seal riski '${RISK:-yok}'" >&2
   echo "  Seal'de risk seviyesini yükselt (registry.yaml risk.auto_escalate)." >&2
   exit 1
 fi
-if grep -Eq "$HIGH_RE" <<< "$CHANGED" && [[ "$RISK" == "low" ]]; then
+if grep -Eq "$HIGH_RE" <<< "$RISK_CHANGED" && [[ "$RISK" == "low" ]]; then
   echo "guard: BLOCKED — risk glob'u en az high; seal 'low'" >&2
   exit 1
 fi

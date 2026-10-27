@@ -81,6 +81,7 @@ REQUIRED_FILES = [
     "delivery/scripts/transition.py",
     "delivery/scripts/transition.sh",
     "delivery/scripts/capabilities.py",
+    "delivery/scripts/risk_filter.py",
     "delivery/capabilities/registry.yaml",
     "delivery/capabilities/role-matrix.yaml",
     "delivery/capabilities/levels.md",

@@ -40,6 +40,16 @@ labels:
 
 risk:
   levels: [low, medium, high, critical]
+  exclude:
+    - "delivery/agents/**"
+    - "delivery/capabilities/**"
+    - "delivery/runbooks/**"
+    - "delivery/protocol/**"
+    - "delivery/schemas/**"
+    - "delivery/tests/**"
+    - "skills/**"
+    - "*.md"
+    - "**/*.md"
   auto_escalate:
     high:
       - "**/auth/**"
