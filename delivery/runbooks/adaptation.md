@@ -34,6 +34,37 @@ hotspot. Çıktı `kit init` için girdidir; hiçbir dosya yazmaz.
 scripts/gate-behavior.sh üretir. `--apply` varsayılan olarak mevcut dosyayı
 ezmez; `--force` açık istekle üzerine yazar.
 
+## Profiller
+
+Profil tek seçim değildir; repo birden fazla base ve overlay barındırabilir.
+`factory.profiles` listesi base + overlay kompozisyonudur:
+
+```yaml
+factory:
+  default_profile: web-app
+  profiles: [web-app, api-service, auth]
+```
+
+- Base: `web-app`, `ios-app`, `android-app`, `flutter-app`, `api-service`,
+  `cli`, `library`, `game`, `landing`, `data-ml`
+- Overlay: `auth`, `payments`, `offline`, `multi-tenant`, `regulated`,
+  `high-scale`
+
+Capability, platform pack, ek gate ve skill'ler birleşir; `default_profile`
+listede olmalı ve en az bir base profil bulunmalıdır. Profil yapılandırması
+isteğe bağlıdır: eski ürünler profilsiz geçerli kalır.
+
+```bash
+# Kompozisyonu gör
+./delivery/scripts/profiles.py --project .
+
+# Doğrula (bilinmeyen profil/capability/pack, default, base)
+./delivery/scripts/profiles.py --project . --check
+```
+
+`init.py` fingerprint'ten çoklu öneri üretir (ör. web + api + auth);
+`resolver.py` profil capability'lerini `.kit/capabilities.yaml` ile birleştirir.
+
 ## Dosya
 
 ```yaml
@@ -102,7 +133,7 @@ Kapanmış leaf'lerin evidence'ı silinmez.
 ## Sınırlar
 
 - `adapt.py` `ecosystem.yaml`'ı **değiştirmez**; yüzey bilgisi orada kalır.
-- Fingerprint/otomatik tarama #56 kapsamı dışındadır; surface bilgisi insan
-  tarafından girilir.
+- Fingerprint `detect.py` ile read-only alınır; `init.py --apply` olmadan
+  hiçbir dosya yazılmaz.
 - `authority` agent'a atanmaz; capability seviyesi değişse de insan kapısı
   korunur.

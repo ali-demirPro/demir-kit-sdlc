@@ -1,0 +1,12 @@
+id: auth
+description: Overlay — authentication, session and authorization
+product_class: overlay
+default_entry: feature
+default_quality_tier: standard
+capabilities: [domain.auth, quality.security]
+platform_packs: []
+architecture_baseline_required: false
+commercial_baseline_required: false
+required_skills: [work-package, test-plan, behavior-gate]
+suggested_surfaces: []
+extra_gates: [architect]

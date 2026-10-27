@@ -1,0 +1,12 @@
+id: regulated
+description: Overlay — privacy/regulatory controls
+product_class: overlay
+default_entry: feature
+default_quality_tier: standard
+capabilities: [quality.privacy, quality.security]
+platform_packs: []
+architecture_baseline_required: false
+commercial_baseline_required: true
+required_skills: [work-package, test-plan, behavior-gate]
+suggested_surfaces: []
+extra_gates: [commercial, human]

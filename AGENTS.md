@@ -19,6 +19,7 @@ Version lives in `VERSION`; bump it with `CHANGELOG.md` and the README header.
 ./delivery/scripts/transition.sh --issue N --to leaf-done  # single-writer transition
 ./delivery/scripts/capabilities.py --matrix   # role x capability matrix
 ./delivery/scripts/variants.py --role designer # capability -> variant map
+./delivery/scripts/profiles.py --project .        # profile composition
 ./delivery/scripts/resolver.py --surface web.app --platform web --stack next
 ./delivery/scripts/adapt.py --add platform.android  # capability diff; --apply writes .kit/capabilities.yaml
 ./delivery/scripts/eval.py --check           # eval scenarios (10+ per variant)

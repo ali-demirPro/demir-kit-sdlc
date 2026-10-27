@@ -94,6 +94,39 @@ class ProductDoctorTests(unittest.TestCase):
             doctor.check_product(root)
             self.assertEqual(doctor.ERRORS, [])
 
+    def set_profiles(self, root: Path, names: list[str], default: str) -> None:
+        config = root / "kit.config.yaml"
+        config.write_text(
+            config.read_text()
+            + "  default_profile: %s\n  profiles: [%s]\n"
+            % (default, ", ".join(names)),
+            encoding="utf-8",
+        )
+
+    def test_profile_composition_valid(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            make_product(root)
+            self.set_profiles(root, ["web-app", "api-service", "auth"], "web-app")
+            doctor.check_product(root)
+            self.assertEqual(doctor.ERRORS, [])
+
+    def test_profile_unknown_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            make_product(root)
+            self.set_profiles(root, ["web-app", "ghost"], "web-app")
+            doctor.check_product(root)
+            self.assertTrue(any("profil yok" in item for item in doctor.ERRORS))
+
+    def test_profile_overlay_only_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            make_product(root)
+            self.set_profiles(root, ["auth"], "auth")
+            doctor.check_product(root)
+            self.assertTrue(any("base" in item for item in doctor.ERRORS))
+
     def test_missing_gate_script(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

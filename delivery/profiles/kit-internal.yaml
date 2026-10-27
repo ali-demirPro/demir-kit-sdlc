@@ -3,6 +3,7 @@ description: demir-kit self-host — delivery docs, schemas and scripts
 product_class: internal-tool
 default_entry: chore
 default_quality_tier: standard
+capabilities: []
 
 platform_packs: []
 

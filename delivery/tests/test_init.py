@@ -57,7 +57,8 @@ class InitTests(unittest.TestCase):
             root = Path(directory)
             web_project(root)
             plan = init_mod.build(root)
-            self.assertEqual(plan["profile"], "web-product")
+            self.assertEqual(plan["profile"], "web-app")
+            self.assertEqual(plan["profiles"], ["web-app"])
             self.assertIn("platform.web", plan["capabilities"])
             self.assertIn("distribution.web", plan["capabilities"])
             self.assertIn("kit.config.yaml", plan["files"])
@@ -74,8 +75,40 @@ class InitTests(unittest.TestCase):
             ios_project(root)
             plan = init_mod.build(root)
             self.assertIn("platform.ios", plan["capabilities"])
+            self.assertNotIn("distribution.app_store", plan["capabilities"])
             self.assertIn("ios", plan["files"]["ecosystem.yaml"])
             self.assertIn("swift test", plan["files"]["scripts/gate-behavior.sh"])
+            declared = yaml.safe_load(plan["files"][".kit/capabilities.yaml"])
+            self.assertNotIn("distribution.app_store", declared["include"])
+
+    def test_multi_profile_web_api_auth(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            write(
+                root,
+                "package.json",
+                json.dumps(
+                    {
+                        "dependencies": {
+                            "react": "1",
+                            "express": "1",
+                        }
+                    }
+                ),
+            )
+            write(root, "src/auth/login.ts", "export default 1")
+            write(root, "api/main.ts", "export default 1")
+            plan = init_mod.build(root)
+            self.assertEqual(plan["profiles"], ["web-app", "api-service", "auth"])
+            self.assertIn("domain.auth", plan["capabilities"])
+            config = yaml.safe_load(plan["files"]["kit.config.yaml"])
+            self.assertEqual(
+                config["factory"]["profiles"],
+                ["web-app", "api-service", "auth"],
+            )
+            declared = yaml.safe_load(plan["files"][".kit/capabilities.yaml"])
+            self.assertNotIn("domain.auth", declared["include"])
+            self.assertIn("platform.web", declared["include"])
 
     def test_ios_app_store_capability(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -85,6 +118,8 @@ class InitTests(unittest.TestCase):
             plan = init_mod.build(root)
             self.assertIn("platform.ios", plan["capabilities"])
             self.assertIn("distribution.app_store", plan["capabilities"])
+            declared = yaml.safe_load(plan["files"][".kit/capabilities.yaml"])
+            self.assertIn("distribution.app_store", declared["include"])
             eco = yaml.safe_load(plan["files"]["ecosystem.yaml"])
             surfaces = eco["products"]["app"]["surfaces"]
             self.assertIn("app_store_connect", surfaces["ios"]["distribution"])

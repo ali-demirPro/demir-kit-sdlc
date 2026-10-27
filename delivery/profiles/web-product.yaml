@@ -3,6 +3,7 @@ description: Web application — Next.js/React, UI and behavior gates
 product_class: web-app
 default_entry: feature
 default_quality_tier: standard
+capabilities: [platform.web, quality.a11y, quality.performance]
 
 platform_packs:
   - web-ux

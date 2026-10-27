@@ -327,7 +327,7 @@ def detect(project: Path) -> dict:
     elif "android" in platforms:
         suggested = "android-app"
     elif "web" in platforms:
-        suggested = "web-product"
+        suggested = "web-app"
     elif "api" in platforms:
         suggested = "api-service"
     elif "cli" in platforms:

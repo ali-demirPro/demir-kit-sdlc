@@ -1,0 +1,12 @@
+id: cli
+description: Command-line tool
+product_class: cli
+default_entry: feature
+default_quality_tier: standard
+capabilities: [platform.cli, quality.performance]
+platform_packs: []
+architecture_baseline_required: false
+commercial_baseline_required: false
+required_skills: [work-package, test-plan, behavior-gate]
+suggested_surfaces: [cli]
+extra_gates: []
