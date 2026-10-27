@@ -160,6 +160,155 @@ class DetectTests(unittest.TestCase):
             self.assertIn("src/auth", data["risk_hotspots"])
             self.assertEqual(data["suggested_profile"], "api-service")
 
+    def test_nested_flutter_monorepo(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            write(
+                root,
+                "apps/mobile/pubspec.yaml",
+                "name: app\nenvironment:\n  sdk: flutter\nflutter:\n  uses-material-design: true\n",
+            )
+            (root / "apps/mobile/ios").mkdir()
+            (root / "apps/mobile/android").mkdir()
+            write(root, "apps/mobile/lib/main.dart", "void main() {}\n")
+            data = detect_mod.detect(root)
+            surface = next(
+                item for item in data["surfaces"] if item["path"] == "apps/mobile"
+            )
+            self.assertEqual(surface["platforms"], ["ios", "android"])
+            self.assertIn("flutter", surface["stacks"])
+            self.assertIn("apps/mobile", data["app_paths"])
+            self.assertEqual(
+                data["test_commands"]["behavior"],
+                "(cd apps/mobile && flutter test)",
+            )
+
+    def test_nested_web_api_monorepo(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            write(
+                root,
+                "web/package.json",
+                json.dumps(
+                    {
+                        "dependencies": {"next": "1", "react": "1"},
+                        "scripts": {"test": "vitest"},
+                    }
+                ),
+            )
+            write(root, "api/pyproject.toml", "[tool.pytest.ini_options]\n")
+            write(root, "api/main.py", "print(1)\n")
+            data = detect_mod.detect(root)
+            paths = {item["path"] for item in data["surfaces"]}
+            self.assertEqual(paths, {"web", "api"})
+            self.assertIn("(cd api && pytest)", data["test_commands"]["behavior"])
+            self.assertIn("(cd web && npm test)", data["test_commands"]["behavior"])
+            self.assertEqual(data["app_paths"], ["web", "api"])
+
+    def test_nested_node_surfaces_use_own_deps(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            write(
+                root,
+                "apps/web/package.json",
+                json.dumps({"dependencies": {"next": "1", "react": "1"}}),
+            )
+            write(
+                root,
+                "packages/lib/package.json",
+                json.dumps({"dependencies": {"lodash": "1"}}),
+            )
+            data = detect_mod.detect(root)
+            paths = {item["path"] for item in data["surfaces"]}
+            self.assertEqual(paths, {"apps/web"})
+
+    def test_nested_xcode_project(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "apps/ios/App.xcodeproj").mkdir(parents=True)
+            data = detect_mod.detect(root)
+            surface = next(
+                item for item in data["surfaces"] if item["path"] == "apps/ios"
+            )
+            self.assertEqual(surface["platforms"], ["ios"])
+            self.assertIn("swift", surface["stacks"])
+            self.assertEqual(
+                data["test_commands"]["behavior"], "(cd apps/ios && xcodebuild test)"
+            )
+
+    def test_nested_path_with_space_is_quoted(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            write(
+                root,
+                "apps/my app/pubspec.yaml",
+                "name: app\nenvironment:\n  sdk: flutter\n",
+            )
+            data = detect_mod.detect(root)
+            self.assertEqual(
+                data["test_commands"]["behavior"],
+                "(cd 'apps/my app' && flutter test)",
+            )
+
+    def test_nested_symlink_is_not_duplicated(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            write(
+                root,
+                "apps/mobile/pubspec.yaml",
+                "name: app\nenvironment:\n  sdk: flutter\n",
+            )
+            (root / "apps/mobile/ios").mkdir()
+            (root / "apps/mobile/android").mkdir()
+            (root / "mobile").symlink_to(root / "apps/mobile", target_is_directory=True)
+            data = detect_mod.detect(root)
+            self.assertEqual(len(data["surfaces"]), 1)
+            self.assertEqual(data["surfaces"][0]["path"], "apps/mobile")
+
+    def test_nested_flutter_platform_folders_are_not_packages(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            write(
+                root,
+                "mobile/pubspec.yaml",
+                "name: app\nenvironment:\n  sdk: flutter\n",
+            )
+            (root / "mobile/ios/Runner.xcodeproj").mkdir(parents=True)
+            (root / "mobile/ios/Podfile").write_text("platform :ios\n")
+            (root / "mobile/android").mkdir()
+            data = detect_mod.detect(root)
+            self.assertEqual(len(data["surfaces"]), 1)
+            self.assertEqual(data["surfaces"][0]["path"], "mobile")
+            self.assertEqual(data["surfaces"][0]["platforms"], ["ios", "android"])
+
+    def test_nested_ignores_node_modules(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            write(
+                root,
+                "node_modules/pkg/package.json",
+                json.dumps({"dependencies": {"next": "1"}}),
+            )
+            data = detect_mod.detect(root)
+            self.assertEqual(data["surfaces"], [])
+
+    def test_root_surface_wins_over_nested(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            write(
+                root,
+                "package.json",
+                json.dumps({"dependencies": {"next": "1", "react": "1"}}),
+            )
+            write(
+                root,
+                "apps/mobile/pubspec.yaml",
+                "name: app\nenvironment:\n  sdk: flutter\n",
+            )
+            data = detect_mod.detect(root)
+            self.assertEqual(len(data["surfaces"]), 1)
+            self.assertEqual(data["surfaces"][0]["path"], ".")
+
     def test_detect_does_not_write(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

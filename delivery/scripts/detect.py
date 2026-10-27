@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import shlex
 import sys
 from pathlib import Path
 
@@ -306,7 +307,222 @@ def detect(project: Path) -> dict:
         if "supply" in text or "play" in text:
             add_distribution("play_console", "fastlane/Fastfile")
 
+    def add_test(key: str, command: str) -> None:
+        if key in tests and tests[key] != command:
+            tests[key] = tests[key] + " && " + command
+        else:
+            tests.setdefault(key, command)
+
+    def nested_slug(base: Path) -> str:
+        return rel(base, root).replace("/", "-")
+
+    def nested_name(base: Path, kind: str) -> str:
+        slug = nested_slug(base)
+        if slug == kind and slug not in surfaces:
+            return slug
+        return f"{slug}-{kind}"
+
+    def scan_nested() -> None:
+        """Monorepo fallback: manifests at depth 1-2 when root has no surface."""
+        ignored = {
+            ".git",
+            "node_modules",
+            "Pods",
+            "build",
+            "dist",
+            "vendor",
+            "target",
+            "DerivedData",
+            "__pycache__",
+            ".venv",
+            "venv",
+        }
+        candidates: list[Path] = []
+
+        def collect(base: Path, depth: int) -> None:
+            for child in sorted(base.iterdir()):
+                if child.is_symlink():
+                    continue
+                if not child.is_dir() or child.name in ignored or child.name.startswith("."):
+                    continue
+                manifest = any(
+                    (child / name).is_file()
+                    for name in (
+                        "package.json",
+                        "pubspec.yaml",
+                        "pyproject.toml",
+                        "requirements.txt",
+                        "setup.py",
+                        "go.mod",
+                        "Package.swift",
+                        "Cargo.toml",
+                        "Podfile",
+                    )
+                ) or any(child.glob("*.xcodeproj"))
+                if manifest:
+                    candidates.append(child)
+                    # Paket kökü kendi alt platformlarını kapsar; içine inme.
+                    continue
+                if depth < 2:
+                    collect(child, depth + 1)
+
+        collect(root, 1)
+        for base in candidates:
+            rel_path = rel(base, root)
+            prefix = f"(cd {shlex.quote(rel_path)} && "
+            suffix = ")"
+            pubspec = read_text(base / "pubspec.yaml")
+            flutter = (base / "pubspec.yaml").is_file() and (
+                "sdk: flutter" in pubspec or "\nflutter:" in "\n" + pubspec
+            )
+            if flutter:
+                add_stack("flutter", f"{rel_path}/pubspec.yaml")
+                add_stack("dart", f"{rel_path}/pubspec.yaml")
+                platforms = [
+                    platform
+                    for platform in ("ios", "android", "web")
+                    if (base / platform).is_dir()
+                ] or ["ios", "android"]
+                add_surface(
+                    nested_name(base, "mobile"),
+                    rel_path,
+                    platforms,
+                    ["flutter"],
+                    f"{rel_path}/pubspec.yaml",
+                )
+                add_test("behavior", prefix + "flutter test" + suffix)
+            package = read_json(base / "package.json")
+            if package:
+                deps = {}
+                deps.update(package.get("dependencies") or {})
+                deps.update(package.get("devDependencies") or {})
+                mapping = {
+                    "next": "next",
+                    "react": "react",
+                    "vue": "vue",
+                    "svelte": "svelte",
+                    "vite": "vite",
+                    "typescript": "typescript",
+                    "express": "express",
+                    "fastify": "fastify",
+                    "@nestjs/core": "nestjs",
+                }
+                for dep, stack in mapping.items():
+                    if dep in deps:
+                        add_stack(stack, f"{rel_path}/package.json: {dep}")
+                scripts = package.get("scripts") or {}
+                web_stacks = [
+                    mapping[dep]
+                    for dep in ("next", "react", "vue", "svelte", "vite")
+                    if dep in deps
+                ]
+                if web_stacks:
+                    add_surface(
+                        nested_name(base, "web"),
+                        rel_path,
+                        ["web"],
+                        web_stacks,
+                        f"{rel_path}/package.json",
+                    )
+                api_stacks = [
+                    mapping[dep]
+                    for dep in ("express", "fastify", "nestjs")
+                    if dep in deps
+                ]
+                if api_stacks:
+                    add_surface(
+                        nested_name(base, "api"),
+                        rel_path,
+                        ["api"],
+                        api_stacks,
+                        f"{rel_path}/package.json",
+                    )
+                if "test" in scripts:
+                    add_test("behavior", prefix + "npm test" + suffix)
+            python_files = [
+                name
+                for name in ("pyproject.toml", "requirements.txt", "setup.py", "manage.py")
+                if (base / name).is_file()
+            ]
+            if python_files and not flutter:
+                text = " ".join(read_text(base / name) for name in python_files)
+                add_stack("python", f"{rel_path}/{python_files[0]}")
+                api_stacks = ["python"]
+                if "django" in text.lower() or (base / "manage.py").is_file():
+                    add_stack("django", f"{rel_path}/python metadata")
+                    api_stacks.append("django")
+                if "fastapi" in text.lower():
+                    add_stack("fastapi", f"{rel_path}/python metadata")
+                    api_stacks.append("fastapi")
+                add_surface(
+                    nested_name(base, "api"),
+                    rel_path,
+                    ["api"],
+                    api_stacks,
+                    f"{rel_path}/{python_files[0]}",
+                )
+                add_test("behavior", prefix + "pytest" + suffix)
+            xcode = any(base.glob("*.xcodeproj"))
+            podfile = (base / "Podfile").is_file()
+            if not flutter and (
+                (base / "Package.swift").is_file() or xcode or podfile
+            ):
+                source = (
+                    f"{rel_path}/Package.swift"
+                    if (base / "Package.swift").is_file()
+                    else (f"{rel_path}/Podfile" if podfile else rel_path)
+                )
+                add_stack("swift", source)
+                add_surface(
+                    nested_name(base, "ios"),
+                    rel_path,
+                    ["ios"],
+                    ["swift"],
+                    source,
+                )
+                add_test(
+                    "behavior",
+                    prefix
+                    + ("swift test" if (base / "Package.swift").is_file() else "xcodebuild test")
+                    + suffix,
+                )
+            if (base / "go.mod").is_file():
+                add_stack("go", f"{rel_path}/go.mod")
+                add_surface(
+                    nested_name(base, "api"),
+                    rel_path,
+                    ["api"],
+                    ["go"],
+                    f"{rel_path}/go.mod",
+                )
+                add_test("behavior", prefix + "go test ./..." + suffix)
+            if (base / "Cargo.toml").is_file():
+                add_stack("rust", f"{rel_path}/Cargo.toml")
+                add_surface(
+                    nested_name(base, "cli"),
+                    rel_path,
+                    ["cli"],
+                    ["rust"],
+                    f"{rel_path}/Cargo.toml",
+                )
+                add_test("behavior", prefix + "cargo test" + suffix)
+            if (base / "vercel.json").is_file():
+                add_distribution("web_deploy", f"{rel_path}/vercel.json")
+            if (base / "eas.json").is_file():
+                text = read_text(base / "eas.json").lower()
+                if "ios" in text:
+                    add_distribution("app_store", f"{rel_path}/eas.json: ios")
+                if "android" in text:
+                    add_distribution("play_console", f"{rel_path}/eas.json: android")
+
+    if not surfaces:
+        scan_nested()
+
     app_paths = [name for name in APP_DIRS if (root / name).is_dir()]
+    for surface in surfaces.values():
+        path = str(surface.get("path") or "")
+        if path and path != "." and path not in app_paths:
+            app_paths.append(path)
     hotspots: list[str] = []
     for base in app_paths or ["."]:
         base_path = root / base
