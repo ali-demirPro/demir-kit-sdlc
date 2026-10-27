@@ -81,6 +81,8 @@ def verify_project(project: Path) -> dict:
     declaration_issues, configured = check_declarations(root, known)
     issues.extend(declaration_issues)
     standards = standards_mod.discover(root)
+    if standards["agents"]["state"] == "stale":
+        issues.append("standards: AGENTS.md bloğu bayat")
     return {
         "project": str(root),
         "ok": not issues,

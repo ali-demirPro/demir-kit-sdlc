@@ -12,14 +12,6 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
 PROFILE_DIR = ROOT / "delivery" / "profiles"
-OVERLAYS = {
-    "auth",
-    "payments",
-    "offline",
-    "multi-tenant",
-    "regulated",
-    "high-scale",
-}
 
 
 def load_yaml(path: Path) -> dict:
@@ -32,6 +24,17 @@ def load_yaml(path: Path) -> dict:
 
 def load_profile(name: str) -> dict:
     return load_yaml(PROFILE_DIR / f"{name}.yaml")
+
+
+def overlay_names() -> set[str]:
+    return {
+        path.stem
+        for path in PROFILE_DIR.glob("*.yaml")
+        if load_yaml(path).get("product_class") == "overlay"
+    }
+
+
+OVERLAYS = overlay_names()
 
 
 def project_config(project: Path) -> dict:

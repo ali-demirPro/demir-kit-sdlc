@@ -2,9 +2,10 @@
 
 ## Repo
 
-demir-kit 2.2 — delivery-first agent system. Docs, YAML and small bash/python
-scripts; no build system, package manager or test runner. "Correct" means the
-contract, registry, schemas and policies agree — `doctor.sh` decides.
+demir-kit 2.26 — delivery-first agent system. Docs, YAML and small bash/python
+scripts; Python unittest suite and CI, no app build system or package manager.
+"Correct" means the contract, registry, schemas and policies agree — `doctor.sh`
+decides.
 
 Version lives in `VERSION`; bump it with `CHANGELOG.md` and the README header.
 
@@ -23,6 +24,8 @@ Version lives in `VERSION`; bump it with `CHANGELOG.md` and the README header.
 ./delivery/scripts/standards.py --project . --check # project standards
 ./delivery/scripts/verify.py --project .          # read-only adaptation check
 ./delivery/scripts/adopt.py --project . --apply   # one-command SDLC injection
+./delivery/scripts/brief.py 12              # leaf → agent brief
+python3 -m unittest discover -s delivery/tests  # test suite
 ./delivery/scripts/resolver.py --surface web.app --platform web --stack next
 ./delivery/scripts/adapt.py --add platform.android  # capability diff; --apply writes .kit/capabilities.yaml
 ./delivery/scripts/eval.py --check           # eval scenarios (10+ per variant)
@@ -42,7 +45,7 @@ Scripts are bash wrappers over `python3` (PyYAML required). There is no `make`.
 | `delivery/` | Active runtime: contract, protocol, policies, agents, schemas, scripts |
 | v1 archive: `archive/v1.7/` | Legacy 1.x — never reference it as runtime; move paths when touching a file |
 | `skills/` | v2 runtime skills, installed by `./install.sh` |
-| `discovery/` | Stub for the next phase (`growth/plan` only) |
+| `discovery/` | Staged next-phase agent (`growth/plan`); not installed or vendored |
 | `ecosystem.yaml`, `kit.config.yaml` | Self-host wiring; this repo is its own product |
 
 Runtime skills live in `skills/`; `./install.sh` installs them from the local tree.

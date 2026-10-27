@@ -1,12 +1,9 @@
 id: game
 description: Mobile game — liveops, IAP and age gate; store capability only with evidence
 product_class: game
-default_entry: feature
-default_quality_tier: platform_excellence
 capabilities: [platform.ios, platform.android, quality.a11y, quality.performance]
 platform_packs: [game-liveops, apple-hig, google-play]
 architecture_baseline_required: false
 commercial_baseline_required: true
 required_skills: [work-package, test-plan, behavior-gate, ui-gate, platform-gate]
-suggested_surfaces: [ios, android]
 extra_gates: []

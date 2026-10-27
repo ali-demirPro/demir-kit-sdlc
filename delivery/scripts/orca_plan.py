@@ -21,6 +21,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import resolver  # noqa: E402
+import profiles as profiles_mod  # noqa: E402
 import routing  # noqa: E402
 
 
@@ -94,6 +95,25 @@ def build_plan(
     epic = seal.get("epic")
     risk = (seal.get("risk") or {}).get("level", "n/a")
     project = routing.project_root(ROOT)
+    seal_profile = str((seal.get("factory") or {}).get("profile") or "")
+    if seal_profile:
+        profile_data = profiles_mod.load_profile(seal_profile)
+    else:
+        try:
+            profile_data = profiles_mod.compose(project)
+        except ValueError:
+            profile_data = {}
+    profile_gates = {
+        str(gate): True for gate in profile_data.get("extra_gates") or []
+    }
+    profile_docs = [
+        f"{prefix}skills/{skill}/SKILL.md"
+        for skill in profile_data.get("required_skills") or []
+    ]
+    profile_docs += [
+        f"{prefix}delivery/packs/{pack}/checklist.md"
+        for pack in profile_data.get("platform_packs") or []
+    ]
     ecosystem = ecosystem if ecosystem is not None else project_ecosystem()
     signals = resolver.scoped_signals(ecosystem, seal)
     resolution = resolver.resolve(
@@ -114,7 +134,7 @@ def build_plan(
         key=lambda value: risk_order.get(value, 0),
     )
     reviewers = required_reviewers(
-        {"ui": False, "architect": False, "commercial": False},
+        {"ui": False, "architect": False, "commercial": False, **profile_gates},
         effective_risk,
         resolution,
     )
@@ -127,13 +147,17 @@ def build_plan(
         gates = cp.get("gates") or {}
         role = "designer" if gates.get("ui") else "developer"
         docs_list = routing.role_docs(role, prefix)
+        for doc in profile_docs:
+            if doc not in docs_list:
+                docs_list.append(doc)
         for item in active_variants:
             if item["role"] == role:
                 doc = f"{prefix}delivery/agents/{role}/{item['doc']}"
                 if doc not in docs_list:
                     docs_list.append(doc)
         docs = "\n".join(f"- {item}" for item in docs_list)
-        cp_reviewers = required_reviewers(gates, effective_risk, resolution)
+        effective_gates = {**gates, **profile_gates}
+        cp_reviewers = required_reviewers(effective_gates, effective_risk, resolution)
         reviewers = sorted(set(reviewers) | set(cp_reviewers))
         deps = [f"task:{item}" for item in cp.get("depends_on") or []]
         spec = (

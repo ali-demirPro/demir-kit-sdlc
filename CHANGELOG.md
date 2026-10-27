@@ -1,5 +1,21 @@
 # Changelog
 
+## 2.26.0 — 2026-10-27
+
+- **Ölü kod temizliği** — kullanılmayan ürün şablonu kaldırıldı; `brief`
+  komutu belgelendi; `web-product` legacy alias olarak sadeleştirildi.
+- **Profil modeli** — kullanılmayan `default_entry`, `default_quality_tier`,
+  `suggested_surfaces`, `checkpoint_templates` alanları kaldırıldı;
+  `required_skills`, `extra_gates` ve `platform_packs` plan ve mühür
+  doğrulamasında tüketiliyor; overlay listesi `product_class`'tan türetiliyor.
+- **Komut birleşimi** — `detect`, `standards` ve `init` aynı paket yöneticisini
+  kullanır (pnpm/yarn/bun/uv/poetry); monorepo taraması 2 seviyeye hizalandı;
+  dağıtım doğru yüzeye yazılır.
+- **Adopt** — vendored kit ile çalışır; boş projede yazmadan durur; `verify`
+  bayat `AGENTS.md` bloğunu yakalar; `doctor` FLOW/CONTRACT/registry sürüm
+  başlıklarını denetler.
+- **Test** — 347 test.
+
 ## 2.25.0 — 2026-10-27
 
 - **Monorepo tespiti** — kök yüzey yoksa 1–2 seviye alt dizinlerde manifest

@@ -1,12 +1,9 @@
 id: api-service
 description: API/backend service — contract, data and observability
 product_class: api
-default_entry: feature
-default_quality_tier: standard
 capabilities: [platform.api, quality.observability, quality.performance]
 platform_packs: []
 architecture_baseline_required: false
 commercial_baseline_required: false
 required_skills: [work-package, test-plan, behavior-gate, platform-gate]
-suggested_surfaces: [api]
 extra_gates: []

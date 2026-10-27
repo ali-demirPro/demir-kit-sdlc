@@ -161,6 +161,20 @@ class VerifyTests(unittest.TestCase):
             self.assertTrue(report["ok"], report["issues"])
             self.assertEqual(report["configured"]["profiles"], ["web-app", "auth"])
 
+    def test_stale_standards_block_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            web_api_project(root)
+            verify.standards_mod.inject(root, apply=True)
+            report = verify.verify_project(root)
+            self.assertTrue(report["ok"], report["issues"])
+            package = json.loads((root / "package.json").read_text(encoding="utf-8"))
+            package["scripts"].pop("test")
+            (root / "package.json").write_text(json.dumps(package), encoding="utf-8")
+            report = verify.verify_project(root)
+            self.assertFalse(report["ok"])
+            self.assertTrue(any("standards" in item for item in report["issues"]))
+
     def test_check_plan_rejects_bad_shapes(self) -> None:
         known = verify.known_capabilities()
         base = {

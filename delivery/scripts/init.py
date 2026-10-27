@@ -178,9 +178,29 @@ def build(project: Path, repo: str | None = None) -> dict:
             for item in fingerprint.get("distribution") or []
         }
     )
-    if surfaces and distributions:
-        first = next(iter(surfaces))
-        surfaces[first]["distribution"] = distributions
+    distribution_platform = {
+        "app_store_connect": "ios",
+        "play_console": "android",
+        "web_deploy": "web",
+    }
+    for kind in distributions:
+        platform = distribution_platform.get(kind)
+        target = None
+        if platform:
+            target = next(
+                (
+                    name
+                    for name, spec in surfaces.items()
+                    if platform in spec["platforms"]
+                ),
+                None,
+            )
+        if target is None and surfaces:
+            target = next(iter(surfaces))
+        if target:
+            values = surfaces[target].setdefault("distribution", [])
+            if kind not in values:
+                values.append(kind)
 
     ecosystem = {
         "name": root.name,

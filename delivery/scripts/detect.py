@@ -9,6 +9,8 @@ import shlex
 import sys
 from pathlib import Path
 
+import standards as standards_mod
+
 ROOT = Path(__file__).resolve().parents[2]
 RISK_NAMES = ("auth", "payments", "billing", "migrations", "security")
 APP_DIRS = ("src", "app", "lib", "web", "api", "server", "ios", "android", "packages")
@@ -121,12 +123,15 @@ def detect(project: Path) -> dict:
             if dep in deps:
                 add_stack(stack, f"package.json: {dep}")
         scripts = package.get("scripts") or {}
+        manager = standards_mod.manager_for(
+            root, root, standards_mod.NODE_LOCKS
+        )
         if "test" in scripts:
-            tests["behavior"] = "npm test"
+            tests["behavior"] = f"{manager} run test"
         if "typecheck" in scripts:
-            tests["typecheck"] = "npm run typecheck"
+            tests["typecheck"] = f"{manager} run typecheck"
         if "lint" in scripts:
-            tests["lint"] = "npm run lint"
+            tests["lint"] = f"{manager} run lint"
         web_stacks = [
             stack
             for stack in ("next", "react", "vue", "svelte", "vite")
@@ -260,7 +265,10 @@ def detect(project: Path) -> dict:
             [stack for stack in ("python", "django", "fastapi") if stack in stacks],
             python_files[0],
         )
-        tests.setdefault("behavior", "pytest")
+        manager = standards_mod.python_manager(root, root)
+        tests.setdefault(
+            "behavior", f"{manager} run pytest" if manager else "pytest"
+        )
 
     # Docker / CI / distribution
     if (root / "Dockerfile").is_file():
@@ -437,8 +445,11 @@ def detect(project: Path) -> dict:
                         api_stacks,
                         f"{rel_path}/package.json",
                     )
+                manager = standards_mod.manager_for(
+                    root, base, standards_mod.NODE_LOCKS
+                )
                 if "test" in scripts:
-                    add_test("behavior", prefix + "npm test" + suffix)
+                    add_test("behavior", prefix + f"{manager} run test" + suffix)
             python_files = [
                 name
                 for name in ("pyproject.toml", "requirements.txt", "setup.py", "manage.py")
@@ -461,7 +472,13 @@ def detect(project: Path) -> dict:
                     api_stacks,
                     f"{rel_path}/{python_files[0]}",
                 )
-                add_test("behavior", prefix + "pytest" + suffix)
+                manager = standards_mod.python_manager(root, base)
+                add_test(
+                    "behavior",
+                    prefix
+                    + (f"{manager} run pytest" if manager else "pytest")
+                    + suffix,
+                )
             xcode = any(base.glob("*.xcodeproj"))
             podfile = (base / "Podfile").is_file()
             if not flutter and (

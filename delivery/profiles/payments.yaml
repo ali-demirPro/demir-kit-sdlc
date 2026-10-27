@@ -1,12 +1,9 @@
 id: payments
 description: Overlay — payments, subscriptions and refunds
 product_class: overlay
-default_entry: feature
-default_quality_tier: standard
 capabilities: [domain.payments, quality.privacy]
 platform_packs: [launch-readiness]
 architecture_baseline_required: false
 commercial_baseline_required: true
 required_skills: [work-package, test-plan, behavior-gate, platform-gate]
-suggested_surfaces: []
 extra_gates: [architect, commercial]

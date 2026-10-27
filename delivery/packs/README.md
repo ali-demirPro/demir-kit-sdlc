@@ -1,6 +1,8 @@
 # Platform pack'ler
 
-Pack = zorunlu kalite modülü. `quality_tier: platform_excellence` profilde listelenen **tüm** pack'ler zorunludur; `standard` profilde alt küme.
+Pack = profilde listelenen kalite modülü. Platform gate bu checklist'leri
+kanıt olarak okur; profil `platform_packs` listesi hangi modüllerin açık
+olduğunu belirler.
 
 | Pack | Gate id | Ne doğrular |
 |------|---------|-------------|
@@ -16,4 +18,5 @@ Pack = zorunlu kalite modülü. `quality_tier: platform_excellence` profilde lis
 
 Çalıştırma: `platform-gate` skill + `delivery/packs/<pack>/checklist.md`
 
-Ürün repo'sunda gate komutları: `ecosystem.yaml` → `surfaces.*.gates.platform_<pack>` (opsiyonel script path).
+Profil listesi açık modülleri belirler; script varsa `ecosystem.yaml`
+`surfaces.*.gates` altında tanımlanır.

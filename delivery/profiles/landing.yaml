@@ -1,12 +1,9 @@
 id: landing
 description: Landing/SEO/GTM surface
 product_class: marketing-site
-default_entry: feature
-default_quality_tier: standard
 capabilities: [platform.web, domain.analytics, quality.a11y, quality.performance]
 platform_packs: [web-ux]
 architecture_baseline_required: false
 commercial_baseline_required: true
 required_skills: [work-package, test-plan, behavior-gate, ui-gate]
-suggested_surfaces: [web]
 extra_gates: []
