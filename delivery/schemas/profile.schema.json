@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://demir-kit.dev/schemas/profile.schema.json",
+  "title": "demir-kit project profile",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "capabilities", "platform_packs", "required_skills", "extra_gates"],
+  "properties": {
+    "id": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
+    "description": { "type": "string" },
+    "product_class": { "type": "string" },
+    "default_entry": { "type": "string" },
+    "default_quality_tier": { "type": "string" },
+    "capabilities": {
+      "type": "array",
+      "items": { "type": "string", "pattern": "^(platform|domain|distribution|quality)\\.[a-z0-9_]+$" }
+    },
+    "platform_packs": { "type": "array", "items": { "type": "string" } },
+    "architecture_baseline_required": { "type": "boolean" },
+    "commercial_baseline_required": { "type": "boolean" },
+    "required_skills": { "type": "array", "items": { "type": "string" } },
+    "suggested_surfaces": { "type": "array", "items": { "type": "string" } },
+    "extra_gates": { "type": "array", "items": { "type": "string" } },
+    "checkpoint_templates": { "type": "object" }
+  }
+}

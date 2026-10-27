@@ -17,6 +17,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import detect as detect_mod  # noqa: E402
+import profiles as profiles_mod  # noqa: E402
 import resolver  # noqa: E402
 
 
@@ -45,6 +46,49 @@ DISTRIBUTION_ALIASES = {
 
 def normalize_distribution(kind: str) -> str:
     return DISTRIBUTION_ALIASES.get(kind, kind)
+
+
+def profiles_for(fingerprint: dict) -> list[str]:
+    expected: list[str] = []
+    for surface in fingerprint.get("surfaces") or []:
+        platforms = surface.get("platforms") or []
+        stacks = surface.get("stacks") or []
+        if "flutter" in stacks:
+            expected.append("flutter-app")
+            continue
+        for platform in platforms:
+            mapping = {
+                "web": "web-app",
+                "ios": "ios-app",
+                "android": "android-app",
+                "api": "api-service",
+                "cli": "cli",
+            }
+            name = mapping.get(platform)
+            if name and name not in expected:
+                expected.append(name)
+    hotspots = " ".join(fingerprint.get("risk_hotspots") or [])
+    for overlay, keyword in (
+        ("auth", "auth"),
+        ("payments", "payments"),
+        ("offline", "offline"),
+    ):
+        if keyword in hotspots and overlay not in expected:
+            expected.append(overlay)
+    order = [
+        "web-app",
+        "ios-app",
+        "android-app",
+        "flutter-app",
+        "api-service",
+        "cli",
+        "library",
+        "game",
+        "landing",
+        "data-ml",
+    ]
+    expected.sort(key=lambda name: order.index(name) if name in order else 99)
+    return expected or ["web-app"]
 
 
 def capabilities_for(fingerprint: dict) -> list[str]:
@@ -105,8 +149,12 @@ def build(project: Path, repo: str | None = None) -> dict:
     root = project.resolve()
     fingerprint = detect_mod.detect(root)
     target_repo = repo or repo_name(root)
-    profile = fingerprint.get("suggested_profile") or "web-product"
-    caps = capabilities_for(fingerprint)
+    profile_names = profiles_for(fingerprint)
+    profile = profile_names[0]
+    detected = capabilities_for(fingerprint)
+    caps = sorted(
+        set(detected) | set(profiles_mod.profile_capabilities(profile_names))
+    )
 
     surfaces = {}
     for surface in fingerprint.get("surfaces") or []:
@@ -171,13 +219,14 @@ def build(project: Path, repo: str | None = None) -> dict:
         },
         "factory": {
             "default_profile": profile,
+            "profiles": profile_names,
             "app_paths": fingerprint.get("app_paths") or ["src"],
         },
         "product": {"envision_required": False},
     }
     declared = {
         "version": 1,
-        "include": caps,
+        "include": detected,
         "exclude": [],
         "source": "init.py",
     }
@@ -195,6 +244,7 @@ def build(project: Path, repo: str | None = None) -> dict:
     return {
         "project": str(root),
         "profile": profile,
+        "profiles": profile_names,
         "capabilities": caps,
         "fingerprint": fingerprint,
         "files": files,
@@ -223,7 +273,7 @@ def apply_plan(plan: dict, force: bool = False) -> dict:
 def render(plan: dict, applied: dict | None = None) -> str:
     lines = [
         f"project: {plan['project']}",
-        f"profile: {plan['profile']}",
+        "profiles: " + ", ".join(plan["profiles"]),
         f"capabilities: {', '.join(plan['capabilities']) or '-'}",
         "surfaces: " + (", ".join(
             f"{item['name']}[{','.join(item['platforms'])}]"
@@ -261,6 +311,7 @@ def main() -> int:
                 {
                     "project": plan["project"],
                     "profile": plan["profile"],
+                    "profiles": plan["profiles"],
                     "capabilities": plan["capabilities"],
                     "existing": plan["existing"],
                     "files": plan["files"],

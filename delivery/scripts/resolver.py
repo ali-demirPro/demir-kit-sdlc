@@ -14,6 +14,7 @@ ROOT = Path(__file__).resolve().parents[2]
 AGENTS = ROOT / "delivery" / "agents"
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import profiles  # noqa: E402
 import routing  # noqa: E402
 
 RISK_ORDER = {"low": 0, "medium": 1, "high": 2, "critical": 3}
@@ -48,16 +49,22 @@ def declared_path(project: Path) -> Path:
     return project / ".kit" / "capabilities.yaml"
 
 
-def load_declared(project: Path) -> dict:
+def load_declared(project: Path, include_profiles: bool = True) -> dict:
     path = declared_path(project)
-    if not path.is_file():
-        return {"version": 1, "include": [], "exclude": []}
-    data = load_yaml(path)
+    data = load_yaml(path) if path.is_file() else {}
     include = data.get("include") if isinstance(data.get("include"), list) else []
     exclude = data.get("exclude") if isinstance(data.get("exclude"), list) else []
+    profile_caps: list[str] = []
+    if include_profiles:
+        try:
+            profile_caps = profiles.compose(project).get("capabilities") or []
+        except ValueError:
+            profile_caps = []
     return {
         "version": data.get("version", 1),
-        "include": [str(item) for item in include],
+        "include": sorted(
+            set(str(item) for item in include) | set(str(item) for item in profile_caps)
+        ),
         "exclude": [str(item) for item in exclude],
     }
 

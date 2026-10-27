@@ -28,6 +28,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import approvals as approvals_lib  # noqa: E402
 import capabilities as capabilities_lib  # noqa: E402
 import evidence as evidence_lib  # noqa: E402
+import profiles as profiles_lib  # noqa: E402
 import resolver as resolver_lib  # noqa: E402
 import variants as variants_lib  # noqa: E402
 import routing  # noqa: E402
@@ -91,6 +92,8 @@ REQUIRED_FILES = [
     "delivery/scripts/eval.py",
     "delivery/scripts/detect.py",
     "delivery/scripts/init.py",
+    "delivery/scripts/profiles.py",
+    "delivery/schemas/profile.schema.json",
     "delivery/scripts/approvals.py",
     "delivery/scripts/protect_main.sh",
     "delivery/schemas/agent.schema.json",
@@ -331,6 +334,33 @@ def check_capabilities() -> None:
         registry, matrix, roles, packs, roles
     ):
         error(f"capabilities: {message}")
+
+
+def check_profiles() -> None:
+    check("profiles")
+    schema = load_json(DELIVERY / "schemas" / "profile.schema.json")
+    capability_config = load_yaml(DELIVERY / "capabilities" / "registry.yaml") or {}
+    capabilities = set((capability_config.get("capabilities") or {}).keys())
+    pack_names = {
+        path.name for path in (DELIVERY / "packs").iterdir() if path.is_dir()
+    }
+    for path in sorted((DELIVERY / "profiles").glob("*.yaml")):
+        data = load_yaml(path)
+        if not isinstance(data, dict):
+            continue
+        if schema:
+            for message in validate_schema(data, schema, f"profile.{path.stem}"):
+                error(message)
+        if data.get("id") != path.stem:
+            error(f"{rel(path)}: id '{data.get('id')}' dosya adıyla eşleşmiyor")
+        for cap_id in data.get("capabilities") or []:
+            if cap_id not in capabilities:
+                error(f"{rel(path)}: bilinmeyen capability {cap_id}")
+        for pack in data.get("platform_packs") or []:
+            if pack not in pack_names:
+                error(f"{rel(path)}: bilinmeyen pack {pack}")
+    for message in profiles_lib.validate_project(ROOT, capabilities, pack_names):
+        error(f"profiles: {message}")
 
 
 def check_agent_variants() -> None:
@@ -715,8 +745,15 @@ def check_issue_body(
         profile_path = DELIVERY / "profiles" / f"{profile_name}.yaml"
         if profile_path.is_file():
             profile = load_yaml(profile_path) or {}
+    try:
+        project_profiles = profiles_lib.compose(root)
+    except ValueError:
+        project_profiles = {}
     needs_platform = bool(
-        (profile or {}).get("platform_packs") or (profile or {}).get("extra_gates")
+        (profile or {}).get("platform_packs")
+        or (profile or {}).get("extra_gates")
+        or project_profiles.get("platform_packs")
+        or project_profiles.get("extra_gates")
     )
 
     registry = load_yaml(DELIVERY / "registry.yaml") or {}
@@ -1133,6 +1170,14 @@ def check_product(root: Path) -> None:
     if not (root / "AGENTS.md").is_file():
         warn("AGENTS.md yok")
 
+    profile_capability_config = load_yaml(DELIVERY / "capabilities" / "registry.yaml") or {}
+    profile_capabilities = set((profile_capability_config.get("capabilities") or {}).keys())
+    profile_packs = {
+        path.name for path in (DELIVERY / "packs").iterdir() if path.is_dir()
+    }
+    for message in profiles_lib.validate_project(root, profile_capabilities, profile_packs):
+        error(f"profiles: {message}")
+
     declared_path = root / ".kit" / "capabilities.yaml"
     if declared_path.is_file():
         declared = resolver_lib.load_declared(root)
@@ -1179,6 +1224,7 @@ def main() -> int:
         check_schemas()
         check_registry()
         check_capabilities()
+        check_profiles()
         check_agent_variants()
         check_labels()
         check_links()

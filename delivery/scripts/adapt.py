@@ -149,8 +149,15 @@ def main() -> int:
     matrix = resolver.load_matrix()
     variants = resolver.load_agent_variants()
     ecosystem, signals = load_project(project)
+    current_raw = resolver.load_declared(project, include_profiles=False)
     current = resolver.load_declared(project)
-    target = build_declared(current, args.add, args.remove)
+    target_raw = build_declared(current_raw, args.add, args.remove)
+    profile_caps = set(current["include"]) - set(current_raw["include"])
+    target = {
+        "version": 1,
+        "include": sorted(set(target_raw["include"]) | profile_caps),
+        "exclude": target_raw["exclude"],
+    }
 
     unknown = unknown_capabilities(target, capability_registry)
     if unknown:
@@ -173,7 +180,9 @@ def main() -> int:
         "diff": diff(before, after),
     }
     if args.apply:
-        path = write_declared(project, target)
+        # Profil kaynaklı capability'ler dosyaya yazılmaz; kompozisyon
+        # resolver'da kalır. Açık include/exclude proje kararıdır.
+        path = write_declared(project, target_raw)
         data["applied"] = str(path)
 
     if args.json:

@@ -166,6 +166,36 @@ class AdaptTests(unittest.TestCase):
             any(doc.endswith("designer/variants/ios.md") for doc in after["docs"])
         )
 
+    def test_apply_does_not_persist_profile_caps(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            make_project(root)
+            (root / "kit.config.yaml").write_text(
+                "kit:\n  protocol: \"2\"\n"
+                "factory:\n  default_profile: web-app\n"
+                "  profiles: [web-app]\n",
+                encoding="utf-8",
+            )
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(
+                    run(
+                        "--project",
+                        str(root),
+                        "--add",
+                        "platform.ios",
+                        "--apply",
+                        "--json",
+                    ),
+                    0,
+                )
+            raw = adapt.resolver.load_declared(root, include_profiles=False)
+            self.assertIn("platform.ios", raw["include"])
+            self.assertNotIn("platform.web", raw["include"])
+            self.assertNotIn("quality.a11y", raw["include"])
+            merged = adapt.resolver.load_declared(root)
+            self.assertIn("platform.web", merged["include"])
+            self.assertIn("platform.ios", merged["include"])
+
     def test_dry_run_does_not_write(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

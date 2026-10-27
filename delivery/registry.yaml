@@ -1,4 +1,4 @@
-# delivery/registry.yaml — v2.20
+# delivery/registry.yaml — v2.21
 # Tek kaynak: agent envanteri, path routing, risk glob'ları, etiket adları.
 # Sözleşme: delivery/CONTRACT.md · Denetim: delivery/scripts/doctor.sh
 
@@ -48,6 +48,7 @@ risk:
     - "delivery/agents/**"
     - "delivery/capabilities/**"
     - "delivery/runbooks/**"
+    - "delivery/profiles/**"
     - "delivery/protocol/**"
     - "delivery/schemas/**"
     - "delivery/tests/**"

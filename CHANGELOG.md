@@ -1,5 +1,29 @@
 # Changelog
 
+## 2.21.0 — 2026-10-27
+
+- **Profil kompozisyonu** — Profil artık tek seçim değil; repo birden fazla base
+  (`web-app`, `ios-app`, `android-app`, `flutter-app`, `api-service`, `cli`,
+  `library`, `game`, `landing`, `data-ml`) ve overlay (`auth`, `payments`,
+  `offline`, `multi-tenant`, `regulated`, `high-scale`) barındırabilir.
+- **`factory.profiles`** — capability, platform pack, ek gate ve skill'ler
+  birleşir; `default_profile` seçili profillerden biri olmalıdır.
+- **`profiles.py`** — compose/check CLI; `kit init` fingerprint'ten çoklu profil
+  önerir; resolver profil capability'lerini beyanla birleştirir; doctor profil
+  şemasını, referansları ve default'u doğrular.
+- **Kanıta dayalı dağıtım** — base profiller store dağıtım capability'si
+  üretmez; `distribution.app_store`/`play` yalnız algılanan kanıt veya açık
+  beyanla gelir. `init` `.kit/capabilities.yaml` içine yalnız algılanan
+  capability'leri yazar; profil katkısı resolver'da birleşir.
+- **Geriye uyum** — profilsiz ve 2.20'nin `mobile-app`/`unknown` default'lı
+  eski ürünleri geçerli kalır; ürün şablonu `profiles: [web-app]` ile gelir;
+  `web-product` legacy takma ad olarak kalır.
+- **`adapt --apply`** — yalnız proje kararı olan include/exclude yazılır;
+  profil capability'leri dosyaya sabitlenmez, resolver'da birleşir.
+- **Test** — web+api+auth, web+ios, overlay-only, bilinmeyen profil, legacy
+  default, profilsiz resolver birleşimi, store-kanıt ayrımı ve adapt
+  kalıcılığı; 290 test.
+
 ## 2.20.0 — 2026-10-27
 
 - **kit init** — `init.py` fingerprint'ten `kit.config.yaml`, `ecosystem.yaml`,

@@ -51,7 +51,7 @@ class DetectTests(unittest.TestCase):
             self.assertIn("next", [item["name"] for item in data["stacks"]])
             self.assertEqual(data["test_commands"]["behavior"], "npm test")
             self.assertIn("web_deploy", [item["type"] for item in data["distribution"]])
-            self.assertEqual(data["suggested_profile"], "web-product")
+            self.assertEqual(data["suggested_profile"], "web-app")
             self.assertNotIn(
                 "ios", [platform for item in data["surfaces"] for platform in item["platforms"]]
             )

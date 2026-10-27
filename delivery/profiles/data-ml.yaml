@@ -1,0 +1,12 @@
+id: data-ml
+description: Data/ML pipeline and analytics service
+product_class: data
+default_entry: feature
+default_quality_tier: standard
+capabilities: [platform.api, domain.analytics]
+platform_packs: []
+architecture_baseline_required: false
+commercial_baseline_required: false
+required_skills: [work-package, test-plan, behavior-gate, platform-gate]
+suggested_surfaces: [api]
+extra_gates: []

@@ -1,0 +1,12 @@
+id: ios-app
+description: iOS application — SwiftUI/UIKit; store capability only with evidence
+product_class: mobile-app
+default_entry: feature
+default_quality_tier: platform_excellence
+capabilities: [platform.ios, quality.a11y]
+platform_packs: [apple-hig, apple-a11y, apple-privacy, apple-asc]
+architecture_baseline_required: false
+commercial_baseline_required: true
+required_skills: [work-package, test-plan, behavior-gate, ui-gate, platform-gate]
+suggested_surfaces: [ios]
+extra_gates: []
