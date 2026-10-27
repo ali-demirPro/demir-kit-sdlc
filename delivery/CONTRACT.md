@@ -1,4 +1,4 @@
-# Delivery contract — v2.22
+# Delivery contract — v2.23
 
 Bu dosya delivery'nin **tek durum makinesi**dir. Agent, path ve risk verisi
 `registry.yaml`'da; artefakt şekilleri `schemas/` altında; uygulama

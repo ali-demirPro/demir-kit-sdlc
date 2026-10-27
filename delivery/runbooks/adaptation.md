@@ -34,6 +34,27 @@ hotspot. Çıktı `kit init` için girdidir; hiçbir dosya yazmaz.
 scripts/gate-behavior.sh üretir. `--apply` varsayılan olarak mevcut dosyayı
 ezmez; `--force` açık istekle üzerine yazar.
 
+## Doğrulama
+
+```bash
+# Tek proje (yazmaz)
+./delivery/scripts/verify.py --project .
+
+# Üç repo kabulü
+./delivery/scripts/verify.py \
+  --project ../kpdn-next \
+  --project ../ders-programi \
+  --project ../makams
+
+# Makine çıktısı
+./delivery/scripts/verify.py --project . --json
+```
+
+Fingerprint, profil önerisi, capability seti, mevcut `kit.config.yaml` /
+`.kit/capabilities.yaml` beyanları ve standartları read-only doğrular.
+Yüzey yoksa, bilinmeyen profil/capability varsa veya base profil yoksa sıfırdan
+farklı çıkar. `init --apply` öncesi güvenlik kontrolüdür; hiçbir dosya yazmaz.
+
 ## Standartlar
 
 Mevcut mühendislik konvansiyonlarını keşfeder ve `AGENTS.md` içine yönetilen bir

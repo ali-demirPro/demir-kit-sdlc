@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.23.0 — 2026-10-27
+
+- **Uyarlama doğrulaması** — `verify.py` fingerprint, profil önerisi, capability
+  seti ve standartları read-only doğrular; çok proje ve `--json` destekler.
+- **Kabul** — web (kpdn-next), Python API (ders-programi) ve Flutter (makams)
+  repolarında read-only kabul çalıştırıldı; hiçbir dosya yazılmadı.
+- **Test** — web+API, iOS, Flutter fixture, boş proje, yazmama, çok proje ve
+  hata çıkış kodu; 318 test.
+
 ## 2.22.0 — 2026-10-27
 
 - **Standart keşfi** — `standards.py` kök ve birinci seviye alt dizinlerde paket
