@@ -1,7 +1,7 @@
 # Product repo — demir-kit v2 wiring. Commit this file.
 kit:
   root: demir-kit
-  version: "2.15.0"
+  version: "2.16.0"
   protocol: "2"
   upstream:
     git: https://github.com/ali-demirPro/demir-kit-sdlc.git

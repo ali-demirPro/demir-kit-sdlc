@@ -726,7 +726,7 @@ def check_issue_body(
     )
     capability_registry = load_yaml(DELIVERY / "capabilities" / "registry.yaml") or {}
     ecosystem = load_yaml(root / "ecosystem.yaml") or {}
-    signals = resolver_lib.project_signals(ecosystem) + resolver_lib.seal_signals(data)
+    signals = resolver_lib.scoped_signals(ecosystem, data)
     declared = resolver_lib.load_declared(root)
     # Historical evidence must stay valid after a project-level exclude; the
     # seal's own surfaces decide which roles could have produced it.
