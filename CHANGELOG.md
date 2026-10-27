@@ -1,5 +1,16 @@
 # Changelog
 
+## 2.9.0 — 2026-10-27
+
+- **Architect variants** — web, mobile, API/CLI, data/offline, security,
+  operability ve release modülleri; ADR/boundary/NFR/CP DAG kriterleri.
+- **DevOps variants** — web, API, mobile (Apple/Google) ve observability;
+  CI/CD, migration, signing, rollout, SLO ve rollback kriterleri.
+- **Security variants** — application, mobile, payments/auth, data/privacy ve
+  threat model; authz, secret, tedarik zinciri ve `SEC-*` beklentileri.
+- **Eval** — architect/devops/security için 6 dosya, 10+ senaryo; `variants.py`
+  min_level ↔ rol matrisi çapraz kontrolü.
+
 ## 2.8.0 — 2026-10-27
 
 - **Agent variants** — `designer` ve `tester` için `agent.yaml` capability →

@@ -1,0 +1,35 @@
+# DevOps — capability → variant map
+id: devops
+version: 1
+mission: "Build, deploy, gözlemlenebilirlik ve geri dönüşü birlikte işletmek; prod riskini görünür kılmak."
+base_docs: [ROLE.md, how.md, communicates.md, dependencies.md, SKILL.md]
+capabilities_required:
+  - platform.web
+  - platform.api
+  - platform.cli
+  - platform.ios
+  - platform.android
+  - domain.data
+  - quality.security
+  - quality.privacy
+  - quality.performance
+  - quality.observability
+  - distribution.app_store
+  - distribution.play
+  - distribution.web
+variants:
+  platform.web: { doc: variants/web.md, eval: evals/platform.md, min_level: expert }
+  platform.api: { doc: variants/api.md, eval: evals/platform.md, min_level: expert }
+  platform.cli: { doc: variants/api.md, eval: evals/platform.md, min_level: practitioner }
+  platform.ios: { doc: variants/mobile.md, eval: evals/platform.md, min_level: practitioner }
+  platform.android: { doc: variants/mobile.md, eval: evals/platform.md, min_level: practitioner }
+  domain.data: { doc: variants/api.md, eval: evals/platform.md, min_level: practitioner }
+  quality.security: { doc: variants/observability.md, eval: evals/operability.md, min_level: practitioner }
+  quality.privacy: { doc: variants/observability.md, eval: evals/operability.md, min_level: practitioner }
+  quality.performance: { doc: variants/observability.md, eval: evals/operability.md, min_level: practitioner }
+  quality.observability: { doc: variants/observability.md, eval: evals/operability.md, min_level: expert }
+  distribution.app_store: { doc: variants/mobile.md, eval: evals/platform.md, min_level: expert }
+  distribution.play: { doc: variants/mobile.md, eval: evals/platform.md, min_level: expert }
+  distribution.web: { doc: variants/web.md, eval: evals/platform.md, min_level: expert }
+handoffs: [developer, tester, release, security, orchestrator]
+escalation: [environment_down, secret_missing, rollback_failed, slo_breach]

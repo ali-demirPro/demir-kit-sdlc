@@ -1,0 +1,41 @@
+# Architect — capability → variant map
+id: architect
+version: 1
+mission: "Sınırları, NFR'leri ve tradeoff'ları kanıtla kararlaştırmak; uygulanabilir CP DAG üretmek."
+base_docs: [ROLE.md, how.md, communicates.md, dependencies.md, SKILL.md]
+capabilities_required:
+  - platform.web
+  - platform.ios
+  - platform.android
+  - platform.api
+  - platform.cli
+  - domain.auth
+  - domain.payments
+  - domain.data
+  - domain.offline
+  - quality.security
+  - quality.privacy
+  - quality.performance
+  - quality.observability
+  - distribution.app_store
+  - distribution.play
+  - distribution.web
+variants:
+  platform.web: { doc: variants/web.md, eval: evals/design.md, min_level: expert }
+  platform.ios: { doc: variants/mobile.md, eval: evals/design.md, min_level: expert }
+  platform.android: { doc: variants/mobile.md, eval: evals/design.md, min_level: expert }
+  platform.api: { doc: variants/api.md, eval: evals/design.md, min_level: expert }
+  platform.cli: { doc: variants/api.md, eval: evals/design.md, min_level: practitioner }
+  domain.auth: { doc: variants/security.md, eval: evals/risk.md, min_level: expert }
+  domain.payments: { doc: variants/security.md, eval: evals/risk.md, min_level: expert }
+  domain.data: { doc: variants/data.md, eval: evals/design.md, min_level: expert }
+  domain.offline: { doc: variants/data.md, eval: evals/design.md, min_level: expert }
+  quality.security: { doc: variants/security.md, eval: evals/risk.md, min_level: expert }
+  quality.privacy: { doc: variants/operability.md, eval: evals/risk.md, min_level: practitioner }
+  quality.performance: { doc: variants/operability.md, eval: evals/risk.md, min_level: practitioner }
+  quality.observability: { doc: variants/operability.md, eval: evals/risk.md, min_level: practitioner }
+  distribution.app_store: { doc: variants/release.md, eval: evals/risk.md, min_level: practitioner }
+  distribution.play: { doc: variants/release.md, eval: evals/risk.md, min_level: practitioner }
+  distribution.web: { doc: variants/release.md, eval: evals/risk.md, min_level: practitioner }
+handoffs: [developer, tester, security, devops, documenter, orchestrator]
+escalation: [ambiguous_nfr, boundary_conflict, missing_baseline, irreversible_decision]
