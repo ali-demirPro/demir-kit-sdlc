@@ -42,9 +42,9 @@ ezmez; `--force` açık istekle üzerine yazar.
 
 # Üç repo kabulü
 ./delivery/scripts/verify.py \
-  --project ../kpdn-next \
-  --project ../ders-programi \
-  --project ../makams
+  --project path/to/web \
+  --project path/to/api \
+  --project path/to/mobile
 
 # Makine çıktısı
 ./delivery/scripts/verify.py --project . --json

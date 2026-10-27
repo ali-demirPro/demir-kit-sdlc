@@ -22,4 +22,4 @@ Profillerde `optional_capabilities` / `default_skips` — `capability-activation
 | `game-flutter` | Oyun client + liveops pack |
 | `store-release` | ASC / Play odaklı, minimal kod |
 
-CLASH veya herhangi bir ürün adı burada **yok** — sadece profil isimleri.
+Hiçbir ürün adı burada **yok** — sadece profil isimleri.
