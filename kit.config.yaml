@@ -3,7 +3,7 @@
 
 kit:
   root: .
-  version: "2.8.0"
+  version: "2.9.0"
   protocol: "2"
   upstream:
     git: https://github.com/ali-demirPro/demir-kit-sdlc.git

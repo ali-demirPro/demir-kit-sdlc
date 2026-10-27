@@ -1,0 +1,35 @@
+# Security — capability → variant map
+id: security
+version: 1
+mission: "Güven sınırlarını, yetkiyi, veriyi ve tedarik zincirini kanıtla görünür kılmak."
+base_docs: [ROLE.md, how.md, communicates.md, dependencies.md, SKILL.md]
+capabilities_required:
+  - platform.web
+  - platform.ios
+  - platform.android
+  - platform.api
+  - domain.auth
+  - domain.payments
+  - domain.data
+  - quality.security
+  - quality.privacy
+  - quality.observability
+  - distribution.app_store
+  - distribution.play
+  - distribution.web
+variants:
+  platform.web: { doc: variants/application.md, eval: evals/application.md, min_level: expert }
+  platform.api: { doc: variants/application.md, eval: evals/application.md, min_level: expert }
+  platform.ios: { doc: variants/mobile.md, eval: evals/application.md, min_level: expert }
+  platform.android: { doc: variants/mobile.md, eval: evals/application.md, min_level: expert }
+  domain.auth: { doc: variants/payments-auth.md, eval: evals/risk.md, min_level: expert }
+  domain.payments: { doc: variants/payments-auth.md, eval: evals/risk.md, min_level: expert }
+  domain.data: { doc: variants/data-privacy.md, eval: evals/risk.md, min_level: expert }
+  quality.security: { doc: variants/threat-model.md, eval: evals/risk.md, min_level: expert }
+  quality.privacy: { doc: variants/data-privacy.md, eval: evals/risk.md, min_level: expert }
+  quality.observability: { doc: variants/threat-model.md, eval: evals/risk.md, min_level: practitioner }
+  distribution.app_store: { doc: variants/mobile.md, eval: evals/application.md, min_level: practitioner }
+  distribution.play: { doc: variants/mobile.md, eval: evals/application.md, min_level: practitioner }
+  distribution.web: { doc: variants/application.md, eval: evals/application.md, min_level: practitioner }
+handoffs: [architect, developer, tester, devops, release, orchestrator]
+escalation: [active_exploit, secret_leak, compliance_block, threat_unresolved]
