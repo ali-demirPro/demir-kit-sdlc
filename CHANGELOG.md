@@ -1,11 +1,18 @@
 # Changelog
 
+## 2.23.1 — 2026-10-27
+
+- **Proje bağımsızlığı** — kabul kanıtındaki proje adları ve yerel yollar
+  kaldırıldı; doğrulama web+API, iOS ve Flutter fixture'larıyla tanımlanır.
+  Sistem hedef projeye çalışma anında yetenek enjekte eder, proje kimliği
+  taşımaz.
+
 ## 2.23.0 — 2026-10-27
 
 - **Uyarlama doğrulaması** — `verify.py` fingerprint, profil önerisi, capability
   seti ve standartları read-only doğrular; çok proje ve `--json` destekler.
-- **Kabul** — web (kpdn-next), Python API (ders-programi) ve Flutter (makams)
-  repolarında read-only kabul çalıştırıldı; hiçbir dosya yazılmadı.
+- **Kabul** — web+API, iOS ve Flutter referans fixture'ları read-only doğrulandı;
+  hedef proje adı veya yolu sistemde tutulmaz.
 - **Test** — web+API, iOS, Flutter fixture, boş proje, yazmama, çok proje ve
   hata çıkış kodu; 318 test.
 
