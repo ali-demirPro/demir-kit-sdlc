@@ -1,0 +1,11 @@
+# delivery/fleet.yaml — v2.27
+# Beyne (bu repo) öğrenim taşıyan klon repolar. Vendor kopyalar ezildiği için
+# öğrenimler hedef projenin tracker'ında yaşar; learnings.py buradan hasat eder.
+# Şema kontrolü: delivery/scripts/doctor.py (check_fleet)
+
+version: 1
+
+repos:
+  - repo: ali-demirPro/demir-kit-sdlc
+    tracker: github
+    note: self-host — kit kendi kendisi

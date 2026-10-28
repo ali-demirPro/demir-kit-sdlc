@@ -111,6 +111,9 @@ REQUIRED_FILES = [
     ".github/pull_request_template.md",
     "delivery/runbooks/pr-flow.md",
     "delivery/runbooks/adaptation.md",
+    "delivery/fleet.yaml",
+    "delivery/schemas/learning.schema.json",
+    "delivery/scripts/learnings.py",
 ]
 
 AGENT_FILES = ["ROLE.md", "how.md", "communicates.md", "dependencies.md", "SKILL.md"]
@@ -496,6 +499,28 @@ def check_version() -> None:
     registry = (ROOT / "delivery" / "registry.yaml").read_text(encoding="utf-8")
     if f"— v{short}" not in registry:
         error(f"delivery/registry.yaml: sürüm başlığı v{short} değil")
+
+
+def check_fleet() -> None:
+    check("fleet")
+    path = DELIVERY / "fleet.yaml"
+    data = load_yaml(path)
+    if not isinstance(data, dict):
+        error("fleet.yaml: kök mapping değil")
+        return
+    repos = data.get("repos") or []
+    if not repos:
+        warn("fleet.yaml: repos listesi boş")
+        return
+    seen: set[str] = set()
+    for entry in repos:
+        name = entry.get("repo") if isinstance(entry, dict) else None
+        if not name or "/" not in str(name):
+            error(f"fleet.yaml: geçersiz repo adı — {name}")
+            continue
+        if name in seen:
+            error(f"fleet.yaml: tekrar eden repo — {name}")
+        seen.add(name)
 
 
 def check_ecosystem() -> None:
@@ -1265,6 +1290,7 @@ def main() -> int:
         check_legacy(args.verbose)
         check_version()
         check_ecosystem()
+        check_fleet()
         check_skills()
         check_role_contracts()
 

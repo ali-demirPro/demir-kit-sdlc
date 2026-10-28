@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://demir-kit.dev/schemas/learning.schema.json",
+  "title": "demir-kit learning record (v2)",
+  "description": "Normalized learning harvested from a fleet repo. Repeated records across 2+ repos become general rule candidates (self-improvement lane).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["demir_kit_version", "id", "repo", "class", "summary", "severity", "proposed_change"],
+  "properties": {
+    "demir_kit_version": { "const": "2" },
+    "id": { "type": "string", "minLength": 3 },
+    "repo": { "type": "string", "pattern": "^[\\w.-]+/[\\w.-]+$" },
+    "issue": { "type": "integer", "minimum": 1 },
+    "class": {
+      "enum": ["gate-retry", "qa-feedback", "method-novelty", "scope-gap", "metric-anomaly"]
+    },
+    "summary": { "type": "string", "minLength": 5 },
+    "severity": { "enum": ["low", "medium", "high"] },
+    "occurrences": { "type": "integer", "minimum": 1 },
+    "targets": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "proposed_change": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "target", "auto"],
+      "properties": {
+        "kind": {
+          "enum": ["risk_glob_add", "eval_scenario_add", "skill_note_add", "capability_add", "code_change"]
+        },
+        "target": { "type": "string", "minLength": 3 },
+        "content": { "type": "string" },
+        "auto": { "type": "boolean" }
+      }
+    },
+    "status": { "enum": ["local", "candidate", "applied", "escalated"] }
+  }
+}

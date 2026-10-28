@@ -1,4 +1,4 @@
-# Delivery contract — v2.26
+# Delivery contract — v2.27
 
 Bu dosya delivery'nin **tek durum makinesi**dir. Agent, path ve risk verisi
 `registry.yaml`'da; artefakt şekilleri `schemas/` altında; uygulama
@@ -127,10 +127,25 @@ otomatik yükselir; agent düşüremez. Ayrıntı: `policies/quality-gates.md`.
 | I7 | Epic başına tek leaf yürür; ikinci leaf ancak `depends_on` ayrıksa. |
 | I8 | Aynı duruma tekrar geçiş no-op; tamamlanan CP yeniden koşmaz. |
 | I9 | Contract değişikliği VERSION + CHANGELOG + doctor yeşili ister. |
-| I10 | İnsan kapısı yalnız: risk `high`/`critical` leaf, geri dönülemez işlem, epic kabul. |
+| I10 | İnsan kapısı yalnız: risk `high`/`critical` leaf, geri dönülemez işlem, epic kabul. **Kapsam: hedef projedeki ürün teslimatı** (bkz. Self-improvement lane). |
 | I11 | Etiket geçişleri yalnız `scripts/transition.sh` ile yapılır; doğrudan etiket yazımı yasaktır. |
 | I12 | Capability seviyesi kanıtla atanır; agent `expert` üstüne çıkamaz, `authority` insan/principal içindir. |
-| I13 | `epic-done` yalnız insan-authored `demir-kit-accept` + kapalı child'larla; agent kendi kabulünü yazamaz. |
+| I13 | `epic-done` yalnız insan-authored `demir-kit-accept` + kapalı child'larla; agent kendi kabulünü yazamaz. **Kapsam: ürün teslimatı.** Kit self-improvement lane'de kabul makine kapısıdır (`doctor --strict` + testler yeşil). |
+
+## Self-improvement lane (kit kendi kendini geliştirir)
+
+Hedef projelerdeki deneyimler `learnings.py` ile beyne (bu repo) taşınır
+(`delivery/fleet.yaml`). Bu şerit `I10`/`I13` insan kapılarından muaftır;
+kabul **makine kapısıdır**: `doctor.sh --strict` + testler yeşilse kurallaşır.
+
+- **Beyaz liste (otomatik):** yalnız *ekleme* sınıfı — risk glob, eval
+  senaryosu, skill notu. `learnings.py --apply` yazar, VERSION + CHANGELOG
+  bump edilir (I9).
+- **Beyaz liste dışı (otomatik yazılmaz):** kural azaltma/silme, risk düşürme,
+  kapı gevşetme ve kod değişikliği — `learning` issue olarak kit akışına düşer.
+  Gerekçe: tek bir kirli öğrenim tüm filoyu zayıflatabilir; eklemek güvenli,
+  çıkarmak değil.
+- Her otomatik değişiklik `.orchestration/learnings/` altında iz bırakır.
 
 ## Yürütme
 

@@ -29,6 +29,11 @@ comment'inde doldurur; epic kabulünde insan görür.
 4. Kayıt: `learning` etiketli issue + `CHANGELOG.md`.
 5. Değişiklik sonrası `doctor.sh --strict` yeşil olmalı.
 
+Federasyon: filo repolarındaki `learning` kayıtları
+`./delivery/scripts/learnings.py --all` ile toplanır; 2+ projede tekrar eden
+ders genel kural adayı olur. Beyaz listedeki ekleme sınıfı otomatik uygulanır
+(`delivery/CONTRACT.md` → Self-improvement lane).
+
 ## Örnek closure bloğu
 
 ```yaml
