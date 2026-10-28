@@ -30,6 +30,7 @@ python3 -m unittest discover -s delivery/tests  # test suite
 ./delivery/scripts/adapt.py --add platform.android  # capability diff; --apply writes .kit/capabilities.yaml
 ./delivery/scripts/eval.py --check           # eval scenarios (10+ per variant)
 ./delivery/scripts/detect.py --project . --json # project fingerprint
+./delivery/scripts/learnings.py --all       # fleet öğrenim federasyonu
 ./delivery/scripts/init.py --project . --apply # project wiring
 ./delivery/scripts/vendor_sync.sh --target ../Product --check
 ./delivery/scripts/vendor_sync.sh --target ../Product --apply

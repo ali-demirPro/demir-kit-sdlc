@@ -1,5 +1,22 @@
 # Changelog
 
+## 2.27.0 — 2026-10-28
+
+- **Self-improvement lane** — kit kendi kendini geliştirmede insan kapısı
+  kalktı: `I13` "agent kendi kabulünü yazamaz" kuralının kapsamı ürün
+  teslimatına daraltıldı; kit self-improvement'ta kabul `doctor --strict` +
+  testler yeşilidir.
+- **Öğrenim federasyonu** — `learnings.py` filo repolarından `learning`
+  issue'larını hasat eder, 2+ projede tekrar eden dersleri genel kural
+  adayına dönüştürür (--digest/--emit) ve beyaz listedeki ekleme sınıfı
+  değişiklikleri (risk glob, eval senaryosu, skill notu) otomatik uygular
+  (--apply). Kural azaltma/silme ve kod değişikliği otomatik yazılmaz,
+  `learning` issue'suna düşer.
+- **Fleet registry** — `delivery/fleet.yaml` beyne öğrenim taşıyan klon
+  repoları kaydeder; `doctor` formatını denetler. Öğrenim şeması:
+  `delivery/schemas/learning.schema.json`.
+- **Test** — 356 test.
+
 ## 2.26.1 — 2026-10-27
 
 - **CI gürültüsü** — `issue-doctor` artık taslak düzenlemelerde (`edited`/`opened`)
