@@ -86,6 +86,32 @@ capabilities:
     gates: [behavior, ui, platform]
     evidence: [device_matrix, screenshot, testflight_build]
 
+  platform.macos:
+    kind: platform
+    label: macOS
+    description: "macOS uygulaması; HIG, erişilebilirlik, notarizasyon ve App Store/direkt dağıtım."
+    match:
+      platforms: [macos, macosx]
+      stacks: [swiftui, swift, xcode]
+      surfaces: [macos.app]
+      distribution: [app_store_connect]
+      keywords: [macos, mac, swiftui, xcode, notarization, finder, extension]
+    roles:
+      architect: expert
+      designer: expert
+      developer: expert
+      tester: expert
+      devops: expert
+      security: practitioner
+      release: expert
+      marketing/stores: expert
+      documenter: aware
+      analist: aware
+    packs: [apple-hig, apple-a11y, apple-privacy, apple-asc]
+    risk_floor: medium
+    gates: [behavior, ui, platform]
+    evidence: [device_matrix, screenshot, notarization]
+
   platform.android:
     kind: platform
     label: Android

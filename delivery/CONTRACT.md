@@ -1,4 +1,4 @@
-# Delivery contract — v2.27
+# Delivery contract — v2.28
 
 Bu dosya delivery'nin **tek durum makinesi**dir. Agent, path ve risk verisi
 `registry.yaml`'da; artefakt şekilleri `schemas/` altında; uygulama
@@ -131,6 +131,7 @@ otomatik yükselir; agent düşüremez. Ayrıntı: `policies/quality-gates.md`.
 | I11 | Etiket geçişleri yalnız `scripts/transition.sh` ile yapılır; doğrudan etiket yazımı yasaktır. |
 | I12 | Capability seviyesi kanıtla atanır; agent `expert` üstüne çıkamaz, `authority` insan/principal içindir. |
 | I13 | `epic-done` yalnız insan-authored `demir-kit-accept` + kapalı child'larla; agent kendi kabulünü yazamaz. **Kapsam: ürün teslimatı.** Kit self-improvement lane'de kabul makine kapısıdır (`doctor --strict` + testler yeşil). |
+| I14 | Proje öncelikleri (`kit.config.yaml product.priorities` + `policies/project-priorities.md`) bağlayıcıdır: design system varsa uyulur, mimari sınırlar korunur, plana sadık kalınır, kalite zemini düşmez; uydurma bilgi üretilmez. |
 
 ## Self-improvement lane (kit kendi kendini geliştirir)
 
@@ -150,6 +151,7 @@ kabul **makine kapısıdır**: `doctor.sh --strict` + testler yeşilse kurallaş
 ## Yürütme
 
 - Kuyruk, claim, resume ve bütçeler: `protocol/execution.md`
+- Proje öncelikleri: `policies/project-priorities.md`
 - Mühür: `protocol/seal.md`
 - Hazırlık: `protocol/health-check.md`
 - Kanıt: `protocol/evidence.md`

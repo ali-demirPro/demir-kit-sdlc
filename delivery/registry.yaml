@@ -1,4 +1,4 @@
-# delivery/registry.yaml — v2.27
+# delivery/registry.yaml — v2.28
 # Tek kaynak: agent envanteri, path routing, risk glob'ları, etiket adları.
 # Sözleşme: delivery/CONTRACT.md · Denetim: delivery/scripts/doctor.sh
 
@@ -117,6 +117,16 @@ signals:
       required: [analist, designer, developer, tester, devops, marketing/stores]
       optional: [documenter, growth/run, marketing/landing]
       on_demand: [architect]
+  - id: macos_app
+    match:
+      stacks: [swiftui, swift, xcode]
+      platforms: [macos]
+      distribution: [app_store_connect]
+    default_path: full_product
+    agents:
+      required: [analist, designer, developer, tester, devops, marketing/stores]
+      optional: [documenter, growth/run, marketing/landing]
+      on_demand: [architect]
   - id: android_app
     match:
       stacks: [flutter, kotlin]
@@ -166,6 +176,7 @@ policies:
   human_qa: delivery/policies/human-qa-done.md
   quality_gates: delivery/policies/quality-gates.md
   escalation: delivery/policies/escalation.md
+  project_priorities: delivery/policies/project-priorities.md
   epic_closure: delivery/runbooks/epic-closure.md
 
 profiles:

@@ -1,0 +1,9 @@
+id: macos-app
+description: macOS application — SwiftUI/AppKit; store capability only with evidence
+product_class: desktop-app
+capabilities: [platform.macos, quality.a11y]
+platform_packs: [apple-hig, apple-a11y, apple-privacy, apple-asc]
+architecture_baseline_required: false
+commercial_baseline_required: true
+required_skills: [work-package, test-plan, behavior-gate, ui-gate, platform-gate]
+extra_gates: []

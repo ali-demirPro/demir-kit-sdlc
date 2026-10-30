@@ -6,6 +6,7 @@ base_docs: [ROLE.md, how.md, communicates.md, dependencies.md, SKILL.md]
 capabilities_required:
   - platform.web
   - platform.ios
+  - platform.macos
   - platform.android
   - quality.a11y
   - quality.performance
@@ -18,6 +19,10 @@ variants:
     eval: evals/web.md
     min_level: expert
   platform.ios:
+    doc: variants/ios.md
+    eval: evals/ios.md
+    min_level: expert
+  platform.macos:
     doc: variants/ios.md
     eval: evals/ios.md
     min_level: expert

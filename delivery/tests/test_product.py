@@ -94,6 +94,67 @@ class ProductDoctorTests(unittest.TestCase):
             doctor.check_product(root)
             self.assertEqual(doctor.ERRORS, [])
 
+    def test_risk_overlay_valid(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            make_product(root)
+            (root / ".kit").mkdir()
+            (root / ".kit" / "risk.yaml").write_text(
+                "auto_escalate:\n  high: ['RenderKit/**']\n  critical: ['**/Signing/**']\n",
+                encoding="utf-8",
+            )
+            doctor.check_product(root)
+            self.assertEqual(doctor.ERRORS, [])
+
+    def test_risk_overlay_invalid_shape(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            make_product(root)
+            (root / ".kit").mkdir()
+            (root / ".kit" / "risk.yaml").write_text(
+                "auto_escalate:\n  high: 'RenderKit/**'\n", encoding="utf-8"
+            )
+            doctor.check_product(root)
+            self.assertTrue(
+                any("auto_escalate.high" in item for item in doctor.ERRORS)
+            )
+
+    def test_priorities_paths_valid(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            make_product(root)
+            (root / "docs").mkdir()
+            (root / "docs" / "design.md").write_text("# design\n")
+            (root / "docs" / "arch.md").write_text("# arch\n")
+            config = root / "kit.config.yaml"
+            config.write_text(
+                config.read_text(encoding="utf-8")
+                + "product:\n"
+                "  priorities:\n"
+                "    design_system: docs/design.md\n"
+                "    architecture: [docs/arch.md]\n",
+                encoding="utf-8",
+            )
+            doctor.check_product(root)
+            self.assertEqual(doctor.ERRORS, [])
+
+    def test_priorities_missing_path_errors(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            make_product(root)
+            config = root / "kit.config.yaml"
+            config.write_text(
+                config.read_text(encoding="utf-8")
+                + "product:\n"
+                "  priorities:\n"
+                "    design_system: docs/design.md\n",
+                encoding="utf-8",
+            )
+            doctor.check_product(root)
+            self.assertTrue(
+                any("design_system" in item for item in doctor.ERRORS)
+            )
+
     def set_profiles(self, root: Path, names: list[str], default: str) -> None:
         config = root / "kit.config.yaml"
         config.write_text(

@@ -24,15 +24,21 @@ Read first: `delivery/protocol/seal.md`, `delivery/CONTRACT.md`,
 - One leaf per issue; never seal an epic that has children.
 - Every `AC-n` has at least one `T-n` case; every CP has a `tests_plan` entry.
 - `demir_kit_version: "2"`; `gates.behavior: true` on every CP.
+- Project priorities are binding (`delivery/policies/project-priorities.md`):
+  design system varsa uyulur, mimari sınırlar korunur, plan dışına çıkılmaz,
+  uydurma bilgi üretilmez.
 
 ## Steps
 
-1. Fill the `demir-kit` YAML block.
-2. Run `test-plan`; map cases to AC ids.
-3. Choose risk; `registry.yaml` globs may auto-escalate it.
-4. Validate: `./delivery/scripts/doctor.sh --body /tmp/leaf.md`.
-5. Update the issue body; add `agent-approved`, remove `intake`.
-6. Next: `health-check`, then `delivery/protocol/execution.md`.
+1. Read `kit.config.yaml product.priorities` +
+   `delivery/policies/project-priorities.md`; cite those docs in
+   `reference.paths`.
+2. Fill the `demir-kit` YAML block.
+3. Run `test-plan`; map cases to AC ids.
+4. Choose risk; `registry.yaml` globs may auto-escalate it.
+5. Validate: `./delivery/scripts/doctor.sh --body /tmp/leaf.md`.
+6. Update the issue body; add `agent-approved`, remove `intake`.
+7. Next: `health-check`, then `delivery/protocol/execution.md`.
 
 ## Template
 

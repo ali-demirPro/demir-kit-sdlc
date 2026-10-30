@@ -1,5 +1,38 @@
 # Changelog
 
+## 2.28.0 — 2026-10-29
+
+- **macOS desteği** — `platform.macos` capability, `macos-app` profili,
+  `macos_app` sinyali ve `detect.py`'de pbxproj tabanlı ios/macos ayrımı;
+  `init` macos yüzeyini doğru profile yönlendirir. Yedi rolün varyant
+  haritaları tamamlandı.
+- **Proje risk overlay** — `.kit/risk.yaml` ile projeye özel `auto_escalate`
+  glob'ları eklenebilir (yalnız ekleme sınıfı); `guard.sh` ve `risk_filter`
+  overlay'i okur, `doctor --product` biçimini doğrular. Vendor sync'ten
+  etkilenmez.
+- **Proje öncelikleri (I14)** — `policies/project-priorities.md`: design system
+  uyumu, mimari koruma, plana sadakat, kalite zemini ve "uydurma yok" kuralı
+  bağlayıcı. `kit.config.yaml product.priorities` beyanı `brief.py` ile her
+  agent brief'ine taşınır; `seal.md` referans zorunluluğu getirir;
+  `doctor --product` yolları doğrular.
+- **Init upstream** — `init.py` artık `kit.upstream.git` yazar
+  (`--upstream` ile değiştirilebilir); `runbooks/adaptation.md` etiket kurulumu
+  için `templates/github-labels.json`'u referans verir.
+- **Test** — macos tespiti, risk overlay, priorities doğrulama senaryoları;
+  374 test.
+
+## 2.27.1 — 2026-10-28
+
+- **Sürüm drift denetimi** — `doctor` artık `kit.config.yaml` `kit.version` ve
+  `AGENTS.md` sürüm başlığını `VERSION` ile hizalar; self-host wiring'deki
+  sessiz kayma (2.26.1 / 2.26 vs 2.27.0) düzeltildi.
+- **Verify yüzey fallback** — fingerprint yüzey bulamazsa `ecosystem.yaml`'da
+  bildirilen yüzeyler yedek sayılır; docs/markdown self-host projelerinde
+  `verify` artık geçer.
+- **Hedef proje CI** — `delivery/templates/ci-delivery.yml` örnek workflow;
+  `runbooks/adaptation.md`'de CI wiring ve PyYAML gereksinimi belgelendi.
+- **Test** — sürüm drifti ve yüzey fallback senaryoları eklendi; 363 test.
+
 ## 2.27.0 — 2026-10-28
 
 - **Self-improvement lane** — kit kendi kendini geliştirmede insan kapısı
