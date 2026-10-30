@@ -1,5 +1,20 @@
 # Changelog
 
+## 2.28.1 — 2026-10-30
+
+- **Güncellik denetimi** — `doctor --product`, `kit.config.yaml kit.version` ile
+  vendored/submodule kit `VERSION`'ını karşılaştırır; drift varsa iki modun
+  da güncelleme komutuyla birlikte uyarır.
+- **Submodule güvenliği** — `vendor_sync --apply` hedef kit dizininde `.git`
+  görürse reddeder (`git submodule update --remote` önerir); yanlışlıkla
+  submodule checkout'unun üzerine yazamaz.
+- **Vendor kopya temizliği** — vendor kopyaya kitin `.gitignore`'ı da kopyalanır;
+  scriptlerin ürettiği `__pycache__` ürün reposunda kirletmez.
+- **Doküman** — `runbooks/adaptation.md` "Kit güncelleme": submodule ve vendor
+  kopya modlarının güncelleme komutları, karıştırma uyarısı.
+- **Test** — sürüm drifti, submodule reddi, .gitignore kopyası senaryoları;
+  378 test.
+
 ## 2.28.0 — 2026-10-29
 
 - **macOS desteği** — `platform.macos` capability, `macos-app` profili,
