@@ -828,9 +828,21 @@ class VersionDriftTests(DoctorTestCase):
             (root / "AGENTS.md").write_text(
                 "# AGENTS\n\ndemir-kit 2.27 — test\n", encoding="utf-8"
             )
+            (root / "CHANGELOG.md").write_text(
+                "# Changelog\n\n## 2.27.1 — 2026-01-01\n", encoding="utf-8"
+            )
             doctor.check_version_drift(root, "2.27.1")
             self.assertEqual(doctor.ERRORS, [])
             self.assertEqual(doctor.WARNS, [])
+
+    def test_changelog_entry_mismatch_errors(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "CHANGELOG.md").write_text(
+                "# Changelog\n\n## 2.29.0 — 2026-10-30\n", encoding="utf-8"
+            )
+            doctor.check_version_drift(root, "2.28.1")
+            self.assertTrue(any("CHANGELOG.md" in item for item in doctor.ERRORS))
 
     def test_config_version_mismatch_errors(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

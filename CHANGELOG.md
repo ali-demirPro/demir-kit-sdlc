@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.29.1 — 2026-10-30
+
+- **CHANGELOG↔VERSION drift kontrolü** — `doctor.check_version_drift` artık
+  CHANGELOG'un ilk sürüm başlığını da VERSION ile karşılaştırır; kit kendi
+  içinde sürüm drift'i üretemez (CI gate'i bunu yakalar). Eksik sürüm
+  başlığında uyarır. Test eklendi.
+
 ## 2.29.0 — 2026-10-30
 
 - **hig-audit skill** — Apple tasarım denetimi (iOS/iPadOS/macOS, SwiftUI
