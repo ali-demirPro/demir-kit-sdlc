@@ -102,6 +102,36 @@ class VendorSyncTests(unittest.TestCase):
             self.assertIn('kit:\n  root: demir-kit\n  version: "2.2.0"', text)
             self.assertIn('protocol: "2"', text)
 
+    def test_apply_refuses_git_checkout(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "source"
+            product = Path(directory) / "product"
+            source.mkdir()
+            product.mkdir()
+            make_source(source)
+            make_product(product)
+            (product / "demir-kit" / ".git").mkdir()
+            with self.assertRaises(ValueError) as ctx:
+                vendor_sync.apply_plan(source, product)
+            self.assertIn("submodule", str(ctx.exception))
+            self.assertTrue((product / "demir-kit" / "delivery" / "CONTRACT.md").is_file())
+
+    def test_apply_copies_gitignore(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "source"
+            product = Path(directory) / "product"
+            source.mkdir()
+            product.mkdir()
+            make_source(source)
+            (source / ".gitignore").write_text("__pycache__/\n*.pyc\n")
+            make_product(product)
+            plan = vendor_sync.apply_plan(source, product)
+            self.assertTrue(plan["clean"])
+            self.assertEqual(
+                (product / "demir-kit" / ".gitignore").read_text(),
+                "__pycache__/\n*.pyc\n",
+            )
+
     def test_apply_is_idempotent(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / "source"

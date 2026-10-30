@@ -15,7 +15,7 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
 ALLOW_DIRS = ("delivery", "skills")
-ALLOW_FILES = ("install.sh", "VERSION", "CHANGELOG.md", "README.md")
+ALLOW_FILES = ("install.sh", "VERSION", "CHANGELOG.md", "README.md", ".gitignore")
 LEGACY = (
     "references",
     "orchestration",
@@ -163,6 +163,11 @@ def assert_safe_target(source: Path, kit: Path) -> None:
     kit = kit.resolve()
     if source == kit or source in kit.parents or kit in source.parents:
         raise ValueError("source and target kit overlap; refusing to sync")
+    if (kit / ".git").exists():
+        raise ValueError(
+            "hedef kit dizini bir git deposu (submodule/clone); vendor_sync "
+            "yerine 'git submodule update --remote demir-kit' kullanın"
+        )
 
 
 def apply_plan(source: Path, project: Path) -> dict:

@@ -1199,6 +1199,17 @@ def check_product(root: Path) -> None:
     kit_root = kit.get("root") or "demir-kit"
     if not (root / kit_root / "delivery" / "scripts" / "doctor.py").is_file():
         error(f"vendored kit bulunamadı: {kit_root}/delivery")
+    kit_version_path = root / kit_root / "VERSION"
+    configured_version = str(kit.get("version") or "")
+    if kit_version_path.is_file():
+        actual = kit_version_path.read_text(encoding="utf-8").strip()
+        if configured_version and configured_version != actual:
+            warn(
+                f"kit sürüm drifti: kit.config '{configured_version}' ≠ "
+                f"{kit_root}/VERSION '{actual}' — güncelleme: "
+                "submodule → 'git submodule update --remote demir-kit'; "
+                "vendor → 'vendor_sync.sh --target <proje> --apply'"
+            )
 
     factory = config.get("factory") or {}
     app_paths = factory.get("app_paths") or ["src", "app", "lib"]

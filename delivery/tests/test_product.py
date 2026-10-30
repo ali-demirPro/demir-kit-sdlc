@@ -155,6 +155,36 @@ class ProductDoctorTests(unittest.TestCase):
                 any("design_system" in item for item in doctor.ERRORS)
             )
 
+    def test_kit_version_drift_warns(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            make_product(root)
+            (root / "demir-kit" / "VERSION").write_text("2.28.1\n", encoding="utf-8")
+            config = root / "kit.config.yaml"
+            config.write_text(
+                config.read_text(encoding="utf-8").replace(
+                    '  protocol: "2"', '  version: "1.0.0"\n  protocol: "2"'
+                ),
+                encoding="utf-8",
+            )
+            doctor.check_product(root)
+            self.assertTrue(any("sürüm drifti" in item for item in doctor.WARNS))
+
+    def test_kit_version_aligned_has_no_drift(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            make_product(root)
+            (root / "demir-kit" / "VERSION").write_text("2.28.1\n", encoding="utf-8")
+            config = root / "kit.config.yaml"
+            config.write_text(
+                config.read_text(encoding="utf-8").replace(
+                    '  protocol: "2"', '  version: "2.28.1"\n  protocol: "2"'
+                ),
+                encoding="utf-8",
+            )
+            doctor.check_product(root)
+            self.assertFalse(any("sürüm drifti" in item for item in doctor.WARNS))
+
     def set_profiles(self, root: Path, names: list[str], default: str) -> None:
         config = root / "kit.config.yaml"
         config.write_text(

@@ -190,6 +190,35 @@ reddeder.
 `exclude`'a al veya dosyayı git ile geri al; yeni leaf'ler eski sete döner.
 Kapanmış leaf'lerin evidence'ı silinmez.
 
+## Kit güncelleme
+
+İki kurulum modu vardır; **karıştırılmamalıdır**. Hangi modun kurulduğunu
+`kit.config.yaml` yanındaki demir-kit dizini belirler: içinde `.git` varsa
+submodule/clone, yoksa vendor kopya.
+
+**Submodule** (`.gitmodules` ile eklenmiş):
+
+```bash
+git submodule update --remote demir-kit   # upstream main'den çeker
+# kit.config.yaml → kit.version = demir-kit/VERSION ile hizalanır
+python3 demir-kit/delivery/scripts/doctor.py --product --root .
+git add demir-kit kit.config.yaml && git commit
+```
+
+**Vendor kopya** (`vendor_sync` ile kopyalanmış) — taze klon'dan:
+
+```bash
+./delivery/scripts/vendor_sync.sh --target ../<proje> --check   # fark gör
+./delivery/scripts/vendor_sync.sh --target ../<proje> --apply   # senkronla
+```
+
+- `vendor_sync --apply` submodule dizininde **çalışmaz** (güvenli red); o modda
+  yukarıdaki git komutu kullanılır.
+- Güncelleme sonrası `kit.config.yaml kit.version` hizalanmazsa
+  `doctor --product` sürüm drifti uyarısı verir.
+- Vendor kopya, kit deposunun `.gitignore` dosyasını da taşır; scriptlerin
+  ürettiği `__pycache__` ürün reposunda kirletmez.
+
 ## Etiketler
 
 GitHub etiketlerini kurmak için
