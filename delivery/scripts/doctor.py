@@ -519,6 +519,18 @@ def check_version_drift(root: Path, version: str) -> None:
         encoding="utf-8"
     ):
         warn(f"AGENTS.md sürüm başlığı 'demir-kit {short}' değil")
+    changelog = root / "CHANGELOG.md"
+    if changelog.is_file():
+        first = re.search(
+            r"^## .*?(\d+\.\d+\.\d+)\b", changelog.read_text(encoding="utf-8"), re.M
+        )
+        if not first:
+            warn("CHANGELOG.md: sürüm başlığı bulunamadı")
+        elif first.group(1) != version:
+            error(
+                f"CHANGELOG.md: ilk sürüm başlığı {first.group(1)}"
+                f" ≠ VERSION ({version})"
+            )
 
 
 def check_fleet() -> None:
