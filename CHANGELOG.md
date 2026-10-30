@@ -1,5 +1,24 @@
 # Changelog
 
+## 2.29.0 — 2026-10-30
+
+- **hig-audit skill** — Apple tasarım denetimi (iOS/iPadOS/macOS, SwiftUI
+  öncelikli): sistematik repo keşfi, canlı HIG referanslı non-negotiable'lar
+  (Liquid Glass functional-layer kuralı + slider/toggle istisnası ve
+  "sparingly" uyarısı dahil), `HIG-*` bulguları (severity `critical|high|medium`,
+  `Dosya:Satır`, `hig_ref`, somut fix), Türkçe rapor şablonu; opsiyonel Apple
+  Design Awards + anti-slop lens (`--awards`). Hedef platform dönemi projeden
+  türetilir; OS hardcode yok.
+- **apple-hig pack** — checklist non-negotiable evidence maddeleriyle
+  genişletildi: touch target 44pt, kontrast 4.5:1/3:1, Dynamic Type, Liquid
+  Glass katman kuralı + istisna, SF Symbols, contextual permission, alert
+  disiplini.
+- **apple-a11y pack** — derin tarama maddeleri: label+trait+hint, Dynamic
+  Type, sayısal kontrast, Differentiate Without Color, Reduce Motion,
+  Keyboard/Switch Control, touch target.
+- **Registry/policy** — `skills.runtime` += `hig-audit`;
+  `quality-gates.md` platform gate'te Apple pack'leri için prosedür referansı.
+
 ## 2.28.1 — 2026-10-30
 
 - **Güncellik denetimi** — `doctor --product`, `kit.config.yaml kit.version` ile

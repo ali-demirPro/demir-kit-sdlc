@@ -54,6 +54,8 @@ Risk tabanlı gate matrisi. Sözleşme: [CONTRACT.md](../CONTRACT.md) · Risk ve
 
 - `factory.profile` `platform_packs` / `extra_gates` varsa.
 - Pack checklist (`delivery/packs/`) madde madde kanıtlanır.
+- Apple pack'lerinde tam denetim prosedürü: `skills/hig-audit/SKILL.md`
+  (`HIG-*` bulguları, canlı HIG referansı).
 
 ### human
 
