@@ -52,6 +52,25 @@ def ios_project(root: Path) -> None:
 
 
 class InitTests(unittest.TestCase):
+    def test_macos_proposal(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            write(root, "App.xcodeproj/project.pbxproj", "SDKROOT = macosx;\n")
+            write(root, "App/MainView.swift", "import SwiftUI\n")
+            plan = init_mod.build(root)
+            self.assertEqual(plan["profile"], "macos-app")
+            self.assertIn("platform.macos", plan["capabilities"])
+
+    def test_upstream_written(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            web_project(root)
+            plan = init_mod.build(root)
+            config = yaml.safe_load(plan["files"]["kit.config.yaml"])
+            self.assertEqual(
+                config["kit"]["upstream"]["git"], init_mod.DEFAULT_UPSTREAM
+            )
+
     def test_web_proposal(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

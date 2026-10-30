@@ -1,0 +1,32 @@
+# Hedef proje için örnek CI — .github/workflows/delivery.yml olarak kopyalayın.
+# Behavior gate komutunu projenin gerçek test/lint komutlarıyla
+# scripts/gate-behavior.sh içinde düzenleyin. PyYAML zorunludur
+# (bkz. delivery/runbooks/adaptation.md "Hedef projede CI").
+name: delivery
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: delivery-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    name: delivery-gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: python3 -m pip install --disable-pip-version-check "pyyaml==6.*"
+      - name: Product wiring check
+        run: python3 demir-kit/delivery/scripts/doctor.py --product --root .
+      - name: Behavior gate
+        run: ./scripts/gate-behavior.sh CP-1

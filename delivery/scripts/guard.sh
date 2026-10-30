@@ -55,7 +55,7 @@ else
   CHANGED+=$'\n'"$(git ls-files --others --exclude-standard)"
 fi
 CHANGED="$(printf '%s\n' "$CHANGED" | sed '/^$/d' | sort -u)"
-RISK_CHANGED="$(printf '%s\n' "$CHANGED" | python3 "${KIT_ROOT}/delivery/scripts/risk_filter.py" --registry "${KIT_ROOT}/delivery/registry.yaml")"
+RISK_CHANGED="$(printf '%s\n' "$CHANGED" | python3 "${KIT_ROOT}/delivery/scripts/risk_filter.py" --registry "${KIT_ROOT}/delivery/registry.yaml" --project "${ROOT}")"
 
 VIOLATIONS=()
 for path in "${APP_PATHS[@]}"; do
@@ -64,7 +64,7 @@ for path in "${APP_PATHS[@]}"; do
   done <<< "$CHANGED"
 done
 
-RISK_REQUIRED="$(printf '%s\n' "$RISK_CHANGED" | python3 "${KIT_ROOT}/delivery/scripts/risk_filter.py" --registry "${KIT_ROOT}/delivery/registry.yaml" --risk)"
+RISK_REQUIRED="$(printf '%s\n' "$RISK_CHANGED" | python3 "${KIT_ROOT}/delivery/scripts/risk_filter.py" --registry "${KIT_ROOT}/delivery/registry.yaml" --project "${ROOT}" --risk)"
 NEED_ISSUE=false
 if [[ ${#VIOLATIONS[@]} -gt 0 || "$RISK_REQUIRED" != "none" ]]; then
   NEED_ISSUE=true

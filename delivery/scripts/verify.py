@@ -31,6 +31,32 @@ def known_packs() -> set[str]:
     return {item.name for item in path.iterdir() if item.is_dir()}
 
 
+def declared_surfaces(root: Path) -> list[dict]:
+    """ecosystem.yaml'da bildirilen yüzeyler (fingerprint boşsa yedek)."""
+    path = root / "ecosystem.yaml"
+    if not path.is_file():
+        return []
+    try:
+        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except yaml.YAMLError:
+        return []
+    if not isinstance(data, dict):
+        return []
+    surfaces: list[dict] = []
+    for product in (data.get("products") or {}).values():
+        for name, spec in ((product or {}).get("surfaces") or {}).items():
+            spec = spec or {}
+            surfaces.append(
+                {
+                    "name": name,
+                    "path": spec.get("path") or ".",
+                    "platforms": spec.get("platforms") or [],
+                    "stacks": spec.get("stacks") or [],
+                }
+            )
+    return surfaces
+
+
 def check_declarations(root: Path, known: set[str]) -> tuple[list[str], dict]:
     issues: list[str] = []
     for message in profiles_mod.validate_project(root, known, known_packs()):
@@ -49,9 +75,11 @@ def check_declarations(root: Path, known: set[str]) -> tuple[list[str], dict]:
     }
 
 
-def check_plan(plan: dict, known: set[str]) -> list[str]:
+def check_plan(plan: dict, known: set[str], declared: list[dict] | None = None) -> list[str]:
     issues: list[str] = []
     surfaces = plan["fingerprint"].get("surfaces") or []
+    if not surfaces:
+        surfaces = declared or []
     if not surfaces:
         issues.append("yüzey tespit edilmedi")
     for surface in surfaces:
@@ -77,7 +105,9 @@ def verify_project(project: Path) -> dict:
     root = project.resolve()
     plan = init_mod.build(root)
     known = known_capabilities()
-    issues = check_plan(plan, known)
+    detected = plan["fingerprint"].get("surfaces") or []
+    declared = [] if detected else declared_surfaces(root)
+    issues = check_plan(plan, known, declared)
     declaration_issues, configured = check_declarations(root, known)
     issues.extend(declaration_issues)
     standards = standards_mod.discover(root)
@@ -94,7 +124,7 @@ def verify_project(project: Path) -> dict:
                 "platforms": surface.get("platforms") or [],
                 "stacks": surface.get("stacks") or [],
             }
-            for surface in plan["fingerprint"].get("surfaces") or []
+            for surface in (detected or declared)
         ],
         "profiles": plan.get("profiles") or [],
         "default": plan.get("profile"),

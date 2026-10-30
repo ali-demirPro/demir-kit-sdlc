@@ -12,6 +12,9 @@ Yeni leaf'ler `package_version: 2` ile mühürlenir; bu, evidence v3
 2. Parent epic `scope-confirmed`.
 3. Her KEEP maddesi bir child issue'ya bağlı.
 4. AC'ler test edilebilir; `out_of_scope` dolu.
+5. Proje öncelikleri okunur (`kit.config.yaml product.priorities` +
+   [project-priorities.md](../policies/project-priorities.md)); design system
+   ve mimari dokümanlar `reference.paths`'ta gösterilir.
 
 ## Adımlar
 

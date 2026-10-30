@@ -175,6 +175,33 @@ class VerifyTests(unittest.TestCase):
             self.assertFalse(report["ok"])
             self.assertTrue(any("standards" in item for item in report["issues"]))
 
+    def test_ecosystem_declared_surfaces_fallback(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            write(
+                root,
+                "ecosystem.yaml",
+                "name: docs-kit\n"
+                "products:\n"
+                "  kit:\n"
+                "    surfaces:\n"
+                "      kit.docs:\n"
+                "        path: .\n"
+                "        stacks: [markdown]\n"
+                "        platforms: [any]\n"
+                "        gates:\n"
+                "          behavior: ./scripts/gate.sh {checkpoint}\n",
+            )
+            report = verify.verify_project(root)
+            self.assertTrue(report["ok"], report["issues"])
+            self.assertEqual([item["name"] for item in report["surfaces"]], ["kit.docs"])
+
+    def test_declared_fallback_does_not_mask_empty_projects(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            report = verify.verify_project(Path(directory))
+            self.assertFalse(report["ok"])
+            self.assertTrue(any("yüzey" in item for item in report["issues"]))
+
     def test_check_plan_rejects_bad_shapes(self) -> None:
         known = verify.known_capabilities()
         base = {

@@ -38,6 +38,15 @@ def rel(path: Path, root: Path) -> str:
         return str(path)
 
 
+def xcode_platform(base: Path) -> str:
+    """xcodeproj pbxproj içeriğine göre ios / macos ayrımı."""
+    for project in sorted(base.glob("*.xcodeproj")):
+        text = read_text(project / "project.pbxproj").lower()
+        if "macosx" in text and "iphoneos" not in text:
+            return "macos"
+    return "ios"
+
+
 def detect(project: Path) -> dict:
     root = project.resolve()
     stacks: dict[str, dict] = {}
@@ -173,14 +182,18 @@ def detect(project: Path) -> dict:
             if (root / name).is_file()
         )
         add_stack("swift", swift_sources[0])
-        if "SwiftUI" in text or any((root / "ios").rglob("*.swift")):
+        if "SwiftUI" in text or any(
+            (root / name).is_dir() and any((root / name).rglob("*.swift"))
+            for name in ("ios", "macos", "App", "Sources")
+        ):
             add_stack("swiftui", "swift sources")
         if "UIKit" in text:
             add_stack("uikit", "swift sources")
+        surface_platform = xcode_platform(root)
         add_surface(
-            "ios",
+            surface_platform,
             "ios" if (root / "ios").is_dir() else ".",
-            ["ios"],
+            [surface_platform],
             [stack for stack in ("swift", "swiftui", "uikit") if stack in stacks],
             swift_sources[0],
         )
@@ -490,10 +503,11 @@ def detect(project: Path) -> dict:
                     else (f"{rel_path}/Podfile" if podfile else rel_path)
                 )
                 add_stack("swift", source)
+                nested_platform = xcode_platform(base)
                 add_surface(
-                    nested_name(base, "ios"),
+                    nested_name(base, nested_platform),
                     rel_path,
-                    ["ios"],
+                    [nested_platform],
                     ["swift"],
                     source,
                 )
@@ -557,6 +571,8 @@ def detect(project: Path) -> dict:
         suggested = "mobile-app"
     elif "ios" in platforms:
         suggested = "ios-app"
+    elif "macos" in platforms:
+        suggested = "macos-app"
     elif "android" in platforms:
         suggested = "android-app"
     elif "web" in platforms:

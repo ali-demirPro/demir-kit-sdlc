@@ -190,6 +190,25 @@ reddeder.
 `exclude`'a al veya dosyayı git ile geri al; yeni leaf'ler eski sete döner.
 Kapanmış leaf'lerin evidence'ı silinmez.
 
+## Etiketler
+
+GitHub etiketlerini kurmak için
+[github-labels.json](../templates/github-labels.json) kullanın (`gh label create`
+döngüsü veya eşdeğeri). Etiket adları `registry.yaml labels` ile senkron
+tutulur; `doctor` tutarlılığı denetler.
+
+## Hedef projede CI
+
+Zorlama komutları (`guard`, `doctor`) hedef repoda CI'a bağlanmazsa kurallar
+yalnız sürece bağlı kalır. Örnek workflow:
+[ci-delivery.yml](../templates/ci-delivery.yml) — `.github/workflows/delivery.yml`
+olarak kopyalayın ve gate komutunu projenin gerçek kontrolleriyle değiştirin.
+
+- **PyYAML** zorunludur: kit scriptleri `python3` + `pyyaml` ile çalışır
+  (`python3 -m pip install pyyaml`). Hedef CI'a kurulum adımını ekleyin.
+- `--product --root .` ürün bağlamını (kit.config, .kit) denetler;
+  `--issue N` seal/evidence tutarlılığını, `guard.sh` kaynak kapısını uygular.
+
 ## Sınırlar
 
 - `adapt.py` `ecosystem.yaml`'ı **değiştirmez**; yüzey bilgisi orada kalır.

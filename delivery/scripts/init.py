@@ -16,6 +16,8 @@ import yaml
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+DEFAULT_UPSTREAM = "https://github.com/ali-demirPro/demir-kit-sdlc.git"
+
 import detect as detect_mod  # noqa: E402
 import profiles as profiles_mod  # noqa: E402
 import resolver  # noqa: E402
@@ -60,6 +62,7 @@ def profiles_for(fingerprint: dict) -> list[str]:
             mapping = {
                 "web": "web-app",
                 "ios": "ios-app",
+                "macos": "macos-app",
                 "android": "android-app",
                 "api": "api-service",
                 "cli": "cli",
@@ -145,7 +148,7 @@ def gate_script(fingerprint: dict) -> str:
     )
 
 
-def build(project: Path, repo: str | None = None) -> dict:
+def build(project: Path, repo: str | None = None, upstream: str = DEFAULT_UPSTREAM) -> dict:
     root = project.resolve()
     fingerprint = detect_mod.detect(root)
     target_repo = repo or repo_name(root)
@@ -167,7 +170,7 @@ def build(project: Path, repo: str | None = None) -> dict:
                 "behavior": "./scripts/gate-behavior.sh {checkpoint}",
                 "behavior_mode": "headless",
                 "ui": any(
-                    platform in {"web", "ios", "android"} for platform in platforms
+                    platform in {"web", "ios", "macos", "android"} for platform in platforms
                 ),
                 "ui_compare": "none",
             },
@@ -229,6 +232,7 @@ def build(project: Path, repo: str | None = None) -> dict:
             "root": "demir-kit",
             "version": version(),
             "protocol": "2",
+            "upstream": {"git": upstream},
         },
         "tracker": {"provider": "github", "repo": target_repo},
         "orca": {
@@ -316,12 +320,15 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="generate project wiring")
     parser.add_argument("--project", type=Path, default=Path.cwd())
     parser.add_argument("--repo", help="owner/repo (default: git remote)")
+    parser.add_argument(
+        "--upstream", default=DEFAULT_UPSTREAM, help="kit upstream git URL"
+    )
     parser.add_argument("--apply", action="store_true")
     parser.add_argument("--force", action="store_true")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
 
-    plan = build(args.project, args.repo)
+    plan = build(args.project, args.repo, upstream=args.upstream)
     applied = None
     if args.apply:
         applied = apply_plan(plan, force=args.force)

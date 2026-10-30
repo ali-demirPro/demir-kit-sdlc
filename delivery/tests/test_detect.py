@@ -76,6 +76,31 @@ class DetectTests(unittest.TestCase):
             self.assertEqual(data["suggested_profile"], "ios-app")
             self.assertIn("app_store", [item["type"] for item in data["distribution"]])
 
+    def test_macos_xcodeproj(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            write(root, "Faturalar.xcodeproj/project.pbxproj", "SDKROOT = macosx;\n")
+            write(root, "App/MainView.swift", "import SwiftUI\n")
+            data = detect_mod.detect(root)
+            platforms = [
+                platform
+                for item in data["surfaces"]
+                for platform in item["platforms"]
+            ]
+            self.assertIn("macos", platforms)
+            self.assertNotIn("ios", platforms)
+            self.assertEqual(data["suggested_profile"], "macos-app")
+            self.assertIn("swiftui", [item["name"] for item in data["stacks"]])
+            self.assertEqual(data["test_commands"]["behavior"], "xcodebuild test")
+
+    def test_ios_pbxproj_stays_ios(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            write(root, "App.xcodeproj/project.pbxproj", "SDKROOT = iphoneos;\n")
+            data = detect_mod.detect(root)
+            self.assertEqual(data["surfaces"][0]["platforms"], ["ios"])
+            self.assertEqual(data["suggested_profile"], "ios-app")
+
     def test_android(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

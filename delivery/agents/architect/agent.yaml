@@ -6,6 +6,7 @@ base_docs: [ROLE.md, how.md, communicates.md, dependencies.md, SKILL.md]
 capabilities_required:
   - platform.web
   - platform.ios
+  - platform.macos
   - platform.android
   - platform.api
   - platform.cli
@@ -23,6 +24,7 @@ capabilities_required:
 variants:
   platform.web: { doc: variants/web.md, eval: evals/design.md, min_level: expert }
   platform.ios: { doc: variants/mobile.md, eval: evals/design.md, min_level: expert }
+  platform.macos: { doc: variants/mobile.md, eval: evals/design.md, min_level: expert }
   platform.android: { doc: variants/mobile.md, eval: evals/design.md, min_level: expert }
   platform.api: { doc: variants/api.md, eval: evals/design.md, min_level: expert }
   platform.cli: { doc: variants/api.md, eval: evals/design.md, min_level: practitioner }

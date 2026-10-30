@@ -49,6 +49,19 @@ def project_ecosystem() -> dict:
     return data if isinstance(data, dict) else {}
 
 
+def project_priorities() -> dict:
+    """kit.config.yaml product.priorities — agent'lara her brief'te görünür."""
+    project = routing.project_root(ROOT)
+    try:
+        data = yaml.safe_load((project / "kit.config.yaml").read_text(encoding="utf-8"))
+    except (FileNotFoundError, yaml.YAMLError):
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    priorities = ((data.get("product") or {}).get("priorities")) or {}
+    return priorities if isinstance(priorities, dict) else {}
+
+
 def build_brief(
     registry: dict,
     number: int,
@@ -57,6 +70,7 @@ def build_brief(
     labels: set[str],
     prefix: str = "",
     ecosystem: dict | None = None,
+    priorities: dict | None = None,
 ) -> dict:
     seal = routing.seal_body(body)
     epic = routing.is_epic(body) or ("scope-confirmed" in labels and not seal)
@@ -104,6 +118,7 @@ def build_brief(
         "variant_gaps": resolution["variant_gaps"],
         "risk": risk,
         "risk_floor": resolution["risk_floor"],
+        "priorities": priorities or {},
         "next_action": routing.next_action(labels, epic),
         "human_gates": routing.human_gates(risk, epic),
         "docs": docs,
@@ -144,6 +159,16 @@ def render(data: dict) -> str:
     lines += [f"  - {gate}" for gate in data["human_gates"]]
     lines.append("docs:")
     lines += [f"  - {doc}" for doc in data["docs"]]
+    priorities = data.get("priorities") or {}
+    if priorities:
+        lines.append("project priorities (binding):")
+        if priorities.get("design_system"):
+            lines.append(f"  - design system: {priorities['design_system']}")
+        for item in priorities.get("architecture") or []:
+            lines.append(f"  - architecture: {item}")
+        if priorities.get("quality_floor"):
+            lines.append(f"  - quality floor: {priorities['quality_floor']}")
+        lines.append("  - rules: delivery/policies/project-priorities.md")
     return "\n".join(lines)
 
 
@@ -163,6 +188,7 @@ def comment_body(data: dict) -> str:
             "risk_floor": data["risk_floor"],
             "next_action": data["next_action"],
             "human_gates": data["human_gates"],
+            "priorities": data.get("priorities") or {},
         }
     }
     return (
@@ -212,6 +238,7 @@ def main() -> int:
         labels,
         routing.kit_prefix(ROOT),
         project_ecosystem(),
+        project_priorities(),
     )
 
     if args.json:

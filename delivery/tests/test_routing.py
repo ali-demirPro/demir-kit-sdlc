@@ -183,6 +183,28 @@ class BriefTests(unittest.TestCase):
         self.assertEqual(data["state"], "epic")
         self.assertIn("epic kabulü", data["human_gates"])
 
+    def test_build_brief_with_priorities(self) -> None:
+        data = brief.build_brief(
+            REGISTRY,
+            13,
+            "Brief",
+            seal(),
+            {"agent-approved"},
+            priorities={
+                "design_system": "docs/design/tokens.md",
+                "architecture": ["docs/architecture/boundaries.md"],
+                "quality_floor": "test + lint yeşil",
+            },
+        )
+        self.assertEqual(
+            data["priorities"]["design_system"], "docs/design/tokens.md"
+        )
+        rendered = brief.render(data)
+        self.assertIn("project priorities (binding):", rendered)
+        self.assertIn("design system: docs/design/tokens.md", rendered)
+        comment = brief.comment_body(data)
+        self.assertIn("priorities:", comment)
+
     def test_render_and_comment(self) -> None:
         data = brief.build_brief(REGISTRY, 13, "Brief", seal(), {"agent-approved"})
         rendered = brief.render(data)

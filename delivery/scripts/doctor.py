@@ -499,6 +499,26 @@ def check_version() -> None:
     registry = (ROOT / "delivery" / "registry.yaml").read_text(encoding="utf-8")
     if f"— v{short}" not in registry:
         error(f"delivery/registry.yaml: sürüm başlığı v{short} değil")
+    check_version_drift(ROOT, version)
+
+
+def check_version_drift(root: Path, version: str) -> None:
+    """kit.config.yaml ve AGENTS.md başlıkları VERSION ile hizalı olmalı."""
+    config_path = root / "kit.config.yaml"
+    if config_path.is_file():
+        config = load_yaml(config_path)
+        config = config if isinstance(config, dict) else {}
+        configured = str(((config.get("kit") or {}).get("version")) or "")
+        if not configured:
+            warn("kit.config.yaml: kit.version yok")
+        elif configured != version:
+            error(f"kit.config.yaml: kit.version '{configured}' ≠ VERSION ({version})")
+    agents = root / "AGENTS.md"
+    short = ".".join(version.split(".")[:2])
+    if agents.is_file() and f"demir-kit {short}" not in agents.read_text(
+        encoding="utf-8"
+    ):
+        warn(f"AGENTS.md sürüm başlığı 'demir-kit {short}' değil")
 
 
 def check_fleet() -> None:
@@ -1188,6 +1208,36 @@ def check_product(root: Path) -> None:
     for path in app_paths:
         if not (root / path).exists():
             warn(f"app path yok: {path}")
+
+    risk_path = root / ".kit" / "risk.yaml"
+    if risk_path.is_file():
+        data = load_yaml(risk_path)
+        if not isinstance(data, dict):
+            error(f"{risk_path}: kök mapping değil")
+        else:
+            escalate = data.get("auto_escalate") or {}
+            if not isinstance(escalate, dict):
+                error(f"{risk_path}: auto_escalate mapping değil")
+            else:
+                for level in ("high", "critical"):
+                    values = escalate.get(level) or []
+                    if not isinstance(values, list) or any(
+                        not isinstance(item, str) for item in values
+                    ):
+                        error(f"{risk_path}: auto_escalate.{level} string listesi değil")
+
+    priorities = ((config.get("product") or {}).get("priorities")) or {}
+    if priorities:
+        design = priorities.get("design_system")
+        if design and not (root / str(design)).exists():
+            error(f"kit.config.yaml: product.priorities.design_system yok — {design}")
+        architecture = priorities.get("architecture") or []
+        if not isinstance(architecture, list):
+            error("kit.config.yaml: product.priorities.architecture liste değil")
+        else:
+            for item in architecture:
+                if not (root / str(item)).exists():
+                    error(f"kit.config.yaml: product.priorities.architecture yok — {item}")
 
     eco = load_yaml(root / "ecosystem.yaml")
     if not isinstance(eco, dict):

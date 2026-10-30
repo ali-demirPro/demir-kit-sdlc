@@ -818,5 +818,52 @@ class FrontmatterTests(DoctorTestCase):
             self.assertEqual(doctor.frontmatter_name(path.read_text()), name)
 
 
+class VersionDriftTests(DoctorTestCase):
+    def test_aligned_wiring_passes(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "kit.config.yaml").write_text(
+                'kit:\n  version: "2.27.1"\n', encoding="utf-8"
+            )
+            (root / "AGENTS.md").write_text(
+                "# AGENTS\n\ndemir-kit 2.27 — test\n", encoding="utf-8"
+            )
+            doctor.check_version_drift(root, "2.27.1")
+            self.assertEqual(doctor.ERRORS, [])
+            self.assertEqual(doctor.WARNS, [])
+
+    def test_config_version_mismatch_errors(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "kit.config.yaml").write_text(
+                'kit:\n  version: "2.26.1"\n', encoding="utf-8"
+            )
+            doctor.check_version_drift(root, "2.27.1")
+            self.assertTrue(any("kit.version" in item for item in doctor.ERRORS))
+
+    def test_agents_header_mismatch_warns(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "AGENTS.md").write_text(
+                "# AGENTS\n\ndemir-kit 2.26 — test\n", encoding="utf-8"
+            )
+            doctor.check_version_drift(root, "2.27.1")
+            self.assertEqual(doctor.ERRORS, [])
+            self.assertTrue(any("AGENTS.md" in item for item in doctor.WARNS))
+
+    def test_missing_config_version_warns(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "kit.config.yaml").write_text("kit:\n  root: .\n", encoding="utf-8")
+            doctor.check_version_drift(root, "2.27.1")
+            self.assertTrue(any("kit.version yok" in item for item in doctor.WARNS))
+
+    def test_self_host_wiring_is_aligned(self) -> None:
+        version = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
+        doctor.check_version_drift(ROOT, version)
+        self.assertEqual(doctor.ERRORS, [])
+        self.assertEqual(doctor.WARNS, [])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -5,6 +5,7 @@ mission: "Store görünürlüğünü, metadata bütünlüğünü ve inceleme ris
 base_docs: [ROLE.md, how.md, communicates.md, dependencies.md, SKILL.md]
 capabilities_required:
   - platform.ios
+  - platform.macos
   - platform.android
   - domain.analytics
   - domain.i18n
@@ -14,6 +15,7 @@ capabilities_required:
   - distribution.web
 variants:
   platform.ios: { doc: variants/apple.md, eval: evals/stores.md, min_level: practitioner }
+  platform.macos: { doc: variants/apple.md, eval: evals/stores.md, min_level: practitioner }
   platform.android: { doc: variants/google.md, eval: evals/stores.md, min_level: practitioner }
   domain.analytics: { doc: variants/aso.md, eval: evals/stores.md, min_level: practitioner }
   domain.i18n: { doc: variants/aso.md, eval: evals/stores.md, min_level: practitioner }
