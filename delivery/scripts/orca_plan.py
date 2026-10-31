@@ -50,6 +50,21 @@ def project_ecosystem() -> dict:
     return data if isinstance(data, dict) else {}
 
 
+def role_launch(project: Path, role: str) -> dict:
+    try:
+        config = yaml.safe_load((project / "kit.config.yaml").read_text(encoding="utf-8")) or {}
+    except (FileNotFoundError, yaml.YAMLError):
+        config = {}
+    defaults = ((config.get("orca") or {}).get("role_defaults") or {}).get(role) or {}
+    if not isinstance(defaults, dict):
+        return {}
+    return {
+        key: str(defaults[key])
+        for key in ("model", "effort", "agent")
+        if defaults.get(key)
+    }
+
+
 def required_reviewers(gates: dict, risk: str, resolution: dict) -> list[str]:
     caps = set(resolution.get("capabilities") or [])
     reviewers = {"tester"}
@@ -73,6 +88,24 @@ def required_reviewers(gates: dict, risk: str, resolution: dict) -> list[str]:
     if "quality.a11y" in caps:
         reviewers.add("designer")
     return sorted(reviewers)
+
+
+def evidence_reviewers(gates: dict, risk: str) -> list[str]:
+    """The reviewer roles the evidence schema and doctor actually enforce."""
+    roles = {"adversarial-a"}
+    if risk in {"high", "critical"}:
+        roles.update({"adversarial-a", "adversarial-b", "architect", "human"})
+    if risk == "critical":
+        roles.add("human_second")
+    if gates.get("architect"):
+        roles.add("architect")
+    if gates.get("commercial") or risk == "critical":
+        roles.add("commercial")
+    if gates.get("ui"):
+        roles.update({"ui_visual", "ui_interaction"})
+    if gates.get("platform"):
+        roles.add("platform")
+    return sorted(roles)
 
 
 def build_plan(
@@ -106,6 +139,8 @@ def build_plan(
     profile_gates = {
         str(gate): True for gate in profile_data.get("extra_gates") or []
     }
+    if profile_data.get("platform_packs"):
+        profile_gates["platform"] = True
     profile_docs = [
         f"{prefix}skills/{skill}/SKILL.md"
         for skill in profile_data.get("required_skills") or []
@@ -159,14 +194,24 @@ def build_plan(
         effective_gates = {**gates, **profile_gates}
         cp_reviewers = required_reviewers(effective_gates, effective_risk, resolution)
         reviewers = sorted(set(reviewers) | set(cp_reviewers))
+        cp_evidence_reviewers = evidence_reviewers(effective_gates, effective_risk)
+        launch = role_launch(project, role)
+        gate = None
+        if effective_gates.get("human") or gates.get("human"):
+            gate = {
+                "question": f"{cp_id}: insan onayı",
+                "options": ["approve", "revise"],
+            }
         deps = [f"task:{item}" for item in cp.get("depends_on") or []]
         spec = (
             f"demir-kit #{issue} {cp_id}: {cp.get('title', '')}\n"
             f"Target: issue #{issue}, epic #{epic}, surfaces: {surfaces}\n"
             f"Role: {role}\n"
             f"Capabilities: {', '.join(capabilities) or '-'}\n"
-            f"Required reviewers: {', '.join(cp_reviewers)}\n"
-            f"Read:\n{docs}\n"
+            f"Required reviewers: {', '.join(cp_evidence_reviewers)}\n"
+            f"Advisory roles: {', '.join(cp_reviewers)}\n"
+            + (f"Human gate: {gate['question']}\n" if gate else "")
+            + f"Read:\n{docs}\n"
             f"- {prefix}delivery/CONTRACT.md\n"
             f"- {prefix}delivery/policies/quality-gates.md\n"
             f"Change: implement only {cp_id} for this sealed leaf.\n"
@@ -181,10 +226,16 @@ def build_plan(
         tasks.append(
             {
                 "id": cp_id,
+                "title": cp.get("title", ""),
                 "role": role,
                 "deps": deps,
                 "reviewers": cp_reviewers,
+                "evidence_reviewers": cp_evidence_reviewers,
                 "capabilities": capabilities,
+                "model": launch.get("model"),
+                "effort": launch.get("effort"),
+                "agent": launch.get("agent"),
+                "gate": gate,
                 "spec": spec,
             }
         )
@@ -204,6 +255,10 @@ def build_plan(
         "variant_gaps": resolution["variant_gaps"],
         "risk_floor": resolution["risk_floor"],
         "reviewers": reviewers,
+        "evidence_reviewers": evidence_reviewers(
+            {"ui": False, "architect": False, "commercial": False, **profile_gates},
+            effective_risk,
+        ),
         "tasks": tasks,
     }
 

@@ -27,6 +27,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import approvals as approvals_lib  # noqa: E402
 import capabilities as capabilities_lib  # noqa: E402
+import delivery_block  # noqa: E402
+import epic_worktree  # noqa: E402
 import evidence as evidence_lib  # noqa: E402
 import profiles as profiles_lib  # noqa: E402
 import resolver as resolver_lib  # noqa: E402
@@ -918,9 +920,54 @@ def check_issue_body(
             if evidence_schema:
                 for message in validate_schema(record, evidence_schema, f"{cp_id}.evidence"):
                     error(message)
+            if package_version >= 3 and epic_worktree.epic_worktree_enabled(root):
+                worktree = record.get("worktree")
+                if not isinstance(worktree, dict):
+                    error(
+                        f"{cp_id}: package_version 3 için worktree bloğu gerekli "
+                        "(name, path, branch, epic)"
+                    )
+                else:
+                    for key in ("name", "path", "branch", "epic"):
+                        if not str(worktree.get(key) or "").strip():
+                            error(f"{cp_id}: worktree.{key} yok")
+                has_worker = bool(record.get("worker") or record.get("workers"))
+                degrade = record.get("degrade")
+                if not has_worker and not isinstance(degrade, dict):
+                    error(
+                        f"{cp_id}: Orca worker kaydı veya kayıtlı degrade gerekli"
+                    )
+                if isinstance(degrade, dict):
+                    if not str(degrade.get("reason") or "").strip():
+                        error(f"{cp_id}: degrade.reason yok")
+                    recorded = any(
+                        "run degrade:" in (body or "") for body in (comments or [])
+                    )
+                    if not recorded:
+                        error(
+                            f"{cp_id}: degrade issue'ya `run degrade:` yorumuyla "
+                            "kaydedilmemiş"
+                        )
+                orca = record.get("orca")
+                if isinstance(orca, dict):
+                    for key in ("run_id", "task_id", "dispatch_id", "outcome"):
+                        if not str(orca.get(key) or "").strip():
+                            error(f"{cp_id}: orca.{key} yok")
+                elif not isinstance(degrade, dict):
+                    error(
+                        f"{cp_id}: Orca trace (orca bloğu) yok; degrade modunda "
+                        "degrade bloğu yeterli"
+                    )
+                reviews = record.get("reviews") or {}
+                if (
+                    risk in {"high", "critical"}
+                    and reviews.get("human") == "approved"
+                    and not (isinstance(orca, dict) and orca.get("gate_id"))
+                ):
+                    warn(f"{cp_id}: insan onayı var ama Orca gate_id yok")
             verification = record.get("verification")
             if package_version >= 2 and not verification:
-                error(f"{cp_id}: package_version 2 için verification bloğu gerekli")
+                error(f"{cp_id}: package_version 2+ için verification bloğu gerekli")
             if verification:
                 for message in evidence_lib.verify(
                     verification,
@@ -1301,6 +1348,15 @@ def check_product(root: Path) -> None:
                     warn(f"package.json: '{name}' script yok")
     if not (root / "AGENTS.md").is_file():
         warn("AGENTS.md yok")
+    else:
+        prefix = "" if str(kit_root) in {".", ""} else str(kit_root)
+        for message in delivery_block.check(root, prefix):
+            warn(f"delivery block: {message}")
+        if (config.get("orca") or {}).get("epic_worktree"):
+            ignore = root / ".gitignore"
+            text = ignore.read_text(encoding="utf-8") if ignore.is_file() else ""
+            if ".orchestration/" not in text.splitlines():
+                warn(".gitignore: .orchestration/ yok")
 
     profile_capability_config = load_yaml(DELIVERY / "capabilities" / "registry.yaml") or {}
     profile_capabilities = set((profile_capability_config.get("capabilities") or {}).keys())

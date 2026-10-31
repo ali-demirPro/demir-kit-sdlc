@@ -219,6 +219,18 @@ git add demir-kit kit.config.yaml && git commit
 - Vendor kopya, kit deposunun `.gitignore` dosyasını da taşır; scriptlerin
   ürettiği `__pycache__` ürün reposunda kirletmez.
 
+**2.30 geçişi:** `init.py --apply` (veya `adopt.py --apply`) mevcut
+`kit.config.yaml`'a `orca.epic_worktree: true` ekler, `AGENTS.md`'ye
+`demir-kit:delivery` bloğunu enjekte eder ve `.orchestration/` satırını
+`.gitignore`'a yazar. Blok/flag yoksa `doctor --product` uyarır; `verify`
+`delivery: missing_block` der. Yeni leaf'ler `package_version: 3` ile mühürlenir.
+
+**2.31 geçişi:** `init.py --apply` ayrıca `orca.yaml` (`worktree.sharedDirectories`)
+ve `.worktreeinclude` (gitignored `.env` dosyaları) üretir. Orca sürümü
+karşılaştırılmaz; `orca_capabilities.py` kullanılan komut/flag'leri
+`agent-context`'ten doğrular. Kit kendi geliştirmesinde yeni Orca sürümlerine
+uyarlanır; ürün projeleri pinlemez.
+
 ## Etiketler
 
 GitHub etiketlerini kurmak için

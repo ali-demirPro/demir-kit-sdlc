@@ -13,6 +13,7 @@ import yaml
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import init as init_mod  # noqa: E402
+import delivery_block  # noqa: E402
 import standards as standards_mod  # noqa: E402
 import vendor_sync  # noqa: E402
 import verify as verify_mod  # noqa: E402
@@ -149,6 +150,16 @@ def apply(project: Path, force: bool = False, vendor: bool = False) -> dict:
         }
     )
 
+    prefix = str((data.get("init_plan", {}).get("agents_prefix") or "demir-kit"))
+    delivery = delivery_block.inject(root, prefix, apply=True)
+    steps.append(
+        {
+            "step": "delivery",
+            "changed": delivery["changed"],
+            "applied": delivery["applied"],
+        }
+    )
+
     report = verify_mod.verify_project(root)
     steps.append({"step": "verify", "ok": report["ok"], "issues": report["issues"]})
     return {
@@ -198,6 +209,10 @@ def render(data: dict) -> str:
             elif name == "standards":
                 lines.append(
                     "standards: " + ("güncellendi" if step["changed"] else "değişmedi")
+                )
+            elif name == "delivery":
+                lines.append(
+                    "delivery: " + ("güncellendi" if step["changed"] else "değişmedi")
                 )
             elif name == "verify":
                 lines.append("verify: " + ("ok" if step["ok"] else "HATA"))

@@ -185,6 +185,12 @@ class InitTests(unittest.TestCase):
             plan = init_mod.build(root)
             first = init_mod.apply_plan(plan)
             self.assertIn("kit.config.yaml", first["written"])
+            self.assertIn("AGENTS.md", first["written"])
+            agents = (root / "AGENTS.md").read_text(encoding="utf-8")
+            self.assertIn("Epic başına **tek worktree**", agents)
+            config = yaml.safe_load((root / "kit.config.yaml").read_text(encoding="utf-8"))
+            self.assertTrue(config["orca"]["epic_worktree"])
+            self.assertIn(".orchestration/", (root / ".gitignore").read_text(encoding="utf-8"))
             gate = root / "scripts" / "gate-behavior.sh"
             self.assertTrue(gate.stat().st_mode & stat.S_IXUSR)
             (root / "kit.config.yaml").write_text("custom\n", encoding="utf-8")
@@ -211,6 +217,36 @@ class InitTests(unittest.TestCase):
             init_mod.build(root)
             after = sorted(str(path.relative_to(root)) for path in root.rglob("*"))
             self.assertEqual(before, after)
+
+    def test_existing_config_gets_epic_worktree_flag(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            web_project(root)
+            (root / "kit.config.yaml").write_text(
+                "kit:\n  root: demir-kit\norca:\n  skills_required: [orca-cli]\n",
+                encoding="utf-8",
+            )
+            result = init_mod.ensure_config_flag(root)
+            self.assertTrue(result["changed"])
+            text = (root / "kit.config.yaml").read_text(encoding="utf-8")
+            self.assertIn("epic_worktree: true", text)
+            self.assertFalse(init_mod.ensure_config_flag(root)["changed"])
+
+    def test_orca_yaml_and_worktreeinclude_are_generated(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            web_project(root)
+            (root / "node_modules").mkdir()
+            (root / ".env").write_text("TOKEN=x\n", encoding="utf-8")
+            plan = init_mod.build(root)
+            init_mod.apply_plan(plan)
+            orca_yaml = (root / "orca.yaml").read_text(encoding="utf-8")
+            self.assertIn("node_modules", orca_yaml)
+            include = (root / ".worktreeinclude").read_text(encoding="utf-8")
+            self.assertIn(".env", include)
+            second = init_mod.apply_plan(plan)
+            self.assertFalse(second["orca_yaml"]["changed"])
+            self.assertFalse(second["worktreeinclude"]["changed"])
 
 
 if __name__ == "__main__":

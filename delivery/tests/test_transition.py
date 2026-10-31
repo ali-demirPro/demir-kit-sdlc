@@ -273,6 +273,11 @@ class TransitionTests(unittest.TestCase):
             with self.assertRaises(SystemExit):
                 run_transition(["--issue", "48", "--to", "blocked"])
 
+    def test_orca_status_map(self) -> None:
+        self.assertEqual(transition.orca_status_for("executing"), "in-progress")
+        self.assertEqual(transition.orca_status_for("leaf-done"), "in-review")
+        self.assertEqual(transition.orca_status_for("epic-done"), "completed")
+
 
 if __name__ == "__main__":
     unittest.main()

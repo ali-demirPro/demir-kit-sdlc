@@ -1,5 +1,58 @@
 # Changelog
 
+## 2.31.0 — 2026-10-31
+
+- **Orca capability detection** — `orca_capabilities.py` reads
+  `orca agent-context` and caches the command/flag schema under
+  `.orchestration/`. Product projects no longer compare Orca versions; missing
+  features degrade with a recorded reason. Kit self-development adapts to new
+  Orca releases. `compat.py` names the 66 commands/flags the kit relies on for
+  maintainer CI.
+- **Orca-native orchestration** — `orca_wave` resumes the epic Run with
+  `run-use`, creates one Task per CP with `task-create --deps`, starts workers
+  with `worker-start --task`, updates Tasks on settlement, and supports
+  `--model/--effort`.
+- **Gates and messages** — `orca_gate.py` adds `ask/reply/inbox/send` and
+  `gate-create/gate-resolve/gate-list`; human decisions use Orca gates plus
+  GitHub `human-qa`.
+- **Live checkpoints** — `update.py` mirrors progress to
+  `worktree set --comment --workspace-status`; `transition.py` syncs state,
+  unread/read and gate resolution. GitHub remains the durable ledger.
+- **Worktree metadata** — `epic_worktree.py` links the epic issue/reference,
+  sets metadata, exposes `worktree ps`, repo base ref and reference helpers.
+- **Report** — includes live Orca worktree/run/task/worker/gate state and
+  optional session-search links.
+- **Browser/native evidence** — `ui-gate` uses typed Orca browser commands
+  (snapshot/click/fill, console/network, screenshot/PDF, device/profile/ports);
+  `platform-gate` uses `orca computer` and `orca emulator` with artifact links.
+- **Automation templates** — `automations.py` plus disabled-by-default
+  stale-lease, weekly doctor, PR queue and weekly report jobs.
+- **Worktree speed** — `init` generates `orca.yaml` `sharedDirectories` and
+  `.worktreeinclude` for gitignored local files.
+
+## 2.30.0 — 2026-10-31
+
+- **Epic worktree** — bir epic = tek worktree + tek branch + tek PR. Yeni
+  `epic_worktree.py` (`ensure`/`check`/`sync`/`remove`/`prune`) ilk leaf claim'inde
+  `epic-<N>` worktree'sini bir kez açar; leaf'ler aynı checkout'u kullanır.
+  Rebase yasak, yeni leaf öncesi `origin/main` merge edilir.
+- **Orca sert kapısı** — `orca_gate.py` Orca'yı ölçer; worktree/run/task yoksa
+  `guard.sh` kaynak commit'ini engeller. Degrade yalnız `--degrade --reason` ile
+  issue'ya `run degrade:` yazılarak mümkün; evidence'ta `degrade` bloğu aranır.
+- **Native subagent yerine worker** — `AGENTS.md`'ye otomatik `demir-kit:delivery`
+  bloğu enjekte edilir (`delivery_block.py`, `init`/`adopt`); agent ürün reposunda
+  doğru komutları görür. `next-leaf --claim` sıradaki üç Orca komutunu yazar.
+- **Kanıt şeması** — `worktree`, `degrade`, `verification.local_gate` eklendi.
+  `package_version: 3` yeni leaf'lerde worktree + worker/degrade zorunlu.
+- **CI eşiği** — `critical` CI `success` ister; `high` yerel kapı
+  (`local_gate`, exit 0) ile kapanabilir. Kapanışta sürpriz CI hatası bitirildi.
+- **Kapanış** — `transition --to epic-done` merge edilmiş PR + temiz worktree
+  doğrular, worktree'yi siler (`--keep-worktree`); `--report` özet yayınlar.
+  `update.py --approval yes` artık `--ask` zorunlu kılar.
+- **Rapor** — commit evidence'tan, reviewer'lar rol bazında sayılır, süre
+  claim→son evidence; worktree/degrade satırları eklenir.
+- **PR akışı** — leaf PR'ları kaldırıldı; tek epic PR `epic-<E>` → `main`.
+
 ## 2.29.1 — 2026-10-30
 
 - **CHANGELOG↔VERSION drift kontrolü** — `doctor.check_version_drift` artık

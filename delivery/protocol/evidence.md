@@ -48,6 +48,18 @@ worker:
   dispatch_id: ctx_…
   agent: opencode2
   outcome: succeeded
+worktree:
+  name: epic-15
+  path: /Users/you/orca/workspaces/Product/epic-15
+  branch: epic-15
+  epic: 15
+orca:
+  run_id: run_…
+  task_id: task_…
+  dispatch_id: ctx_…
+  gate_id: gate_…          # insan kapısı varsa
+  outcome: succeeded
+  artifact: https://…      # UI/native kanıtı (opsiyonel)
 tests:
   - { case: T-1, result: pass, note: doküman kontrolü }
 findings: []
@@ -78,9 +90,16 @@ workers:
   zorunludur.
 - `package_version: 2` leaf'lerde `verification` zorunludur: commit SHA, diff hash,
   CI sonucu ve reviewer kimliği. Eski `package_version: 1` kayıtları geçerlidir.
+- `package_version: 3` leaf'lerde ayrıca `worktree` (name/path/branch/epic) ve
+  `worker`/`workers` zorunludur. Orca yoksa `worker` yerine `degrade.reason` yazılır
+  ve issue'da `run degrade:` yorumu bulunur.
+- `orca` bloğu run/task/dispatch kanıtını taşır; insan kapısı varsa `gate_id`
+  beklenir. UI/native kanıtı `orca.artifact` linkiyle eklenir. Degrade modunda
+  `orca` yerine `degrade` yeterlidir.
 - `verification.commit` git'te bulunmalı; `diff_hash` o commit'in binary diff'iyle
-  eşleşmeli. CI `success` ise run aynı commit'te ve başarılı olmalı; `high`/`critical`
-  için CI `skipped` kabul edilmez.
+  eşleşmeli. CI `success` ise run aynı commit'te ve başarılı olmalı.
+- `critical` için CI `skipped` kabul edilmez. `high` için CI `skipped` yalnız
+  `verification.local_gate` (`command`, `exit_code: 0`) ile kabul edilir.
 - Her reviewer `id`, `model`, `prompt_hash` ve `diff_hash` taşır; ID'ler benzersiz,
   uygulayıcıdan farklı ve inceledikleri diff aynı olmalı.
 - Açık bulgu (`findings[].status: open`) varsa `status: pass` olamaz.
@@ -97,7 +116,8 @@ python3 delivery/scripts/evidence.py --commit HEAD \
   --reviewer '{"role":"adversarial","id":"ses_x","model":"provider/model","prompt_hash":"sha256:..."}'
 ```
 
-`--ci-run` yerine `--ci-skipped "sebep"` kullanılabilir; `high`/`critical` için
+`--ci-run` yerine `--ci-skipped "sebep"` kullanılabilir. `high` için ayrıca
+`--local-gate "xcodebuild test ..." --local-gate-exit 0` gerekir; `critical` için
 CI zorunludur.
 
 ## Denetim

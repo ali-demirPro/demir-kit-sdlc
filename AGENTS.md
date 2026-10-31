@@ -2,7 +2,7 @@
 
 ## Repo
 
-demir-kit 2.29 — delivery-first agent system. Docs, YAML and small bash/python
+demir-kit 2.31 — delivery-first agent system. Docs, YAML and small bash/python
 scripts; Python unittest suite and CI, no app build system or package manager.
 "Correct" means the contract, registry, schemas and policies agree — `doctor.sh`
 decides.
@@ -16,6 +16,12 @@ Version lives in `VERSION`; bump it with `CHANGELOG.md` and the README header.
 ./delivery/scripts/doctor.sh --strict     # warnings are errors (CI gate)
 ./delivery/scripts/doctor.sh --issue 12   # seal + evidence for one issue
 ./delivery/scripts/next-leaf.sh --claim   # dependency-aware queue
+./delivery/scripts/epic_worktree.py ensure --epic N  # one worktree per epic
+./delivery/scripts/epic_worktree.py prune            # closed epic worktrees
+./delivery/scripts/orca_gate.py check --issue 12     # worktree + run gate
+./delivery/scripts/orca_capabilities.py --check worktree.set  # feature detect
+./delivery/scripts/compat.py --json                    # kit ↔ Orca schema
+./delivery/scripts/automations.py templates          # Orca scheduled jobs
 ./delivery/scripts/guard.sh --issue 12    # source gate (G1) + risk escalation
 ./delivery/scripts/transition.sh --issue N --to leaf-done  # single-writer transition
 ./delivery/scripts/capabilities.py --matrix   # role x capability matrix
@@ -98,3 +104,17 @@ see `delivery/policies/human-communication.md`.
 `./delivery/scripts/doctor.sh --strict` before finishing (0 warnings). CI strict is
 wired by Epic 0 #4. For a sealed leaf also run `doctor.sh --issue N`; for source
 changes run `guard.sh --issue N`.
+
+<!-- demir-kit:delivery:start -->
+## demir-kit çalışma akışı
+
+- Epic başına **tek worktree**: `orca worktree create --name epic-<N> --issue <N>`.
+- Claim: `./delivery/scripts/next-leaf.sh --claim`; epic worktree'yi bulur veya açar.
+- Kaynak değişikliği yalnız epic worktree'sinde: `./delivery/scripts/guard.sh --issue <N>` ana checkout'u reddeder.
+- Her leaf: `orca orchestration task-create` + `worker-start --worktree <epic path>`; native subagent yalnız degrade modda.
+- Leaf kapanışı: commit + evidence + `transition.sh --to leaf-done`; main'e merge yok.
+- Epic kapanışı: tek PR `epic-<N>` → main, merge, sonra `orca worktree rm`.
+- Rebase yok; yeni leaf öncesi `git merge origin/main`.
+
+Bu blok otomatik üretilir; `delivery_block.py --apply` ile yenilenir.
+<!-- demir-kit:delivery:end -->

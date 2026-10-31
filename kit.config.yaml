@@ -3,7 +3,7 @@
 
 kit:
   root: .
-  version: "2.29.1"
+  version: "2.31.0"
   protocol: "2"
   upstream:
     git: https://github.com/ali-demirPro/demir-kit-sdlc.git
@@ -19,6 +19,7 @@ orca:
   integration: delivery/protocol/execution.md
   gate_contract: delivery/policies/quality-gates.md
   orchestration_readme: delivery/protocol/execution.md
+  epic_worktree: true
 
 factory:
   default_profile: kit-internal

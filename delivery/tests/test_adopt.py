@@ -82,6 +82,8 @@ class AdoptTests(unittest.TestCase):
             agents = (root / "AGENTS.md").read_text(encoding="utf-8")
             self.assertIn(adopt.standards_mod.START, agents)
             self.assertIn("`npm run test`", agents)
+            self.assertIn(adopt.delivery_block.START, agents)
+            self.assertIn("Epic başına **tek worktree**", agents)
 
     def test_apply_api_project(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

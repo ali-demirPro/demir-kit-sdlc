@@ -22,7 +22,15 @@ The profile's `extra_gates` defines the order (e.g. after `ui` or `adversarial`)
 1. Read the checklist.
 2. Run the profile `extra_gates` command from `ecosystem.yaml` if defined;
    otherwise review-only.
-3. Return JSON pass/fail like `ui-gate`; record `reviews.platform` in evidence.
+3. Capture native/mobile evidence with Orca:
+   - macOS native: `orca computer permissions`, `list-apps`, `get-app-state`,
+     `click`, `set-value`, `paste-text`, `screenshot` (Finder/QuickLook,
+     menu bar, extension flow).
+   - iOS: `orca emulator list|attach|tap|type|gesture|button|rotate|kill`.
+   - Android: `orca-emulator-android` (adb) skill.
+   - Publish screenshots as an artifact (`orca artifacts share`) or attach the
+     local path; record `orca.artifact` in evidence.
+4. Return JSON pass/fail like `ui-gate`; record `reviews.platform` in evidence.
 
 ## Store packs
 

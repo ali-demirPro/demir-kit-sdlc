@@ -16,6 +16,15 @@ rastgele yerlerde değil.
 | `SEC` | güvenlik/auth/veri bulgusu | `blocked` + `human-qa` | düzeltme planı | **her zaman** |
 | `STALE` | claim > 2 saat | — | `-executing` + comment | hayır |
 
+## Orca mesaj ve karar akışı
+
+- Worker → coordinator sorusu: `orca orchestration ask`; cevap `reply`.
+- Coordinator → worker: `orca orchestration send --type status|escalation`.
+- İnsan kararı: `orca orchestration gate-create --task <task_id>`; onayda
+  `gate-resolve`. Aynı karar issue'ya kısa Türkçe yorum + `human-qa` olarak yazılır.
+- Gelen kutusu: `orca orchestration inbox`; `@all`/`@idle` yalnız duyuru için.
+- GitHub yorumu kalıcı kayıttır; Orca mesajı canlı koordinasyondur.
+
 ## İnsan sorusu formatı
 
 - **Türkçe**, en fazla 2 cümle, 2–4 seçenek.

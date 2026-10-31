@@ -3,8 +3,9 @@
 Leaf'i yürütülebilir hale getirme. Şema: [leaf.schema.json](../schemas/leaf.schema.json).
 Durum geçişi: `scope-confirmed` → `agent-approved` (T2).
 
-Yeni leaf'ler `package_version: 2` ile mühürlenir; bu, evidence v3
-(`verification`) zorunluluğunu getirir. `1` yalnız eski kayıtlar içindir.
+Yeni leaf'ler `package_version: 3` ile mühürlenir; bu, evidence v3
+(`verification`) ve epic worktree/worker kanıtı zorunluluğunu getirir. `2` ve `1`
+yalnız eski kayıtlar içindir.
 
 ## Girdi kontrolü
 
@@ -35,7 +36,7 @@ Yeni leaf'ler `package_version: 2` ile mühürlenir; bu, evidence v3
 
 ```yaml demir-kit
 demir_kit_version: "2"
-package_version: 2
+package_version: 3
 mode: extend
 epic: 10
 entry:

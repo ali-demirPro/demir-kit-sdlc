@@ -453,6 +453,109 @@ class EvidenceTests(DoctorTestCase):
         )
         self.assertTrue(doctor.validate_schema(record, EVIDENCE_SCHEMA))
 
+    def verification(self) -> dict:
+        return {
+            "commit": "a" * 40,
+            "diff_hash": "sha256:" + "0" * 64,
+            "ci": {"status": "skipped", "reason": "unit test"},
+            "reviewers": [
+                {
+                    "role": "adversarial",
+                    "id": "rev_a",
+                    "model": "test-model",
+                    "prompt_hash": "sha256:" + "0" * 64,
+                    "diff_hash": "sha256:" + "0" * 64,
+                }
+            ],
+        }
+
+    def worktree(self) -> dict:
+        return {
+            "name": "epic-1",
+            "path": "/tmp/epic-1",
+            "branch": "epic-1",
+            "epic": 1,
+        }
+
+    def worker(self) -> dict:
+        return {
+            "run_id": "run_x",
+            "task_id": "task_x",
+            "dispatch_id": "ctx_x",
+            "agent": "opencode2",
+            "outcome": "succeeded",
+        }
+
+    def test_package_v3_requires_worktree(self) -> None:
+        record = evidence(worker=self.worker(), verification=self.verification())
+        with patch.object(doctor.evidence_lib, "verify", return_value=[]):
+            self.run_leaf_done(record, data=leaf(package_version=3))
+        self.assertTrue(any("worktree bloğu" in item for item in doctor.ERRORS))
+
+    def test_package_v3_requires_worker_or_degrade(self) -> None:
+        record = evidence(worktree=self.worktree(), verification=self.verification())
+        with patch.object(doctor.evidence_lib, "verify", return_value=[]):
+            self.run_leaf_done(record, data=leaf(package_version=3))
+        self.assertTrue(any("worker kaydı" in item for item in doctor.ERRORS))
+
+    def test_package_v3_valid_with_worker(self) -> None:
+        record = evidence(
+            worktree=self.worktree(),
+            worker=self.worker(),
+            orca={
+                "run_id": "run_x",
+                "task_id": "task_x",
+                "dispatch_id": "ctx_x",
+                "outcome": "succeeded",
+            },
+            verification=self.verification(),
+        )
+        with patch.object(doctor.evidence_lib, "verify", return_value=[]):
+            self.run_leaf_done(record, data=leaf(package_version=3))
+        self.assertEqual(doctor.ERRORS, [])
+
+    def test_package_v3_degrade_requires_issue_record(self) -> None:
+        record = evidence(
+            worktree=self.worktree(),
+            degrade={"reason": "Orca kapalı"},
+            verification=self.verification(),
+        )
+        with patch.object(doctor.evidence_lib, "verify", return_value=[]):
+            self.run_leaf_done(record, data=leaf(package_version=3))
+        self.assertTrue(any("run degrade" in item for item in doctor.ERRORS))
+
+    def test_package_v3_degrade_with_record_is_valid(self) -> None:
+        record = evidence(
+            worktree=self.worktree(),
+            degrade={"reason": "Orca kapalı"},
+            verification=self.verification(),
+        )
+        with patch.object(doctor.evidence_lib, "verify", return_value=[]):
+            doctor.check_issue_body(
+                fenced("demir-kit", leaf(package_version=3)),
+                ["leaf-done"],
+                [
+                    fenced("demir-kit-evidence", record),
+                    "run degrade: issue #8\nreason: Orca kapalı",
+                ],
+            )
+        self.assertEqual(doctor.ERRORS, [])
+
+    def test_orca_block_schema(self) -> None:
+        record = evidence(
+            orca={
+                "run_id": "run_x",
+                "task_id": "task_x",
+                "dispatch_id": "ctx_x",
+                "outcome": "succeeded",
+            }
+        )
+        self.assertEqual(doctor.validate_schema(record, EVIDENCE_SCHEMA), [])
+
+    def test_orca_block_requires_dispatch(self) -> None:
+        record = evidence(orca={"run_id": "run_x"})
+        self.assertTrue(doctor.validate_schema(record, EVIDENCE_SCHEMA))
+
 
 class ClosureTests(DoctorTestCase):
     def closure(self, **overrides) -> dict:

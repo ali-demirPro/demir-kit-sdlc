@@ -528,6 +528,90 @@ class NotifyTests(unittest.TestCase):
             sum(1 for call in calls if "worker-release" in call), 2
         )
 
+    def test_task_and_worker_commands_use_task_mode(self) -> None:
+        task = {"id": "CP-1", "title": "Config", "spec": "spec", "deps": []}
+        task_cmd = orca_wave.task_command(task, "run_x", ["task_a"])
+        self.assertIn("task-create", task_cmd)
+        self.assertIn("--task-title", task_cmd)
+        self.assertIn("Config", task_cmd)
+        self.assertIn("--deps", task_cmd)
+        self.assertIn("task_a", " ".join(task_cmd))
+        worker = orca_wave.start_command(
+            task,
+            agent="opencode2",
+            worktree="/tmp/epic-1",
+            task_id="task_1",
+            run_id="run_x",
+            model="deepseek",
+            effort="high",
+        )
+        self.assertIn("--task", worker)
+        self.assertIn("task_1", worker)
+        self.assertIn("--model", worker)
+        self.assertIn("--effort", worker)
+        self.assertNotIn("--spec", worker)
+
+    def test_execute_wave_uses_task_create_and_update(self) -> None:
+        calls: list[list[str]] = []
+
+        def fake(args):
+            calls.append(args)
+            if args[:2] == ["orchestration", "run-create"]:
+                return json.dumps({"ok": True, "result": {"run": {"id": "run_x"}}})
+            if args[:2] == ["orchestration", "task-create"]:
+                return json.dumps(
+                    {"ok": True, "result": {"taskId": "task_cp1"}}
+                )
+            if args[:2] == ["orchestration", "worker-start"]:
+                return json.dumps(
+                    {
+                        "ok": True,
+                        "result": {
+                            "taskId": "task_cp1",
+                            "dispatchId": "ctx_1",
+                            "effects": [],
+                        },
+                    }
+                )
+            if args[:2] == ["orchestration", "check"]:
+                return json.dumps(
+                    {
+                        "ok": True,
+                        "result": {
+                            "messages": [
+                                {
+                                    "type": "worker_done",
+                                    "subject": "done",
+                                    "payload": {
+                                        "dispatchId": "ctx_1",
+                                        "outcome": "succeeded",
+                                    },
+                                }
+                            ]
+                        },
+                    }
+                )
+            return json.dumps({"ok": True, "result": {}})
+
+        original = orca_wave.orca
+        orca_wave.orca = fake
+        try:
+            summary = orca_wave.execute_wave(
+                {"tasks": [{"id": "CP-1", "title": "T", "spec": "S", "deps": []}]},
+                self._args(),
+            )
+        finally:
+            orca_wave.orca = original
+
+        self.assertEqual(summary["run_id"], "run_x")
+        worker_calls = [call for call in calls if call[:2] == ["orchestration", "worker-start"]]
+        self.assertTrue(worker_calls)
+        self.assertIn("--task", worker_calls[0])
+        self.assertIn("task_cp1", worker_calls[0])
+        self.assertTrue(
+            any(call[:2] == ["orchestration", "task-update"] for call in calls)
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

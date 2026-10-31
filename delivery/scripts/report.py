@@ -8,6 +8,7 @@ import json
 import re
 import subprocess
 import sys
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -88,6 +89,77 @@ def extract_progress(comments: list[dict]) -> dict:
             if match:
                 target.append(match.group(1).strip())
     return {"decisions": decisions, "problems": problems, "done": done}
+
+
+def reviewer_roles(items: list[dict]) -> set[str]:
+    roles: set[str] = set()
+    for item in items:
+        for record in item.get("evidence", []):
+            reviews = record.get("reviews") or {}
+            if reviews.get("architect") == "approved":
+                roles.add("architect")
+            if reviews.get("commercial") == "approved":
+                roles.add("commercial")
+            adversarial = reviews.get("adversarial") or {}
+            if isinstance(adversarial, dict):
+                if adversarial.get("reviewer_a") == "approved":
+                    roles.add("adversarial-a")
+                if adversarial.get("reviewer_b") == "approved":
+                    roles.add("adversarial-b")
+            if reviews.get("platform") == "pass":
+                roles.add("platform")
+            if reviews.get("human") == "approved":
+                roles.add("human")
+            if reviews.get("human_second") == "approved":
+                roles.add("human-second")
+            if reviews.get("ui_visual") == "pass":
+                roles.add("ui-visual")
+            if reviews.get("ui_interaction") == "pass":
+                roles.add("ui-interaction")
+    return roles
+
+
+def evidence_commits(items: list[dict]) -> list[str]:
+    commits: list[str] = []
+    for item in items:
+        for record in item.get("evidence", []):
+            verification = record.get("verification") or {}
+            commit = str(verification.get("commit") or record.get("commit") or "")
+            if commit and commit not in commits:
+                commits.append(commit)
+    return commits
+
+
+def worktree_records(items: list[dict]) -> list[dict]:
+    records: list[dict] = []
+    for item in items:
+        for record in item.get("evidence", []):
+            worktree = record.get("worktree")
+            if isinstance(worktree, dict) and worktree not in records:
+                records.append(worktree)
+    return records
+
+
+def claim_time(items: list[dict]) -> datetime | None:
+    stamps = []
+    for item in items:
+        for comment in item.get("comments") or []:
+            body = comment.get("body") or ""
+            if "run claim:" in body:
+                stamp = parse_ts(comment.get("created_at"))
+                if stamp:
+                    stamps.append(stamp)
+    return min(stamps) if stamps else None
+
+
+def evidence_time(items: list[dict]) -> datetime | None:
+    stamps = []
+    for item in items:
+        for record in item.get("evidence", []):
+            stamp = parse_ts(record.get("_created_at"))
+            if stamp:
+                stamps.append(stamp)
+    return max(stamps) if stamps else None
 
 
 def parse_ts(value: str | None) -> datetime | None:
@@ -184,6 +256,129 @@ def collect_commits(since: datetime, until: datetime) -> list[str]:
     return [line for line in output.splitlines() if line.strip()]
 
 
+def _orca(args: list[str]) -> dict | None:
+    try:
+        result = subprocess.run(
+            ["orca", *args],
+            cwd=PROJECT,
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return None
+    if result.returncode != 0:
+        return None
+    try:
+        data = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def collect_sessions(query: str) -> list[dict]:
+    """Link agent transcripts without copying their content into the report."""
+    data = _orca(
+        [
+            "search",
+            "--query",
+            query,
+            "--scope",
+            "all",
+            "--limit",
+            "5",
+            "--sort",
+            "newest",
+            "--json",
+        ]
+    )
+    rows = ((data or {}).get("result") or {}).get("results") or []
+    if not isinstance(rows, list):
+        return []
+    return [
+        {
+            "id": row.get("sessionId") or row.get("id"),
+            "title": row.get("title") or row.get("preview"),
+            "agent": row.get("agent"),
+            "path": row.get("path"),
+        }
+        for row in rows
+        if isinstance(row, dict)
+    ]
+
+
+def share_artifact(report_text: str, issue: int) -> str | None:
+    """Publish the Markdown report when Orca artifact sharing is enabled."""
+    with tempfile.NamedTemporaryFile(
+        "w", suffix=".md", prefix=f"report-{issue}-", delete=False, encoding="utf-8"
+    ) as handle:
+        handle.write(report_text)
+        path = handle.name
+    data = _orca(["artifacts", "share", path, "--json"])
+    if not data:
+        return None
+    result = data.get("result") or {}
+    return str(result.get("url") or result.get("artifactUrl") or "") or None
+
+
+def collect_orca(epic: int) -> dict:
+    """Best-effort live Orca state for the report; never fails the report."""
+    data: dict = {}
+    current = _orca(["worktree", "current", "--json"])
+    worktree = ((current or {}).get("result") or {}).get("worktree")
+    if isinstance(worktree, dict):
+        data["worktree"] = {
+            key: worktree.get(key)
+            for key in (
+                "displayName",
+                "path",
+                "branch",
+                "comment",
+                "workspaceStatus",
+                "linkedIssue",
+                "linkedPR",
+            )
+            if worktree.get(key) not in (None, "")
+        }
+    state_path = PROJECT / ".orchestration" / f"epic-{epic}.json"
+    try:
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError):
+        state = {}
+    run_id = str(state.get("run_id") or "")
+    if run_id:
+        data["run_id"] = run_id
+        tasks = _orca(["orchestration", "task-list", "--run", run_id, "--json"])
+        rows = ((tasks or {}).get("result") or {}).get("tasks") or []
+        if isinstance(rows, list):
+            data["tasks"] = [
+                {
+                    "id": row.get("id"),
+                    "title": row.get("task_title") or row.get("display_name"),
+                    "status": row.get("status"),
+                }
+                for row in rows
+                if isinstance(row, dict)
+            ]
+        workers = _orca(["orchestration", "worker-list", "--run", run_id, "--json"])
+        rows = ((workers or {}).get("result") or {}).get("workers") or []
+        if isinstance(rows, list):
+            data["workers"] = len(rows)
+        gates = _orca(["orchestration", "gate-list", "--json"])
+        rows = ((gates or {}).get("result") or {}).get("gates") or []
+        if isinstance(rows, list):
+            data["gates"] = [
+                {"id": row.get("id"), "question": row.get("question"), "status": row.get("status")}
+                for row in rows
+                if isinstance(row, dict) and row.get("status") != "resolved"
+            ]
+    ps = _orca(["worktree", "ps", "--json"])
+    rows = ((ps or {}).get("result") or {}).get("worktrees") or []
+    if isinstance(rows, list):
+        data["fleet"] = len(rows)
+    return data
+
+
 def build_report(
     issue: dict,
     children: list[dict],
@@ -192,6 +387,7 @@ def build_report(
     start=None,
     end=None,
     delta: dict | None = None,
+    orca: dict | None = None,
 ) -> str:
     all_items = [issue] + children
     agents = sorted(
@@ -209,12 +405,16 @@ def build_report(
                 worker_records.append(record["worker"])
             worker_records.extend(record.get("workers") or [])
 
-    reviewers = sum(
-        1
+    roles = reviewer_roles(all_items)
+    reviewers = len(roles)
+    worktrees = worktree_records(all_items)
+    degrades = [
+        record.get("degrade")
         for item in all_items
         for record in item.get("evidence", [])
-        if (record.get("reviews") or {}).get("adversarial", {}).get("reviewer_a") == "approved"
-    )
+        if isinstance(record.get("degrade"), dict)
+    ]
+    commits = evidence_commits(all_items) or commits
 
     if not start:
         starts = [parse_ts(item.get("created_at")) for item in all_items]
@@ -231,6 +431,8 @@ def build_report(
     if reviewers:
         who.append(f"{reviewers} reviewer onayı")
     who.append(f"{len(worker_records)} Orca worker" if worker_records else "0 Orca worker")
+    if degrades:
+        who.append(f"{len(degrades)} degrade kaydı")
     if "epic-done" in issue["labels"]:
         who.append("1 insan (onayladı)")
     elif "human-qa" in issue["labels"]:
@@ -269,6 +471,29 @@ def build_report(
     lines.append(f"**Kararlar:** {'; '.join(progress['decisions'][-3:]) or 'Kayıtlı karar yok.'}")
     lines.append(f"**Sorunlar:** {'; '.join(progress['problems'][-3:]) or 'Kayıtlı sorun yok.'}")
 
+    orca = orca or {}
+    if orca:
+        wt = orca.get("worktree") or {}
+        parts = []
+        if wt.get("displayName"):
+            parts.append(str(wt["displayName"]))
+        if wt.get("branch"):
+            parts.append(f"branch {wt['branch']}")
+        if orca.get("run_id"):
+            parts.append(f"run {orca['run_id']}")
+        if orca.get("tasks"):
+            done = sum(1 for item in orca["tasks"] if item.get("status") == "completed")
+            parts.append(f"task {done}/{len(orca['tasks'])}")
+        if orca.get("workers"):
+            parts.append(f"{orca['workers']} worker")
+        if orca.get("gates"):
+            parts.append(f"{len(orca['gates'])} açık gate")
+        if orca.get("fleet"):
+            parts.append(f"fleet {orca['fleet']}")
+        lines.append("**Orca:** " + (" · ".join(parts) or "canlı kayıt yok"))
+        if wt.get("comment"):
+            lines.append(f"**Orca notu:** {str(wt['comment']).splitlines()[0]}")
+
     totals = usage.get("totals") or {}
     unavailable = len(usage.get("unavailable") or [])
     measured = int(totals.get("measured_sessions") or 0)
@@ -301,6 +526,24 @@ def build_report(
 
     details = [f"- Issue: #{item['number']}" for item in all_items]
     details += [f"- Commit: {commit}" for commit in commits]
+    for worktree in worktrees:
+        details.append(
+            f"- Worktree: {worktree.get('name')} / {worktree.get('branch')} / "
+            f"{worktree.get('path')}"
+        )
+    for degrade in degrades:
+        details.append(f"- Degrade: {degrade.get('reason')}")
+    for task in orca.get("tasks") or []:
+        details.append(
+            f"- Orca task: {task.get('id')} / {task.get('status')} / {task.get('title')}"
+        )
+    for gate in orca.get("gates") or []:
+        details.append(f"- Orca gate: {gate.get('id')} / {gate.get('question')}")
+    for session in orca.get("sessions") or []:
+        details.append(
+            f"- Oturum: {session.get('agent') or '-'} / "
+            f"{session.get('title') or session.get('id') or '-'}"
+        )
     for worker in worker_records:
         details.append(
             f"- Worker: {worker.get('task_id')} / {worker.get('dispatch_id')} / {worker.get('outcome')}"
@@ -317,6 +560,12 @@ def main() -> int:
     parser.add_argument("--since")
     parser.add_argument("--until")
     parser.add_argument("--post", action="store_true")
+    parser.add_argument("--sessions", action="store_true", help="Orca oturum linkleri")
+    parser.add_argument(
+        "--artifact",
+        action="store_true",
+        help="raporu Orca artifact olarak paylaş (publishing opt-in)",
+    )
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
 
@@ -329,19 +578,50 @@ def main() -> int:
 
     end = parse_time(args.until)
     start = parse_time(args.since)
+    items = [epic] + children
     if not start:
-        timestamps = [parse_ts(item["created_at"]) for item in [epic] + children]
-        start = min((item for item in timestamps if item), default=datetime.now(timezone.utc))
+        start = claim_time(items)
+        if not start:
+            timestamps = [parse_ts(item["created_at"]) for item in items]
+            start = min((item for item in timestamps if item), default=datetime.now(timezone.utc))
     if not end:
-        timestamps = [parse_ts(item["updated_at"]) for item in [epic] + children]
-        end = max((item for item in timestamps if item), default=datetime.now(timezone.utc))
+        end = evidence_time(items)
+        if not end:
+            timestamps = [parse_ts(item["updated_at"]) for item in items]
+            end = max((item for item in timestamps if item), default=datetime.now(timezone.utc))
 
     usage = collect_usage(start, end)
     commits = collect_commits(start, end)
-    report = build_report(epic, children, usage, commits, start, end, collect_delta(args.issue))
+    epic_for_orca = args.issue
+    if not children:
+        seal = routing.seal_body(epic["body"])
+        epic_for_orca = int(seal.get("epic") or args.issue)
+    orca_data = collect_orca(epic_for_orca)
+    if args.sessions:
+        orca_data["sessions"] = collect_sessions(f"#{args.issue}")
+    report = build_report(
+        epic,
+        children,
+        usage,
+        commits,
+        start,
+        end,
+        collect_delta(args.issue),
+        orca=orca_data,
+    )
+    if args.artifact:
+        url = share_artifact(report, args.issue)
+        if url:
+            report += f"\n**Artifact:** {url}\n"
+        else:
+            print(
+                "report: Orca artifact paylaşımı kapalı veya başarısız; "
+                "yerel rapor kullanıldı",
+                file=sys.stderr,
+            )
 
     if args.json:
-        print(json.dumps({"issue": args.issue, "report": report, "usage": usage, "commits": commits}, ensure_ascii=False, indent=2))
+        print(json.dumps({"issue": args.issue, "report": report, "usage": usage, "commits": commits, "orca": orca_data}, ensure_ascii=False, indent=2))
     elif args.post:
         subprocess.run(
             [

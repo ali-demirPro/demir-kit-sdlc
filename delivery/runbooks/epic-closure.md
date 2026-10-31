@@ -92,6 +92,8 @@ python3 delivery/scripts/report.py --issue <epic> --post
   toplamı ayrı satırda gösterilir.
 
 - Aynı kısa özet sohbet sonunda da verilir.
+- **Tek epic PR'ı**: `epic-<E>` → `main`. `delivery-doctor` yeşil olmadan merge
+  edilmez; merge insan kabulüdür. Squash değil merge commit kullanılır.
 - İnsan onayı: [human-qa-done](../policies/human-qa-done.md) epic bölümü →
   İnsan, issue'ya `demir-kit-accept` bloğunu **kendi GitHub hesabıyla** yazar;
   ardından `transition.sh --issue N --to epic-done` çalışır. Transition bloğu
@@ -108,6 +110,11 @@ decision: accepted
 
   `by` GitHub login'iyle eşleşmezse veya son insan kararı `rejected` ise epic
   kapanmaz.
+
+- `transition.sh --to epic-done` merge edilmiş PR'ı ve temiz worktree'yi doğrular;
+  ana checkout'tan çalıştırıldıysa `epic-<E>` worktree'sini siler
+  (`--keep-worktree` ile korunur). Kapanmış epic worktree'leri:
+  `epic_worktree.py prune`.
 
 ## Kurallar
 

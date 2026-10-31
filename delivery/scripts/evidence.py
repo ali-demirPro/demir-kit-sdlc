@@ -110,8 +110,20 @@ def verify(
     elif status == "skipped":
         if not str(ci.get("reason") or "").strip():
             errors.append("CI skipped için reason yok")
-        if risk in {"high", "critical"}:
-            errors.append(f"risk {risk} için CI skipped kabul edilmez")
+        if risk == "critical":
+            errors.append("risk critical için CI skipped kabul edilmez")
+        elif risk == "high":
+            local = record.get("local_gate")
+            if not isinstance(local, dict):
+                errors.append(
+                    "risk high için CI skipped yalnız yerel kapı kaydıyla kabul edilir "
+                    "(local_gate)"
+                )
+            else:
+                if not str(local.get("command") or "").strip():
+                    errors.append("local_gate.command yok")
+                if local.get("exit_code") != 0:
+                    errors.append("local_gate.exit_code 0 değil")
     else:
         errors.append("CI status success veya skipped olmalı")
 
@@ -153,6 +165,8 @@ def build(
     ci_skipped: str | None,
     reviewers: list[str],
     root: Path = ROOT,
+    local_gate: str | None = None,
+    local_gate_exit: int = 0,
 ) -> dict:
     resolved = resolve_commit(commit, root)
     if not resolved:
@@ -180,12 +194,18 @@ def build(
             item["diff_hash"] = expected
         parsed.append(item)
 
-    return {
+    data = {
         "commit": resolved,
         "diff_hash": expected,
         "ci": ci,
         "reviewers": parsed,
     }
+    if local_gate:
+        data["local_gate"] = {
+            "command": local_gate,
+            "exit_code": int(local_gate_exit),
+        }
+    return data
 
 
 def main() -> int:
@@ -194,6 +214,10 @@ def main() -> int:
     parser.add_argument("--implementer")
     parser.add_argument("--ci-run")
     parser.add_argument("--ci-skipped")
+    parser.add_argument("--local-gate", help="high risk için yerel kapı komutu")
+    parser.add_argument(
+        "--local-gate-exit", type=int, default=0, help="yerel kapı exit kodu"
+    )
     parser.add_argument("--reviewer", action="append", default=[])
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
@@ -205,6 +229,8 @@ def main() -> int:
             args.ci_run,
             args.ci_skipped,
             args.reviewer,
+            local_gate=args.local_gate,
+            local_gate_exit=args.local_gate_exit,
         )
     except ValueError as exc:
         sys.exit(f"evidence: {exc}")
