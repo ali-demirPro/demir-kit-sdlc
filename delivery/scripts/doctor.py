@@ -848,13 +848,14 @@ def check_issue_body(
     signals = resolver_lib.scoped_signals(ecosystem, data)
     declared = resolver_lib.load_declared(root)
     # Historical evidence must stay valid after a project-level exclude; the
-    # seal's own surfaces decide which roles could have produced it.
+    # seal's own surfaces decide which roles could have produced it. Risk floor
+    # and capability gaps, however, must honour the project's real excludes.
     declared_for_issue = {
         "version": 1,
         "include": declared.get("include") or [],
         "exclude": [],
     }
-    resolution = resolver_lib.resolve(
+    resolution_for_evidence = resolver_lib.resolve(
         capability_registry,
         resolver_lib.load_matrix(),
         resolver_lib.load_agent_variants(),
@@ -863,7 +864,16 @@ def check_issue_body(
         f"{title}\n{data.get('intent', '')}\n{routing.strip_seal(body)}",
         declared=declared_for_issue,
     )
-    for capability in resolution["capabilities"]:
+    resolution = resolver_lib.resolve(
+        capability_registry,
+        resolver_lib.load_matrix(),
+        resolver_lib.load_agent_variants(),
+        path_id,
+        signals,
+        f"{title}\n{data.get('intent', '')}\n{routing.strip_seal(body)}",
+        declared=declared,
+    )
+    for capability in resolution_for_evidence["capabilities"]:
         allowed_agents.update(
             ((capability_registry.get("capabilities") or {}).get(capability) or {})
             .get("roles", {})
