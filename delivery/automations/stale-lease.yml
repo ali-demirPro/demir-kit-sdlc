@@ -1,0 +1,11 @@
+# Stale lease temizliği — varsayılan kapalı.
+name: "demir-kit stale lease"
+trigger: "0 9 * * 1-5"
+timezone: "Europe/Istanbul"
+prompt: >-
+  Demir-kit kuyruğunu kontrol et. `next-leaf.py --list` çalıştır; lease'i bayat
+  olan leaf varsa `next-leaf.py --release --issue N --reason "stale lease"`
+  ile bırak ve issue'ya kısa Türkçe bir not yaz. Yeni iş başlatma, kod değiştirme.
+provider: "opencode2"
+precheck: "python3 demir-kit/delivery/scripts/next-leaf.py --list"
+reuse_session: false

@@ -14,6 +14,7 @@ from pathlib import Path
 import yaml
 
 import approvals
+import epic_worktree
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPTS = Path(__file__).resolve().parent
@@ -163,6 +164,93 @@ def doctor_ok(number: int, target: str, removes: list[str]) -> tuple[bool, str]:
     return result.returncode == 0, (result.stdout + result.stderr).strip()
 
 
+def orca_run(args: list[str]) -> tuple[bool, str]:
+    try:
+        result = subprocess.run(
+            ["orca", *args], capture_output=True, text=True
+        )
+    except FileNotFoundError:
+        return False, "orca CLI yok"
+    return result.returncode == 0, (result.stderr.strip() or result.stdout.strip())
+
+
+def orca_status_for(target: str) -> str:
+    return {
+        "scope-confirmed": "todo",
+        "agent-approved": "todo",
+        "executing": "in-progress",
+        "blocked": "in-progress",
+        "deferred": "todo",
+        "leaf-done": "in-review",
+        "epic-reconcile": "in-review",
+        "epic-done": "completed",
+    }.get(target, "in-progress")
+
+
+def sync_orca(number: int, target: str, epic: int | None) -> None:
+    """Mirror a state transition into the epic worktree metadata."""
+    epic_number = epic or number
+    state = epic_worktree.load_state(Path.cwd(), epic_number)
+    if not state or state.get("mode") == "degrade":
+        return
+    name = f"epic-{epic_number}"
+    args = [
+        "worktree",
+        "set",
+        "--worktree",
+        f"name:{name}",
+        "--comment",
+        f"#{number} → {target}",
+        "--workspace-status",
+        orca_status_for(target),
+        "--json",
+    ]
+    if target == "agent-approved":
+        args.insert(-1, "--unread")
+    elif target == "leaf-done":
+        args.insert(-1, "--read")
+    ok, message = orca_run(args)
+    if not ok:
+        print(f"transition: Orca durumu yazılamadı — {message}", file=sys.stderr)
+
+
+def epic_pr_merged(epic: int) -> tuple[bool, str]:
+    """A merged epic PR is the only path into main."""
+    state = epic_worktree.load_state(Path.cwd(), epic)
+    if not state:
+        return True, ""
+    branch = str(state.get("branch") or "")
+    if branch.startswith("refs/heads/"):
+        branch = branch[11:]
+    if not branch:
+        return True, ""
+    try:
+        raw = gh(
+            [
+                "pr",
+                "list",
+                "--head",
+                branch,
+                "--state",
+                "merged",
+                "--json",
+                "number,url",
+            ]
+        )
+    except SystemExit:
+        return False, f"epic PR durumu okunamadı ({branch})"
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        return False, f"epic PR durumu okunamadı ({branch})"
+    if not data:
+        return False, (
+            f"epic branch '{branch}' için merge edilmiş PR yok; "
+            "önce tek epic PR'ını aç ve merge et"
+        )
+    return True, ""
+
+
 def validate(issue: dict, target: str, args) -> tuple[bool, str]:
     epic = is_epic(issue)
     state = current_state(issue, epic)
@@ -251,6 +339,21 @@ def validate(issue: dict, target: str, args) -> tuple[bool, str]:
             )
         if args.accept and str(args.accept) != acceptance["by"]:
             return False, f"--accept '{args.accept}' insan onayıyla eşleşmiyor"
+        state = epic_worktree.load_state(Path.cwd(), int(issue.get("number") or 0))
+        if state.get("path") and Path(str(state["path"])).is_dir():
+            status = subprocess.run(
+                ["git", "status", "--porcelain"],
+                cwd=str(state["path"]),
+                capture_output=True,
+                text=True,
+            )
+            if status.returncode != 0:
+                return False, "epic worktree durumu okunamadı"
+            if status.stdout.strip():
+                return False, "epic worktree temiz değil; commit veya stash et"
+        merged, message = epic_pr_merged(int(issue.get("number") or 0))
+        if not merged:
+            return False, message
     return True, ""
 
 
@@ -297,6 +400,19 @@ def main() -> int:
     parser.add_argument(
         "--accept", default="", help="epic-done insan login doğrulaması (opsiyonel)"
     )
+    parser.add_argument(
+        "--keep-worktree",
+        action="store_true",
+        help="epic-done sonrası worktree'yi silme",
+    )
+    parser.add_argument(
+        "--report",
+        action="store_true",
+        help="geçiş sonrası report.py --post çalıştır",
+    )
+    parser.add_argument("--gate", help="onayla birlikte çözülecek Orca gate id")
+    parser.add_argument("--resolution", default="approved", help="gate çözümü")
+    parser.add_argument("--no-orca", action="store_true", help="Orca metadata yazma")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
@@ -362,6 +478,58 @@ def main() -> int:
         post_comment(args.issue, transition_comment)
         added, removed = apply_delta(args.issue, labels_of(issue), args.to)
         applied = {"add": added, "remove": removed}
+
+    if not args.no_orca:
+        seal = parse_seal(issue.get("body") or "")
+        sync_orca(
+            args.issue,
+            args.to,
+            None if epic else seal.get("epic"),
+        )
+
+    if args.gate:
+        ok, message = orca_run(
+            [
+                "orchestration",
+                "gate-resolve",
+                "--id",
+                str(args.gate),
+                "--resolution",
+                str(args.resolution),
+                "--json",
+            ]
+        )
+        if not ok:
+            print(f"transition: gate çözülemedi — {message}", file=sys.stderr)
+
+    if args.report:
+        subprocess.run(
+            [
+                sys.executable,
+                str(SCRIPTS / "report.py"),
+                "--issue",
+                str(args.issue),
+                "--post",
+            ],
+            cwd=Path.cwd(),
+            check=False,
+        )
+
+    if args.to == "epic-done" and not args.keep_worktree:
+        state = epic_worktree.load_state(Path.cwd(), args.issue)
+        if state:
+            worktree_path = Path(str(state.get("path") or "")).resolve()
+            if Path.cwd().resolve() == worktree_path:
+                print(
+                    "transition: worktree'yi silmek için ana checkout'tan çalıştır "
+                    "veya --keep-worktree kullan",
+                    file=sys.stderr,
+                )
+            else:
+                try:
+                    epic_worktree.remove(args.issue, Path.cwd())
+                except epic_worktree.WorktreeError as exc:
+                    print(f"transition: worktree silinemedi — {exc}", file=sys.stderr)
 
     result = {
         "issue": args.issue,

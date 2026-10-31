@@ -16,6 +16,17 @@ Risk modeli C: `low`/`medium` leaf otomatik, `high`/`critical` leaf insan,
 
 Label: **`leaf-done`** (epic henüz kapanmaz). `critical` ise ikinci imza.
 
+## Orca ile kanıt toplama
+
+- İnceleme yüzeyi: `orca file open-changed --mode both --worktree active`.
+- Dikkat çekme: `orca worktree set --worktree active --workspace-status in-review --unread`.
+- Karar kapısı: `orca_gate.py gate-create --task <task_id> --question "..."` ve
+  onayda `gate-resolve`; aynı karar issue'ya kısa Türkçe yorum olarak yazılır.
+- Basit native kontrol (Finder/QuickLook/menü): `orca computer get-app-state` →
+  `click`/`set-value` → `screenshot`; ekran görüntüsü artifact veya issue eki.
+- Web kontrolü: `ui-gate` adımları (`snapshot`, `screenshot`, `console`).
+- İnsan yalnız karar verir; kanıt toplama otomatiktir.
+
 ## Epic human-qa (her zaman)
 
 Epic closure raporu (`runbooks/epic-closure.md`) **geçtikten sonra**:

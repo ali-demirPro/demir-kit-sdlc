@@ -34,6 +34,59 @@ def repo_name() -> str:
     return repo
 
 
+def orca_checkpoint(kind: str, what: str, next_step: str | None, approval: bool) -> dict | None:
+    """Mirror the human update into Orca's worktree checkpoint/status."""
+    if approval:
+        status = "in-review"
+    elif kind == "summary":
+        status = "completed"
+    else:
+        status = "in-progress"
+    comment = what.strip()
+    if next_step:
+        comment += f"\nsonraki: {next_step.strip()}"
+    current = None
+    try:
+        current = subprocess.run(
+            ["orca", "worktree", "current", "--json"],
+            capture_output=True,
+            text=True,
+        )
+    except (FileNotFoundError, OSError):
+        return None
+    if current.returncode != 0:
+        return None
+    try:
+        payload = json.loads(current.stdout)
+    except json.JSONDecodeError:
+        return None
+    worktree = ((payload.get("result") or {}).get("worktree")) or {}
+    path = str(worktree.get("path") or "")
+    if not path:
+        return None
+    command = [
+        "orca",
+        "worktree",
+        "set",
+        "--worktree",
+        f"path:{path}",
+        "--comment",
+        comment,
+        "--workspace-status",
+        status,
+        "--json",
+    ]
+    if approval:
+        command.insert(-1, "--unread")
+    try:
+        result = subprocess.run(command, capture_output=True, text=True)
+    except (FileNotFoundError, OSError):
+        return {"ok": False, "error": "orca CLI yok"}
+    if result.returncode != 0:
+        return {"ok": False, "error": result.stderr.strip() or result.stdout.strip()}
+    return {"ok": True, "status": status, "path": path}
+
+
 def render(
     kind: str,
     who: str,
@@ -115,11 +168,21 @@ def main() -> int:
     parser.add_argument("--next", dest="next_step")
     parser.add_argument("--approval", choices=["yes", "no"], default="no")
     parser.add_argument("--ask")
+    parser.add_argument(
+        "--human-gate",
+        action="store_true",
+        help="insan kapısı: --approval yes + --ask zorunlu",
+    )
+    parser.add_argument("--no-orca", action="store_true", help="Orca checkpoint yazma")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
 
     if not args.what.strip():
         sys.exit("update: --what boş olamaz")
+    if args.human_gate:
+        args.approval = "yes"
+    if args.approval == "yes" and not (args.ask or "").strip():
+        sys.exit("update: --approval yes için --ask \"...\" gerekli")
 
     body = render(
         args.kind,
@@ -139,6 +202,21 @@ def main() -> int:
         post_comment(repo, args.issue, body)
         if args.approval == "yes":
             request_approval(repo, args.issue)
+        if not args.no_orca:
+            synced = orca_checkpoint(
+                args.kind,
+                args.what.strip(),
+                args.next_step,
+                args.approval == "yes",
+            )
+            if synced is None:
+                print("update: Orca worktree bulunamadı; checkpoint yazılmadı", file=sys.stderr)
+            elif not synced.get("ok"):
+                print(
+                    "update: Orca checkpoint yazılamadı — "
+                    + str(synced.get("error") or "bilinmeyen hata"),
+                    file=sys.stderr,
+                )
         print(f"update: #{args.issue} yorumu yazıldı")
     return 0
 

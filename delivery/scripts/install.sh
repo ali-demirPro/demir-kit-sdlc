@@ -106,13 +106,27 @@ if ! command -v npx >/dev/null 2>&1; then
 fi
 
 if [[ "$WITH_PLATFORM" == true ]]; then
-  if [[ "$DRY_RUN" == true ]]; then
-    echo "[dry-run] npx skills add https://github.com/stablyai/orca --skill orchestration --global -y"
-    echo "[dry-run] npx skills add https://github.com/stablyai/orca --skill orca-cli --global -y"
+  PLATFORM_SKILLS=(orchestration orca-cli computer-use)
+  if command -v orca >/dev/null 2>&1; then
+    PLATFORM_ARGS=()
+    for skill in "${PLATFORM_SKILLS[@]}"; do
+      PLATFORM_ARGS+=(--skill "$skill")
+    done
+    if [[ "$DRY_RUN" == true ]]; then
+      echo "[dry-run] orca skills install ${PLATFORM_ARGS[*]}"
+    else
+      echo "Installing Orca platform skills (version-matched) ..."
+      orca skills install "${PLATFORM_ARGS[@]}"
+    fi
   else
-    echo "Installing Orca platform skills (global) ..."
-    npx skills add https://github.com/stablyai/orca --skill orchestration --global -y
-    npx skills add https://github.com/stablyai/orca --skill orca-cli --global -y
+    echo "install.sh: orca CLI yok; npx fallback kullanılıyor (sürüm eşleşmesi garanti değil)." >&2
+    for skill in "${PLATFORM_SKILLS[@]}"; do
+      if [[ "$DRY_RUN" == true ]]; then
+        echo "[dry-run] npx skills add https://github.com/stablyai/orca --skill ${skill} --global -y"
+      else
+        npx skills add https://github.com/stablyai/orca --skill "$skill" --global -y
+      fi
+    done
   fi
 fi
 

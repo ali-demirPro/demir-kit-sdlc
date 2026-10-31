@@ -4,6 +4,7 @@
 #   ./delivery/scripts/guard.sh
 #   ./delivery/scripts/guard.sh --issue 12
 #   ./delivery/scripts/guard.sh --staged
+#   ./delivery/scripts/guard.sh --issue 12 --degrade --reason "Orca yok"
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -18,12 +19,16 @@ cd "$ROOT"
 
 ISSUE=""
 STAGED=false
+DEGRADE=false
+REASON=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --issue) ISSUE="$2"; shift 2 ;;
     --staged) STAGED=true; shift ;;
+    --degrade) DEGRADE=true; shift ;;
+    --reason) REASON="$2"; shift 2 ;;
     -h|--help)
-      sed -n '2,7p' "$0"
+      sed -n '2,8p' "$0"
       exit 0
       ;;
     *) echo "guard.sh: unknown argument: $1" >&2; exit 1 ;;
@@ -131,4 +136,22 @@ if [[ "$RISK_REQUIRED" == "high" && "$RISK" != "high" && "$RISK" != "critical" ]
   exit 1
 fi
 
-echo "guard: OK — #${ISSUE} agent-approved, risk '${RISK:-belirtilmemiş}'"
+if $DEGRADE; then
+  if [[ -z "$REASON" ]]; then
+    echo "guard: BLOCKED — --degrade için --reason \"...\" gerekli" >&2
+    exit 1
+  fi
+  python3 "${KIT_ROOT}/delivery/scripts/orca_gate.py" --project "$ROOT" \
+    degrade --issue "$ISSUE" --reason "$REASON"
+  echo "guard: OK — #${ISSUE} degrade kaydı yazıldı"
+  exit 0
+fi
+
+if ! python3 "${KIT_ROOT}/delivery/scripts/orca_gate.py" --project "$ROOT" check --issue "$ISSUE"; then
+  echo "guard: BLOCKED — epic worktree/orchestration kapısı geçmedi" >&2
+  echo "  Epic worktree: python3 ${KIT_ROOT}/delivery/scripts/epic_worktree.py --project \"$ROOT\" ensure --epic <N>" >&2
+  echo "  Gerçekten Orca yoksa: --degrade --reason \"...\"" >&2
+  exit 1
+fi
+
+echo "guard: OK — #${ISSUE} agent-approved, risk '${RISK:-belirtilmemiş}', epic worktree"

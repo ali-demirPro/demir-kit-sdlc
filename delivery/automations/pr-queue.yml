@@ -1,0 +1,11 @@
+# Açık PR kuyruğu — varsayılan kapalı.
+name: "demir-kit PR queue"
+trigger: "0 * * * 1-5"
+timezone: "Europe/Istanbul"
+prompt: >-
+  `gh pr list --state open` çıktısını incele. `delivery-doctor` kırmızıysa
+  başarısız kontrolü ve kısa nedeni raporla; yeşil PR'ları merge etme.
+  İnsan kararı gerekenleri tek soruda topla.
+provider: "opencode2"
+precheck: "gh pr list --state open --json number -q '.[0].number'"
+reuse_session: false

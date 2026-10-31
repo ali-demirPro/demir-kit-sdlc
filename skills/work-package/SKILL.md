@@ -44,7 +44,7 @@ Read first: `delivery/protocol/seal.md`, `delivery/CONTRACT.md`,
 
 ```yaml demir-kit
 demir_kit_version: "2"
-package_version: 2
+package_version: 3
 mode: extend
 epic: 12
 entry: { kind: feature }

@@ -7,10 +7,12 @@ in GitHub; Orca only runs and settles work.
 
 ```bash
 ./delivery/scripts/orca_smoke.sh
+python3 delivery/scripts/orca_capabilities.py --check orchestration.worker-start:task,model,effort
 ```
 
 Checks `orca status --json` and the version-matched orchestration skill. It does
-**not** start a worker. `--create-run` creates a Run only.
+**not** start a worker. `--create-run` creates a Run only. Product projects do
+not compare Orca versions; `agent-context` feature detection is the contract.
 
 ## Task specs
 
@@ -24,29 +26,80 @@ One sealed leaf → one task per checkpoint. Role mapping: `gates.ui` → design
 otherwise developer. Every spec names target, change, constraints, ownership and
 observable acceptance (`doctor.sh --issue N --checkpoint CP-x`).
 
+## Epic worktree
+
+One epic owns one worktree and one branch. Leaves reuse it; never create a
+worktree per leaf.
+
+```bash
+python3 delivery/scripts/epic_worktree.py ensure --epic <E> --json
+python3 delivery/scripts/epic_worktree.py check  --epic <E> --json
+python3 delivery/scripts/epic_worktree.py sync   --epic <E>
+python3 delivery/scripts/epic_worktree.py remove --epic <E>
+python3 delivery/scripts/epic_worktree.py prune
+```
+
+- `ensure` is idempotent: reuses `epic-<E>`; creates it once with
+  `orca worktree create --name epic-<E> --issue <E>`.
+- `check` rejects the main checkout, a different worktree and a missing run.
+- `sync` merges `origin/main`; rebase is forbidden because it rewrites evidence
+  commit SHAs.
+- `remove` runs after the epic PR merge; `--keep-worktree` on `epic-done` keeps it.
+- `prune` lists (and with `--apply` removes) worktrees whose epic is closed.
+- `compat.py` is the kit-maintenance check: it names the 66 Orca commands/flags
+  the kit relies on. Products do not run it in CI.
+- `worktree set` mirrors state: `--comment`, `--workspace-status`,
+  `--unread/--read`, `--issue/--pr`, `--reference`. `update.py` and
+  `transition.py` call it automatically.
+- `orca worktree ps --json` is the fleet view; `orca ports` gives the dev-server
+  URL for UI gates.
+
+## Task, message and gate flow
+
+```bash
+orca orchestration task-create --spec "<CP spec>" --task-title "<CP>" \
+  --deps '["task_<önceki>"]' --run <run_id> --json
+orca orchestration worker-start --task <task_id> --worktree <epic path> \
+  --agent opencode2 --run <run_id> [--model <id> --effort <level>] --json
+orca orchestration task-update --id <task_id> --status completed --run <run_id> --json
+orca orchestration ask --question "..." --options "a,b" --json
+orca orchestration reply --id <msg_id> --body "..." --json
+orca orchestration gate-create --task <task_id> --question "..." --options '["approve","revise"]' --json
+orca orchestration gate-resolve --id <gate_id> --resolution approve --json
+orca orchestration inbox --json
+```
+
+- One Run per epic; resume with `run-use`, never a second `run-create`.
+- One Task per CP with `--deps`; `worker-start --task` keeps provenance.
+- Per-role launch defaults live in `kit.config.yaml`:
+  `orca.role_defaults.developer: {agent: opencode2, model: …, effort: high}`.
+- Human decisions are Orca gates + GitHub `human-qa`; resolve both.
+- Worker questions use `ask/reply`, not local TUI prompts.
+
 ## Supervised loop
 
 ```bash
-orca orchestration run-create --objective "demir-kit #N" --json
-orca orchestration worker-start --spec "<spec>" --worktree current --agent opencode2 --json
+orca orchestration run-create --objective "epic #E" --json
+orca orchestration task-create --spec "<spec>" --json
+orca orchestration worker-start --spec "<spec>" --worktree <epic-E path> --agent opencode2 --json
 orca orchestration check --wait --types worker_done,escalation,question --timeout-ms 900000 --json
 orca orchestration worker-release --dispatch <dispatch_id> --json
 ```
 
 On this host the working launcher is `opencode2`; `opencode` may be disabled.
 `--name`, `--setup` and `--repo` are new-worktree options — with
-`--worktree current` Orca rejects them.
+`--worktree <path>` Orca rejects them.
 
 Rules:
 
 - `worker-start --spec` creates the Task and attempt; capture `taskId` and
-  `dispatchId` from the receipt. `--setup`/`--name` are only for new worktrees;
-  Orca rejects them with `--worktree current`.
+  `dispatchId` from the receipt. `--setup`/`--name` are only for new worktrees.
 - Workers send `worker_done` themselves (injected preamble); never encode success
   only in prose.
 - A timeout is a checkpoint, not a failure. Inspect `worker-list` before acting.
 - Release only after an accepted settlement.
 - Read-only smoke first; coding workers only on sealed leaves.
+- Native subagents are not a substitute for `worker-start` when Orca is running.
 
 ## Parallel waves
 
@@ -70,6 +123,20 @@ python3 delivery/scripts/orca_wave.py --issue <N> --execute --json
 - `--notify --issue N` posts one short human summary (no task/dispatch IDs) after
   the wave; if anything is missing it requests approval.
 
+## Scheduled automations
+
+Templates live in `delivery/automations/` and are disabled by default:
+
+```bash
+python3 delivery/scripts/automations.py templates
+python3 delivery/scripts/automations.py create --template stale-lease          # plan only
+python3 delivery/scripts/automations.py create --template stale-lease --apply  # disabled
+python3 delivery/scripts/automations.py list
+```
+
+Stale lease, weekly doctor, PR queue and weekly report are examples, not
+mandatory jobs. `--enable` is an explicit human action.
+
 ## Evidence
 
 Record the Orca identity in the evidence block:
@@ -81,6 +148,11 @@ worker:
   dispatch_id: ctx_…
   agent: opencode2
   outcome: succeeded
+worktree:
+  name: epic-15
+  path: /Users/you/orca/workspaces/Product/epic-15
+  branch: epic-15
+  epic: 15
 ```
 
 For a parallel wave use a `workers:` list with one entry per dispatch.

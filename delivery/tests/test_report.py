@@ -174,6 +174,84 @@ class ReportTests(unittest.TestCase):
         text = report.build_report(issue(), [], usage, [])
         self.assertIn("maliyeti ölçülemedi", text)
 
+    def test_report_counts_every_reviewer_role(self) -> None:
+        child = issue(23, "Child", labels=["leaf-done"])
+        child["evidence"] = [
+            {
+                "agent": "developer",
+                "reviews": {
+                    "architect": "approved",
+                    "adversarial": {"reviewer_a": "approved", "reviewer_b": "approved"},
+                    "platform": "pass",
+                    "human": "approved",
+                },
+            }
+        ]
+        usage = {
+            "totals": {"sessions": 1, "input": 1, "output": 1, "cache_read": 0, "cost": 0.01},
+            "sessions": [],
+            "unavailable": [],
+        }
+        text = report.build_report(issue(), [child], usage, [])
+        self.assertIn("5 reviewer onayı", text)
+
+    def test_report_prefers_evidence_commit_and_worktree(self) -> None:
+        child = issue(23, "Child", labels=["leaf-done"])
+        child["evidence"] = [
+            {
+                "agent": "developer",
+                "verification": {"commit": "abc1234"},
+                "worktree": {
+                    "name": "epic-15",
+                    "path": "/tmp/epic-15",
+                    "branch": "epic-15",
+                    "epic": 15,
+                },
+            }
+        ]
+        usage = {
+            "totals": {"sessions": 1, "input": 1, "output": 1, "cache_read": 0, "cost": 0.01},
+            "sessions": [],
+            "unavailable": [],
+        }
+        text = report.build_report(issue(), [child], usage, ["wrong999 other"])
+        self.assertIn("Commit: abc1234", text)
+        self.assertNotIn("wrong999", text)
+        self.assertIn("Worktree: epic-15", text)
+
+    def test_claim_time_uses_claim_comment(self) -> None:
+        child = issue(23, "Child", labels=["leaf-done"])
+        child["comments"] = [
+            {"body": "run claim: `r1`", "created_at": "2026-10-26T15:00:00Z"},
+            {"body": "x", "created_at": "2026-10-26T16:00:00Z"},
+        ]
+        self.assertEqual(
+            report.claim_time([child]).isoformat(), "2026-10-26T15:00:00+00:00"
+        )
+
+    def test_report_includes_orca_state(self) -> None:
+        usage = {
+            "totals": {"sessions": 1, "input": 1, "output": 1, "cache_read": 0, "cost": 0.01},
+            "sessions": [],
+            "unavailable": [],
+        }
+        text = report.build_report(
+            issue(),
+            [],
+            usage,
+            [],
+            orca={
+                "worktree": {"displayName": "epic-22", "branch": "epic-22"},
+                "run_id": "run_x",
+                "tasks": [{"id": "CP-1", "status": "completed"}],
+                "gates": [{"id": "gate_1", "question": "Onay?"}],
+            },
+        )
+        self.assertIn("**Orca:**", text)
+        self.assertIn("epic-22", text)
+        self.assertIn("run run_x", text)
+        self.assertIn("Orca gate: gate_1", text)
+
 
 if __name__ == "__main__":
     unittest.main()

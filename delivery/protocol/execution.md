@@ -33,17 +33,52 @@ Claim şunları yapar: `run claim` lease comment'i (`lease_until`, 2 saat),
 - `--force --reason "..."` yalnız lease'den sonra evidence varsa veya aktif iş
   bilinçli bırakılıyorsa kullanılır; gerekçe comment'e yazılır.
 
-## 3. Run
+## 3. Run — epic worktree
+
+Bir epic = **tek worktree + tek branch + tek PR**. Leaf'ler aynı checkout'u
+yeniden kullanır; her leaf için yeni worktree açılmaz.
 
 ```bash
+# İlk leaf claim'inde bir kez:
 orca status --json
-orca orchestration run-create --objective "demir-kit #<N>" --json
-orca worktree create --name "wp-<N>" --issue <N> --json
+orca worktree create --name "epic-<E>" --issue <E> --json
+orca orchestration run-create --objective "epic #<E>" --json
+
+# Her leaf/CP:
+orca orchestration task-create --spec "<CP spec>" --task-title "<CP>" \
+  --deps '["task_<önceki>"]' --run <run_id> --json
+orca orchestration worker-start --task <task_id> \
+  --worktree <epic-E path> --agent opencode2 --run <run_id> --json
+
+# Resume:
+orca orchestration run-use --id <run_id> --json
 ```
 
-Orca yoksa **degrade mod**: tek panelli agent aynı protokolü uygular; gate
-komutlarını çalıştırır ve evidence comment'ini yazar. Etiket değişimi yine
-`doctor.sh --issue N` yeşil olmadan yapılmaz.
+`next-leaf.sh --claim` epic worktree'yi bulur veya açar; çıktı sıradaki üç komutu
+yazar. `guard.sh --issue N` kaynak değişikliğinin **doğru epic worktree'sinde**
+olduğunu doğrular; ana checkout'tan commit engellenir.
+
+`orca_capabilities.py` komut/flag şemasını `orca agent-context`'ten okur. Ürün
+projeleri Orca sürümü **karşılaştırmaz**; kullanılan özellik yoksa degrade kaydı
+ister. Kit kendi geliştirmesinde yeni Orca sürümlerine uyarlanır.
+
+Yeni leaf'e başlamadan önce `git merge origin/main` (rebase yasak; evidence
+commit SHA'ları korunur). `epic_worktree.py sync --epic E` bunu uygular.
+
+İnsan kapısı `orca orchestration gate-create --task <task_id>` ile açılır;
+onayda `gate-resolve` çözülür. Worker sorusu `ask/reply`, coordinator mesajı
+`inbox` üzerinden yürür; GitHub yorumu kalıcı kayıttır.
+
+### İlerleme ve durum
+
+`update.py` her yorumda Orca worktree checkpoint'ini de yazar:
+`worktree set --comment "<kısa>" --workspace-status in-progress|in-review`
+ve insan kapısında `--unread`. GitHub yorumu kalıcı geçmiş, Orca notu canlı
+durumdur.
+
+Orca yoksa **degrade mod**: `git worktree add` ile yine epic worktree açılır.
+Gerekçe `guard.sh --degrade --reason "..."` ile issue'ya `run degrade:` yorumu
+olarak yazılır; evidence'ta `degrade` bloğu bulunur. Sessiz degrade yoktur.
 
 ### Worker yaşam döngüsü
 
@@ -57,16 +92,27 @@ orca orchestration send --type worker_done --outcome succeeded   # veya failed
 
 | Amaç | Komut |
 |------|-------|
-| Run | `orca orchestration run-create --objective …` |
-| Task | `orca orchestration task-create --spec …` |
-| Worker | `orca orchestration worker-start …` |
+| Worktree (epic) | `orca worktree create --name epic-<E> --issue <E>` |
+| Worktree durumu | `orca worktree current --json` / `worktree list --json` |
+| Run (epic) | `orca orchestration run-create --objective "epic #<E>"` / `run-use --id` |
+| Task (leaf/CP) | `orca orchestration task-create --spec … --deps …` |
+| Worker | `orca orchestration worker-start --task <task_id> --worktree <epic path> …` |
+| İzleme | `orca orchestration worker-show/read/list --run <run_id>` |
+| Mesaj | `orca orchestration ask/reply/inbox/send` |
+| Karar kapısı | `orca orchestration gate-create/gate-resolve/gate-list` |
 | Bekleme | `orca orchestration check --wait …` |
 | Terminal | `orca terminal create --command …` + `terminal wait` |
-| Worktree | `orca worktree create --issue N` / `worktree set` |
+| Worktree silme | `orca worktree rm --worktree name:epic-<E>` |
 
 Komut adları Orca sürümüne göre değişebilir; `orca --help` ve `orca status --json`
 tek doğruluk kaynağıdır. UI yakalama: `skills/ui-gate` (`goto`, `set device`,
 `screenshot`; mobilde `orca-emulator` / `orca-emulator-android`).
+
+### Epic kapanışı
+
+Tüm leaf'ler `leaf-done` olduğunda tek PR açılır: `epic-<E>` → `main`.
+Merge insan kabulüdür; ardından `transition.sh --issue E --to epic-done` merge'i
+ve temiz worktree'yi doğrular, worktree'yi siler (`--keep-worktree` ile korunur).
 
 ## 4. CP döngüsü
 
@@ -123,10 +169,17 @@ contract ihlalidir.
 Kapanışta kısa bir ilerleme yorumu yaz:
 
 ```bash
-python3 delivery/scripts/update.py --issue N --who developer --what "Leaf kapandı" --next "Epic kapanışı"
+python3 delivery/scripts/update.py --issue N --who developer --what "Leaf kapandı" \
+  --next "Epic PR'ı" --approval no
 ```
 
+`leaf-done` main'e merge beklemez; commit epic branch'inde kalır. Main'e giriş
+yalnız epic PR'ı ile olur.
+
 Epic seviyesinde otomatik closure başlar: `runbooks/epic-closure.md`.
+
+`high` / `critical` insan kapısı varsa ilerleme yorumu `--human-gate` (veya
+`--approval yes --ask "..."`) ile yazılır; aksi halde `update.py` hata verir.
 
 Orca task spec'leri capability-aware'dir: `orca_plan` aktif capability/variant
 dokümanlarını, gerekli reviewer rolleri ve variant gap'lerini taşır; plan çıktısı
@@ -151,7 +204,7 @@ Tüm geçişler tek yazıcıdan yapılır:
 ./delivery/scripts/transition.sh --issue N --to deferred --reason "…" --issue-link "#…"
 ./delivery/scripts/transition.sh --issue N --to leaf-done
 ./delivery/scripts/transition.sh --issue N --to epic-reconcile
-./delivery/scripts/transition.sh --issue N --to epic-done --accept "ad"
+./delivery/scripts/transition.sh --issue N --to epic-done --accept "ad" --report
 ```
 
 `--dry-run` yalnız planı gösterir; `--json` makine çıktısı verir.
@@ -162,5 +215,7 @@ Tüm geçişler tek yazıcıdan yapılır:
 - Evidence'sız CP'yi geçmiş saymak.
 - `pass` CP'yi yeniden çalıştırmak.
 - Aynı epic'te paralel leaf (disjoint deps yoksa).
+- Her leaf için ayrı worktree açmak; epic worktree'si varken ana checkout'ta çalışmak.
+- Epic branch'ini rebase etmek (evidence commit SHA'ları bozulur).
 - `agent-approved` olmadan kaynak değiştirmek (`scripts/guard.sh`).
 - İnsana teknik jargonla soru sormak (`policies/escalation.md`).

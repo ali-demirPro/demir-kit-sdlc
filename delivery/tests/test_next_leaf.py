@@ -186,6 +186,22 @@ class LeaseTests(unittest.TestCase):
             any("--remove-assignee" in call for call in calls)
         )
 
+    def test_prepare_worktree_is_noop_when_disabled(self) -> None:
+        with patch.object(
+            next_leaf.epic_worktree, "epic_worktree_enabled", return_value=False
+        ):
+            self.assertEqual(next_leaf.prepare_worktree(46, 44), 0)
+
+    def test_prepare_worktree_reports_failure(self) -> None:
+        with patch.object(
+            next_leaf.epic_worktree, "epic_worktree_enabled", return_value=True
+        ), patch.object(
+            next_leaf.epic_worktree,
+            "ensure",
+            side_effect=next_leaf.epic_worktree.WorktreeError("boom"),
+        ):
+            self.assertEqual(next_leaf.prepare_worktree(46, 44), 1)
+
 
 if __name__ == "__main__":
     unittest.main()

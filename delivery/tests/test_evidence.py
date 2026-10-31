@@ -109,10 +109,35 @@ class EvidenceTests(unittest.TestCase):
         )
         self.assertTrue(any("uygulayıcıyla aynı" in item for item in errors))
 
-    def test_high_risk_needs_two_reviewers_and_ci(self) -> None:
+    def test_high_risk_needs_two_reviewers_and_local_gate(self) -> None:
         errors = evidence.verify(self.record(), root=self.root, risk="high")
         self.assertTrue(any("en az 2 reviewer" in item for item in errors))
-        self.assertTrue(any("CI skipped" in item for item in errors))
+        self.assertTrue(any("yerel kapı" in item for item in errors))
+
+    def test_high_risk_accepts_local_gate(self) -> None:
+        record = self.record(
+            ci={"status": "skipped", "reason": "yerel imzalı build"},
+            local_gate={"command": "xcodebuild test", "exit_code": 0},
+            reviewers=[
+                reviewer("ses_a", self.expected),
+                reviewer("ses_b", self.expected),
+            ],
+        )
+        self.assertEqual(
+            evidence.verify(record, root=self.root, risk="high"), []
+        )
+
+    def test_critical_risk_rejects_skipped_ci_even_with_local_gate(self) -> None:
+        record = self.record(
+            ci={"status": "skipped", "reason": "yerel"},
+            local_gate={"command": "xcodebuild test", "exit_code": 0},
+            reviewers=[
+                reviewer("ses_a", self.expected),
+                reviewer("ses_b", self.expected),
+            ],
+        )
+        errors = evidence.verify(record, root=self.root, risk="critical")
+        self.assertTrue(any("critical için CI skipped" in item for item in errors))
 
     def test_ci_success_must_match_commit(self) -> None:
         record = self.record(

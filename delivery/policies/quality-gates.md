@@ -14,6 +14,13 @@ Risk tabanlı gate matrisi. Sözleşme: [CONTRACT.md](../CONTRACT.md) · Risk ve
 
 `low` / `medium` otomatik kapanır; insan spot-check yapar. Epic kabulü her zaman insandır.
 
+## CI kanıtı
+
+- `critical`: CI `success` zorunlu; `skipped` kabul edilmez.
+- `high`: CI `success` veya yerel kapı (`verification.local_gate` +
+  `exit_code: 0`) kabul edilir; gerekçe `ci.reason` alanında yazılır.
+- `low` / `medium`: yerel gate yeterli; CI varsa kaydedilir.
+
 ## Gate tanımları
 
 ### behavior
@@ -60,7 +67,9 @@ Risk tabanlı gate matrisi. Sözleşme: [CONTRACT.md](../CONTRACT.md) · Risk ve
 ### human
 
 - `high` leaf: [human-qa-done.md](human-qa-done.md) leaf bölümü; evidence'da
-  `reviews.human: approved`.
+  `reviews.human: approved`. İnsan kapısı istendiğinde `update.py --human-gate`
+  (veya `--approval yes --ask "..."`) kullanılır; aksi halde "Onay: gerekmiyor"
+  yazılamaz.
 - `critical`: iki insan (biri store/deploy sahibi); evidence'da `reviews.human`
   ve `reviews.human_second` birlikte `approved`.
 - İnsan onayı yoksa `doctor --issue` `leaf-done`'ı reddeder; etiket elle

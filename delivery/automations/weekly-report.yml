@@ -1,0 +1,10 @@
+# Haftalık epic raporu — varsayılan kapalı.
+name: "demir-kit weekly report"
+trigger: "0 17 * * 5"
+timezone: "Europe/Istanbul"
+prompt: >-
+  Açık epic'ler için `report.py --issue N` çalıştır; yalnız okuma yap ve kısa
+  bir haftalık özet çıkar. Maliyet, lead time, açık gate ve blocker'ları yaz.
+  Yeni iş başlatma, kod değiştirme, issue kapatma.
+provider: "opencode2"
+reuse_session: false

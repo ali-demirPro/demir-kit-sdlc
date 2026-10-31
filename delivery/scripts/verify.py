@@ -14,6 +14,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import detect as detect_mod  # noqa: E402
+import delivery_block  # noqa: E402
 import init as init_mod  # noqa: E402
 import profiles as profiles_mod  # noqa: E402
 import resolver  # noqa: E402
@@ -113,6 +114,17 @@ def verify_project(project: Path) -> dict:
     standards = standards_mod.discover(root)
     if standards["agents"]["state"] == "stale":
         issues.append("standards: AGENTS.md bloğu bayat")
+    try:
+        config = yaml.safe_load((root / "kit.config.yaml").read_text(encoding="utf-8")) or {}
+    except (FileNotFoundError, yaml.YAMLError):
+        config = {}
+    prefix = str((config.get("kit") or {}).get("root") or "demir-kit")
+    if prefix == ".":
+        prefix = ""
+    delivery_issues: list[str] = []
+    if (config.get("orca") or {}).get("epic_worktree"):
+        delivery_issues = delivery_block.check(root, prefix)
+    issues.extend(f"delivery: {item}" for item in delivery_issues)
     return {
         "project": str(root),
         "ok": not issues,
@@ -136,6 +148,9 @@ def verify_project(project: Path) -> dict:
             "package_managers": standards["package_managers"],
             "commands": standards["commands"],
             "agents": standards["agents"]["state"],
+        },
+        "delivery": {
+            "agents": "missing_block" if delivery_issues else "ok",
         },
     }
 
@@ -167,6 +182,7 @@ def render(report: dict) -> str:
         "standards: " + (
             ", ".join(report["standards"]["languages"]) or "-"
         ) + f" (AGENTS: {report['standards']['agents']})",
+        "delivery: " + str(report.get("delivery", {}).get("agents") or "-"),
     ]
     for issue in report["issues"]:
         lines.append(f"  [fail] {issue}")

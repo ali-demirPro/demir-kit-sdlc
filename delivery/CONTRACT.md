@@ -1,4 +1,4 @@
-# Delivery contract — v2.29
+# Delivery contract — v2.31
 
 Bu dosya delivery'nin **tek durum makinesi**dir. Agent, path ve risk verisi
 `registry.yaml`'da; artefakt şekilleri `schemas/` altında; uygulama
@@ -56,7 +56,7 @@ stateDiagram-v2
 | T6 | `blocked` | `executing` | coordinator / insan | blocker çözüldü | unblock comment | `-blocked` |
 | T7 | `agent-approved` / `executing` | `deferred` | insan | defer issue linki | karar comment | `-executing +deferred` |
 | T8 | tüm leaf'ler `leaf-done`/`deferred` | closure | orchestrator | `runbooks/epic-closure.md` | closure report | — / `+epic-reconcile` |
-| T9 | closure `pass` | `epic-done` | insan | rapor `pass` + tüm child `leaf-done/deferred` + insan-authored `demir-kit-accept` | human comment | `+epic-done` |
+| T9 | closure `pass` | `epic-done` | insan | rapor `pass` + tüm child `leaf-done/deferred` + insan-authored `demir-kit-accept` + merge edilmiş epic PR | human comment | `+epic-done` |
 
 Kurallar:
 
@@ -109,10 +109,13 @@ otomatik yükselir; agent düşüremez. Ayrıntı: `policies/quality-gates.md`.
 - **CP:** behavior komutu exit 0 + riskin istediği reviewer'lar `approved` +
   insan kapısı gerekiyorsa `reviews.human`/`human_second` `approved` +
   `package_version: 2` ise doğrulanabilir `verification` + evidence comment.
+  `package_version: 3` ise ayrıca `worktree` ve `worker`/`degrade` zorunlu.
 - **Leaf:** tüm CP'ler + her AC en az bir test case ile kapsanmış + açık bulgu yok +
-  risk `high`/`critical` ise insan QA + `leaf-done`.
+  risk `high`/`critical` ise insan QA + `leaf-done`. Leaf commit'i epic branch'inde
+  kalır; `leaf-done` main merge beklemez.
 - **Epic:** tüm child'lar `leaf-done` veya `deferred` + closure `pass` +
-  `demir-kit-accept` insan kabulü + metrikler yazıldı + `epic-done`.
+  `demir-kit-accept` insan kabulü + merge edilmiş tek epic PR + metrikler yazıldı +
+  temiz worktree + `epic-done`.
 
 ## Değişmezler
 
@@ -128,6 +131,12 @@ otomatik yükselir; agent düşüremez. Ayrıntı: `policies/quality-gates.md`.
 | I8 | Aynı duruma tekrar geçiş no-op; tamamlanan CP yeniden koşmaz. |
 | I9 | Contract değişikliği VERSION + CHANGELOG + doctor yeşili ister. |
 | I10 | İnsan kapısı yalnız: risk `high`/`critical` leaf, geri dönülemez işlem, epic kabul. **Kapsam: hedef projedeki ürün teslimatı** (bkz. Self-improvement lane). |
+| I11 | Bir epic = tek worktree + tek branch + tek PR. Leaf başına worktree açılmaz. |
+| I12 | Kaynak değişikliği yalnız epic worktree'sinde; ana checkout'tan commit engellenir. |
+| I13 | Epic branch'i rebase edilmez; yeni leaf öncesi `origin/main` merge edilir. |
+| I14 | Orca çalışıyorsa `worker-start` zorunlu; native subagent yalnız kayıtlı degrade modda. |
+| I15 | Orca canlı durumdur, GitHub kalıcı kayıttır; `transition`/`update` ikisini senkronlar. |
+| I16 | İnsan kapısı Orca gate + GitHub `human-qa` birlikte; evidence'ta gate kaydı beklenir. |
 | I11 | Etiket geçişleri yalnız `scripts/transition.sh` ile yapılır; doğrudan etiket yazımı yasaktır. |
 | I12 | Capability seviyesi kanıtla atanır; agent `expert` üstüne çıkamaz, `authority` insan/principal içindir. |
 | I13 | `epic-done` yalnız insan-authored `demir-kit-accept` + kapalı child'larla; agent kendi kabulünü yazamaz. **Kapsam: ürün teslimatı.** Kit self-improvement lane'de kabul makine kapısıdır (`doctor --strict` + testler yeşil). |

@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import sys
 import tempfile
+import types
 import unittest
 from unittest.mock import patch
 from datetime import datetime, timezone
@@ -82,6 +84,29 @@ class UpdateTests(unittest.TestCase):
             now=NOW,
         )
         self.assertLessEqual(len([line for line in body.splitlines() if line.strip()]), 8)
+
+    def test_orca_checkpoint_marks_in_review_on_approval(self) -> None:
+        calls: list[list[str]] = []
+
+        def fake(args, **kwargs):
+            calls.append(args)
+            if "current" in args:
+                return types.SimpleNamespace(
+                    returncode=0,
+                    stdout=json.dumps({"result": {"worktree": {"path": "/tmp/epic-1"}}}),
+                    stderr="",
+                )
+            return types.SimpleNamespace(returncode=0, stdout="{}", stderr="")
+
+        with patch.object(update.subprocess, "run", side_effect=fake):
+            result = update.orca_checkpoint("progress", "İş bitti", "Sırada", True)
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["status"], "in-review")
+        command = calls[-1]
+        self.assertIn("--workspace-status", command)
+        self.assertIn("in-review", command)
+        self.assertIn("--unread", command)
+        self.assertIn("path:/tmp/epic-1", command)
 
 
 if __name__ == "__main__":

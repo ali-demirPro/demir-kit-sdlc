@@ -13,6 +13,10 @@ from pathlib import Path
 
 import yaml
 
+SCRIPTS = Path(__file__).resolve().parent
+sys.path.insert(0, str(SCRIPTS))
+import epic_worktree  # noqa: E402
+
 SKIP_LABELS = {"executing", "blocked", "deferred", "leaf-done", "epic-done"}
 CLAIM_PREFIX = "run claim:"
 RELEASE_PREFIX = "run release:"
@@ -196,6 +200,50 @@ def write_snapshot(number: int) -> None:
             f"next-leaf: usage snapshot skipped — {snapshot.stderr.strip()}",
             file=sys.stderr,
         )
+
+
+def prepare_worktree(number: int, epic: int | None) -> int:
+    """Ensure the epic worktree and print the exact next commands."""
+    if not epic:
+        return 0
+    project = Path.cwd()
+    if not epic_worktree.epic_worktree_enabled(project):
+        return 0
+    try:
+        record = epic_worktree.ensure(int(epic), project)
+    except epic_worktree.WorktreeError as exc:
+        print(f"next-leaf: epic worktree hazır değil — {exc}", file=sys.stderr)
+        return 1
+    path = record.get("path") or ""
+    print(
+        f"[worktree] {record.get('name')}: {path} · branch {record.get('branch')}",
+        file=sys.stderr,
+    )
+    if record.get("run_error"):
+        print(f"next-leaf: {record['run_error']}", file=sys.stderr)
+        return 1
+    if record.get("mode") == "degrade":
+        print(
+            "[worktree] degrade: Orca yok. Guard öncesi "
+            f"`guard.sh --issue {number} --degrade --reason \"...\"` ile kaydet.",
+            file=sys.stderr,
+        )
+    print(f"[next] cd {path}", file=sys.stderr)
+    print(
+        "[next] orca orchestration task-create --spec <CP spec> "
+        f"--task-title <CP> --deps '[]' --json",
+        file=sys.stderr,
+    )
+    print(
+        "[next] orca orchestration worker-start --task <task_id> "
+        f"--worktree {path} --agent opencode2 --json",
+        file=sys.stderr,
+    )
+    print(
+        f"[next] source edits only in {path}; guard.sh --issue {number}",
+        file=sys.stderr,
+    )
+    return 0
 
 
 def claim(number: int, epic: int | None, risk: str) -> int:
@@ -393,6 +441,13 @@ def main() -> int:
             target = eligible[0]
         status = claim(target["number"], target["epic"], target["risk"])
         if status == 0:
+            if prepare_worktree(target["number"], target["epic"]) != 0:
+                release(
+                    target["number"],
+                    True,
+                    "epic worktree/run hazır değil; claim geri alındı",
+                )
+                return 1
             print(target["number"])
         return status
 
