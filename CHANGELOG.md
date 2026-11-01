@@ -17,8 +17,12 @@
   aktifse, `package_version: 4` seal'inde en az bir checkpoint `gates.human: true`
   olmak zorunda; `doctor` bunu denetler.
 - **Rol kapsamı** — `devops` (expert), `security` (practitioner), `tester`
-  (practitioner). `release` ve `documenter` rolünün `agent.yaml` dosyası yok, bu
-  yüzden capability'ye eklenmedi; bu sapma bilinçli ve kayıtlı.
+  (practitioner). `release` ve `documenter`'ın `agent.yaml` dosyası olmadığı
+  için resolver bu rollere doküman veremiyor; varyant haritası üç rolle sınırlı.
+  `release` rolünün dağıtım onayı akışı ayrı iş (insan kapısı) olarak yürür.
+- **Geçiş notu** — 2.36 öncesi mühürlenmiş `package_version: 4` leaf'lerde
+  `gates.human: true` CP yoksa `doctor --issue` artık hata verir; kural
+  geriye dönük uygulanır.
 - **Playbook'lar** — `devops/variants/direct.md` (paketleme, imza, notarization,
   kanal, geri dönüş), `tester/variants/direct.md` (spctl/stapler doğrulaması),
   `security/variants/direct.md` (imza zinciri, entitlement, appcast).

@@ -1,7 +1,7 @@
 # Security — Doğrudan dağıtım
 
 **Capability:** `distribution.direct` · **Min level:** practitioner
-**Gate:** `platform`
+**Gate:** `behavior`, `platform`, `human`
 
 ## Kapsam
 

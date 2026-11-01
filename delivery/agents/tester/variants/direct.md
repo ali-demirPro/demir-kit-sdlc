@@ -1,7 +1,7 @@
 # Tester — Doğrudan dağıtım
 
 **Capability:** `distribution.direct` · **Min level:** practitioner
-**Gate:** `behavior`, `platform`
+**Gate:** `behavior`, `platform`, `human`
 
 ## Kapsam
 

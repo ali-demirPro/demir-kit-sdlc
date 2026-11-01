@@ -84,6 +84,31 @@ class DirectDistributionTest(unittest.TestCase):
         )
         self.assertIn("distribution.direct", data["capabilities"])
 
+    def test_every_distribution_value_activates(self) -> None:
+        for value in ("direct", "dmg", "notarize", "notarization", "notarized", "sparkle"):
+            with self.subTest(distribution=value):
+                data = resolve(
+                    "--surface",
+                    "macos.app",
+                    "--platform",
+                    "macos",
+                    "--distribution",
+                    value,
+                )
+                self.assertIn("distribution.direct", data["capabilities"])
+                self.assertEqual(data["risk_floor"], "medium")
+
+    def test_app_store_only_project_does_not_activate_direct(self) -> None:
+        data = resolve(
+            "--surface",
+            "macos.app",
+            "--platform",
+            "macos",
+            "--distribution",
+            "app_store_connect",
+        )
+        self.assertNotIn("distribution.direct", data["capabilities"])
+
     def test_risk_floor_is_medium(self) -> None:
         registry = yaml.safe_load(
             (ROOT / "delivery" / "capabilities" / "registry.yaml").read_text(
@@ -241,7 +266,7 @@ class DirectDistributionTest(unittest.TestCase):
                 elif script == "capabilities.py":
                     args.append("--validate")
                 elif script == "profiles.py":
-                    args.extend(["--project", str(ROOT)])
+                    args.extend(["--project", str(ROOT), "--check"])
                 result = subprocess.run(args, cwd=ROOT, capture_output=True, text=True)
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 

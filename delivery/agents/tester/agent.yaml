@@ -98,7 +98,7 @@ variants:
     min_level: practitioner
   distribution.direct:
     doc: variants/direct.md
-    eval: evals/delivery.md
+    eval: evals/direct.md
     min_level: practitioner
 handoffs: [developer, orchestrator]
 escalation: [coverage_gap, flaky_test, device_unavailable, environment_down]

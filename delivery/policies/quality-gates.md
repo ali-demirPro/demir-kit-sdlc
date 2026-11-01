@@ -78,6 +78,10 @@ her checkpoint'te zorunludur; `verification.refactor` olmadan `leaf-done` geçme
 - `package_version: 4` leaf'te `gates.human: true` olan CP, risk düşük olsa da
   `leaf-done` anında `reviews.human: approved` ister. `manual` test türü bu
   kapıyı seal anında zorunlu kılar.
+- Aktif bir capability `gates` listesinde `human` bildiriyorsa (ör.
+  `distribution.direct`), seal'de en az bir CP `gates.human: true` olmalı;
+  `doctor` bunu denetler. Dağıtım gibi geri dönüşü zor işler kendiliğinden
+  kapanmaz.
 - İnsan onayı yoksa `doctor --issue` `leaf-done`'ı reddeder; etiket elle
   kaldırılamaz.
 - Epic: closure **pass** sonrası kabul.

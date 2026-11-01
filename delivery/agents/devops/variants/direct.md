@@ -2,7 +2,7 @@
 
 **Capability:** `distribution.direct` · **Min level:** expert
 **Packs:** `apple-macos`, `launch-readiness`
-**Gate:** `behavior`, `platform`, `security`, `human`
+**Gate:** `behavior`, `platform`, `human`
 
 ## Kapsam
 
