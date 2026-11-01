@@ -1,5 +1,16 @@
 # Changelog
 
+## 2.40.0 — 2026-11-01
+
+- **`doctor.py` ayrıştırıldı (refactor)** — skill lint yardımcıları
+  `doctor_skills.py`'ye, yüzey sözleşmesi `doctor_surfaces.py`'ye taşındı.
+  `doctor` aynı isimleri yeniden dışa aktarır; arayüz ve davranış değişmedi.
+  Dosya 1975 → 1787 satır.
+- **Refactor kanıtı** — `verification.refactor` ile baseline/after aynı test
+  sonucunu veriyor (`unchanged: true`), dosya sayısı git'ten ölçüldü.
+- **Regresyon testi** — modül varlığı, arayüz, satır eşiği ve lint davranışı
+  `test_doctor_modules.py` içinde.
+
 ## 2.39.0 — 2026-11-01
 
 - **Kalan üç rolde macOS varyantı** — devops, pazarlama/mağaza ve inceleme
