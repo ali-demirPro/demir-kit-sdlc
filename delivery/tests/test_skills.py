@@ -233,13 +233,28 @@ class LintEdgeCaseTest(unittest.TestCase):
                     any("göreli link" in item for item in errors), errors
                 )
 
+    def test_titled_reference_definition_resolves(self) -> None:
+        (self.root / "ok.md").write_text("x\n", encoding="utf-8")
+        for definition in ('[doc]: ok.md "Title"', '[doc]: <ok.md> "Title"'):
+            with self.subTest(definition=definition):
+                body = f"## Steps\n\nRead [x][doc].\n\n{definition}\n"
+                errors, _ = self.lint(body)
+                self.assertFalse(
+                    any("göreli link" in item for item in errors), errors
+                )
+
+    def test_broken_titled_reference_definition_is_reported(self) -> None:
+        body = '## Steps\n\nRead [x][doc].\n\n[doc]: missing.md "Title"\n'
+        errors, _ = self.lint(body)
+        self.assertTrue(any("göreli link" in item for item in errors), errors)
+
     def test_missing_reference_definition_with_space_is_reported(self) -> None:
         body = "## Steps\n\nRead [x][doc].\n\n[doc]: <missing file.md>\n"
         errors, _ = self.lint(body)
         self.assertTrue(any("göreli link" in item for item in errors), errors)
 
     def test_multi_backtick_span_does_not_hide_a_broken_link(self) -> None:
-        body = "## Steps\n\nSample ``a ` b`` then [x](missing.md).\n"
+        body = "## Steps\n\nSample ``a ` b`` then [x](missing.md) `c`.\n"
         errors, _ = self.lint(body)
         self.assertTrue(any("göreli link" in item for item in errors), errors)
 

@@ -33,7 +33,7 @@ SKILL_POST_NEGATION_RE = re.compile(
 CLAUSE_RE = re.compile(r"[.;!?\n]")
 
 SKILL_REF_DEF_RE = re.compile(
-    r"^\s{0,3}\[([^\]]+)\]:\s*(<[^>]*>|\S.*?)\s*$", re.M
+    r"^\s{0,3}\[([^\]]+)\]:\s*(<[^>]*>|(?:\\.|\S)+)", re.M
 )
 
 SKILL_REF_USE_RE = re.compile(r"\[([^\]]+)\]\[([^\]]*)\]")
