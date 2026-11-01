@@ -23,7 +23,7 @@ product:
 |---|-------|
 | P1 | **Design system varsa uyulur.** Token, bileşen ve desenler birebir kullanılır; yeni desen uydurulmaz. Tasarım sistemi sustuğunda soru sorulur, tahmin edilmez. |
 | P2 | **Mimari korunur ve güçlendirilir.** Mevcut sınırlar (boundary) ihlal edilmez; genişletme mimari karar (ADR) veya `architect` gate'i ile olur. "Kolay olsun diye" sınır aşımı yoktur. |
-| P3 | **Plana sadakat.** Yalnız mühürlü kapsam (`tests_plan`, `checkpoints`) uygulanır. "İyi olurdu" eklemeleri, sessiz refactor ve kapsam dışı iyileştirme yoktur; yeni iş ayrı leaf'tir. |
+| P3 | **Plana sadakat.** Yalnız mühürlü kapsam (`tests_plan`, `checkpoints`) uygulanır. "İyi olurdu" eklemeleri ve mühürsüz refactor yoktur; yeni iş ayrı leaf'tir. Refactor ayrı leaf olarak [refactor-triggers.md](refactor-triggers.md) ile açılır. |
 | P4 | **Kalite zemini düşmez.** Mevcut test/lint/gate'ler yeşil kalarak ilerlenir. Kalite düşüren "kısayol" çözüm değildir; kapılar gevşetilmez. |
 | P5 | **Uydurma yok.** Var olmayan API, dosya, kural veya "projede şöyleydi" bilgisi üretilmez; emin olunmayan konu kaynak gösterilerek doğrulanır. |
 

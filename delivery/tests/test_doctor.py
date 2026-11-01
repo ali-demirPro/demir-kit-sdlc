@@ -138,6 +138,351 @@ class LeafSchemaTests(DoctorTestCase):
         doctor.check_issue_body(fenced("demir-kit", bad), [], None)
         self.assertTrue(any("kapsamıyor" in item for item in doctor.ERRORS))
 
+    def test_v4_requires_check_kind(self) -> None:
+        bad = leaf(package_version=4)
+        doctor.check_issue_body(fenced("demir-kit", bad), [], None)
+        self.assertTrue(
+            any("denetim türü (check) yok" in item for item in doctor.ERRORS),
+            doctor.ERRORS,
+        )
+
+    def test_v3_check_kind_is_optional(self) -> None:
+        good = leaf(package_version=3)
+        doctor.check_issue_body(fenced("demir-kit", good), [], None)
+        self.assertEqual(doctor.ERRORS, [])
+
+    def test_check_kind_absent_before_v4_across_versions(self) -> None:
+        for version in (1, 2, 3):
+            with self.subTest(package_version=version):
+                doctor.ERRORS.clear()
+                doctor.check_issue_body(
+                    fenced("demir-kit", leaf(package_version=version)), [], None
+                )
+                self.assertFalse(
+                    any(
+                        "denetim türü" in item or "insan onayı" in item
+                        for item in doctor.ERRORS
+                    ),
+                    doctor.ERRORS,
+                )
+
+    def test_v5_is_treated_like_v4(self) -> None:
+        bad = leaf(package_version=5)
+        doctor.check_issue_body(fenced("demir-kit", bad), [], None)
+        self.assertTrue(
+            any("denetim türü (check) yok" in item for item in doctor.ERRORS),
+            doctor.ERRORS,
+        )
+
+    def test_check_coupling_applies_when_present_on_v3(self) -> None:
+        bad = leaf(package_version=3)
+        bad["tests_plan"][0]["cases"][0]["check"] = "snap"
+        doctor.check_issue_body(fenced("demir-kit", bad), [], None)
+        self.assertTrue(
+            any("snap türü" in item for item in doctor.ERRORS), doctor.ERRORS
+        )
+
+    def test_v4_with_check_kind_passes(self) -> None:
+        good = leaf(package_version=4)
+        good["tests_plan"][0]["cases"][0]["check"] = "unit"
+        doctor.check_issue_body(fenced("demir-kit", good), [], None)
+        self.assertEqual(doctor.ERRORS, [])
+
+    def test_snap_requires_ui_gate(self) -> None:
+        bad = leaf(package_version=4)
+        bad["tests_plan"][0]["cases"][0]["check"] = "snap"
+        doctor.check_issue_body(fenced("demir-kit", bad), [], None)
+        self.assertTrue(
+            any("snap türü" in item for item in doctor.ERRORS), doctor.ERRORS
+        )
+
+    def test_snap_with_ui_gate_passes(self) -> None:
+        good = leaf(package_version=4)
+        good["checkpoints"][0]["gates"]["ui"] = True
+        good["tests_plan"][0]["cases"][0]["check"] = "snap"
+        doctor.check_issue_body(fenced("demir-kit", good), [], None)
+        self.assertFalse(
+            any("snap türü" in item for item in doctor.ERRORS), doctor.ERRORS
+        )
+
+    def test_manual_requires_human_gate(self) -> None:
+        bad = leaf(package_version=4)
+        bad["tests_plan"][0]["cases"][0]["check"] = "manual"
+        doctor.check_issue_body(fenced("demir-kit", bad), [], None)
+        self.assertTrue(
+            any("manual türü" in item for item in doctor.ERRORS), doctor.ERRORS
+        )
+
+    def test_manual_with_human_gate_passes(self) -> None:
+        good = leaf(package_version=4)
+        good["checkpoints"][0]["gates"]["human"] = True
+        good["tests_plan"][0]["cases"][0]["check"] = "manual"
+        doctor.check_issue_body(fenced("demir-kit", good), [], None)
+        self.assertFalse(
+            any("manual türü" in item for item in doctor.ERRORS), doctor.ERRORS
+        )
+
+    def v4_record(self, human: str | None = None) -> dict:
+        verification = {
+            "commit": "a" * 7,
+            "diff_hash": "sha256:" + "0" * 64,
+            "ci": {"status": "skipped", "reason": "unit test"},
+            "reviewers": [
+                {
+                    "role": "adversarial",
+                    "id": "ses_reviewer",
+                    "model": "test-model",
+                    "prompt_hash": "sha256:" + "1" * 64,
+                    "diff_hash": "sha256:" + "0" * 64,
+                }
+            ],
+        }
+        reviews = dict(evidence()["reviews"])
+        if human:
+            reviews["human"] = human
+        return evidence(
+            verification=verification,
+            worktree={
+                "name": "epic-1",
+                "path": "/tmp/worktree",
+                "branch": "epic-1",
+                "epic": 1,
+            },
+            degrade={"reason": "unit test degrade"},
+            reviews=reviews,
+        )
+
+    def test_v4_human_gate_requires_human_review(self) -> None:
+        data = leaf(package_version=4)
+        data["checkpoints"][0]["gates"]["human"] = True
+        data["tests_plan"][0]["cases"][0]["check"] = "manual"
+        comments = [
+            fenced("demir-kit-evidence", self.v4_record()),
+            "run degrade: unit test",
+        ]
+        with patch.object(doctor.evidence_lib, "verify", return_value=[]):
+            doctor.check_issue_body(fenced("demir-kit", data), ["leaf-done"], comments)
+        self.assertTrue(
+            any("insan onayı" in item for item in doctor.ERRORS), doctor.ERRORS
+        )
+
+    def test_v4_human_gate_with_review_passes(self) -> None:
+        data = leaf(package_version=4)
+        data["checkpoints"][0]["gates"]["human"] = True
+        data["tests_plan"][0]["cases"][0]["check"] = "manual"
+        comments = [
+            fenced("demir-kit-evidence", self.v4_record(human="approved")),
+            "run degrade: unit test",
+        ]
+        with patch.object(doctor.evidence_lib, "verify", return_value=[]):
+            doctor.check_issue_body(fenced("demir-kit", data), ["leaf-done"], comments)
+        self.assertFalse(
+            any("insan onayı" in item for item in doctor.ERRORS), doctor.ERRORS
+        )
+
+    def test_v3_human_gate_keeps_old_behaviour(self) -> None:
+        data = leaf(package_version=3)
+        data["checkpoints"][0]["gates"]["human"] = True
+        comments = [
+            fenced("demir-kit-evidence", self.v4_record()),
+            "run degrade: unit test",
+        ]
+        with patch.object(doctor.evidence_lib, "verify", return_value=[]):
+            doctor.check_issue_body(fenced("demir-kit", data), ["leaf-done"], comments)
+        self.assertFalse(
+            any("insan onayı" in item for item in doctor.ERRORS), doctor.ERRORS
+        )
+
+    def refactor_leaf(self, version: int = 4) -> dict:
+        data = leaf(package_version=version, entry={"kind": "refactor"})
+        data["tests_plan"][0]["cases"][0]["check"] = "unit"
+        return data
+
+    def test_refactor_leaf_requires_architect_gate(self) -> None:
+        doctor.check_issue_body(
+            fenced("demir-kit", self.refactor_leaf()), [], None
+        )
+        self.assertTrue(
+            any("gates.architect" in item for item in doctor.ERRORS), doctor.ERRORS
+        )
+
+    def test_refactor_leaf_with_architect_gate_seals(self) -> None:
+        data = self.refactor_leaf()
+        data["checkpoints"][0]["gates"]["architect"] = True
+        doctor.check_issue_body(fenced("demir-kit", data), [], None)
+        self.assertFalse(
+            any("gates.architect" in item for item in doctor.ERRORS), doctor.ERRORS
+        )
+
+    def test_refactor_leaf_done_requires_proof(self) -> None:
+        data = self.refactor_leaf()
+        data["checkpoints"][0]["gates"]["architect"] = True
+        comments = [
+            fenced("demir-kit-evidence", self.v4_record()),
+            "run degrade: unit test",
+        ]
+        with patch.object(doctor.evidence_lib, "verify", return_value=[]):
+            doctor.check_issue_body(fenced("demir-kit", data), ["leaf-done"], comments)
+        self.assertTrue(
+            any("verification.refactor" in item for item in doctor.ERRORS),
+            doctor.ERRORS,
+        )
+
+    def test_refactor_leaf_done_with_proof_passes(self) -> None:
+        data = self.refactor_leaf()
+        data["checkpoints"][0]["gates"]["architect"] = True
+        record = self.v4_record()
+        record["verification"]["refactor"] = {
+            "baseline": {"commit": "a" * 40, "tests": "pass"},
+            "after": {"commit": "b" * 40, "tests": "pass"},
+            "unchanged": True,
+            "files_changed": 3,
+        }
+        comments = [fenced("demir-kit-evidence", record), "run degrade: unit test"]
+        with patch.object(doctor.evidence_lib, "verify", return_value=[]):
+            doctor.check_issue_body(fenced("demir-kit", data), ["leaf-done"], comments)
+        self.assertFalse(
+            any("refactor" in item for item in doctor.ERRORS), doctor.ERRORS
+        )
+
+    def test_refactor_file_split_warning(self) -> None:
+        data = self.refactor_leaf()
+        data["checkpoints"][0]["gates"]["architect"] = True
+        record = self.v4_record()
+        record["verification"]["refactor"] = {
+            "baseline": {"commit": "a" * 40, "tests": "pass"},
+            "after": {"commit": "b" * 40, "tests": "pass"},
+            "unchanged": True,
+            "files_changed": 15,
+        }
+        comments = [fenced("demir-kit-evidence", record), "run degrade: unit test"]
+        with patch.object(doctor.evidence_lib, "verify", return_value=[]):
+            doctor.check_issue_body(fenced("demir-kit", data), ["leaf-done"], comments)
+        self.assertTrue(any("adımlara böl" in item for item in doctor.WARNS), doctor.WARNS)
+
+    def test_refactor_ui_checkpoint_requires_ui_unchanged(self) -> None:
+        data = self.refactor_leaf()
+        data["checkpoints"][0]["gates"]["architect"] = True
+        data["checkpoints"][0]["gates"]["ui"] = True
+        record = self.v4_record()
+        record["verification"]["refactor"] = {
+            "baseline": {"commit": "a" * 40, "tests": "pass"},
+            "after": {"commit": "b" * 40, "tests": "pass"},
+            "unchanged": True,
+            "files_changed": 3,
+        }
+        comments = [fenced("demir-kit-evidence", record), "run degrade: unit test"]
+        with patch.object(doctor.evidence_lib, "verify", return_value=[]):
+            doctor.check_issue_body(fenced("demir-kit", data), ["leaf-done"], comments)
+        self.assertTrue(
+            any("ui_unchanged" in item for item in doctor.ERRORS), doctor.ERRORS
+        )
+
+    def test_refactor_ui_checkpoint_with_proof_passes(self) -> None:
+        data = self.refactor_leaf()
+        data["checkpoints"][0]["gates"]["architect"] = True
+        data["checkpoints"][0]["gates"]["ui"] = True
+        hashes = "sha256:" + "a" * 64
+        record = self.v4_record()
+        record["verification"]["refactor"] = {
+            "baseline": {"commit": "a" * 40, "tests": "pass", "snapshots": hashes},
+            "after": {"commit": "b" * 40, "tests": "pass", "snapshots": hashes},
+            "unchanged": True,
+            "ui_unchanged": True,
+            "files_changed": 3,
+        }
+        comments = [fenced("demir-kit-evidence", record), "run degrade: unit test"]
+        with patch.object(doctor.evidence_lib, "verify", return_value=[]):
+            doctor.check_issue_body(fenced("demir-kit", data), ["leaf-done"], comments)
+        self.assertFalse(
+            any("ui_unchanged" in item for item in doctor.ERRORS), doctor.ERRORS
+        )
+
+    def test_refactor_block_rejected_on_non_refactor_leaf(self) -> None:
+        data = leaf(package_version=4)
+        data["tests_plan"][0]["cases"][0]["check"] = "unit"
+        record = self.v4_record()
+        record["verification"]["refactor"] = {
+            "baseline": {"commit": "a" * 40, "tests": "pass"},
+            "after": {"commit": "b" * 40, "tests": "pass"},
+            "unchanged": True,
+            "files_changed": 3,
+        }
+        comments = [fenced("demir-kit-evidence", record), "run degrade: unit test"]
+        with patch.object(doctor.evidence_lib, "verify", return_value=[]):
+            doctor.check_issue_body(fenced("demir-kit", data), ["leaf-done"], comments)
+        self.assertTrue(
+            any("yalnız refactor leaf'te" in item for item in doctor.ERRORS),
+            doctor.ERRORS,
+        )
+
+    def test_refactor_malformed_verification_is_reported(self) -> None:
+        data = self.refactor_leaf()
+        data["checkpoints"][0]["gates"]["architect"] = True
+        data["checkpoints"][0]["gates"]["ui"] = True
+        record = self.v4_record()
+        record["verification"] = "bozuk"
+        comments = [fenced("demir-kit-evidence", record), "run degrade: unit test"]
+        with patch.object(doctor.evidence_lib, "verify", return_value=[]):
+            doctor.check_issue_body(fenced("demir-kit", data), ["leaf-done"], comments)
+        self.assertTrue(
+            any("verification.refactor" in item for item in doctor.ERRORS),
+            doctor.ERRORS,
+        )
+
+    def test_refactor_requires_architect_on_every_checkpoint(self) -> None:
+        data = self.refactor_leaf()
+        data["checkpoints"][0]["gates"]["architect"] = True
+        data["checkpoints"].append(
+            {
+                "id": "CP-2",
+                "title": "İkinci adım",
+                "depends_on": ["CP-1"],
+                "gates": {
+                    "behavior": True,
+                    "architect": False,
+                    "commercial": False,
+                    "ui": False,
+                    "human": False,
+                },
+            }
+        )
+        data["tests_plan"].append(
+            {
+                "checkpoint_id": "CP-2",
+                "cases": [
+                    {"id": "T-2", "ac": "AC-1", "text": "İkinci adım.", "check": "unit"}
+                ],
+            }
+        )
+        doctor.check_issue_body(fenced("demir-kit", data), [], None)
+        self.assertTrue(
+            any("CP-2: refactor leaf'te gates.architect" in item for item in doctor.ERRORS),
+            doctor.ERRORS,
+        )
+
+    def test_unknown_check_kind_is_rejected(self) -> None:
+        bad = leaf(package_version=4)
+        bad["tests_plan"][0]["cases"][0]["check"] = "vibes"
+        errors = doctor.validate_schema(bad, LEAF_SCHEMA)
+        self.assertTrue(any("enum dışında" in item for item in errors), errors)
+
+    def test_unknown_check_kind_also_reported_by_doctor(self) -> None:
+        bad = leaf(package_version=3)
+        bad["tests_plan"][0]["cases"][0]["check"] = "vibes"
+        doctor.check_issue_body(fenced("demir-kit", bad), [], None)
+        self.assertTrue(
+            any("geçersiz" in item for item in doctor.ERRORS), doctor.ERRORS
+        )
+
+    def test_test_plan_skill_documents_five_kinds(self) -> None:
+        text = (ROOT / "skills" / "test-plan" / "SKILL.md").read_text(encoding="utf-8")
+        for kind in ("gate", "unit", "snap", "manual", "doc"):
+            self.assertIn(f"| `{kind}` |", text)
+        self.assertIn("gates.ui", text)
+        self.assertIn("gates.human", text)
+        self.assertIn("Seçim kuralı", text)
+
     def test_checkpoint_membership(self) -> None:
         doctor.check_issue_body(
             fenced("demir-kit", leaf()), [], None, checkpoint="CP-9"

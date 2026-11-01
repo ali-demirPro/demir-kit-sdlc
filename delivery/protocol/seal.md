@@ -3,9 +3,11 @@
 Leaf'i yürütülebilir hale getirme. Şema: [leaf.schema.json](../schemas/leaf.schema.json).
 Durum geçişi: `scope-confirmed` → `agent-approved` (T2).
 
-Yeni leaf'ler `package_version: 3` ile mühürlenir; bu, evidence v3
-(`verification`) ve epic worktree/worker kanıtı zorunluluğunu getirir. `2` ve `1`
-yalnız eski kayıtlar içindir.
+Yeni leaf'ler `package_version: 4` ile mühürlenir. Bu sürüm önceki
+zorunlulukları devralır ve her `tests_plan` case'inde `check` alanı ister:
+`gate` | `unit` | `snap` | `manual` | `doc`. `snap`, checkpoint'te
+`gates.ui: true`; `manual`, `gates.human: true` gerektirir. `3`, `2` ve `1`
+yalnız eski kayıtlar içindir; onlarda `check` varsa eşleşme yine denetlenir.
 
 ## Girdi kontrolü
 
@@ -20,7 +22,8 @@ yalnız eski kayıtlar içindir.
 ## Adımlar
 
 1. Issue body'deki `demir-kit` YAML bloğunu `leaf.schema.json`'a göre doldur.
-2. Her `AC-n` için en az bir `tests_plan` case'i (`T-n`, `ac: AC-n`) yaz.
+2. Her `AC-n` için en az bir `tests_plan` case'i (`T-n`, `ac: AC-n`) yaz;
+   `package_version: 4` ise her case'te `check` alanını doldur.
 3. Her CP için `gates.behavior: true`; risk seviyesini `registry.yaml risk` ile belirle.
 4. `dependencies` içine bloklayan issue'ları yaz (`kind: blocks`).
 5. Doğrula:
@@ -36,7 +39,7 @@ yalnız eski kayıtlar içindir.
 
 ```yaml demir-kit
 demir_kit_version: "2"
-package_version: 3
+package_version: 4
 mode: extend
 epic: 10
 entry:
@@ -62,11 +65,11 @@ risk:
 tests_plan:
   - checkpoint_id: CP-1
     cases:
-      - { id: T-1, ac: AC-1, text: blocked dependency leaf'i kuyruktan düşer }
-      - { id: T-2, ac: AC-1, text: en eski uygun leaf seçilir }
+      - { id: T-1, ac: AC-1, text: blocked dependency leaf'i kuyruktan düşer, check: unit }
+      - { id: T-2, ac: AC-1, text: en eski uygun leaf seçilir, check: unit }
   - checkpoint_id: CP-2
     cases:
-      - { id: T-3, ac: AC-2, text: pass CP evidence ile atlanır }
+      - { id: T-3, ac: AC-2, text: pass CP evidence ile atlanır, check: gate }
 checkpoints:
   - id: CP-1
     title: Queue and claim

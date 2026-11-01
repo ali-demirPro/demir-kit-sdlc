@@ -1,8 +1,9 @@
 ---
 name: work-package
 description: >-
-  Seal a v2 leaf: demir-kit YAML, AC ↔ tests_plan mapping, risk level, then
-  agent-approved. No seal, no source changes.
+  Seal a v2 leaf: demir-kit YAML, AC to tests_plan mapping, risk level, then
+  agent-approved; no seal, no source changes. Use when an issue needs a seal,
+  when doctor rejects a seal body, or before any source change.
 ---
 
 # work-package
@@ -23,6 +24,8 @@ Read first: `delivery/protocol/seal.md`, `delivery/CONTRACT.md`,
 - No `WP-*.md`, `docs/work-packages/`, or committed checkpoint JSON.
 - One leaf per issue; never seal an epic that has children.
 - Every `AC-n` has at least one `T-n` case; every CP has a `tests_plan` entry.
+- `package_version: 4` ise her case'te `check` (`gate|unit|snap|manual|doc`);
+  `snap` → CP `gates.ui`, `manual` → CP `gates.human`.
 - `demir_kit_version: "2"`; `gates.behavior: true` on every CP.
 - Project priorities are binding (`delivery/policies/project-priorities.md`):
   design system varsa uyulur, mimari sınırlar korunur, plan dışına çıkılmaz,
@@ -44,7 +47,7 @@ Read first: `delivery/protocol/seal.md`, `delivery/CONTRACT.md`,
 
 ```yaml demir-kit
 demir_kit_version: "2"
-package_version: 3
+package_version: 4
 mode: extend
 epic: 12
 entry: { kind: feature }
@@ -62,7 +65,7 @@ risk: { level: low, reasons: ["Doküman değişikliği"] }
 tests_plan:
   - checkpoint_id: CP-1
     cases:
-      - { id: T-1, ac: AC-1, text: "Doğrulama adımı." }
+      - { id: T-1, ac: AC-1, text: "Doğrulama adımı.", check: doc }
 checkpoints:
   - id: CP-1
     title: Kısa başlık
@@ -82,3 +85,8 @@ checkpoints:
 | `behavior: false` | şema fail |
 | Risk düşük yazıldı | `guard.sh` glob ile bloklar |
 | Epic mühürlendi | contract ihlali |
+
+## Done when
+
+`doctor.sh --body` sıfır hata verdi, issue'da mühür var ve `agent-approved`
+etiketi eklendi; kaynak değişikliği henüz başlamadı.

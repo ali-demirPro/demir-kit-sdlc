@@ -14,6 +14,9 @@ Risk tabanlı gate matrisi. Sözleşme: [CONTRACT.md](../CONTRACT.md) · Risk ve
 
 `low` / `medium` otomatik kapanır; insan spot-check yapar. Epic kabulü her zaman insandır.
 
+`entry.kind: refactor` leaf'lerinde `architect` gate'i riskten bağımsız olarak
+her checkpoint'te zorunludur; `verification.refactor` olmadan `leaf-done` geçmez.
+
 ## CI kanıtı
 
 - `critical`: CI `success` zorunlu; `skipped` kabul edilmez.
@@ -72,6 +75,9 @@ Risk tabanlı gate matrisi. Sözleşme: [CONTRACT.md](../CONTRACT.md) · Risk ve
   yazılamaz.
 - `critical`: iki insan (biri store/deploy sahibi); evidence'da `reviews.human`
   ve `reviews.human_second` birlikte `approved`.
+- `package_version: 4` leaf'te `gates.human: true` olan CP, risk düşük olsa da
+  `leaf-done` anında `reviews.human: approved` ister. `manual` test türü bu
+  kapıyı seal anında zorunlu kılar.
 - İnsan onayı yoksa `doctor --issue` `leaf-done`'ı reddeder; etiket elle
   kaldırılamaz.
 - Epic: closure **pass** sonrası kabul.

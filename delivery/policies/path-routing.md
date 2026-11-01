@@ -21,8 +21,8 @@ gerektiriyorsa çalışır. Çalışmayan roller "inactive"tir; ayrıca skip lis
 
 1. Seal `surfaces` ↔ `registry.yaml` `signals` (`match.surfaces`).
 2. Title/body anahtar kelimeleri (seal bloğu hariç).
-3. `entry.kind` fallback: `chore`/`bugfix` → `pure_technical`, `feature` →
-   `ui_feature`, baseline'lar → `full_product`.
+3. `entry.kind` fallback: `chore`/`bugfix`/`refactor` → `pure_technical`,
+   `feature` → `ui_feature`, baseline'lar → `full_product`.
 4. Labels (`release` vb.) yalnız ek sinyal; tek başına path seçmez.
 5. Çakışma: **dar path kazanır**:
    `store_release` > `landing_only` > `experiment` > `ui_feature` >

@@ -223,7 +223,7 @@ git add demir-kit kit.config.yaml && git commit
 `kit.config.yaml`'a `orca.epic_worktree: true` ekler, `AGENTS.md`'ye
 `demir-kit:delivery` bloğunu enjekte eder ve `.orchestration/` satırını
 `.gitignore`'a yazar. Blok/flag yoksa `doctor --product` uyarır; `verify`
-`delivery: missing_block` der. Yeni leaf'ler `package_version: 3` ile mühürlenir.
+`delivery: missing_block` der. Yeni leaf'ler `package_version: 4` ile mühürlenir (her case'te `check`).
 
 **2.31 geçişi:** `init.py --apply` ayrıca `orca.yaml` (`worktree.sharedDirectories`)
 ve `.worktreeinclude` (gitignored `.env` dosyaları) üretir. Orca sürümü

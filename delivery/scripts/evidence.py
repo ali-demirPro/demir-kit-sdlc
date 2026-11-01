@@ -34,6 +34,28 @@ def commit_exists(commit: str, root: Path = ROOT) -> bool:
     return git(["cat-file", "-e", f"{commit}^{{commit}}"], root).returncode == 0
 
 
+def fetch_commit(commit: str, root: Path = ROOT) -> bool:
+    """Fetch one commit from origin so a branch-only commit can be verified.
+
+    Epic leaves close before the epic branch is merged, so a CI checkout of the
+    default branch may not carry the commit object. Fetching keeps diff_hash
+    verification intact instead of trusting a remote existence check.
+    """
+    if not COMMIT_RE.fullmatch(commit or ""):
+        return False
+    try:
+        result = subprocess.run(
+            ["git", "fetch", "--no-tags", "origin", commit],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return result.returncode == 0 and commit_exists(commit, root)
+
+
 def resolve_commit(value: str, root: Path = ROOT) -> str | None:
     result = git(["rev-parse", value], root)
     if result.returncode != 0:
@@ -66,6 +88,122 @@ def ci_status(repo: str, run_id: str) -> dict | None:
     return data if isinstance(data, dict) else None
 
 
+def is_ancestor(base: str, after: str, root: Path = ROOT) -> bool:
+    if not (COMMIT_RE.fullmatch(base or "") and COMMIT_RE.fullmatch(after or "")):
+        return False
+    return git(["merge-base", "--is-ancestor", base, after], root).returncode == 0
+
+
+def changed_files(base: str, after: str, root: Path = ROOT) -> int | None:
+    """Files changed between two commits, or None when the range is unreadable."""
+    if not (COMMIT_RE.fullmatch(base or "") and COMMIT_RE.fullmatch(after or "")):
+        return None
+    result = git(["diff", "--name-only", "--no-renames", f"{base}..{after}"], root)
+    if result.returncode != 0:
+        return None
+    return len([line for line in result.stdout.splitlines() if line.strip()])
+
+
+def commit_count(base: str, after: str, root: Path = ROOT) -> int | None:
+    """Commits between base..after, or None when the range is unreadable."""
+    resolved_base = resolve_commit(base, root)
+    resolved_after = resolve_commit(after, root)
+    if not resolved_base or not resolved_after:
+        return None
+    result = git(["rev-list", "--count", f"{resolved_base}..{resolved_after}"], root)
+    if result.returncode != 0:
+        return None
+    try:
+        return int(result.stdout.strip() or "0")
+    except ValueError:
+        return None
+
+
+def range_diff_hash(base: str, after: str, root: Path = ROOT) -> str | None:
+    """Hash the whole baseline..after diff; reviewers must review this range."""
+    resolved_base = resolve_commit(base, root)
+    resolved_after = resolve_commit(after, root)
+    if not resolved_base or not resolved_after:
+        return None
+    result = git(["diff", "--binary", f"{resolved_base}..{resolved_after}"], root)
+    if result.returncode != 0:
+        return None
+    return hash_text(result.stdout)
+
+
+def verify_refactor(
+    block,
+    root: Path = ROOT,
+    repo: str | None = None,
+    commit: str | None = None,
+) -> list[str]:
+    """Refactor proof: behavior unchanged between a baseline and an after commit."""
+    errors: list[str] = []
+    if not isinstance(block, dict):
+        return ["refactor bloğu mapping değil"]
+    if block.get("unchanged") is not True:
+        errors.append("refactor unchanged true olmalı")
+    commits: dict[str, str] = {}
+    for label in ("baseline", "after"):
+        point = block.get(label)
+        if not isinstance(point, dict):
+            errors.append(f"refactor.{label} yok")
+            continue
+        ref = str(point.get("commit") or "")
+        local = commit_exists(ref, root)
+        if not local and repo:
+            local = fetch_commit(ref, root)
+        if not local:
+            errors.append(f"refactor.{label} commit bulunamadı: {ref or 'yok'}")
+        if point.get("tests") != "pass":
+            errors.append(f"refactor.{label} tests pass olmalı")
+        commits[label] = ref
+    base = commits.get("baseline")
+    after = commits.get("after")
+    if base and after:
+        if base == after:
+            errors.append("refactor baseline ve after aynı commit")
+        elif commit_exists(base, root) and commit_exists(after, root):
+            if not is_ancestor(base, after, root):
+                errors.append("refactor baseline, after'ın atası değil")
+    if commit and after:
+        resolved_after = resolve_commit(after, root)
+        resolved_commit = resolve_commit(commit, root)
+        if not resolved_after or not resolved_commit:
+            errors.append("refactor.after çözümlenemedi")
+        elif resolved_after != resolved_commit:
+            errors.append("refactor.after kanıt commit'i ile aynı olmalı")
+    declared = block.get("files_changed")
+    if not isinstance(declared, int) or isinstance(declared, bool) or declared < 1:
+        errors.append("refactor files_changed pozitif tam sayı olmalı")
+    elif base and after and commit_exists(base, root) and commit_exists(after, root):
+        actual = changed_files(base, after, root)
+        if actual is None:
+            errors.append("refactor dosya sayısı ölçülemedi")
+        elif declared != actual:
+            errors.append(
+                f"refactor files_changed {declared} ama gerçek değişim {actual}"
+            )
+        elif actual > 20:
+            errors.append(f"refactor {actual} dosya (üst sınır 20)")
+    baseline_point = block.get("baseline")
+    after_point = block.get("after")
+    baseline_point = baseline_point if isinstance(baseline_point, dict) else {}
+    after_point = after_point if isinstance(after_point, dict) else {}
+    if block.get("ui_unchanged") is True:
+        before = baseline_point.get("snapshots")
+        final = after_point.get("snapshots")
+        if not before or not final:
+            errors.append("ui_unchanged için iki snapshot hash gerekli")
+        elif before != final:
+            errors.append("ui_unchanged ama snapshot hash farklı")
+    baseline_perf = baseline_point.get("perf_ms")
+    after_perf = after_point.get("perf_ms")
+    if (baseline_perf is None) != (after_perf is None):
+        errors.append("perf_ms iki tarafta da olmalı ya da hiç olmamalı")
+    return errors
+
+
 def verify(
     record: dict,
     root: Path = ROOT,
@@ -79,10 +217,13 @@ def verify(
         return ["verification mapping değil"]
 
     commit = str(record.get("commit") or "")
-    if not commit_exists(commit, root):
+    local_commit = commit_exists(commit, root)
+    if not local_commit and repo:
+        local_commit = fetch_commit(commit, root)
+    if not local_commit:
         errors.append(f"commit bulunamadı: {commit or 'yok'}")
 
-    expected = diff_hash(commit, root) if commit_exists(commit, root) else None
+    expected = diff_hash(commit, root) if local_commit else None
     recorded_diff = str(record.get("diff_hash") or "")
     if not HASH_RE.fullmatch(recorded_diff):
         errors.append("diff_hash sha256 biçiminde değil")
@@ -127,6 +268,32 @@ def verify(
     else:
         errors.append("CI status success veya skipped olmalı")
 
+    allowed_diffs = {expected} if expected else set()
+    refactor_block = (
+        record.get("refactor") if isinstance(record.get("refactor"), dict) else {}
+    )
+    if refactor_block:
+        baseline_point = refactor_block.get("baseline")
+        after_point = refactor_block.get("after")
+        base_ref = (
+            str(baseline_point.get("commit") or "")
+            if isinstance(baseline_point, dict)
+            else ""
+        )
+        after_ref = (
+            str(after_point.get("commit") or "")
+            if isinstance(after_point, dict)
+            else ""
+        )
+        if base_ref and after_ref:
+            range_hash = range_diff_hash(base_ref, after_ref, root)
+            if range_hash:
+                steps = commit_count(base_ref, after_ref, root)
+                if steps is not None and steps > 1:
+                    allowed_diffs = {range_hash}
+                else:
+                    allowed_diffs.add(range_hash)
+
     reviewers = record.get("reviewers")
     reviewers = reviewers if isinstance(reviewers, list) else []
     minimum = 2 if risk in {"high", "critical"} else 1
@@ -152,8 +319,13 @@ def verify(
         reviewer_diff = str(reviewer.get("diff_hash") or "")
         if reviewer_diff and not HASH_RE.fullmatch(reviewer_diff):
             errors.append(f"reviewer {index}: diff_hash sha256 değil")
-        elif expected and reviewer_diff != expected:
+        elif allowed_diffs and reviewer_diff not in allowed_diffs:
             errors.append(f"reviewer {index}: farklı diff'i incelemiş")
+
+    if "refactor" in record:
+        errors += verify_refactor(
+            record.get("refactor"), root=root, repo=repo, commit=commit
+        )
 
     return errors
 

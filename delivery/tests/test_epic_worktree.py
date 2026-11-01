@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import sys
 import tempfile
 import unittest
@@ -121,6 +122,24 @@ class EpicWorktreeTests(unittest.TestCase):
             self.assertEqual(result["run_id"], "run_x")
             self.assertEqual(result["branch"], "epic-15")
 
+    def test_check_accepts_worktree_when_toplevel_is_the_worktree(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = project(Path(directory))
+            record = epic_worktree_record(root, 15)
+            epic_worktree.save_state(
+                root,
+                15,
+                {"epic": 15, "path": record["path"], "run_id": "run_x"},
+            )
+            with patch.object(epic_worktree, "orca_available", return_value=True), patch.object(
+                epic_worktree, "current_worktree", return_value=record
+            ), patch.object(
+                epic_worktree, "toplevel", return_value=Path(record["path"]).resolve()
+            ), patch.object(epic_worktree, "main_root", return_value=root):
+                result = epic_worktree.check(15, root)
+            self.assertTrue(result["ok"])
+            self.assertEqual(Path(result["path"]), Path(record["path"]).resolve())
+
     def test_check_requires_run(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = project(Path(directory))
@@ -156,3 +175,73 @@ class EpicWorktreeTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class MainRootIntegrationTests(unittest.TestCase):
+    """Real git layouts: main_root must resolve the primary checkout."""
+
+    def make_repo(self, base: Path) -> tuple[Path, Path]:
+        import subprocess
+
+        root = base / "repo"
+        root.mkdir()
+
+        env = dict(os.environ)
+        for key in ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE"):
+            env.pop(key, None)
+        env["GIT_CONFIG_GLOBAL"] = os.devnull
+        env["GIT_CONFIG_SYSTEM"] = os.devnull
+
+        def run(args, cwd):
+            subprocess.check_call(
+                ["git", "-c", "commit.gpgsign=false", *args],
+                cwd=cwd,
+                stdout=subprocess.DEVNULL,
+                env=env,
+            )
+
+        run(["init", "-q"], root)
+        run(["config", "user.email", "test@example.com"], root)
+        run(["config", "user.name", "Test"], root)
+        (root / "kit.config.yaml").write_text(
+            "orca:\n  epic_worktree: true\n", encoding="utf-8"
+        )
+        (root / "file.txt").write_text("one\n", encoding="utf-8")
+        run(["add", "."], root)
+        run(["commit", "-q", "-m", "one"], root)
+        linked = base / "linked"
+        run(["worktree", "add", "-q", str(linked), "-b", "epic-15"], root)
+        return root, linked
+
+    def test_main_root_returns_primary_from_linked_worktree(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root, linked = self.make_repo(Path(directory))
+            self.assertEqual(epic_worktree.main_root(linked).resolve(), root.resolve())
+            self.assertEqual(epic_worktree.main_root(root).resolve(), root.resolve())
+
+    def test_check_accepts_linked_and_rejects_primary(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root, linked = self.make_repo(Path(directory))
+            record = {
+                "id": "repo::linked",
+                "displayName": "epic-15",
+                "path": str(linked),
+                "branch": "refs/heads/epic-15",
+                "repoId": "repo",
+                "isMainWorktree": False,
+            }
+            epic_worktree.save_state(
+                root, 15, {"epic": 15, "path": str(linked), "run_id": "run_x"}
+            )
+            with patch.object(
+                epic_worktree, "orca_available", return_value=True
+            ), patch.object(epic_worktree, "current_worktree", return_value=record):
+                result = epic_worktree.check(15, linked)
+            self.assertTrue(result["ok"])
+
+            main_record = dict(record, isMainWorktree=False, path=str(root))
+            with patch.object(
+                epic_worktree, "orca_available", return_value=True
+            ), patch.object(epic_worktree, "current_worktree", return_value=main_record):
+                with self.assertRaises(epic_worktree.WorktreeError):
+                    epic_worktree.check(15, root)

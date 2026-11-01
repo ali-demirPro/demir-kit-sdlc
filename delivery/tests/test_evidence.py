@@ -41,6 +41,64 @@ def make_repo(root: Path) -> tuple[str, str]:
     return first, second
 
 
+def make_three_commit_repo(root: Path) -> tuple[str, str]:
+    """Repo with three commits; returns (first, third)."""
+    git(["init", "-q"], root)
+    git(["config", "user.email", "test@example.com"], root)
+    git(["config", "user.name", "Test"], root)
+    path = root / "file.txt"
+    path.write_text("one\n")
+    git(["add", "file.txt"], root)
+    git(["commit", "-q", "-m", "one"], root)
+    first = git(["rev-parse", "HEAD"], root)
+    path.write_text("two\n")
+    git(["add", "file.txt"], root)
+    git(["commit", "-q", "-m", "two"], root)
+    path.write_text("three\n")
+    git(["add", "file.txt"], root)
+    git(["commit", "-q", "-m", "three"], root)
+    return first, git(["rev-parse", "HEAD"], root)
+
+
+def make_many_files_repo(root: Path, count: int = 21) -> tuple[str, str]:
+    """Repo whose second commit touches `count` files."""
+    git(["init", "-q"], root)
+    git(["config", "user.email", "test@example.com"], root)
+    git(["config", "user.name", "Test"], root)
+    (root / "base.txt").write_text("base\n")
+    git(["add", "base.txt"], root)
+    git(["commit", "-q", "-m", "base"], root)
+    first = git(["rev-parse", "HEAD"], root)
+    for index in range(count):
+        (root / f"file-{index}.txt").write_text("x\n")
+    git(["add", "."], root)
+    git(["commit", "-q", "-m", "many"], root)
+    return first, git(["rev-parse", "HEAD"], root)
+
+
+def bare_remote_fixture(base: Path) -> tuple[Path, Path, str]:
+    """A clone missing the newest commit, its source repo and that commit.
+
+    The bare remote enables SHA fetch like GitHub does, so `fetch_commit` can be
+    tested end to end.
+    """
+    origin = base / "origin.git"
+    source = base / "source"
+    clone = base / "clone"
+    subprocess.check_call(["git", "init", "--bare", "-q", str(origin)])
+    git(["config", "uploadpack.allowAnySHA1InWant", "true"], origin)
+    source.mkdir()
+    make_repo(source)
+    git(["remote", "add", "origin", str(origin)], source)
+    git(["push", "-q", "origin", "HEAD:main"], source)
+    subprocess.check_call(["git", "clone", "-q", str(origin), str(clone)])
+    (source / "file.txt").write_text("three\n")
+    git(["add", "file.txt"], source)
+    git(["commit", "-q", "-m", "three"], source)
+    git(["push", "-q", "origin", "HEAD:main"], source)
+    return clone, source, git(["rev-parse", "HEAD"], source)
+
+
 def reviewer(identifier: str, diff_hash: str) -> dict:
     return {
         "role": "adversarial",
@@ -78,6 +136,61 @@ class EvidenceTests(unittest.TestCase):
             evidence.diff_hash(self.first, self.root),
             evidence.diff_hash(self.second, self.root),
         )
+
+    def test_remote_commit_satisfies_missing_local_commit(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            clone, source, new = bare_remote_fixture(Path(raw))
+            self.assertFalse(evidence.commit_exists(new, clone))
+            record = self.record(
+                commit=new,
+                diff_hash=evidence.diff_hash(new, source),
+                reviewers=[reviewer("ses_reviewer", evidence.diff_hash(new, source))],
+            )
+            errors = evidence.verify(
+                record, root=clone, repo="org/repo", risk="low"
+            )
+            self.assertEqual(errors, [])
+            self.assertTrue(evidence.commit_exists(new, clone))
+
+    def test_fetched_commit_still_checks_diff_hash(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            clone, source, new = bare_remote_fixture(Path(raw))
+            wrong = "sha256:" + "0" * 64
+            record = self.record(
+                commit=new, diff_hash=wrong, reviewers=[reviewer("ses_reviewer", wrong)]
+            )
+            errors = evidence.verify(
+                record, root=clone, repo="org/repo", risk="low"
+            )
+        self.assertTrue(any("eşleşmiyor" in item for item in errors), errors)
+
+    def test_missing_commit_everywhere_fails(self) -> None:
+        record = self.record(commit="b" * 40)
+        with patch.object(evidence, "fetch_commit", return_value=False):
+            errors = evidence.verify(
+                record, root=self.root, repo="org/repo", risk="low"
+            )
+        self.assertTrue(any("commit bulunamadı" in item for item in errors), errors)
+
+    def test_missing_commit_without_repo_fails(self) -> None:
+        record = self.record(commit="c" * 40)
+        with patch.object(evidence, "fetch_commit") as fetch:
+            errors = evidence.verify(record, root=self.root, risk="low")
+            fetch.assert_not_called()
+        self.assertTrue(any("commit bulunamadı" in item for item in errors), errors)
+
+    def test_fetch_commit_rejects_non_commit_input(self) -> None:
+        self.assertFalse(evidence.fetch_commit("not-a-sha", self.root))
+
+    def test_fetch_commit_from_origin(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            clone, source, new = bare_remote_fixture(Path(raw))
+            self.assertFalse(evidence.commit_exists(new, clone))
+            self.assertTrue(evidence.fetch_commit(new, clone))
+            self.assertTrue(evidence.commit_exists(new, clone))
+            self.assertEqual(
+                evidence.diff_hash(new, clone), evidence.diff_hash(new, source)
+            )
 
     def test_valid_verification(self) -> None:
         self.assertEqual(
@@ -170,6 +283,174 @@ class EvidenceTests(unittest.TestCase):
         )
         self.assertEqual(data["diff_hash"], self.expected)
         self.assertEqual(data["reviewers"][0]["diff_hash"], self.expected)
+
+    def refactor_block(self, **overrides) -> dict:
+        block = {
+            "baseline": {"commit": self.first, "tests": "pass"},
+            "after": {"commit": self.second, "tests": "pass"},
+            "unchanged": True,
+            "files_changed": 1,
+        }
+        block.update(overrides)
+        return block
+
+    def test_refactor_block_passes(self) -> None:
+        errors = evidence.verify_refactor(self.refactor_block(), root=self.root)
+        self.assertEqual(errors, [])
+
+    def test_refactor_requires_unchanged_true(self) -> None:
+        errors = evidence.verify_refactor(
+            self.refactor_block(unchanged=False), root=self.root
+        )
+        self.assertTrue(any("unchanged" in item for item in errors), errors)
+
+    def test_refactor_baseline_must_be_ancestor(self) -> None:
+        block = self.refactor_block(
+            baseline={"commit": self.second, "tests": "pass"},
+            after={"commit": self.first, "tests": "pass"},
+        )
+        errors = evidence.verify_refactor(block, root=self.root)
+        self.assertTrue(any("atası değil" in item for item in errors), errors)
+
+    def test_refactor_baseline_and_after_differ(self) -> None:
+        block = self.refactor_block(
+            baseline={"commit": self.second, "tests": "pass"},
+            after={"commit": self.second, "tests": "pass"},
+        )
+        errors = evidence.verify_refactor(block, root=self.root)
+        self.assertTrue(any("aynı commit" in item for item in errors), errors)
+
+    def test_refactor_tests_must_pass(self) -> None:
+        block = self.refactor_block(
+            after={"commit": self.second, "tests": "fail"}
+        )
+        errors = evidence.verify_refactor(block, root=self.root)
+        self.assertTrue(any("tests pass" in item for item in errors), errors)
+
+    def test_refactor_files_must_match_git(self) -> None:
+        errors = evidence.verify_refactor(
+            self.refactor_block(files_changed=5), root=self.root
+        )
+        self.assertTrue(any("gerçek değişim" in item for item in errors), errors)
+
+    def test_refactor_file_limit(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            first, second = make_many_files_repo(root)
+            block = {
+                "baseline": {"commit": first, "tests": "pass"},
+                "after": {"commit": second, "tests": "pass"},
+                "unchanged": True,
+                "files_changed": 21,
+            }
+            errors = evidence.verify_refactor(block, root=root)
+        self.assertTrue(any("üst sınır" in item for item in errors), errors)
+
+    def test_refactor_after_must_equal_evidence_commit(self) -> None:
+        block = self.refactor_block()
+        errors = evidence.verify_refactor(block, root=self.root, commit=self.first)
+        self.assertTrue(
+            any("kanıt commit'i ile aynı" in item for item in errors), errors
+        )
+
+    def test_refactor_accepts_short_sha_for_after(self) -> None:
+        block = self.refactor_block(
+            after={"commit": self.second[:7], "tests": "pass"}
+        )
+        errors = evidence.verify_refactor(
+            block, root=self.root, commit=self.second
+        )
+        self.assertFalse(any("aynı olmalı" in item for item in errors), errors)
+
+    def test_refactor_range_hash_is_reviewable(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            first, third = make_three_commit_repo(root)
+            range_hash = evidence.range_diff_hash(first, third, root)
+            commit_hash = evidence.diff_hash(third, root)
+            self.assertNotEqual(range_hash, commit_hash)
+            block = {
+                "baseline": {"commit": first, "tests": "pass"},
+                "after": {"commit": third, "tests": "pass"},
+                "unchanged": True,
+                "files_changed": 1,
+            }
+            good = {
+                "commit": third,
+                "diff_hash": commit_hash,
+                "ci": {"status": "skipped", "reason": "unit"},
+                "reviewers": [reviewer("ses_reviewer", range_hash)],
+                "refactor": block,
+            }
+            self.assertEqual(evidence.verify(good, root=root, risk="low"), [])
+            bad = dict(good)
+            bad["reviewers"] = [reviewer("ses_reviewer", commit_hash)]
+            errors = evidence.verify(bad, root=root, risk="low")
+            self.assertTrue(
+                any("farklı diff" in item for item in errors), errors
+            )
+
+    def test_refactor_malformed_point_does_not_crash(self) -> None:
+        record = self.record(
+            refactor={"baseline": "abc", "after": [], "unchanged": True}
+        )
+        errors = evidence.verify(record, root=self.root, risk="low")
+        self.assertTrue(any("baseline" in item for item in errors), errors)
+
+    def test_refactor_twenty_files_pass(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            first, second = make_many_files_repo(root, count=20)
+            block = {
+                "baseline": {"commit": first, "tests": "pass"},
+                "after": {"commit": second, "tests": "pass"},
+                "unchanged": True,
+                "files_changed": 20,
+            }
+            self.assertEqual(evidence.verify_refactor(block, root=root), [])
+
+    def test_refactor_requires_files_changed(self) -> None:
+        block = self.refactor_block()
+        block.pop("files_changed")
+        errors = evidence.verify_refactor(block, root=self.root)
+        self.assertTrue(any("files_changed" in item for item in errors), errors)
+
+    def test_refactor_perf_needs_both_sides(self) -> None:
+        block = self.refactor_block(
+            baseline={"commit": self.first, "tests": "pass", "perf_ms": 12}
+        )
+        errors = evidence.verify_refactor(block, root=self.root)
+        self.assertTrue(any("perf_ms" in item for item in errors), errors)
+
+    def test_refactor_ui_unchanged_needs_equal_hashes(self) -> None:
+        hashes = "sha256:" + "a" * 64
+        same = self.refactor_block(
+            ui_unchanged=True,
+            baseline={"commit": self.first, "tests": "pass", "snapshots": hashes},
+            after={"commit": self.second, "tests": "pass", "snapshots": hashes},
+        )
+        self.assertEqual(evidence.verify_refactor(same, root=self.root), [])
+        different = self.refactor_block(
+            ui_unchanged=True,
+            baseline={"commit": self.first, "tests": "pass", "snapshots": hashes},
+            after={
+                "commit": self.second,
+                "tests": "pass",
+                "snapshots": "sha256:" + "b" * 64,
+            },
+        )
+        errors = evidence.verify_refactor(different, root=self.root)
+        self.assertTrue(any("snapshot" in item for item in errors), errors)
+
+    def test_refactor_ui_unchanged_needs_hashes(self) -> None:
+        block = self.refactor_block(ui_unchanged=True)
+        errors = evidence.verify_refactor(block, root=self.root)
+        self.assertTrue(any("snapshot hash gerekli" in item for item in errors), errors)
+
+    def test_verify_runs_refactor_rules(self) -> None:
+        record = self.record(refactor=self.refactor_block(unchanged=False))
+        errors = evidence.verify(record, root=self.root, risk="low")
+        self.assertTrue(any("unchanged" in item for item in errors), errors)
 
 
 if __name__ == "__main__":

@@ -1,8 +1,9 @@
 ---
 name: behavior-gate
 description: >-
-  Red-green TDD for one checkpoint. Run the ecosystem gate command via Orca,
-  exit 0 required before worker_done.
+  Red-green TDD for one checkpoint: failing test first, ecosystem gate command
+  via Orca, exit 0 before worker_done. Use when a checkpoint starts, when the
+  gate fails, or when doctor asks for behavior evidence.
 ---
 
 # behavior-gate
@@ -37,3 +38,8 @@ shell outside the worktree.
 
 Gate limit (3 rounds) or environment failure → `blocked` + one human-language
 question. Do not silently pass a failing gate.
+
+## Done when
+
+Gate komutu `{checkpoint}` ile `exit 0` verdi, test önce kırmızıydı ve evidence
+`tests` bloğu yazıldı.

@@ -31,7 +31,7 @@
       "required": ["kind"],
       "properties": {
         "kind": {
-          "enum": ["feature", "bugfix", "chore", "architecture_baseline", "commercial_baseline"]
+          "enum": ["feature", "bugfix", "chore", "refactor", "architecture_baseline", "commercial_baseline"]
         }
       }
     },
@@ -139,7 +139,11 @@
               "properties": {
                 "id": { "type": "string", "pattern": "^T-[0-9]+$" },
                 "ac": { "type": "string", "pattern": "^AC-[0-9]+$" },
-                "text": { "type": "string", "minLength": 5 }
+                "text": { "type": "string", "minLength": 5 },
+                "check": {
+                  "type": "string",
+                  "enum": ["gate", "unit", "snap", "manual", "doc"]
+                }
               }
             }
           }

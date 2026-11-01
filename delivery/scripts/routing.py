@@ -19,6 +19,7 @@ NARROW_ORDER = (
 ENTRY_PATHS = {
     "chore": "pure_technical",
     "bugfix": "pure_technical",
+    "refactor": "pure_technical",
     "feature": "ui_feature",
     "architecture_baseline": "full_product",
     "commercial_baseline": "full_product",

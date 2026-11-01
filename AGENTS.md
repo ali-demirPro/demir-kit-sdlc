@@ -2,7 +2,7 @@
 
 ## Repo
 
-demir-kit 2.31 — delivery-first agent system. Docs, YAML and small bash/python
+demir-kit 2.34 — delivery-first agent system. Docs, YAML and small bash/python
 scripts; Python unittest suite and CI, no app build system or package manager.
 "Correct" means the contract, registry, schemas and policies agree — `doctor.sh`
 decides.
@@ -65,6 +65,8 @@ fallback).
 - `delivery/registry.yaml` — paths, agents, labels, risk globs.
 - `delivery/schemas/` — `demir_kit_version: "2"` leaf/epic/evidence/closure.
 - `delivery/policies/quality-gates.md` — mandatory gates per risk level.
+- `delivery/policies/skill-writing.md` — skill description, `## Done when` and
+  relative-link rules; enforced by `doctor` (`skill writing`).
 
 If prose and registry disagree, registry + doctor win; fix the prose.
 

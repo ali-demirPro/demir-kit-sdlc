@@ -1,5 +1,77 @@
 # Changelog
 
+## 2.34.1 — 2026-11-01
+
+- **Epic worktree kapısı** — `epic_worktree.check()` ana çalışma dizinini
+  `main_root()` ile karşılaştırıyor. Önceki karşılaştırma (`path == toplevel`)
+  worktree içinde her zaman doğruydu; kapı hiç yeşile dönmüyor, her leaf
+  degrade kaydıyla ilerliyordu (#108).
+- **Regresyon testi** — worktree içinden `check()` ok döner, ana dizinden hata
+  verir; mutasyonla doğrulandı.
+- **`main_root()` sertleştirildi** — ana çalışma dizini `git worktree list
+  --porcelain` ilk satırından okunur. Submodule ve `--separate-git-dir`
+  düzenlerinde git ortak git dizinini bildirir; kapı bu durumda da kapalı
+  yönde davranır (ana çalışma dizininden commit engellenir).
+- **Gerçek git düzeni testi** — `git init` + `git worktree add` ile kurulan
+  depoda `main_root` ve `check()` doğrulanır.
+- Degrade worktree dalındaki karşılaştırma bilinçli olarak değişmedi.
+
+## 2.34.0 — 2026-11-01
+
+- **Refactor leaf türü** — `entry.kind: refactor`; yol `pure_technical`.
+  Refactor artık yasak değil, ayrı ve kanıtlı bir iş.
+- **Davranış değişmedi kanıtı** — `verification.refactor`: `baseline`/`after`
+  commit + tests, `unchanged: true`, `files_changed`, UI için `ui_unchanged` ve
+  eşit snapshot hash'i. Baseline, after'ın atası olmak zorunda.
+- **Zorunlu architect gate'i** — refactor seal'inde her CP `gates.architect:
+  true` ister; `leaf-done` anında `verification.refactor` yoksa geçmez.
+- **Boyut sınırı** — 10 dosyaya kadar normal, 11–20 uyarı, 20 üstü hata.
+- **Tetik politikası** — `delivery/policies/refactor-triggers.md`: dosya/tip
+  boyutu, yayılma, tekrar eden hata, epic kapanışı, test edilemez bağımlılık,
+  büyük feature öncesi. Tetik yoksa leaf açılmaz.
+- **Architect playbook** — `agents/architect/variants/refactor.md`: survey →
+  propose → refactor → record, deletion test, `Strong/Worth exploring/Speculative`.
+- **Epic closure** — borç check-in adımı zorunlu; `Strong` bulgu leaf açar,
+  ertelenen her bulgu gerekçesiyle raporda görünür.
+
+## 2.33.0 — 2026-11-01
+
+- **AC denetim türü** — `tests_plan.cases[].check`: `gate` | `unit` | `snap` |
+  `manual` | `doc`. Her kabul kriterinin hangi mekanizmayla doğrulandığı yazılı
+  hale geldi.
+- **`package_version: 4`** — yeni leaf'lerde `check` zorunlu. v2/v3 seal'ler
+  değişmeden geçer; kural yalnız v4'e uygulanır.
+- **Gate eşleşmesi** — `snap` türü case, checkpoint'te `gates.ui: true`;
+  `manual` türü case `gates.human: true` olmadan mühürlenemez. Görsel veya
+  insan doğrulaması isteyen AC artık ilgili gate olmadan geçemez.
+- **İnsan kapısı kanıtı** — `package_version: 4` leaf'te `gates.human: true`
+  olan her CP `leaf-done` anında `reviews.human: approved` ister; düşük riskte
+  bile açık insan kapısı kendiliğinden kapanmaz.
+- **Skill'ler** — `test-plan` beş türü ve seçim kuralını, `work-package`
+  şablonu v4'ü ve `check` alanını anlatıyor.
+
+## 2.32.1 — 2026-11-01
+
+- **CI: commit görünürlüğü** — `evidence.verify()` commit'i yerelde bulamazsa
+  `origin`'den fetch eder ve `diff_hash` kontrolünü korur. Epic branch'i
+  birleşmeden kapandığı için commit `main`'de yoktu; `issue-doctor` kırmızıya
+  düşüyordu. Protokol artık leaf kapanışından önce `git push -u origin epic-<E>`
+  istiyor. Uzakta da bulunmayan commit reddedilir.
+- **Regresyon testleri** — sahte origin'den fetch, uzakta olmayan commit,
+  repo yokken fetch atlama ve fetch sonrası `diff_hash` eşleşmesi test edilir.
+
+## 2.32.0 — 2026-11-01
+
+- **Skill yazım sözleşmesi** — `delivery/policies/skill-writing.md`: description
+  bir context pointer (ne + `Use when` tetikleyicisi), her adım checkable koşulla
+  biter, her skill `## Done when` ile biter, ayrıntı kardeş dosyaya taşınır.
+- **Skill lint** — `doctor.check_skills()` artık description varlığını ve
+  uzunluğunu, tetikleyici ifadesini, `## Done when` bölümünü ve göreli
+  markdown linklerini denetler; 300 satır üstü hata, 200 üstü uyarı verir.
+  Negatif ve pozitif testler `delivery/tests/test_skills.py`.
+- **Dokuz runtime skill uyarlandı** — description'lar tetikleyici kazandı,
+  her skill `## Done when` ile kapatıldı. Skill seçimi artık ölçülebilir.
+
 ## 2.31.2 — 2026-11-01
 
 - **Kurulu skill kopyası denetimi** — `install.sh` becerileri `.agents/skills/`

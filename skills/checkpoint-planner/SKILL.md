@@ -2,7 +2,8 @@
 name: checkpoint-planner
 description: >-
   Validate sealed checkpoints for execution: order, gates, surfaces and test
-  coverage. Emit task specs, never a committed work-package file.
+  coverage; one Orca task spec per checkpoint. Use when a leaf is claimed, when
+  CP order is disputed, or before worker-start.
 ---
 
 # checkpoint-planner
@@ -32,3 +33,8 @@ plan stop.
 Missing checkpoints → derive from `acceptance_criteria` **before** seal, then ask
 one human-language question (`delivery/policies/human-communication.md`). After
 seal, adding CPs requires an amend.
+
+## Done when
+
+Her CP için görev spec'i üretildi, `depends_on` döngüsü yok ve her behavior
+CP'si `tests_plan` içinde eşlendi.

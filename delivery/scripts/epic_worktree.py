@@ -49,7 +49,19 @@ def state_path(project: Path, epic: int) -> Path:
 
 
 def main_root(project: Path) -> Path:
-    """The primary checkout, even when called from a linked worktree."""
+    """The worktree git reports first (the primary checkout in a normal layout).
+
+    Submodule and `--separate-git-dir` layouts make git report the common git
+    directory instead; the guard then fails closed rather than letting the main
+    checkout through.
+    """
+    listed = git(["worktree", "list", "--porcelain"], project)
+    if listed.returncode == 0:
+        for line in listed.stdout.splitlines():
+            if line.startswith("worktree "):
+                candidate = Path(line[len("worktree ") :].strip())
+                if candidate:
+                    return candidate.resolve()
     result = git(["rev-parse", "--git-common-dir"], project)
     if result.returncode == 0 and result.stdout.strip():
         common = Path(result.stdout.strip())
@@ -396,7 +408,7 @@ def check(epic: int, project: Path | None = None) -> dict:
         path = Path(str(current.get("path") or "")).resolve()
         display = str(current.get("displayName") or "")
         branch = branch_name(current)
-        if current.get("isMainWorktree") or path == top:
+        if current.get("isMainWorktree") or path == main_root(project).resolve():
             raise WorktreeError(
                 f"ana checkout'tasın; `{name}` worktree'sine geç: "
                 f"`orca worktree activate {name}` veya `cd {state.get('path') or '<epic path>'}`"

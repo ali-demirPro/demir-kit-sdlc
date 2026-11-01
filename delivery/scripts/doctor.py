@@ -627,6 +627,8 @@ def check_skills() -> None:
         if declared != name:
             error(f"{rel(path)}: frontmatter adı '{declared}' ('{name}' bekleniyor)")
 
+    lint_runtime_skills(skills_root)
+
 
 def run(command: list[str]) -> str:
     try:
@@ -644,6 +646,234 @@ def frontmatter_name(text: str) -> str | None:
         return None
     match = re.search(r"^name:\s*(.+)$", block.group(1), re.M)
     return match.group(1).strip().strip("\"'") if match else None
+
+
+SKILL_TRIGGER_RE = re.compile(
+    r"(?i)\b("
+    r"use when|use this skill when|use the skill when|whenever|"
+    r"ne zaman|şu durumda kullan"
+    r")\b"
+)
+SKILL_NEGATION_RE = re.compile(
+    r"(?i)\b(not|never|don'?t|doesn'?t|avoid|asla|değil)\W{0,3}$"
+)
+SKILL_REF_DEF_RE = re.compile(r"^\s{0,3}\[([^\]]+)\]:\s*(\S+)", re.M)
+SKILL_REF_USE_RE = re.compile(r"\[([^\]]+)\]\[([^\]]*)\]")
+
+
+def frontmatter_data(text: str) -> dict:
+    """Parse the SKILL.md frontmatter block as YAML (empty dict on failure)."""
+    block = re.match(r"^---\n(.*?)\n---", text, re.S)
+    if not block:
+        return {}
+    try:
+        data = yaml.safe_load(block.group(1))
+    except yaml.YAMLError:
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def has_trigger(description: str) -> bool:
+    """True when a non-negated trigger phrase appears in the description."""
+    for match in SKILL_TRIGGER_RE.finditer(description):
+        if SKILL_NEGATION_RE.search(description[: match.start()][-20:]):
+            continue
+        return True
+    return False
+
+
+def strip_code_and_comments(text: str) -> str:
+    """Blank out fenced code blocks and HTML comments.
+
+    Examples of the skill format must not satisfy (or break) structural checks:
+    a fenced `## Done when` is documentation, not a section. Nested fences are
+    tracked by character and length, so a four-backtick block may contain a
+    three-backtick example.
+    """
+    out: list[str] = []
+    fence_char: str | None = None
+    fence_len = 0
+    in_comment = False
+    for line in text.splitlines():
+        stripped = line.strip()
+        if fence_char:
+            closing = re.fullmatch(rf"{re.escape(fence_char)}{{{fence_len},}}\s*", stripped)
+            if closing:
+                fence_char = None
+            out.append("")
+            continue
+        opening = re.match(r"^(`{3,}|~{3,})", stripped)
+        if opening:
+            fence_char = opening.group(1)[0]
+            fence_len = len(opening.group(1))
+            out.append("")
+            continue
+        if in_comment:
+            if "-->" in line:
+                in_comment = False
+            out.append("")
+            continue
+        if "<!--" in line:
+            before, _, after = line.partition("<!--")
+            if "-->" in after:
+                out.append(before + after.split("-->", 1)[1])
+            else:
+                in_comment = True
+                out.append(before)
+            continue
+        out.append(line)
+    return "\n".join(out)
+
+
+def normalize_link(target: str) -> str:
+    """Strip angle brackets, query string and fragment from a link target."""
+    target = target.strip()
+    if target.startswith("<") and target.endswith(">"):
+        target = target[1:-1].strip()
+    target = target.split("#", 1)[0]
+    target = target.split("?", 1)[0]
+    return target
+
+
+def inline_link_targets(text: str) -> list[str]:
+    """Destinations of inline links, allowing parentheses inside a title."""
+    targets: list[str] = []
+    for match in re.finditer(r"\]\(", text):
+        index = match.end()
+        start = index
+        depth = 1
+        in_angle = False
+        while index < len(text):
+            char = text[index]
+            if char == "<":
+                in_angle = True
+            elif char == ">":
+                in_angle = False
+            elif char == "(" and not in_angle:
+                depth += 1
+            elif char == ")" and not in_angle:
+                depth -= 1
+                if depth == 0:
+                    break
+            index += 1
+        raw = text[start:index].strip()
+        if not raw:
+            continue
+        if raw.startswith("<"):
+            end = raw.find(">")
+            targets.append(raw[: end + 1] if end > 0 else raw)
+        else:
+            targets.append(raw.split()[0])
+    return targets
+
+
+def relative_links(text: str) -> list[str]:
+    """Relative markdown link targets (inline and reference style)."""
+    definitions = {
+        label.lower(): target for label, target in SKILL_REF_DEF_RE.findall(text)
+    }
+    targets = inline_link_targets(text) + list(definitions.values())
+    result: list[str] = []
+    for target in targets:
+        normalized = normalize_link(target)
+        if not normalized:
+            continue
+        if re.match(r"^[a-z][a-z0-9+.-]*:", normalized, re.I):
+            continue
+        if normalized.startswith("#"):
+            continue
+        result.append(normalized)
+    return result
+
+
+def undefined_references(text: str) -> list[str]:
+    """Reference-style usages whose label has no definition."""
+    definitions = {
+        label.lower() for label, _ in SKILL_REF_DEF_RE.findall(text)
+    }
+    missing: list[str] = []
+    for label, ref in SKILL_REF_USE_RE.findall(text):
+        key = (ref or label).lower()
+        if key not in definitions:
+            missing.append(key)
+    return missing
+
+
+def lint_skill(path: Path, text: str) -> tuple[list[str], list[str]]:
+    """Lint one SKILL.md; returns (errors, warnings).
+
+    Contract: delivery/policies/skill-writing.md. Pure function so the tests can
+    call it without touching the repo tree.
+    """
+    errors: list[str] = []
+    warnings: list[str] = []
+
+    data = frontmatter_data(text)
+    description = " ".join(str(data.get("description") or "").split())
+    if not description:
+        errors.append("description yok")
+    else:
+        if not 40 <= len(description) <= 400:
+            errors.append(f"description {len(description)} karakter (40-400)")
+        if not has_trigger(description):
+            errors.append("description tetikleyici içermiyor (Use when ...)")
+
+    prose = strip_code_and_comments(text)
+    done = re.search(r"^## Done when\b", prose, re.M)
+    if not done:
+        errors.append("## Done when bölümü yok")
+    else:
+        rest = prose[done.end() :]
+        next_heading = re.search(r"^#{1,6} ", rest, re.M)
+        section = rest[: next_heading.start()] if next_heading else rest
+        lines = section.splitlines()
+        setext = any(
+            re.fullmatch(r"[=-]{3,}\s*", lines[index + 1].strip())
+            and lines[index].strip()
+            for index in range(len(lines) - 1)
+        )
+        if next_heading or setext:
+            errors.append("## Done when son bölüm değil")
+        content = [
+            line
+            for line in lines
+            if line.strip() and not re.fullmatch(r"[=-]{3,}\s*", line.strip())
+        ]
+        if not content:
+            errors.append("## Done when bölümü boş")
+
+    for link in relative_links(prose):
+        candidate = Path(os.path.normpath(path.parent / link))
+        if not candidate.exists():
+            errors.append(f"göreli link çözülmüyor: {link}")
+    for label in undefined_references(prose):
+        errors.append(f"referans tanımı yok: {label}")
+
+    body = re.sub(r"\A---\n.*?\n---\n", "", text, count=1, flags=re.S)
+    lines = len(body.splitlines())
+    if lines > 300:
+        errors.append(f"gövde {lines} satır (üst sınır 300)")
+    elif lines > 200:
+        warnings.append(f"gövde {lines} satır (200 üstü)")
+
+    if re.search(r"\b(TODO|TBD)\b", prose):
+        warnings.append("TODO/TBD içeriyor")
+
+    return errors, warnings
+
+
+def lint_runtime_skills(root: Path) -> None:
+    """Lint every runtime skill under root and record doctor results."""
+    check("skill writing")
+    if not root.is_dir():
+        return
+    for path in sorted(root.glob("*/SKILL.md")):
+        text = path.read_text(encoding="utf-8")
+        lint_errors, lint_warnings = lint_skill(path, text)
+        for message in lint_errors:
+            error(f"{rel(path)}: {message}")
+        for message in lint_warnings:
+            warn(f"{rel(path)}: {message}")
 
 
 def _json_type(value, expected: str) -> bool:
@@ -775,6 +1005,8 @@ def check_issue_body(
 
     cps = data.get("checkpoints") or []
     cp_ids = [item.get("id") for item in cps if isinstance(item, dict)]
+    entry = data.get("entry") if isinstance(data.get("entry"), dict) else {}
+    entry_kind = entry.get("kind")
     if len(cp_ids) != len(set(cp_ids)):
         error("issue seal: CP id tekrarlı")
     if checkpoint and checkpoint != "CP-HEALTH" and checkpoint not in cp_ids:
@@ -802,12 +1034,52 @@ def check_issue_body(
     if missing_cp:
         error(f"tests_plan eksik CP: {', '.join(sorted(missing_cp))}")
 
+    check_kinds = {"gate", "unit", "snap", "manual", "doc"}
+    cp_gates = {
+        cp.get("id"): (cp.get("gates") if isinstance(cp.get("gates"), dict) else {})
+        for cp in cps
+        if isinstance(cp, dict)
+    }
+    for plan in plans:
+        if not isinstance(plan, dict):
+            continue
+        plan_cp = plan.get("checkpoint_id")
+        gates = cp_gates.get(plan_cp, {})
+        for case in plan.get("cases") or []:
+            if not isinstance(case, dict):
+                continue
+            kind = case.get("check")
+            if kind is None:
+                if package_version >= 4:
+                    error(
+                        f"tests_plan: {case.get('id')} denetim türü (check) yok"
+                    )
+                continue
+            if kind not in check_kinds:
+                error(
+                    f"tests_plan: {case.get('id')} check '{kind}' geçersiz "
+                    f"(gate|unit|snap|manual|doc)"
+                )
+                continue
+            if kind == "snap" and gates.get("ui") is not True:
+                error(
+                    f"tests_plan: {case.get('id')} snap türü ama {plan_cp} "
+                    "gates.ui kapalı"
+                )
+            if kind == "manual" and gates.get("human") is not True:
+                error(
+                    f"tests_plan: {case.get('id')} manual türü ama {plan_cp} "
+                    "gates.human kapalı"
+                )
+
     for cp in cps:
         if not isinstance(cp, dict):
             continue
         gates = cp.get("gates") or {}
         if gates.get("behavior") is not True:
             error(f"{cp.get('id')}: gates.behavior true olmalı")
+        if entry_kind == "refactor" and gates.get("architect") is not True:
+            error(f"{cp.get('id')}: refactor leaf'te gates.architect true olmalı")
         for dep in cp.get("depends_on") or []:
             if dep not in cp_ids:
                 error(f"{cp.get('id')}: depends_on '{dep}' tanımsız")
@@ -1000,6 +1272,24 @@ def check_issue_body(
             verification = record.get("verification")
             if package_version >= 2 and not verification:
                 error(f"{cp_id}: package_version 2+ için verification bloğu gerekli")
+            if entry_kind == "refactor" and not (
+                isinstance(verification, dict)
+                and isinstance(verification.get("refactor"), dict)
+            ):
+                error(f"{cp_id}: refactor leaf verification.refactor bloğu ister")
+            if isinstance(verification, dict):
+                block = verification.get("refactor")
+                if isinstance(block, dict):
+                    if entry_kind != "refactor":
+                        error(
+                            f"{cp_id}: verification.refactor yalnız refactor "
+                            "leaf'te kullanılır"
+                        )
+                    files = block.get("files_changed")
+                    if isinstance(files, int) and 10 < files <= 20:
+                        warn(
+                            f"{cp_id}: refactor {files} dosya değiştirdi; adımlara böl"
+                        )
             if verification:
                 for message in evidence_lib.verify(
                     verification,
@@ -1048,6 +1338,19 @@ def check_issue_body(
             gates = cp_gates.get(cp_id, {})
             if gates.get("ui") and reviews.get("ui") != "pass":
                 error(f"{cp_id}: gates.ui açık ama UI onayı yok")
+            if entry_kind == "refactor" and gates.get("ui"):
+                verification_value = record.get("verification")
+                proof = (
+                    verification_value.get("refactor")
+                    if isinstance(verification_value, dict)
+                    else {}
+                )
+                if not isinstance(proof, dict) or proof.get("ui_unchanged") is not True:
+                    error(f"{cp_id}: refactor UI checkpoint'te ui_unchanged ister")
+            if package_version >= 4 and gates.get("human") and reviews.get(
+                "human"
+            ) != "approved":
+                error(f"{cp_id}: gates.human açık ama insan onayı yok")
             if gates.get("architect") and reviews.get("architect") != "approved":
                 error(f"{cp_id}: gates.architect açık ama architect onayı yok")
             if "architect" in profile_extra_gates and reviews.get(

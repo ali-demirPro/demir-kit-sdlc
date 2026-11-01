@@ -1,4 +1,4 @@
-# Delivery contract — v2.31
+# Delivery contract — v2.34
 
 Bu dosya delivery'nin **tek durum makinesi**dir. Agent, path ve risk verisi
 `registry.yaml`'da; artefakt şekilleri `schemas/` altında; uygulama
@@ -110,6 +110,8 @@ otomatik yükselir; agent düşüremez. Ayrıntı: `policies/quality-gates.md`.
   insan kapısı gerekiyorsa `reviews.human`/`human_second` `approved` +
   `package_version: 2` ise doğrulanabilir `verification` + evidence comment.
   `package_version: 3` ise ayrıca `worktree` ve `worker`/`degrade` zorunlu.
+  `package_version: 4` ise ayrıca her `tests_plan` case'inde `check` zorunlu:
+  `snap` → CP `gates.ui: true`, `manual` → CP `gates.human: true`.
 - **Leaf:** tüm CP'ler + her AC en az bir test case ile kapsanmış + açık bulgu yok +
   risk `high`/`critical` ise insan QA + `leaf-done`. Leaf commit'i epic branch'inde
   kalır; `leaf-done` main merge beklemez.
@@ -167,6 +169,7 @@ kabul **makine kapısıdır**: `doctor.sh --strict` + testler yeşilse kurallaş
 - Hazırlık: `protocol/health-check.md`
 - Kanıt: `protocol/evidence.md`
 - Gate matrisi: `policies/quality-gates.md`
+- Skill yazımı: `policies/skill-writing.md` (`doctor` `skill writing` kontrolü)
 - Blocker: `policies/escalation.md`
 - İnsan dili: `policies/human-communication.md`
 
