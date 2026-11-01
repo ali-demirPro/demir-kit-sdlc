@@ -26,7 +26,17 @@ description: >-
   Seal a v2 leaf.
 ```
 
-Tetikleyici ifadeleri: `Use when …`, `Ne zaman …`, `When the …`.
+Tetikleyici ifadeleri (doctor bunları arar):
+
+| İfade | Örnek |
+|-------|-------|
+| `Use when …` | `Use when a leaf needs its seal.` |
+| `Use this skill when …` | `Use this skill when the gate fails.` |
+| `Use the skill when …` | `Use the skill when a review is open.` |
+| `Ne zaman …` | `Ne zaman mühür gerekliyse.` |
+| `Şu durumda kullan …` | `Şu durumda kullan: gate kırmızı.` |
+
+Olumsuz ifade tetikleyici sayılmaz (`Do not use when …`).
 
 ## 2 — Her adım checkable bir koşulla biter
 
@@ -57,13 +67,22 @@ zincir kurmak yerine tek adımda tek skill çağrılır.
 
 ## 7 — Boyut
 
-| Satır | Sonuç |
-|-------|-------|
+| Gövde satırı | Sonuç |
+|--------------|-------|
 | ≤ 200 | normal |
 | 201–300 | uyarı |
 | > 300 | hata |
 
-Uzun skill bölünür: gövde akışı anlatır, ayrıntı kardeş dosyaya gider.
+Uzun skill bölünür: gövde akışı anlatır, ayrıntı kardeş dosyaya gider. Sayım
+frontmatter sonrası gövde üzerinden yapılır.
+
+## 8 — Kapsam
+
+Lint yalnız `skills/<name>/SKILL.md` runtime skill'lerini denetler
+(`registry.yaml` `skills.runtime`). `delivery/agents/<rol>/SKILL.md` dosyaları
+rol sözleşmesidir: `## Done when` yerine `## Contract` kullanır ve
+`doctor` `role contracts` kontrolüyle denetlenir. Bu ayrım bilinçlidir; iki set
+karıştırılmaz.
 
 ## Lint
 
@@ -72,10 +91,16 @@ Uzun skill bölünür: gövde akışı anlatır, ayrıntı kardeş dosyaya gider
 | frontmatter `description` var | hata |
 | description 40–400 karakter | hata |
 | description tetikleyici içeriyor | hata |
-| `## Done when` var ve boş değil | hata |
+| `## Done when` var, boş değil ve son bölüm | hata |
 | göreli markdown linki çözülüyor | hata |
 | gövde ≤ 300 satır | hata (201–300 uyarı) |
 | `TODO` / `TBD` yok | uyarı |
+
+Kod blokları (```` ``` ```` / `~~~`) ve HTML yorumları taranmaz: örnek olarak
+yazılmış bir `## Done when` bölüm sayılmaz, örnekteki kırık link hata vermez.
+Link biçimleri: satır içi, başlıklı, açılı parantezli ve referans tanımlı.
+Sorgu ve çapa kısmı (`?plain=1`, `#risk`) yok sayılır; dış `http(s)` linkleri
+denetlenmez.
 
 Çalıştırma:
 

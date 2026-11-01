@@ -627,15 +627,7 @@ def check_skills() -> None:
         if declared != name:
             error(f"{rel(path)}: frontmatter adı '{declared}' ('{name}' bekleniyor)")
 
-    check("skill writing")
-    if skills_root.is_dir():
-        for path in sorted(skills_root.glob("*/SKILL.md")):
-            text = path.read_text(encoding="utf-8")
-            lint_errors, lint_warnings = lint_skill(path, text)
-            for message in lint_errors:
-                error(f"{rel(path)}: {message}")
-            for message in lint_warnings:
-                warn(f"{rel(path)}: {message}")
+    lint_runtime_skills(skills_root)
 
 
 def run(command: list[str]) -> str:
@@ -656,8 +648,16 @@ def frontmatter_name(text: str) -> str | None:
     return match.group(1).strip().strip("\"'") if match else None
 
 
-SKILL_TRIGGER_RE = re.compile(r"(?i)\b(use when|ne zaman|when the)\b")
-SKILL_LINK_RE = re.compile(r"\[[^\]]*\]\(([^)\s]+)\)")
+SKILL_TRIGGER_RE = re.compile(
+    r"(?i)(?<!not )\b("
+    r"use when|use this skill when|use the skill when|"
+    r"ne zaman|şu durumda kullan"
+    r")\b"
+)
+SKILL_LINK_RE = re.compile(
+    r"\[[^\]]*\]\(\s*(<[^>]+>|[^)\s]+)(?:\s+[\"'][^)]*[\"'])?\s*\)"
+)
+SKILL_REF_LINK_RE = re.compile(r"^\s{0,3}\[[^\]]+\]:\s*(\S+)", re.M)
 
 
 def frontmatter_data(text: str) -> dict:
@@ -672,17 +672,69 @@ def frontmatter_data(text: str) -> dict:
     return data if isinstance(data, dict) else {}
 
 
+def strip_code_and_comments(text: str) -> str:
+    """Blank out fenced code blocks and HTML comments.
+
+    Examples of the skill format must not satisfy (or break) structural checks:
+    a fenced `## Done when` is documentation, not a section.
+    """
+    out: list[str] = []
+    fence: str | None = None
+    in_comment = False
+    for line in text.splitlines():
+        stripped = line.strip()
+        if fence:
+            if stripped.startswith(fence):
+                fence = None
+            out.append("")
+            continue
+        if stripped.startswith("```") or stripped.startswith("~~~"):
+            fence = stripped[:3]
+            out.append("")
+            continue
+        if in_comment:
+            if "-->" in line:
+                in_comment = False
+            out.append("")
+            continue
+        if "<!--" in line:
+            before, _, after = line.partition("<!--")
+            if "-->" in after:
+                rest = after.split("-->", 1)[1]
+                out.append(before + rest)
+            else:
+                in_comment = True
+                out.append(before)
+            continue
+        out.append(line)
+    return "\n".join(out)
+
+
+def normalize_link(target: str) -> str:
+    """Strip angle brackets, query string and fragment from a link target."""
+    target = target.strip()
+    if target.startswith("<") and target.endswith(">"):
+        target = target[1:-1].strip()
+    target = target.split("#", 1)[0]
+    target = target.split("?", 1)[0]
+    return target
+
+
 def relative_links(text: str) -> list[str]:
-    """Relative markdown link targets, in document order, anchors stripped."""
+    """Relative markdown link targets (inline and reference style)."""
     links: list[str] = []
     for match in SKILL_LINK_RE.finditer(text):
-        target = match.group(1)
+        links.append(match.group(1))
+    for match in SKILL_REF_LINK_RE.finditer(text):
+        links.append(match.group(1))
+    result: list[str] = []
+    for target in links:
         if re.match(r"^[a-z][a-z0-9+.-]*:", target, re.I) or target.startswith("#"):
             continue
-        target = target.split("#", 1)[0]
-        if target:
-            links.append(target)
-    return links
+        normalized = normalize_link(target)
+        if normalized:
+            result.append(normalized)
+    return result
 
 
 def lint_skill(path: Path, text: str) -> tuple[list[str], list[str]]:
@@ -704,31 +756,49 @@ def lint_skill(path: Path, text: str) -> tuple[list[str], list[str]]:
         if not SKILL_TRIGGER_RE.search(description):
             errors.append("description tetikleyici içermiyor (Use when ...)")
 
-    done = re.search(r"^## Done when\s*$", text, re.M)
+    prose = strip_code_and_comments(text)
+    done = re.search(r"^## Done when\b", prose, re.M)
     if not done:
         errors.append("## Done when bölümü yok")
     else:
-        rest = text[done.end() :]
+        rest = prose[done.end() :]
         next_heading = re.search(r"^## ", rest, re.M)
+        if next_heading:
+            errors.append("## Done when son bölüm değil")
         section = rest[: next_heading.start()] if next_heading else rest
         if not section.strip():
             errors.append("## Done when bölümü boş")
 
-    for link in relative_links(text):
+    for link in relative_links(prose):
         candidate = Path(os.path.normpath(path.parent / link))
         if not candidate.exists():
             errors.append(f"göreli link çözülmüyor: {link}")
 
-    lines = len(text.splitlines())
+    body = re.sub(r"\A---\n.*?\n---\n", "", text, count=1, flags=re.S)
+    lines = len(body.splitlines())
     if lines > 300:
-        errors.append(f"{lines} satır (üst sınır 300)")
+        errors.append(f"gövde {lines} satır (üst sınır 300)")
     elif lines > 200:
-        warnings.append(f"{lines} satır (200 üstü)")
+        warnings.append(f"gövde {lines} satır (200 üstü)")
 
-    if re.search(r"\b(TODO|TBD)\b", text):
+    if re.search(r"\b(TODO|TBD)\b", prose):
         warnings.append("TODO/TBD içeriyor")
 
     return errors, warnings
+
+
+def lint_runtime_skills(root: Path) -> None:
+    """Lint every runtime skill under root and record doctor results."""
+    check("skill writing")
+    if not root.is_dir():
+        return
+    for path in sorted(root.glob("*/SKILL.md")):
+        text = path.read_text(encoding="utf-8")
+        lint_errors, lint_warnings = lint_skill(path, text)
+        for message in lint_errors:
+            error(f"{rel(path)}: {message}")
+        for message in lint_warnings:
+            warn(f"{rel(path)}: {message}")
 
 
 def _json_type(value, expected: str) -> bool:

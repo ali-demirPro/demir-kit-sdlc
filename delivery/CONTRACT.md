@@ -167,6 +167,7 @@ kabul **makine kapısıdır**: `doctor.sh --strict` + testler yeşilse kurallaş
 - Hazırlık: `protocol/health-check.md`
 - Kanıt: `protocol/evidence.md`
 - Gate matrisi: `policies/quality-gates.md`
+- Skill yazımı: `policies/skill-writing.md` (`doctor` `skill writing` kontrolü)
 - Blocker: `policies/escalation.md`
 - İnsan dili: `policies/human-communication.md`
 

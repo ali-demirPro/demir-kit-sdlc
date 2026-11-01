@@ -98,5 +98,6 @@ Escalate in human language only (`delivery/policies/human-communication.md`).
 
 ## Done when
 
-`reviews.ui_visual` ve `reviews.ui_interaction` `pass`, `comparison_valid: true`
-ve artifact bağlantısı evidence'a yazıldı; açık UI bulgusu kalmadı.
+`reviews.ui_visual` ve `reviews.ui_interaction` `pass`,
+`reviews.comparison_valid: true` ve artifact bağlantısı evidence'a yazıldı;
+açık UI bulgusu kalmadı.

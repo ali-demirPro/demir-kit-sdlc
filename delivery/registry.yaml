@@ -177,6 +177,7 @@ policies:
   quality_gates: delivery/policies/quality-gates.md
   escalation: delivery/policies/escalation.md
   project_priorities: delivery/policies/project-priorities.md
+  skill_writing: delivery/policies/skill-writing.md
   epic_closure: delivery/runbooks/epic-closure.md
 
 profiles:

@@ -6,6 +6,7 @@ Run: python3 -m unittest discover -s delivery/tests -v
 from __future__ import annotations
 
 import importlib.util
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -48,6 +49,27 @@ class LintSkillTest(unittest.TestCase):
         errors, _ = self.lint(text)
         self.assertTrue(any("tetikleyici" in item for item in errors), errors)
 
+    def test_negated_trigger_is_rejected(self) -> None:
+        text = skill(
+            description="Seal one leaf and map every criterion. Do not use when the gate already passed."
+        )
+        errors, _ = self.lint(text)
+        self.assertTrue(any("tetikleyici" in item for item in errors), errors)
+
+    def test_verbose_trigger_phrase_is_accepted(self) -> None:
+        text = skill(
+            description="Seal one leaf and map every criterion. Use this skill when the issue needs a seal."
+        )
+        errors, _ = self.lint(text)
+        self.assertEqual(errors, [])
+
+    def test_turkish_trigger_phrase_is_accepted(self) -> None:
+        text = skill(
+            description="Leaf mühürler ve her kriteri bir case'e bağlar. Ne zaman mühür gerekliyse."
+        )
+        errors, _ = self.lint(text)
+        self.assertEqual(errors, [])
+
     def test_short_description_is_error(self) -> None:
         errors, _ = self.lint(skill(description="Use when sealing."))
         self.assertTrue(any("karakter" in item for item in errors), errors)
@@ -55,6 +77,16 @@ class LintSkillTest(unittest.TestCase):
     def test_missing_done_when_is_error(self) -> None:
         errors, _ = self.lint(skill(done_when=""))
         self.assertTrue(any("Done when" in item for item in errors), errors)
+
+    def test_done_when_only_in_fence_is_error(self) -> None:
+        body = "## Steps\n\n```markdown\n## Done when\n\nExample only.\n```\n"
+        errors, _ = self.lint(skill(body=body, done_when=""))
+        self.assertTrue(any("Done when" in item for item in errors), errors)
+
+    def test_done_when_before_another_section_is_error(self) -> None:
+        text = skill(done_when="## Done when\n\nShipped.\n\n## Next\n\nMore.\n")
+        errors, _ = self.lint(text)
+        self.assertTrue(any("son bölüm" in item for item in errors), errors)
 
     def test_empty_done_when_is_error(self) -> None:
         errors, _ = self.lint(skill(done_when="## Done when\n\n## Next\n\nmore\n"))
@@ -65,10 +97,34 @@ class LintSkillTest(unittest.TestCase):
         errors, _ = self.lint(skill(body=body))
         self.assertTrue(any("göreli link" in item for item in errors), errors)
 
+    def test_broken_link_with_title_is_error(self) -> None:
+        body = '## Steps\n\nRead [missing](missing.md "Title").\n'
+        errors, _ = self.lint(skill(body=body))
+        self.assertTrue(any("göreli link" in item for item in errors), errors)
+
+    def test_broken_reference_link_is_error(self) -> None:
+        body = "## Steps\n\nRead [missing][doc].\n\n[doc]: missing.md\n"
+        errors, _ = self.lint(skill(body=body))
+        self.assertTrue(any("göreli link" in item for item in errors), errors)
+
+    def test_broken_link_inside_fence_is_ignored(self) -> None:
+        body = "## Steps\n\n```markdown\n[example](missing.md)\n```\n"
+        errors, _ = self.lint(skill(body=body))
+        self.assertEqual(errors, [])
+
     def test_existing_relative_link_passes(self) -> None:
         target = Path("..") / ".." / "delivery" / "scripts" / "doctor.py"
         self.assertTrue((self.path.parent / target).resolve().exists())
         body = "## Steps\n\nRead [doctor](../../delivery/scripts/doctor.py).\n"
+        errors, _ = self.lint(skill(body=body))
+        self.assertEqual(errors, [])
+
+    def test_link_query_and_angle_brackets_pass(self) -> None:
+        body = (
+            "## Steps\n\n"
+            "Read [contract](../../delivery/CONTRACT.md?plain=1) and "
+            "[contract](../../delivery/CONTRACT.md#risk).\n"
+        )
         errors, _ = self.lint(skill(body=body))
         self.assertEqual(errors, [])
 
@@ -88,6 +144,40 @@ class LintSkillTest(unittest.TestCase):
         self.assertTrue(any("TODO" in item for item in warnings), warnings)
 
 
+class DoctorWiringTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.saved_errors = list(doctor.ERRORS)
+        self.saved_warns = list(doctor.WARNS)
+        doctor.ERRORS.clear()
+        doctor.WARNS.clear()
+
+    def tearDown(self) -> None:
+        doctor.ERRORS[:] = self.saved_errors
+        doctor.WARNS[:] = self.saved_warns
+
+    def test_bad_skill_reaches_doctor_errors(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            (root / "bad").mkdir()
+            (root / "bad" / "SKILL.md").write_text(
+                skill(description="Seal one leaf and map every criterion."),
+                encoding="utf-8",
+            )
+            doctor.lint_runtime_skills(root)
+        self.assertTrue(
+            any("tetikleyici" in item for item in doctor.ERRORS), doctor.ERRORS
+        )
+
+    def test_good_skill_records_nothing(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            (root / "good").mkdir()
+            (root / "good" / "SKILL.md").write_text(skill(), encoding="utf-8")
+            doctor.lint_runtime_skills(root)
+        self.assertEqual(doctor.ERRORS, [])
+        self.assertEqual(doctor.WARNS, [])
+
+
 class RuntimeSkillsTest(unittest.TestCase):
     def test_every_runtime_skill_passes_lint(self) -> None:
         failures: list[str] = []
@@ -98,13 +188,29 @@ class RuntimeSkillsTest(unittest.TestCase):
             failures += [f"{path.parent.name} (warning): {item}" for item in warnings]
         self.assertEqual(failures, [])
 
+    def test_lint_scope_matches_registry_runtime(self) -> None:
+        import yaml
+
+        registry = yaml.safe_load(
+            (ROOT / "delivery" / "registry.yaml").read_text(encoding="utf-8")
+        )
+        runtime = set((registry.get("skills") or {}).get("runtime") or [])
+        linted = {
+            path.parent.name for path in (ROOT / "skills").glob("*/SKILL.md")
+        }
+        self.assertEqual(runtime, linted)
+
     def test_runtime_skills_have_trigger_and_done_when(self) -> None:
         for path in sorted((ROOT / "skills").glob("*/SKILL.md")):
             text = path.read_text(encoding="utf-8")
             data = doctor.frontmatter_data(text)
             description = " ".join(str(data.get("description") or "").split())
             self.assertRegex(description, doctor.SKILL_TRIGGER_RE, path.parent.name)
-            self.assertIn("## Done when", text, path.parent.name)
+            self.assertRegex(
+                doctor.strip_code_and_comments(text),
+                r"(?m)^## Done when\b",
+                path.parent.name,
+            )
 
 
 if __name__ == "__main__":
