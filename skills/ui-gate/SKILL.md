@@ -28,6 +28,18 @@ No repo coding conventions, no "good enough" shortcuts.
 | `visual` | Structure, spacing, typography, color vs reference |
 | `interaction` | Same actions, same outcomes |
 
+## Mode: changed | unchanged
+
+- `changed`: leaf görünümü bilinçli değiştirir; referans/prototype ile
+  karşılaştırılır.
+- `unchanged`: refactor leaf'i; görünüm aynı kalmalıdır. `entry.kind: refactor`
+  ve `gates.ui: true` birlikteyse mod otomatik `unchanged` olur.
+
+`unchanged` modunda kabul koşulu **aynı** viewport, aynı seed ve aynı
+appearance ile alınmış snapshot'ların **aynı hash**'i vermesidir. Tek piksel
+farkı `ui_unchanged` kanıtını düşürür ve `comparison_valid: true`
+yazılamaz; fark bilinçliyse iş refactor değildir, ayrı leaf açar.
+
 ## Capture — Orca typed browser
 
 Orca's browser is worktree-scoped and scriptable. Use the typed commands, not

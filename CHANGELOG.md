@@ -1,5 +1,20 @@
 # Changelog
 
+## 2.38.0 — 2026-11-01
+
+- **Yüzey sözleşmesi** — `ecosystem.yaml` `gates` altında `selftest` ve
+  `snapshot`/`snapshot_pages` tanımlanabilir. `gates.ui: true` olan bir yüzey
+  `snapshot` komutu olmadan geçemez; `doctor` bunu `ecosystem` kontrolünde
+  arar. Görsel kanıt üretemeyen UI yüzeyi `ready: false` olur.
+- **`ecosystem-macos.yaml` şablonu** — üç komutu (behavior, selftest, snapshot)
+  doldurulmuş örnekle gösterir; `snapshot_pages` listesi dahil.
+- **`ui-gate` `unchanged` modu** — `entry.kind: refactor` + `gates.ui: true`
+  olduğunda mod otomatik `unchanged`: aynı viewport/seed/appearance ile aynı
+  snapshot hash'i beklenir; tek piksel farkı `comparison_valid: false` üretir ve
+  `ui_unchanged` kanıtını düşürür.
+- **health-check** — snapshot/selftest maddeleri eklendi, numaralandırma
+  sıralandı.
+
 ## 2.37.0 — 2026-11-01
 
 - **Capability'ye bağlı skill'ler** — `registry.yaml` `skills.scoped`:
