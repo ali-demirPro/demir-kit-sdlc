@@ -9,6 +9,7 @@ import importlib.util
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
 DOCTOR_PATH = ROOT / "delivery" / "scripts" / "doctor.py"
@@ -50,11 +51,26 @@ class LintSkillTest(unittest.TestCase):
         self.assertTrue(any("tetikleyici" in item for item in errors), errors)
 
     def test_negated_trigger_is_rejected(self) -> None:
+        for phrase in (
+            "Do not use when the gate already passed.",
+            "Never use when the gate already passed.",
+            "Don't use when the gate already passed.",
+        ):
+            with self.subTest(phrase=phrase):
+                text = skill(
+                    description=f"Seal one leaf and map every criterion. {phrase}"
+                )
+                errors, _ = self.lint(text)
+                self.assertTrue(
+                    any("tetikleyici" in item for item in errors), errors
+                )
+
+    def test_whenever_trigger_is_accepted(self) -> None:
         text = skill(
-            description="Seal one leaf and map every criterion. Do not use when the gate already passed."
+            description="Seal one leaf and map every criterion. Use whenever a seal is rejected."
         )
         errors, _ = self.lint(text)
-        self.assertTrue(any("tetikleyici" in item for item in errors), errors)
+        self.assertEqual(errors, [])
 
     def test_verbose_trigger_phrase_is_accepted(self) -> None:
         text = skill(
@@ -83,10 +99,41 @@ class LintSkillTest(unittest.TestCase):
         errors, _ = self.lint(skill(body=body, done_when=""))
         self.assertTrue(any("Done when" in item for item in errors), errors)
 
+    def test_done_when_only_in_nested_fence_is_error(self) -> None:
+        body = (
+            "## Steps\n\n"
+            "````markdown\n```bash\n## Done when\n\nExample only.\n```\n````\n"
+        )
+        errors, _ = self.lint(skill(body=body, done_when=""))
+        self.assertTrue(any("Done when" in item for item in errors), errors)
+
+    def test_nested_fence_link_is_ignored(self) -> None:
+        body = (
+            "## Steps\n\n"
+            "````markdown\n```markdown\n[example](missing.md)\n```\n````\n"
+        )
+        errors, _ = self.lint(skill(body=body))
+        self.assertEqual(errors, [])
+
     def test_done_when_before_another_section_is_error(self) -> None:
         text = skill(done_when="## Done when\n\nShipped.\n\n## Next\n\nMore.\n")
         errors, _ = self.lint(text)
         self.assertTrue(any("son bölüm" in item for item in errors), errors)
+
+    def test_h1_after_done_when_is_error(self) -> None:
+        text = skill(done_when="## Done when\n\nShipped.\n\n# Ek\n\nMore.\n")
+        errors, _ = self.lint(text)
+        self.assertTrue(any("son bölüm" in item for item in errors), errors)
+
+    def test_setext_heading_after_done_when_is_error(self) -> None:
+        text = skill(done_when="## Done when\n\nShipped.\n\nEk\n---\n\nMore.\n")
+        errors, _ = self.lint(text)
+        self.assertTrue(any("son bölüm" in item for item in errors), errors)
+
+    def test_subsection_does_not_count_as_done_when_content(self) -> None:
+        text = skill(done_when="## Done when\n\n### Notlar\n\nDetay.\n")
+        errors, _ = self.lint(text)
+        self.assertTrue(any("boş" in item for item in errors), errors)
 
     def test_empty_done_when_is_error(self) -> None:
         errors, _ = self.lint(skill(done_when="## Done when\n\n## Next\n\nmore\n"))
@@ -104,6 +151,16 @@ class LintSkillTest(unittest.TestCase):
 
     def test_broken_reference_link_is_error(self) -> None:
         body = "## Steps\n\nRead [missing][doc].\n\n[doc]: missing.md\n"
+        errors, _ = self.lint(skill(body=body))
+        self.assertTrue(any("göreli link" in item for item in errors), errors)
+
+    def test_undefined_reference_is_error(self) -> None:
+        body = "## Steps\n\nRead [missing][doc].\n"
+        errors, _ = self.lint(skill(body=body))
+        self.assertTrue(any("referans tanımı yok" in item for item in errors), errors)
+
+    def test_titled_link_with_parenthesis_is_checked(self) -> None:
+        body = '## Steps\n\nRead [missing](missing.md "T (v2)").\n'
         errors, _ = self.lint(skill(body=body))
         self.assertTrue(any("göreli link" in item for item in errors), errors)
 
@@ -129,7 +186,10 @@ class LintSkillTest(unittest.TestCase):
         self.assertEqual(errors, [])
 
     def test_external_link_is_ignored(self) -> None:
-        body = "## Steps\n\nSee [site](https://example.com/docs).\n"
+        body = (
+            "## Steps\n\nSee [site](https://example.com/docs) and "
+            "[site](<https://example.com/docs>).\n"
+        )
         errors, _ = self.lint(skill(body=body))
         self.assertEqual(errors, [])
 
@@ -164,6 +224,20 @@ class DoctorWiringTest(unittest.TestCase):
                 encoding="utf-8",
             )
             doctor.lint_runtime_skills(root)
+        self.assertTrue(
+            any("tetikleyici" in item for item in doctor.ERRORS), doctor.ERRORS
+        )
+
+    def test_check_skills_wires_lint(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            (root / "bad").mkdir()
+            (root / "bad" / "SKILL.md").write_text(
+                skill(description="Seal one leaf and map every criterion."),
+                encoding="utf-8",
+            )
+            with patch.object(doctor, "skill_dir", return_value=root):
+                doctor.check_skills()
         self.assertTrue(
             any("tetikleyici" in item for item in doctor.ERRORS), doctor.ERRORS
         )
@@ -205,7 +279,7 @@ class RuntimeSkillsTest(unittest.TestCase):
             text = path.read_text(encoding="utf-8")
             data = doctor.frontmatter_data(text)
             description = " ".join(str(data.get("description") or "").split())
-            self.assertRegex(description, doctor.SKILL_TRIGGER_RE, path.parent.name)
+            self.assertTrue(doctor.has_trigger(description), path.parent.name)
             self.assertRegex(
                 doctor.strip_code_and_comments(text),
                 r"(?m)^## Done when\b",

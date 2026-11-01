@@ -33,10 +33,12 @@ Tetikleyici ifadeleri (doctor bunları arar):
 | `Use when …` | `Use when a leaf needs its seal.` |
 | `Use this skill when …` | `Use this skill when the gate fails.` |
 | `Use the skill when …` | `Use the skill when a review is open.` |
+| `Use whenever …` | `Use whenever a seal is rejected.` |
 | `Ne zaman …` | `Ne zaman mühür gerekliyse.` |
 | `Şu durumda kullan …` | `Şu durumda kullan: gate kırmızı.` |
 
-Olumsuz ifade tetikleyici sayılmaz (`Do not use when …`).
+Olumsuz ifade tetikleyici sayılmaz: `Do not use when …`, `Never use when …`,
+`Don't use when …`, `asla`, `değil`.
 
 ## 2 — Her adım checkable bir koşulla biter
 
@@ -45,8 +47,9 @@ Olumsuz ifade tetikleyici sayılmaz (`Do not use when …`).
 
 ## 3 — Her skill `## Done when` ile biter
 
-Son bölüm, skill'in bittiğini söyleyen tek cümlelik koşuldur. Boş bırakılamaz;
-`doctor` bu bölümü arar.
+Skill'in son bölümü, bittiğini söyleyen kısa bir koşuldur. Tek paragraftır: alt
+başlık içermez ve arkasından hiçbir başlık (herhangi bir seviye) gelmez. Boş
+bırakılamaz; `doctor` bu bölümü arar.
 
 ## 4 — Pozitif yaz, yasağı guardrail olarak kullan
 
@@ -79,10 +82,16 @@ frontmatter sonrası gövde üzerinden yapılır.
 ## 8 — Kapsam
 
 Lint yalnız `skills/<name>/SKILL.md` runtime skill'lerini denetler
-(`registry.yaml` `skills.runtime`). `delivery/agents/<rol>/SKILL.md` dosyaları
-rol sözleşmesidir: `## Done when` yerine `## Contract` kullanır ve
-`doctor` `role contracts` kontrolüyle denetlenir. Bu ayrım bilinçlidir; iki set
-karıştırılmaz.
+(`registry.yaml` `skills.runtime`). Kapsam dışı kalan dosyalar bilinçlidir:
+
+- `delivery/agents/<rol>/SKILL.md` ve `delivery/orchestrator/SKILL.md` rol
+  işaretçisi dokümanlardır; sözleşme metinleri `how.md` içindedir ve `doctor`
+  `role contracts` kontrolüyle denetlenir.
+- `delivery/packs/*/checklist.md` ve `delivery/protocol/*.md` skill değildir;
+  kendi gate ve protokol kurallarıyla denetlenir.
+
+İki set karıştırılmaz: `## Done when` runtime skill sözleşmesidir, rol
+dokümanları `## Contract` kullanır.
 
 ## Lint
 
@@ -93,14 +102,15 @@ karıştırılmaz.
 | description tetikleyici içeriyor | hata |
 | `## Done when` var, boş değil ve son bölüm | hata |
 | göreli markdown linki çözülüyor | hata |
+| referans kullanımının tanımı var | hata |
 | gövde ≤ 300 satır | hata (201–300 uyarı) |
 | `TODO` / `TBD` yok | uyarı |
 
-Kod blokları (```` ``` ```` / `~~~`) ve HTML yorumları taranmaz: örnek olarak
-yazılmış bir `## Done when` bölüm sayılmaz, örnekteki kırık link hata vermez.
-Link biçimleri: satır içi, başlıklı, açılı parantezli ve referans tanımlı.
-Sorgu ve çapa kısmı (`?plain=1`, `#risk`) yok sayılır; dış `http(s)` linkleri
-denetlenmez.
+Kod blokları (üç ve daha fazla backtick/tilde, iç içe dahil) ve HTML yorumları
+taranmaz: örnek olarak yazılmış bir `## Done when` bölüm sayılmaz, örnekteki
+kırık link hata vermez. Link biçimleri: satır içi, başlıklı (parantezli başlık
+dahil), açılı parantezli ve referans tanımlı. Sorgu ve çapa kısmı (`?plain=1`,
+`#risk`) yok sayılır; dış `http(s)` linkleri denetlenmez.
 
 Çalıştırma:
 

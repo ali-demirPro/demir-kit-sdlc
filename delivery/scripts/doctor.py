@@ -649,15 +649,16 @@ def frontmatter_name(text: str) -> str | None:
 
 
 SKILL_TRIGGER_RE = re.compile(
-    r"(?i)(?<!not )\b("
-    r"use when|use this skill when|use the skill when|"
+    r"(?i)\b("
+    r"use when|use this skill when|use the skill when|whenever|"
     r"ne zaman|şu durumda kullan"
     r")\b"
 )
-SKILL_LINK_RE = re.compile(
-    r"\[[^\]]*\]\(\s*(<[^>]+>|[^)\s]+)(?:\s+[\"'][^)]*[\"'])?\s*\)"
+SKILL_NEGATION_RE = re.compile(
+    r"(?i)\b(not|never|don'?t|doesn'?t|avoid|asla|değil)\W{0,3}$"
 )
-SKILL_REF_LINK_RE = re.compile(r"^\s{0,3}\[[^\]]+\]:\s*(\S+)", re.M)
+SKILL_REF_DEF_RE = re.compile(r"^\s{0,3}\[([^\]]+)\]:\s*(\S+)", re.M)
+SKILL_REF_USE_RE = re.compile(r"\[([^\]]+)\]\[([^\]]*)\]")
 
 
 def frontmatter_data(text: str) -> dict:
@@ -672,24 +673,39 @@ def frontmatter_data(text: str) -> dict:
     return data if isinstance(data, dict) else {}
 
 
+def has_trigger(description: str) -> bool:
+    """True when a non-negated trigger phrase appears in the description."""
+    for match in SKILL_TRIGGER_RE.finditer(description):
+        if SKILL_NEGATION_RE.search(description[: match.start()][-20:]):
+            continue
+        return True
+    return False
+
+
 def strip_code_and_comments(text: str) -> str:
     """Blank out fenced code blocks and HTML comments.
 
     Examples of the skill format must not satisfy (or break) structural checks:
-    a fenced `## Done when` is documentation, not a section.
+    a fenced `## Done when` is documentation, not a section. Nested fences are
+    tracked by character and length, so a four-backtick block may contain a
+    three-backtick example.
     """
     out: list[str] = []
-    fence: str | None = None
+    fence_char: str | None = None
+    fence_len = 0
     in_comment = False
     for line in text.splitlines():
         stripped = line.strip()
-        if fence:
-            if stripped.startswith(fence):
-                fence = None
+        if fence_char:
+            closing = re.fullmatch(rf"{re.escape(fence_char)}{{{fence_len},}}\s*", stripped)
+            if closing:
+                fence_char = None
             out.append("")
             continue
-        if stripped.startswith("```") or stripped.startswith("~~~"):
-            fence = stripped[:3]
+        opening = re.match(r"^(`{3,}|~{3,})", stripped)
+        if opening:
+            fence_char = opening.group(1)[0]
+            fence_len = len(opening.group(1))
             out.append("")
             continue
         if in_comment:
@@ -700,8 +716,7 @@ def strip_code_and_comments(text: str) -> str:
         if "<!--" in line:
             before, _, after = line.partition("<!--")
             if "-->" in after:
-                rest = after.split("-->", 1)[1]
-                out.append(before + rest)
+                out.append(before + after.split("-->", 1)[1])
             else:
                 in_comment = True
                 out.append(before)
@@ -720,21 +735,68 @@ def normalize_link(target: str) -> str:
     return target
 
 
+def inline_link_targets(text: str) -> list[str]:
+    """Destinations of inline links, allowing parentheses inside a title."""
+    targets: list[str] = []
+    for match in re.finditer(r"\]\(", text):
+        index = match.end()
+        start = index
+        depth = 1
+        in_angle = False
+        while index < len(text):
+            char = text[index]
+            if char == "<":
+                in_angle = True
+            elif char == ">":
+                in_angle = False
+            elif char == "(" and not in_angle:
+                depth += 1
+            elif char == ")" and not in_angle:
+                depth -= 1
+                if depth == 0:
+                    break
+            index += 1
+        raw = text[start:index].strip()
+        if not raw:
+            continue
+        if raw.startswith("<"):
+            end = raw.find(">")
+            targets.append(raw[: end + 1] if end > 0 else raw)
+        else:
+            targets.append(raw.split()[0])
+    return targets
+
+
 def relative_links(text: str) -> list[str]:
     """Relative markdown link targets (inline and reference style)."""
-    links: list[str] = []
-    for match in SKILL_LINK_RE.finditer(text):
-        links.append(match.group(1))
-    for match in SKILL_REF_LINK_RE.finditer(text):
-        links.append(match.group(1))
+    definitions = {
+        label.lower(): target for label, target in SKILL_REF_DEF_RE.findall(text)
+    }
+    targets = inline_link_targets(text) + list(definitions.values())
     result: list[str] = []
-    for target in links:
-        if re.match(r"^[a-z][a-z0-9+.-]*:", target, re.I) or target.startswith("#"):
-            continue
+    for target in targets:
         normalized = normalize_link(target)
-        if normalized:
-            result.append(normalized)
+        if not normalized:
+            continue
+        if re.match(r"^[a-z][a-z0-9+.-]*:", normalized, re.I):
+            continue
+        if normalized.startswith("#"):
+            continue
+        result.append(normalized)
     return result
+
+
+def undefined_references(text: str) -> list[str]:
+    """Reference-style usages whose label has no definition."""
+    definitions = {
+        label.lower() for label, _ in SKILL_REF_DEF_RE.findall(text)
+    }
+    missing: list[str] = []
+    for label, ref in SKILL_REF_USE_RE.findall(text):
+        key = (ref or label).lower()
+        if key not in definitions:
+            missing.append(key)
+    return missing
 
 
 def lint_skill(path: Path, text: str) -> tuple[list[str], list[str]]:
@@ -753,7 +815,7 @@ def lint_skill(path: Path, text: str) -> tuple[list[str], list[str]]:
     else:
         if not 40 <= len(description) <= 400:
             errors.append(f"description {len(description)} karakter (40-400)")
-        if not SKILL_TRIGGER_RE.search(description):
+        if not has_trigger(description):
             errors.append("description tetikleyici içermiyor (Use when ...)")
 
     prose = strip_code_and_comments(text)
@@ -762,17 +824,30 @@ def lint_skill(path: Path, text: str) -> tuple[list[str], list[str]]:
         errors.append("## Done when bölümü yok")
     else:
         rest = prose[done.end() :]
-        next_heading = re.search(r"^## ", rest, re.M)
-        if next_heading:
-            errors.append("## Done when son bölüm değil")
+        next_heading = re.search(r"^#{1,6} ", rest, re.M)
         section = rest[: next_heading.start()] if next_heading else rest
-        if not section.strip():
+        lines = section.splitlines()
+        setext = any(
+            re.fullmatch(r"[=-]{3,}\s*", lines[index + 1].strip())
+            and lines[index].strip()
+            for index in range(len(lines) - 1)
+        )
+        if next_heading or setext:
+            errors.append("## Done when son bölüm değil")
+        content = [
+            line
+            for line in lines
+            if line.strip() and not re.fullmatch(r"[=-]{3,}\s*", line.strip())
+        ]
+        if not content:
             errors.append("## Done when bölümü boş")
 
     for link in relative_links(prose):
         candidate = Path(os.path.normpath(path.parent / link))
         if not candidate.exists():
             errors.append(f"göreli link çözülmüyor: {link}")
+    for label in undefined_references(prose):
+        errors.append(f"referans tanımı yok: {label}")
 
     body = re.sub(r"\A---\n.*?\n---\n", "", text, count=1, flags=re.S)
     lines = len(body.splitlines())
