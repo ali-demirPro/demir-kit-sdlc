@@ -204,6 +204,72 @@ class LintSkillTest(unittest.TestCase):
         self.assertTrue(any("TODO" in item for item in warnings), warnings)
 
 
+class LintEdgeCaseTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temp = tempfile.TemporaryDirectory()
+        self.root = Path(self.temp.name)
+        self.path = self.root / "SKILL.md"
+
+    def tearDown(self) -> None:
+        self.temp.cleanup()
+
+    def lint(self, body: str, description: str = DESCRIPTION):
+        return doctor.lint_skill(
+            self.path, skill(description=description, body=body)
+        )
+
+    def test_escaped_space_link_resolves(self) -> None:
+        (self.root / "my file.md").write_text("x\n", encoding="utf-8")
+        errors, _ = self.lint("## Steps\n\nRead [x](my\\ file.md).\n")
+        self.assertFalse(any("göreli link" in item for item in errors), errors)
+
+    def test_protocol_relative_link_is_external(self) -> None:
+        errors, _ = self.lint("## Steps\n\nSee [s](//example.com/x).\n")
+        self.assertEqual(errors, [])
+
+    def test_inline_code_link_is_ignored(self) -> None:
+        errors, _ = self.lint("## Steps\n\nUse `[x](missing.md)` in prose.\n")
+        self.assertEqual(errors, [])
+
+    def test_inline_code_with_comment_marker_keeps_the_file(self) -> None:
+        errors, _ = self.lint("## Steps\n\nWrite `<!--` when needed.\n")
+        self.assertEqual(errors, [])
+
+    def test_footnote_definition_is_not_a_link(self) -> None:
+        errors, _ = self.lint("## Steps\n\nNote.[^1]\n\n[^1]: Run doctor first.\n")
+        self.assertEqual(errors, [])
+
+    def test_negation_anywhere_in_the_clause_is_rejected(self) -> None:
+        text = skill(
+            description=(
+                "Seal one leaf and map every criterion. "
+                "Do not ever use when the gate already passed."
+            )
+        )
+        errors, _ = doctor.lint_skill(self.path, text)
+        self.assertTrue(any("tetikleyici" in item for item in errors), errors)
+
+    def test_turkish_suffix_negation_is_rejected(self) -> None:
+        text = skill(
+            description=(
+                "Leaf mühürler ve her kriteri bir case'e bağlar. "
+                "Ne zaman mühür gerekliyse kullanma."
+            )
+        )
+        errors, _ = doctor.lint_skill(self.path, text)
+        self.assertTrue(any("tetikleyici" in item for item in errors), errors)
+
+    def test_indented_atx_after_done_when_is_rejected(self) -> None:
+        text = skill(done_when="## Done when\n\nShipped.\n\n   ## Next\n\nMore.\n")
+        errors, _ = doctor.lint_skill(self.path, text)
+        self.assertTrue(any("son bölüm" in item for item in errors), errors)
+
+    def test_short_setext_after_done_when_is_rejected(self) -> None:
+        text = skill(done_when="## Done when\n\nShipped.\n\nEk\n--\n\nMore.\n")
+        errors, _ = doctor.lint_skill(self.path, text)
+        self.assertTrue(any("son bölüm" in item for item in errors), errors)
+
+
 class DoctorWiringTest(unittest.TestCase):
     def setUp(self) -> None:
         self.saved_errors = list(doctor.ERRORS)
