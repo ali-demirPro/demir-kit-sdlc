@@ -77,6 +77,17 @@ class AppleMacosPackTest(unittest.TestCase):
         self.assertIn("apple-macos", readme)
 
 
+class ProfilePacksTest(unittest.TestCase):
+    def test_every_profile_pack_exists(self) -> None:
+        packs_dir = ROOT / "delivery" / "packs"
+        available = {path.name for path in packs_dir.iterdir() if path.is_dir()}
+        for path in (ROOT / "delivery" / "profiles").glob("*.yaml"):
+            profile = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+            for pack in profile.get("platform_packs") or []:
+                with self.subTest(profile=path.name, pack=pack):
+                    self.assertIn(pack, available)
+
+
 class DirectDistributionTest(unittest.TestCase):
     def test_dmg_keyword_activates_capability(self) -> None:
         data = resolve(
