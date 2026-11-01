@@ -1,4 +1,4 @@
-# delivery/registry.yaml — v2.33
+# delivery/registry.yaml — v2.34
 # Tek kaynak: agent envanteri, path routing, risk glob'ları, etiket adları.
 # Sözleşme: delivery/CONTRACT.md · Denetim: delivery/scripts/doctor.sh
 
@@ -178,6 +178,7 @@ policies:
   escalation: delivery/policies/escalation.md
   project_priorities: delivery/policies/project-priorities.md
   skill_writing: delivery/policies/skill-writing.md
+  refactor_triggers: delivery/policies/refactor-triggers.md
   epic_closure: delivery/runbooks/epic-closure.md
 
 profiles:

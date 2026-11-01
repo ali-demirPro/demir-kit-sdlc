@@ -22,6 +22,18 @@ Tüm leaf'ler bitince **zorunlu**. Bu rapor `status: pass` olmadan epic
 
 Fail → `epic-reconcile` issue aç veya eksik child'ları listele.
 
+## 2b — Borç check-in (architect)
+
+Refactor tetikleri ([refactor-triggers.md](../policies/refactor-triggers.md))
+taranır; bu adım epic kapanışında **zorunludur**.
+
+- [ ] Hotspot: en çok değişen dosyalar ve en büyük dosyalar listelendi.
+- [ ] Aynı modülde üç fix kaydı var mı? (`learnings.py --digest`)
+- [ ] `Strong` bulgu varsa yeni leaf/epic önerisi açıldı.
+- [ ] Kapsam dışı bırakılan her bulgu closure raporunda gerekçesiyle görünür.
+
+Sessiz erteleme yoktur: borç ya leaf açar ya da gerekçesiyle kayda geçer.
+
 ## 2 — Gap analizi (architect + tester)
 
 - [ ] Her leaf: `doctor.sh --issue N` 0 hata + evidence `pass`

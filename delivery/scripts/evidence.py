@@ -88,6 +88,55 @@ def ci_status(repo: str, run_id: str) -> dict | None:
     return data if isinstance(data, dict) else None
 
 
+def is_ancestor(base: str, after: str, root: Path = ROOT) -> bool:
+    if not (COMMIT_RE.fullmatch(base or "") and COMMIT_RE.fullmatch(after or "")):
+        return False
+    return git(["merge-base", "--is-ancestor", base, after], root).returncode == 0
+
+
+def verify_refactor(block, root: Path = ROOT, repo: str | None = None) -> list[str]:
+    """Refactor proof: behavior unchanged between a baseline and an after commit."""
+    errors: list[str] = []
+    if not isinstance(block, dict):
+        return ["refactor bloğu mapping değil"]
+    if block.get("unchanged") is not True:
+        errors.append("refactor unchanged true olmalı")
+    commits: dict[str, str] = {}
+    for label in ("baseline", "after"):
+        point = block.get(label)
+        if not isinstance(point, dict):
+            errors.append(f"refactor.{label} yok")
+            continue
+        commit = str(point.get("commit") or "")
+        local = commit_exists(commit, root)
+        if not local and repo:
+            local = fetch_commit(commit, root)
+        if not local:
+            errors.append(f"refactor.{label} commit bulunamadı: {commit or 'yok'}")
+        if point.get("tests") != "pass":
+            errors.append(f"refactor.{label} tests pass olmalı")
+        commits[label] = commit
+    base = commits.get("baseline")
+    after = commits.get("after")
+    if base and after:
+        if base == after:
+            errors.append("refactor baseline ve after aynı commit")
+        elif commit_exists(base, root) and commit_exists(after, root):
+            if not is_ancestor(base, after, root):
+                errors.append("refactor baseline, after'ın atası değil")
+    files = block.get("files_changed")
+    if isinstance(files, int) and not isinstance(files, bool) and files > 20:
+        errors.append(f"refactor files_changed {files} (üst sınır 20)")
+    if block.get("ui_unchanged") is True:
+        before = (block.get("baseline") or {}).get("snapshots")
+        final = (block.get("after") or {}).get("snapshots")
+        if not before or not final:
+            errors.append("ui_unchanged için iki snapshot hash gerekli")
+        elif before != final:
+            errors.append("ui_unchanged ama snapshot hash farklı")
+    return errors
+
+
 def verify(
     record: dict,
     root: Path = ROOT,
@@ -179,6 +228,9 @@ def verify(
             errors.append(f"reviewer {index}: diff_hash sha256 değil")
         elif expected and reviewer_diff != expected:
             errors.append(f"reviewer {index}: farklı diff'i incelemiş")
+
+    if "refactor" in record:
+        errors += verify_refactor(record.get("refactor"), root=root, repo=repo)
 
     return errors
 

@@ -1,5 +1,23 @@
 # Changelog
 
+## 2.34.0 — 2026-11-01
+
+- **Refactor leaf türü** — `entry.kind: refactor`; yol `pure_technical`.
+  Refactor artık yasak değil, ayrı ve kanıtlı bir iş.
+- **Davranış değişmedi kanıtı** — `verification.refactor`: `baseline`/`after`
+  commit + tests, `unchanged: true`, `files_changed`, UI için `ui_unchanged` ve
+  eşit snapshot hash'i. Baseline, after'ın atası olmak zorunda.
+- **Zorunlu architect gate'i** — refactor seal'inde her CP `gates.architect:
+  true` ister; `leaf-done` anında `verification.refactor` yoksa geçmez.
+- **Boyut sınırı** — 10 dosyaya kadar normal, 11–20 uyarı, 20 üstü hata.
+- **Tetik politikası** — `delivery/policies/refactor-triggers.md`: dosya/tip
+  boyutu, yayılma, tekrar eden hata, epic kapanışı, test edilemez bağımlılık,
+  büyük feature öncesi. Tetik yoksa leaf açılmaz.
+- **Architect playbook** — `agents/architect/variants/refactor.md`: survey →
+  propose → refactor → record, deletion test, `Strong/Worth exploring/Speculative`.
+- **Epic closure** — borç check-in adımı zorunlu; `Strong` bulgu leaf açar,
+  ertelenen her bulgu gerekçesiyle raporda görünür.
+
 ## 2.33.0 — 2026-11-01
 
 - **AC denetim türü** — `tests_plan.cases[].check`: `gate` | `unit` | `snap` |

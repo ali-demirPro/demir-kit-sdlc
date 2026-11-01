@@ -93,6 +93,10 @@ workers:
 - `package_version: 3` leaf'lerde ayrıca `worktree` (name/path/branch/epic) ve
   `worker`/`workers` zorunludur. Orca yoksa `worker` yerine `degrade.reason` yazılır
   ve issue'da `run degrade:` yorumu bulunur.
+- `entry.kind: refactor` leaf'lerde `verification.refactor` zorunludur:
+  `baseline` ve `after` (commit + tests), `unchanged: true`, `files_changed`.
+  Baseline, after'ın atası olmalı; UI'a dokunulduysa `ui_unchanged: true` ve
+  iki tarafta eşit snapshot hash'i gerekir.
 - `package_version: 4` yukarıdakileri devralır. `snap` case'i olan CP
   `ui_visual`, `ui_interaction` ve `comparison_valid: true` borçludur.
   `gates.human: true` olan CP `reviews.human: approved` ister; `manual` test

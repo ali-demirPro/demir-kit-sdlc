@@ -31,7 +31,7 @@
       "required": ["kind"],
       "properties": {
         "kind": {
-          "enum": ["feature", "bugfix", "chore", "architecture_baseline", "commercial_baseline"]
+          "enum": ["feature", "bugfix", "chore", "refactor", "architecture_baseline", "commercial_baseline"]
         }
       }
     },

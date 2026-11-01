@@ -1005,6 +1005,8 @@ def check_issue_body(
 
     cps = data.get("checkpoints") or []
     cp_ids = [item.get("id") for item in cps if isinstance(item, dict)]
+    entry = data.get("entry") if isinstance(data.get("entry"), dict) else {}
+    entry_kind = entry.get("kind")
     if len(cp_ids) != len(set(cp_ids)):
         error("issue seal: CP id tekrarlı")
     if checkpoint and checkpoint != "CP-HEALTH" and checkpoint not in cp_ids:
@@ -1076,6 +1078,8 @@ def check_issue_body(
         gates = cp.get("gates") or {}
         if gates.get("behavior") is not True:
             error(f"{cp.get('id')}: gates.behavior true olmalı")
+        if entry_kind == "refactor" and gates.get("architect") is not True:
+            error(f"{cp.get('id')}: refactor leaf'te gates.architect true olmalı")
         for dep in cp.get("depends_on") or []:
             if dep not in cp_ids:
                 error(f"{cp.get('id')}: depends_on '{dep}' tanımsız")
@@ -1268,6 +1272,19 @@ def check_issue_body(
             verification = record.get("verification")
             if package_version >= 2 and not verification:
                 error(f"{cp_id}: package_version 2+ için verification bloğu gerekli")
+            if entry_kind == "refactor" and not (
+                isinstance(verification, dict)
+                and isinstance(verification.get("refactor"), dict)
+            ):
+                error(f"{cp_id}: refactor leaf verification.refactor bloğu ister")
+            if isinstance(verification, dict):
+                block = verification.get("refactor")
+                if isinstance(block, dict):
+                    files = block.get("files_changed")
+                    if isinstance(files, int) and 10 < files <= 20:
+                        warn(
+                            f"{cp_id}: refactor {files} dosya değiştirdi; adımlara böl"
+                        )
             if verification:
                 for message in evidence_lib.verify(
                     verification,

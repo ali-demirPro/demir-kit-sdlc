@@ -249,6 +249,85 @@ class EvidenceTests(unittest.TestCase):
         self.assertEqual(data["diff_hash"], self.expected)
         self.assertEqual(data["reviewers"][0]["diff_hash"], self.expected)
 
+    def refactor_block(self, **overrides) -> dict:
+        block = {
+            "baseline": {"commit": self.first, "tests": "pass"},
+            "after": {"commit": self.second, "tests": "pass"},
+            "unchanged": True,
+            "files_changed": 4,
+        }
+        block.update(overrides)
+        return block
+
+    def test_refactor_block_passes(self) -> None:
+        errors = evidence.verify_refactor(self.refactor_block(), root=self.root)
+        self.assertEqual(errors, [])
+
+    def test_refactor_requires_unchanged_true(self) -> None:
+        errors = evidence.verify_refactor(
+            self.refactor_block(unchanged=False), root=self.root
+        )
+        self.assertTrue(any("unchanged" in item for item in errors), errors)
+
+    def test_refactor_baseline_must_be_ancestor(self) -> None:
+        block = self.refactor_block(
+            baseline={"commit": self.second, "tests": "pass"},
+            after={"commit": self.first, "tests": "pass"},
+        )
+        errors = evidence.verify_refactor(block, root=self.root)
+        self.assertTrue(any("atası değil" in item for item in errors), errors)
+
+    def test_refactor_baseline_and_after_differ(self) -> None:
+        block = self.refactor_block(
+            baseline={"commit": self.second, "tests": "pass"},
+            after={"commit": self.second, "tests": "pass"},
+        )
+        errors = evidence.verify_refactor(block, root=self.root)
+        self.assertTrue(any("aynı commit" in item for item in errors), errors)
+
+    def test_refactor_tests_must_pass(self) -> None:
+        block = self.refactor_block(
+            after={"commit": self.second, "tests": "fail"}
+        )
+        errors = evidence.verify_refactor(block, root=self.root)
+        self.assertTrue(any("tests pass" in item for item in errors), errors)
+
+    def test_refactor_file_limit(self) -> None:
+        errors = evidence.verify_refactor(
+            self.refactor_block(files_changed=21), root=self.root
+        )
+        self.assertTrue(any("üst sınır" in item for item in errors), errors)
+
+    def test_refactor_ui_unchanged_needs_equal_hashes(self) -> None:
+        hashes = "sha256:" + "a" * 64
+        same = self.refactor_block(
+            ui_unchanged=True,
+            baseline={"commit": self.first, "tests": "pass", "snapshots": hashes},
+            after={"commit": self.second, "tests": "pass", "snapshots": hashes},
+        )
+        self.assertEqual(evidence.verify_refactor(same, root=self.root), [])
+        different = self.refactor_block(
+            ui_unchanged=True,
+            baseline={"commit": self.first, "tests": "pass", "snapshots": hashes},
+            after={
+                "commit": self.second,
+                "tests": "pass",
+                "snapshots": "sha256:" + "b" * 64,
+            },
+        )
+        errors = evidence.verify_refactor(different, root=self.root)
+        self.assertTrue(any("snapshot" in item for item in errors), errors)
+
+    def test_refactor_ui_unchanged_needs_hashes(self) -> None:
+        block = self.refactor_block(ui_unchanged=True)
+        errors = evidence.verify_refactor(block, root=self.root)
+        self.assertTrue(any("snapshot hash gerekli" in item for item in errors), errors)
+
+    def test_verify_runs_refactor_rules(self) -> None:
+        record = self.record(refactor=self.refactor_block(unchanged=False))
+        errors = evidence.verify(record, root=self.root, risk="low")
+        self.assertTrue(any("unchanged" in item for item in errors), errors)
+
 
 if __name__ == "__main__":
     unittest.main()
