@@ -1181,6 +1181,25 @@ def check_issue_body(
             f"issue seal: capability risk_floor '{risk_floor}' seal risk "
             f"'{risk}' üstünde; seal riskini yükselt"
         )
+    if package_version >= 4:
+        human_caps = [
+            capability
+            for capability in resolution.get("capabilities") or []
+            if "human"
+            in (
+                (capability_registry.get("capabilities") or {}).get(capability) or {}
+            ).get("gates", [])
+        ]
+        if human_caps and not any(
+            (cp.get("gates") or {}).get("human") is True
+            for cp in cps
+            if isinstance(cp, dict)
+        ):
+            error(
+                "capability insan kapısı istiyor: "
+                + ", ".join(human_caps)
+                + " — bir checkpoint'te gates.human true olmalı"
+            )
     if risk in {"high", "critical"}:
         seen_gaps = set()
         for gap in resolution.get("variant_gaps") or []:

@@ -5,14 +5,23 @@
 - **`apple-macos` pack** — macOS yüzeyi için 14 maddelik platform checklist'i:
   menü çubuğu, kısayol, toolbar, sidebar, pencere, kontrol ölçüsü, tipografi,
   erişilebilirlik, Liquid Glass (yalnız macOS 26+ ve functional layer), sandbox,
-  imza/notarization, güncelleme kanalı, veri/migration, gizlilik. Her madde
-  kaynak referanslı.
+  imza/notarization, güncelleme kanalı, veri/migration, gizlilik. 10–12. maddeler
+  Apple dağıtım belgelerine, diğerleri HIG sayfalarına dayanır. `apple-hig` ve
+  `apple-a11y` içindeki 44×44 pt kuralı dokunmatik platformlara daraltıldı;
+  macOS için bu pack geçerli.
 - **`distribution.direct`** — App Store dışı dağıtım capability'si: `dmg`,
-  `notarize` anahtar kelimeleriyle aktifleşir; risk tabanı `medium`, insan
-  kapısı ister. Önceki durumda yalnız `distribution.app_store` (kritik) vardı,
-  bu yüzden notarize edilmiş bir DMG dağıtımı gereksiz yere kritik sayılıyordu.
-- **`devops/variants/direct.md`** — paketleme, imza, notarization, kanal ve geri
-  dönüş playbook'u.
+  `notarize`, `notarization`, `sparkle` değerleriyle aktifleşir; risk tabanı
+  `medium`. Önceki durumda doğrudan dağıtım için capability yoktu, yani
+  notarization ve güncelleme kanalı kanıt olarak istenmiyordu.
+- **İnsan kapısı zorlanıyor** — `gates` alanında `human` bildiren bir capability
+  aktifse, `package_version: 4` seal'inde en az bir checkpoint `gates.human: true`
+  olmak zorunda; `doctor` bunu denetler.
+- **Rol kapsamı** — `devops` (expert), `security` (practitioner), `tester`
+  (practitioner). `release` ve `documenter` rolünün `agent.yaml` dosyası yok, bu
+  yüzden capability'ye eklenmedi; bu sapma bilinçli ve kayıtlı.
+- **Playbook'lar** — `devops/variants/direct.md` (paketleme, imza, notarization,
+  kanal, geri dönüş), `tester/variants/direct.md` (spctl/stapler doğrulaması),
+  `security/variants/direct.md` (imza zinciri, entitlement, appcast).
 - **`macos-app` profili** artık `apple-macos` pack'ini listeliyor.
 
 ## 2.35.0 — 2026-11-01

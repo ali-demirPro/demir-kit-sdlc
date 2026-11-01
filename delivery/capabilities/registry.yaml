@@ -305,8 +305,7 @@ capabilities:
     label: Doğrudan dağıtım
     description: "App Store dışı dağıtım: paketleme, imzalama, notarization ve güncelleme kanalı."
     match:
-      distribution: [direct, dmg, notarized]
-      keywords: [dmg, notarize, notarization, sparkle, doğrudan dağıtım]
+      distribution: [direct, dmg, notarize, notarization, notarized, sparkle]
     roles:
       devops: expert
       security: practitioner

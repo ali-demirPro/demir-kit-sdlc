@@ -6,7 +6,8 @@ HIG referanslıdır).
 
 - Navigation: back affordance, tab bar / nav bar HIG uyumu; `NavigationView`
   yok (`NavigationStack` / `NavigationSplitView`)
-- Layout: safe area, adaptive layout; touch target ≥ 44×44 pt
+- Layout: safe area, adaptive layout; dokunmatik platformlarda hedef ≥ 44×44 pt
+  (macOS'ta `apple-macos` pack'i geçerlidir)
 - Typography: sistem font / Dynamic Type; `font(.system(size:))` hardcode yok
 - Color: sistem renkleri; sabit `Color` yok; kontrast ≥ 4.5:1 (normal) /
   3:1 (large)

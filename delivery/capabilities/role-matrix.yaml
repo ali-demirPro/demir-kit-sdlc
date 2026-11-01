@@ -170,6 +170,7 @@ roles:
       quality.observability: expert
       distribution.app_store: expert
       distribution.play: expert
+      distribution.direct: expert
       distribution.web: expert
     focus: [CI/CD, environments, SLO, rollback, secrets]
     evidence: [pipeline diff, SLO, alert runbook, rollback drill]

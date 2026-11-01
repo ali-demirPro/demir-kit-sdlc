@@ -85,10 +85,125 @@ class DirectDistributionTest(unittest.TestCase):
         self.assertIn("distribution.direct", data["capabilities"])
 
     def test_risk_floor_is_medium(self) -> None:
-        data = resolve(
-            "--surface", "macos.app", "--platform", "macos", "--distribution", "dmg"
+        registry = yaml.safe_load(
+            (ROOT / "delivery" / "capabilities" / "registry.yaml").read_text(
+                encoding="utf-8"
+            )
         )
-        self.assertEqual(data["risk_floor"], "medium")
+        spec = registry["capabilities"]["distribution.direct"]
+        self.assertEqual(spec["risk_floor"], "medium")
+
+    def test_low_risk_dmg_seal_is_rejected(self) -> None:
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location(
+            "doctor", SCRIPTS / "doctor.py"
+        )
+        doctor = importlib.util.module_from_spec(spec)
+        assert spec.loader is not None
+        spec.loader.exec_module(doctor)
+        doctor.ERRORS.clear()
+        seal = {
+            "demir_kit_version": "2",
+            "package_version": 4,
+            "mode": "extend",
+            "epic": 119,
+            "entry": {"kind": "chore"},
+            "factory": {"profile": "kit-internal", "distribution": ["dmg"]},
+            "intent": "Dagitim kanali icin risk tabani regresyon testi.",
+            "surfaces": ["kit.docs"],
+            "reference": {"kind": "github_paths", "summary": "Test referansi."},
+            "acceptance_criteria": [{"id": "AC-1", "text": "Bir dogrulama adimi."}],
+            "out_of_scope": ["Kapsam disi"],
+            "risk": {"level": "low", "reasons": ["test"]},
+            "tests_plan": [
+                {
+                    "checkpoint_id": "CP-1",
+                    "cases": [
+                        {
+                            "id": "T-1",
+                            "ac": "AC-1",
+                            "text": "Dogrulama.",
+                            "check": "unit",
+                        }
+                    ],
+                }
+            ],
+            "checkpoints": [
+                {
+                    "id": "CP-1",
+                    "title": "Test",
+                    "gates": {
+                        "behavior": True,
+                        "architect": False,
+                        "commercial": False,
+                        "ui": False,
+                        "human": True,
+                    },
+                }
+            ],
+        }
+        body = "```yaml demir-kit\n" + yaml.safe_dump(seal, sort_keys=False) + "```\n"
+        doctor.check_issue_body(body, [], None)
+        self.assertTrue(
+            any("risk_floor" in item for item in doctor.ERRORS), doctor.ERRORS
+        )
+
+    def test_capability_human_gate_is_enforced(self) -> None:
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location(
+            "doctor", SCRIPTS / "doctor.py"
+        )
+        doctor = importlib.util.module_from_spec(spec)
+        assert spec.loader is not None
+        spec.loader.exec_module(doctor)
+        doctor.ERRORS.clear()
+        seal = {
+            "demir_kit_version": "2",
+            "package_version": 4,
+            "mode": "extend",
+            "epic": 119,
+            "entry": {"kind": "chore"},
+            "factory": {"profile": "kit-internal", "distribution": ["dmg"]},
+            "intent": "Insan kapisi regresyon testi icin seal.",
+            "surfaces": ["kit.docs"],
+            "reference": {"kind": "github_paths", "summary": "Test referansi."},
+            "acceptance_criteria": [{"id": "AC-1", "text": "Bir dogrulama adimi."}],
+            "out_of_scope": ["Kapsam disi"],
+            "risk": {"level": "medium", "reasons": ["test"]},
+            "tests_plan": [
+                {
+                    "checkpoint_id": "CP-1",
+                    "cases": [
+                        {
+                            "id": "T-1",
+                            "ac": "AC-1",
+                            "text": "Dogrulama.",
+                            "check": "unit",
+                        }
+                    ],
+                }
+            ],
+            "checkpoints": [
+                {
+                    "id": "CP-1",
+                    "title": "Test",
+                    "gates": {
+                        "behavior": True,
+                        "architect": False,
+                        "commercial": False,
+                        "ui": False,
+                        "human": False,
+                    },
+                }
+            ],
+        }
+        body = "```yaml demir-kit\n" + yaml.safe_dump(seal, sort_keys=False) + "```\n"
+        doctor.check_issue_body(body, [], None)
+        self.assertTrue(
+            any("insan kapısı" in item for item in doctor.ERRORS), doctor.ERRORS
+        )
 
     def test_capability_has_gates_and_evidence(self) -> None:
         registry = yaml.safe_load(
@@ -110,7 +225,11 @@ class DirectDistributionTest(unittest.TestCase):
                     )
                 )
                 spec = (data.get("variants") or {}).get("distribution.direct") or {}
-                self.assertTrue(spec.get("doc"), role)
+                doc = str(spec.get("doc") or "")
+                self.assertEqual(doc, "variants/direct.md", role)
+                self.assertTrue(
+                    (ROOT / "delivery" / "agents" / role / doc).is_file(), role
+                )
 
     def test_registry_scripts_are_green(self) -> None:
         for script in ("variants.py", "capabilities.py", "profiles.py"):
@@ -119,6 +238,8 @@ class DirectDistributionTest(unittest.TestCase):
                 if script == "variants.py":
                     args.append("--role")
                     args.append("devops")
+                elif script == "capabilities.py":
+                    args.append("--validate")
                 elif script == "profiles.py":
                     args.extend(["--project", str(ROOT)])
                 result = subprocess.run(args, cwd=ROOT, capture_output=True, text=True)

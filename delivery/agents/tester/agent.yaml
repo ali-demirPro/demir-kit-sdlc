@@ -97,7 +97,7 @@ variants:
     eval: evals/delivery.md
     min_level: practitioner
   distribution.direct:
-    doc: variants/delivery.md
+    doc: variants/direct.md
     eval: evals/delivery.md
     min_level: practitioner
 handoffs: [developer, orchestrator]

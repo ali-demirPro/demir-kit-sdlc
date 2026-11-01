@@ -32,7 +32,7 @@ variants:
   quality.privacy: { doc: variants/data-privacy.md, eval: evals/risk.md, min_level: expert }
   quality.observability: { doc: variants/threat-model.md, eval: evals/risk.md, min_level: practitioner }
   distribution.app_store: { doc: variants/mobile.md, eval: evals/application.md, min_level: practitioner }
-  distribution.direct: { doc: variants/application.md, eval: evals/application.md, min_level: practitioner }
+  distribution.direct: { doc: variants/direct.md, eval: evals/application.md, min_level: practitioner }
   distribution.play: { doc: variants/mobile.md, eval: evals/application.md, min_level: practitioner }
   distribution.web: { doc: variants/application.md, eval: evals/application.md, min_level: practitioner }
 handoffs: [architect, developer, tester, devops, release, orchestrator]

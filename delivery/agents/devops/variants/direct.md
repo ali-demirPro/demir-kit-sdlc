@@ -19,9 +19,11 @@ Her dağıtım geri dönüşü zor olduğu için insan kapısı ister.
 
 1. **Paket:** `.app` bundle'ı sürümle; DMG veya zip üret; dosya adı sürüm taşır.
 2. **İmza:** `codesign --options runtime --timestamp`; iç içe framework'ler
-   dıştan içe doğru imzalanır.
-3. **Notarization:** `notarytool submit --wait`, sonra `stapler staple`;
-   bilet yoksa paket dağıtılmaz.
+   **içten dışa** imzalanır (en içteki bileşen önce, uygulama bundle'ı en son).
+   `codesign --verify --deep --strict` ile doğrula.
+3. **Notarization:** `notarytool submit --wait`; ardından bilet **staple**
+   edilir. DMG dağıtılıyorsa DMG'ye, zip dağıtılıyorsa `.app`'e (arşivden
+   **önce**) staple uygulanır; zip'in kendisi staple edilemez.
 4. **Doğrulama:** temiz bir makinede `spctl -a -vv` ve ilk açılış denemesi.
 5. **Kanal:** Sparkle veya kendi güncelleme akışı; imzalı appcast; iki kanal
    birlikteyse ADR.
