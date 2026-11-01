@@ -22,10 +22,10 @@ Tüm leaf'ler bitince **zorunlu**. Bu rapor `status: pass` olmadan epic
 
 Fail → `epic-reconcile` issue aç veya eksik child'ları listele.
 
-## 2.1 — Borç check-in (architect)
+## 2 — Borç check-in (architect)
 
 Refactor tetikleri ([refactor-triggers.md](../policies/refactor-triggers.md))
-taranır; bu adım epic kapanışında **zorunludur**.
+taranır; bu adım epic kapanışında yapılır ve sonucu closure raporunda görünür.
 
 - [ ] Hotspot: en çok değişen dosyalar ve en büyük dosyalar listelendi.
 - [ ] Aynı modülde üç fix kaydı var mı? (`learnings.py --digest`)
@@ -34,19 +34,19 @@ taranır; bu adım epic kapanışında **zorunludur**.
 
 Sessiz erteleme yoktur: borç ya leaf açar ya da gerekçesiyle kayda geçer.
 
-## 2 — Gap analizi (architect + tester)
+## 3 — Gap analizi (architect + tester)
 
 - [ ] Her leaf: `doctor.sh --issue N` 0 hata + evidence `pass`
 - [ ] `depends_on` ihlali yok
 - [ ] Epic amacı dışı dosya/PR kapsamı
 
-## 3 — Gereksiz iş
+## 4 — Gereksiz iş
 
 - [ ] Duplicate iş
 - [ ] Path routing dışı agent çalışmış mı?
 - [ ] Revert / temizlik önerisi
 
-## 4 — Rapor
+## 5 — Rapor
 
 Epic comment'ine `demir-kit-closure` bloğu post et:
 
@@ -75,7 +75,7 @@ ready_for_human_qa: true
 - Doğrulama: `doctor.sh --issue <epic>` closure bloğunu (issue body veya comment)
   şemaya göre denetler. `epic-done` öncesi çalıştır.
 
-## 5 — İnsan raporu ve kabul
+## 6 — İnsan raporu ve kabul
 
 Closure `pass` sonrası iki şey yapılır:
 

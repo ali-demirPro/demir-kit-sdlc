@@ -95,8 +95,15 @@ workers:
   ve issue'da `run degrade:` yorumu bulunur.
 - `entry.kind: refactor` leaf'lerde `verification.refactor` zorunludur:
   `baseline` ve `after` (commit + tests), `unchanged: true`, `files_changed`.
-  Baseline, after'ın atası olmalı; UI'a dokunulduysa `ui_unchanged: true` ve
-  iki tarafta eşit snapshot hash'i gerekir.
+  `after` kanıt commit'iyle aynı olmalı; baseline, after'ın atası olmalı.
+  `files_changed` `git diff --name-only baseline..after` ile ölçülür ve
+  bildirimle eşleşmek zorundadır (20 üstü hata). `perf_ms` ya iki tarafta da
+  olur ya hiç olmaz. UI'a dokunulduysa (`gates.ui`) `ui_unchanged: true` ve iki
+  tarafta eşit snapshot hash'i gerekir.
+- `unchanged: true` bir **beyandır**: kimse davranışın aynı kaldığını
+  kanıtlayamaz, ama reviewer tüm `baseline..after` aralığını görmek zorundadır.
+  Bu yüzden refactor leaf'inde reviewer `diff_hash` değeri aralık hash'i
+  (`git diff --binary baseline..after`) olabilir.
 - `package_version: 4` yukarıdakileri devralır. `snap` case'i olan CP
   `ui_visual`, `ui_interaction` ve `comparison_valid: true` borçludur.
   `gates.human: true` olan CP `reviews.human: approved` ister; `manual` test

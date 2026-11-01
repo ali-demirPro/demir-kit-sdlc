@@ -30,7 +30,8 @@ değildir; her platformda geçerlidir. Refactor tetiği yoksa leaf açılmaz.
 
 ## Kanıt
 
-- `verification.refactor`: baseline/after, `unchanged: true`, `files_changed`.
+- `verification.refactor`: baseline/after, `unchanged: true`, ölçülmüş
+  `files_changed`; `after` kanıt commit'iyle aynı.
 - UI'a dokunulduysa eşit snapshot hash'i (`ui_unchanged: true`).
 - Değişen modül sınırı için kısa diyagram veya ADR.
 - İnceleme kartları issue yorumu olarak (repo'ya dosya eklenmez).

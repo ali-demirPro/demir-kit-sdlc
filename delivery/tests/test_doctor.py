@@ -416,6 +416,20 @@ class LeafSchemaTests(DoctorTestCase):
             doctor.ERRORS,
         )
 
+    def test_refactor_malformed_verification_is_reported(self) -> None:
+        data = self.refactor_leaf()
+        data["checkpoints"][0]["gates"]["architect"] = True
+        data["checkpoints"][0]["gates"]["ui"] = True
+        record = self.v4_record()
+        record["verification"] = "bozuk"
+        comments = [fenced("demir-kit-evidence", record), "run degrade: unit test"]
+        with patch.object(doctor.evidence_lib, "verify", return_value=[]):
+            doctor.check_issue_body(fenced("demir-kit", data), ["leaf-done"], comments)
+        self.assertTrue(
+            any("verification.refactor" in item for item in doctor.ERRORS),
+            doctor.ERRORS,
+        )
+
     def test_refactor_requires_architect_on_every_checkpoint(self) -> None:
         data = self.refactor_leaf()
         data["checkpoints"][0]["gates"]["architect"] = True

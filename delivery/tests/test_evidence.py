@@ -334,6 +334,24 @@ class EvidenceTests(unittest.TestCase):
             any("kanıt commit'i ile aynı" in item for item in errors), errors
         )
 
+    def test_refactor_accepts_short_sha_for_after(self) -> None:
+        block = self.refactor_block(
+            after={"commit": self.second[:7], "tests": "pass"}
+        )
+        errors = evidence.verify_refactor(
+            block, root=self.root, commit=self.second
+        )
+        self.assertFalse(any("aynı olmalı" in item for item in errors), errors)
+
+    def test_refactor_range_hash_is_reviewable(self) -> None:
+        block = self.refactor_block()
+        range_hash = evidence.range_diff_hash(self.first, self.second, self.root)
+        self.assertTrue(range_hash)
+        record = self.record(
+            refactor=block, reviewers=[reviewer("ses_reviewer", range_hash)]
+        )
+        self.assertEqual(evidence.verify(record, root=self.root, risk="low"), [])
+
     def test_refactor_requires_files_changed(self) -> None:
         block = self.refactor_block()
         block.pop("files_changed")

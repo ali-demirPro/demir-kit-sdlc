@@ -104,6 +104,18 @@ def changed_files(base: str, after: str, root: Path = ROOT) -> int | None:
     return len([line for line in result.stdout.splitlines() if line.strip()])
 
 
+def range_diff_hash(base: str, after: str, root: Path = ROOT) -> str | None:
+    """Hash the whole baseline..after diff; reviewers must review this range."""
+    resolved_base = resolve_commit(base, root)
+    resolved_after = resolve_commit(after, root)
+    if not resolved_base or not resolved_after:
+        return None
+    result = git(["diff", "--binary", f"{resolved_base}..{resolved_after}"], root)
+    if result.returncode != 0:
+        return None
+    return hash_text(result.stdout)
+
+
 def verify_refactor(
     block,
     root: Path = ROOT,
@@ -139,8 +151,13 @@ def verify_refactor(
         elif commit_exists(base, root) and commit_exists(after, root):
             if not is_ancestor(base, after, root):
                 errors.append("refactor baseline, after'ın atası değil")
-    if commit and after and after != commit:
-        errors.append("refactor.after kanıt commit'i ile aynı olmalı")
+    if commit and after:
+        resolved_after = resolve_commit(after, root)
+        resolved_commit = resolve_commit(commit, root)
+        if not resolved_after or not resolved_commit:
+            errors.append("refactor.after çözümlenemedi")
+        elif resolved_after != resolved_commit:
+            errors.append("refactor.after kanıt commit'i ile aynı olmalı")
     declared = block.get("files_changed")
     if not isinstance(declared, int) or isinstance(declared, bool) or declared < 1:
         errors.append("refactor files_changed pozitif tam sayı olmalı")
@@ -232,6 +249,18 @@ def verify(
     else:
         errors.append("CI status success veya skipped olmalı")
 
+    allowed_diffs = {expected} if expected else set()
+    refactor_block = (
+        record.get("refactor") if isinstance(record.get("refactor"), dict) else {}
+    )
+    if refactor_block:
+        base_ref = str((refactor_block.get("baseline") or {}).get("commit") or "")
+        after_ref = str((refactor_block.get("after") or {}).get("commit") or "")
+        if base_ref and after_ref:
+            range_hash = range_diff_hash(base_ref, after_ref, root)
+            if range_hash:
+                allowed_diffs.add(range_hash)
+
     reviewers = record.get("reviewers")
     reviewers = reviewers if isinstance(reviewers, list) else []
     minimum = 2 if risk in {"high", "critical"} else 1
@@ -257,7 +286,7 @@ def verify(
         reviewer_diff = str(reviewer.get("diff_hash") or "")
         if reviewer_diff and not HASH_RE.fullmatch(reviewer_diff):
             errors.append(f"reviewer {index}: diff_hash sha256 değil")
-        elif expected and reviewer_diff != expected:
+        elif allowed_diffs and reviewer_diff not in allowed_diffs:
             errors.append(f"reviewer {index}: farklı diff'i incelemiş")
 
     if "refactor" in record:

@@ -1339,7 +1339,12 @@ def check_issue_body(
             if gates.get("ui") and reviews.get("ui") != "pass":
                 error(f"{cp_id}: gates.ui açık ama UI onayı yok")
             if entry_kind == "refactor" and gates.get("ui"):
-                proof = (record.get("verification") or {}).get("refactor") or {}
+                verification_value = record.get("verification")
+                proof = (
+                    verification_value.get("refactor")
+                    if isinstance(verification_value, dict)
+                    else {}
+                )
                 if not isinstance(proof, dict) or proof.get("ui_unchanged") is not True:
                     error(f"{cp_id}: refactor UI checkpoint'te ui_unchanged ister")
             if package_version >= 4 and gates.get("human") and reviews.get(

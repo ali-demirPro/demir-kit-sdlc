@@ -10,14 +10,15 @@ Aşağıdakilerden **biri** yeterlidir.
 
 | Tetik | Eşik | Ölçüm komutu |
 |-------|------|--------------|
-| Dosya boyutu | > 600 satır (1000'de zorunlu) | `find delivery skills -name '*.py' -print0 \| xargs -0 wc -l \| sort -n \| tail -20` |
+| Dosya boyutu | > 600 satır (1000'de zorunlu) | `find <src> -name '*.py' -o -name '*.swift' \| xargs wc -l \| sort -n \| tail -20` |
 | Tip boyutu | Tek tip > 400 satır | `rg -n '^(class\|struct\|enum) ' <dosya>` |
 | Yayılma | Bir feature > 6 dosya | `git show --stat --format= <commit>` |
 | Tekrar eden hata | Aynı modülde 3 fix kaydı | `python3 delivery/scripts/learnings.py --digest` |
-| Test edilemez bağımlılık | Bağımlılık testte değiştirilemiyor | `python3 -m unittest discover -s delivery/tests -k <modül>` |
+| Test edilemez bağımlılık | Bağımlılık testte değiştirilemiyor | `python3 -m unittest <modül>` |
 | Epic kapanışı | Her closure öncesi check-in | `python3 delivery/scripts/report.py --issue <epic>` |
 
-Tetik yoksa refactor leaf'i açılmaz. "Kod hoşuma gitmedi" tetik değildir.
+Komutlar örnektir: ürün deposunda `<src>` ve test yolu ürünün yapısına göre
+yazılır. Tetik yoksa refactor leaf'i açılmaz. "Kod hoşuma gitmedi" tetik değildir.
 
 ## Kanıt
 
@@ -32,11 +33,15 @@ refactor:
   files_changed: 7
 ```
 
-- `baseline`, `after`'ın atası olmalı; aynı commit olamaz.
+- `after`, kanıt commit'iyle aynı; `baseline`, after'ın atası olmalı; aynı
+  commit olamaz.
 - İki tarafta da `tests: pass`.
 - `unchanged: true` zorunlu — davranış değiştiyse bu bir refactor değildir.
 - UI'a dokunulduysa `ui_unchanged: true` ve iki tarafta **eşit** snapshot hash'i.
-- `files_changed`: ≤ 10 normal, 11–20 uyarı, > 20 hata (adımlara böl).
+- `files_changed`: `git diff --name-only baseline..after` ile ölçülür ve
+  bildirimle eşleşmeli. ≤ 10 normal, 11–20 uyarı, > 20 hata (adımlara böl).
+- `unchanged: true` beyandır; reviewer tüm aralığı görür (aralık hash'i kabul
+  edilir).
 
 ## Sınırlar
 
