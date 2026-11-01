@@ -1316,6 +1316,10 @@ def check_issue_body(
             gates = cp_gates.get(cp_id, {})
             if gates.get("ui") and reviews.get("ui") != "pass":
                 error(f"{cp_id}: gates.ui açık ama UI onayı yok")
+            if package_version >= 4 and gates.get("human") and reviews.get(
+                "human"
+            ) != "approved":
+                error(f"{cp_id}: gates.human açık ama insan onayı yok")
             if gates.get("architect") and reviews.get("architect") != "approved":
                 error(f"{cp_id}: gates.architect açık ama architect onayı yok")
             if "architect" in profile_extra_gates and reviews.get(

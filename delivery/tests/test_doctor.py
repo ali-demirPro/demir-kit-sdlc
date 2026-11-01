@@ -149,8 +149,34 @@ class LeafSchemaTests(DoctorTestCase):
     def test_v3_check_kind_is_optional(self) -> None:
         good = leaf(package_version=3)
         doctor.check_issue_body(fenced("demir-kit", good), [], None)
-        self.assertFalse(
-            any("denetim türü" in item for item in doctor.ERRORS), doctor.ERRORS
+        self.assertEqual(doctor.ERRORS, [])
+
+    def test_check_kind_absent_before_v4_across_versions(self) -> None:
+        for version in (1, 2, 3):
+            with self.subTest(package_version=version):
+                doctor.ERRORS.clear()
+                doctor.check_issue_body(
+                    fenced("demir-kit", leaf(package_version=version)), [], None
+                )
+                self.assertFalse(
+                    any("denetim türü" in item for item in doctor.ERRORS),
+                    doctor.ERRORS,
+                )
+
+    def test_v5_is_treated_like_v4(self) -> None:
+        bad = leaf(package_version=5)
+        doctor.check_issue_body(fenced("demir-kit", bad), [], None)
+        self.assertTrue(
+            any("denetim türü (check) yok" in item for item in doctor.ERRORS),
+            doctor.ERRORS,
+        )
+
+    def test_check_coupling_applies_when_present_on_v3(self) -> None:
+        bad = leaf(package_version=3)
+        bad["tests_plan"][0]["cases"][0]["check"] = "snap"
+        doctor.check_issue_body(fenced("demir-kit", bad), [], None)
+        self.assertTrue(
+            any("snap türü" in item for item in doctor.ERRORS), doctor.ERRORS
         )
 
     def test_v4_with_check_kind_passes(self) -> None:
@@ -193,11 +219,84 @@ class LeafSchemaTests(DoctorTestCase):
             any("manual türü" in item for item in doctor.ERRORS), doctor.ERRORS
         )
 
+    def v4_record(self, human: str | None = None) -> dict:
+        verification = {
+            "commit": "a" * 7,
+            "diff_hash": "sha256:" + "0" * 64,
+            "ci": {"status": "skipped", "reason": "unit test"},
+            "reviewers": [
+                {
+                    "role": "adversarial",
+                    "id": "ses_reviewer",
+                    "model": "test-model",
+                    "prompt_hash": "sha256:" + "1" * 64,
+                    "diff_hash": "sha256:" + "0" * 64,
+                }
+            ],
+        }
+        reviews = dict(evidence()["reviews"])
+        if human:
+            reviews["human"] = human
+        return evidence(
+            verification=verification,
+            worktree={
+                "name": "epic-1",
+                "path": "/tmp/worktree",
+                "branch": "epic-1",
+                "epic": 1,
+            },
+            degrade={"reason": "unit test degrade"},
+            reviews=reviews,
+        )
+
+    def test_v4_human_gate_requires_human_review(self) -> None:
+        data = leaf(package_version=4)
+        data["checkpoints"][0]["gates"]["human"] = True
+        data["tests_plan"][0]["cases"][0]["check"] = "manual"
+        comments = [
+            fenced("demir-kit-evidence", self.v4_record()),
+            "run degrade: unit test",
+        ]
+        with patch.object(doctor.evidence_lib, "verify", return_value=[]):
+            doctor.check_issue_body(fenced("demir-kit", data), ["leaf-done"], comments)
+        self.assertTrue(
+            any("insan onayı" in item for item in doctor.ERRORS), doctor.ERRORS
+        )
+
+    def test_v4_human_gate_with_review_passes(self) -> None:
+        data = leaf(package_version=4)
+        data["checkpoints"][0]["gates"]["human"] = True
+        data["tests_plan"][0]["cases"][0]["check"] = "manual"
+        comments = [
+            fenced("demir-kit-evidence", self.v4_record(human="approved")),
+            "run degrade: unit test",
+        ]
+        with patch.object(doctor.evidence_lib, "verify", return_value=[]):
+            doctor.check_issue_body(fenced("demir-kit", data), ["leaf-done"], comments)
+        self.assertFalse(
+            any("insan onayı" in item for item in doctor.ERRORS), doctor.ERRORS
+        )
+
     def test_unknown_check_kind_is_rejected(self) -> None:
         bad = leaf(package_version=4)
         bad["tests_plan"][0]["cases"][0]["check"] = "vibes"
         errors = doctor.validate_schema(bad, LEAF_SCHEMA)
         self.assertTrue(any("enum dışında" in item for item in errors), errors)
+
+    def test_unknown_check_kind_also_reported_by_doctor(self) -> None:
+        bad = leaf(package_version=3)
+        bad["tests_plan"][0]["cases"][0]["check"] = "vibes"
+        doctor.check_issue_body(fenced("demir-kit", bad), [], None)
+        self.assertTrue(
+            any("geçersiz" in item for item in doctor.ERRORS), doctor.ERRORS
+        )
+
+    def test_test_plan_skill_documents_five_kinds(self) -> None:
+        text = (ROOT / "skills" / "test-plan" / "SKILL.md").read_text(encoding="utf-8")
+        for kind in ("gate", "unit", "snap", "manual", "doc"):
+            self.assertIn(f"`{kind}`", text)
+        self.assertIn("gates.ui", text)
+        self.assertIn("gates.human", text)
 
     def test_checkpoint_membership(self) -> None:
         doctor.check_issue_body(

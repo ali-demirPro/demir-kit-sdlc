@@ -93,6 +93,9 @@ workers:
 - `package_version: 3` leaf'lerde ayrıca `worktree` (name/path/branch/epic) ve
   `worker`/`workers` zorunludur. Orca yoksa `worker` yerine `degrade.reason` yazılır
   ve issue'da `run degrade:` yorumu bulunur.
+- `package_version: 4` yukarıdakileri devralır. `snap` case'i olan CP
+  `ui_visual`, `ui_interaction` ve `comparison_valid: true`; `manual` case'i olan
+  CP `reviews.human: approved` borçludur.
 - `orca` bloğu run/task/dispatch kanıtını taşır; insan kapısı varsa `gate_id`
   beklenir. UI/native kanıtı `orca.artifact` linkiyle eklenir. Degrade modunda
   `orca` yerine `degrade` yeterlidir.
