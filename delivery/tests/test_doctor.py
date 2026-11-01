@@ -138,6 +138,67 @@ class LeafSchemaTests(DoctorTestCase):
         doctor.check_issue_body(fenced("demir-kit", bad), [], None)
         self.assertTrue(any("kapsamıyor" in item for item in doctor.ERRORS))
 
+    def test_v4_requires_check_kind(self) -> None:
+        bad = leaf(package_version=4)
+        doctor.check_issue_body(fenced("demir-kit", bad), [], None)
+        self.assertTrue(
+            any("denetim türü (check) yok" in item for item in doctor.ERRORS),
+            doctor.ERRORS,
+        )
+
+    def test_v3_check_kind_is_optional(self) -> None:
+        good = leaf(package_version=3)
+        doctor.check_issue_body(fenced("demir-kit", good), [], None)
+        self.assertFalse(
+            any("denetim türü" in item for item in doctor.ERRORS), doctor.ERRORS
+        )
+
+    def test_v4_with_check_kind_passes(self) -> None:
+        good = leaf(package_version=4)
+        good["tests_plan"][0]["cases"][0]["check"] = "unit"
+        doctor.check_issue_body(fenced("demir-kit", good), [], None)
+        self.assertEqual(doctor.ERRORS, [])
+
+    def test_snap_requires_ui_gate(self) -> None:
+        bad = leaf(package_version=4)
+        bad["tests_plan"][0]["cases"][0]["check"] = "snap"
+        doctor.check_issue_body(fenced("demir-kit", bad), [], None)
+        self.assertTrue(
+            any("snap türü" in item for item in doctor.ERRORS), doctor.ERRORS
+        )
+
+    def test_snap_with_ui_gate_passes(self) -> None:
+        good = leaf(package_version=4)
+        good["checkpoints"][0]["gates"]["ui"] = True
+        good["tests_plan"][0]["cases"][0]["check"] = "snap"
+        doctor.check_issue_body(fenced("demir-kit", good), [], None)
+        self.assertFalse(
+            any("snap türü" in item for item in doctor.ERRORS), doctor.ERRORS
+        )
+
+    def test_manual_requires_human_gate(self) -> None:
+        bad = leaf(package_version=4)
+        bad["tests_plan"][0]["cases"][0]["check"] = "manual"
+        doctor.check_issue_body(fenced("demir-kit", bad), [], None)
+        self.assertTrue(
+            any("manual türü" in item for item in doctor.ERRORS), doctor.ERRORS
+        )
+
+    def test_manual_with_human_gate_passes(self) -> None:
+        good = leaf(package_version=4)
+        good["checkpoints"][0]["gates"]["human"] = True
+        good["tests_plan"][0]["cases"][0]["check"] = "manual"
+        doctor.check_issue_body(fenced("demir-kit", good), [], None)
+        self.assertFalse(
+            any("manual türü" in item for item in doctor.ERRORS), doctor.ERRORS
+        )
+
+    def test_unknown_check_kind_is_rejected(self) -> None:
+        bad = leaf(package_version=4)
+        bad["tests_plan"][0]["cases"][0]["check"] = "vibes"
+        errors = doctor.validate_schema(bad, LEAF_SCHEMA)
+        self.assertTrue(any("enum dışında" in item for item in errors), errors)
+
     def test_checkpoint_membership(self) -> None:
         doctor.check_issue_body(
             fenced("demir-kit", leaf()), [], None, checkpoint="CP-9"

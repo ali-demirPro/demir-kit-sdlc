@@ -1,5 +1,18 @@
 # Changelog
 
+## 2.33.0 — 2026-11-01
+
+- **AC denetim türü** — `tests_plan.cases[].check`: `gate` | `unit` | `snap` |
+  `manual` | `doc`. Her kabul kriterinin hangi mekanizmayla doğrulandığı yazılı
+  hale geldi.
+- **`package_version: 4`** — yeni leaf'lerde `check` zorunlu. v2/v3 seal'ler
+  değişmeden geçer; kural yalnız v4'e uygulanır.
+- **Gate eşleşmesi** — `snap` türü case, checkpoint'te `gates.ui: true`;
+  `manual` türü case `gates.human: true` olmadan mühürlenemez. Görsel veya
+  insan doğrulaması isteyen AC artık ilgili gate olmadan geçemez.
+- **Skill'ler** — `test-plan` beş türü ve seçim kuralını, `work-package`
+  şablonu v4'ü ve `check` alanını anlatıyor.
+
 ## 2.32.1 — 2026-11-01
 
 - **CI: commit görünürlüğü** — `evidence.verify()` commit'i yerelde bulamazsa

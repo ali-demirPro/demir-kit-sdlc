@@ -1032,6 +1032,44 @@ def check_issue_body(
     if missing_cp:
         error(f"tests_plan eksik CP: {', '.join(sorted(missing_cp))}")
 
+    check_kinds = {"gate", "unit", "snap", "manual", "doc"}
+    cp_gates = {
+        cp.get("id"): (cp.get("gates") if isinstance(cp.get("gates"), dict) else {})
+        for cp in cps
+        if isinstance(cp, dict)
+    }
+    for plan in plans:
+        if not isinstance(plan, dict):
+            continue
+        plan_cp = plan.get("checkpoint_id")
+        gates = cp_gates.get(plan_cp, {})
+        for case in plan.get("cases") or []:
+            if not isinstance(case, dict):
+                continue
+            kind = case.get("check")
+            if kind is None:
+                if package_version >= 4:
+                    error(
+                        f"tests_plan: {case.get('id')} denetim türü (check) yok"
+                    )
+                continue
+            if kind not in check_kinds:
+                error(
+                    f"tests_plan: {case.get('id')} check '{kind}' geçersiz "
+                    f"(gate|unit|snap|manual|doc)"
+                )
+                continue
+            if kind == "snap" and gates.get("ui") is not True:
+                error(
+                    f"tests_plan: {case.get('id')} snap türü ama {plan_cp} "
+                    "gates.ui kapalı"
+                )
+            if kind == "manual" and gates.get("human") is not True:
+                error(
+                    f"tests_plan: {case.get('id')} manual türü ama {plan_cp} "
+                    "gates.human kapalı"
+                )
+
     for cp in cps:
         if not isinstance(cp, dict):
             continue

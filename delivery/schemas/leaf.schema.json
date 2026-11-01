@@ -139,7 +139,11 @@
               "properties": {
                 "id": { "type": "string", "pattern": "^T-[0-9]+$" },
                 "ac": { "type": "string", "pattern": "^AC-[0-9]+$" },
-                "text": { "type": "string", "minLength": 5 }
+                "text": { "type": "string", "minLength": 5 },
+                "check": {
+                  "type": "string",
+                  "enum": ["gate", "unit", "snap", "manual", "doc"]
+                }
               }
             }
           }

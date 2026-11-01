@@ -7,6 +7,10 @@ Yeni leaf'ler `package_version: 3` ile mühürlenir; bu, evidence v3
 (`verification`) ve epic worktree/worker kanıtı zorunluluğunu getirir. `2` ve `1`
 yalnız eski kayıtlar içindir.
 
+`package_version: 4` (W2'den sonra yeni leaf'ler) her `tests_plan` case'inde
+`check` alanı ister: `gate` | `unit` | `snap` | `manual` | `doc`. `snap`,
+checkpoint'te `gates.ui: true`; `manual`, `gates.human: true` gerektirir.
+
 ## Girdi kontrolü
 
 1. Issue bir **leaf**; scope-only epic değil.
