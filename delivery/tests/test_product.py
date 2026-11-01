@@ -64,6 +64,8 @@ def git(path: Path, *args: str) -> str:
 def init_kit_repo(path: Path) -> str:
     path.mkdir(parents=True, exist_ok=True)
     git(path, "init", "-q")
+    # Varsayılan dal adı ortama göre değişir; testler 'main' bekliyor.
+    git(path, "symbolic-ref", "HEAD", "refs/heads/main")
     git(path, "config", "user.email", "test@example.com")
     git(path, "config", "user.name", "Test")
     (path / "VERSION").write_text("2.31.1\n", encoding="utf-8")
