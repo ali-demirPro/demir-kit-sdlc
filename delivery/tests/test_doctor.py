@@ -1063,6 +1063,39 @@ class VersionDriftTests(DoctorTestCase):
         self.assertEqual(doctor.WARNS, [])
 
 
+class InstalledSkillsTests(DoctorTestCase):
+    def make_root(self, root: Path, *, stale: bool) -> None:
+        (root / "skills" / "demo").mkdir(parents=True)
+        (root / "skills" / "demo" / "SKILL.md").write_text(
+            "version: 2\n", encoding="utf-8"
+        )
+        (root / ".agents" / "skills" / "demo").mkdir(parents=True)
+        copy = "version: 1\n" if stale else "version: 2\n"
+        (root / ".agents" / "skills" / "demo" / "SKILL.md").write_text(
+            copy, encoding="utf-8"
+        )
+
+    def test_stale_copy_warns(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.make_root(root, stale=True)
+            doctor.check_installed_skills(root)
+            self.assertTrue(any("demo" in item for item in doctor.WARNS), doctor.WARNS)
+
+    def test_current_copy_is_silent(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.make_root(root, stale=False)
+            doctor.check_installed_skills(root)
+            self.assertEqual(doctor.WARNS, [])
+
+    def test_missing_install_dir_is_silent(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            doctor.check_installed_skills(root)
+            self.assertEqual(doctor.WARNS, [])
+
+
 class WorktreeManagementTests(DoctorTestCase):
     def run_check(
         self,

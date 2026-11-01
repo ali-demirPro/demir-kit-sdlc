@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.31.2 — 2026-11-01
+
+- **Kurulu skill kopyası denetimi** — `install.sh` becerileri `.agents/skills/`
+  altına kopyalar; kopya `skills/` kaynağından farklıysa `doctor` uyarır. Bayat
+  kopya sessizce eski kural (ör. `package_version: 2` seal) öğretmesin.
+- **Kurulum çıktısı artık ignore** — `.agents/`, `.claude/` ve `skills-lock.json`
+  git'e girmez; makineye özel ve kaynaktan türetilir.
+
 ## 2.31.1 — 2026-11-01
 
 - **Proje exclude'ları seal kontrolünde geçerli** — `doctor` risk tabanını ve

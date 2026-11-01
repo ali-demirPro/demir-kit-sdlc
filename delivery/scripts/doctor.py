@@ -1278,6 +1278,26 @@ def check_issue(
                 "demir-kit-accept comment'i gerekli"
             )
 
+def check_installed_skills(root: Path = ROOT) -> None:
+    """`install.sh` kopyaları kaynaktan geride kalırsa uyar."""
+    check("installed skills")
+    installed = root / ".agents" / "skills"
+    source = root / "skills"
+    if not installed.is_dir() or not source.is_dir():
+        return
+    stale: list[str] = []
+    for entry in sorted(installed.iterdir()):
+        src = source / entry.name / "SKILL.md"
+        copy = entry / "SKILL.md"
+        if src.is_file() and copy.is_file() and src.read_bytes() != copy.read_bytes():
+            stale.append(entry.name)
+    if stale:
+        warn(
+            "kurulu skill kopyası kaynaktan farklı: "
+            f"{', '.join(stale)} — './install.sh' ile tazele"
+        )
+
+
 def check_worktree_management(root: Path = ROOT) -> None:
     """Linked worktree Orca'da kayıtlı olmalı; ham `git worktree add` yakalanır."""
     check("worktree")
@@ -1542,6 +1562,7 @@ def main() -> int:
 
     product_root = (args.root or Path.cwd()).resolve()
     check_worktree_management(product_root if args.product else ROOT)
+    check_installed_skills(product_root if args.product else ROOT)
     if args.product:
         check_product(product_root)
     else:
