@@ -1,8 +1,9 @@
 ---
 name: test-plan
 description: >-
-  Required before seal: fill tests_plan per checkpoint and map every AC to at
-  least one case. Enforced by doctor.
+  Required before seal: fill tests_plan per checkpoint and map every acceptance
+  criterion to at least one case. Use when sealing a leaf, when doctor reports an
+  uncovered AC, or when an amend adds cases.
 ---
 
 # test-plan
@@ -42,3 +43,8 @@ tests_plan:
 ## Storage
 
 Only the GitHub issue body/comment. Never commit a test-plan file.
+
+## Done when
+
+Her `AC-n` en az bir `T-n` case'iyle eşlendi, her behavior CP'sinin case'i var ve
+`doctor.sh --body` sıfır hata veriyor.

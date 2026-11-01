@@ -1,5 +1,17 @@
 # Changelog
 
+## 2.32.0 — 2026-11-01
+
+- **Skill yazım sözleşmesi** — `delivery/policies/skill-writing.md`: description
+  bir context pointer (ne + `Use when` tetikleyicisi), her adım checkable koşulla
+  biter, her skill `## Done when` ile biter, ayrıntı kardeş dosyaya taşınır.
+- **Skill lint** — `doctor.check_skills()` artık description varlığını ve
+  uzunluğunu, tetikleyici ifadesini, `## Done when` bölümünü ve göreli
+  markdown linklerini denetler; 300 satır üstü hata, 200 üstü uyarı verir.
+  Negatif ve pozitif testler `delivery/tests/test_skills.py`.
+- **Dokuz runtime skill uyarlandı** — description'lar tetikleyici kazandı,
+  her skill `## Done when` ile kapatıldı. Skill seçimi artık ölçülebilir.
+
 ## 2.31.2 — 2026-11-01
 
 - **Kurulu skill kopyası denetimi** — `install.sh` becerileri `.agents/skills/`

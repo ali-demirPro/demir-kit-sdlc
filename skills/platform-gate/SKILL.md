@@ -2,7 +2,9 @@
 name: platform-gate
 description: >-
   Run a platform pack checklist (apple-hig, apple-a11y, web-ux, …) after the core
-  gates, as ordered by the factory profile.
+  gates, in the order the factory profile sets. Use when the profile lists
+  platform_packs, after ui or adversarial review, or when evidence needs
+  reviews.platform.
 ---
 
 # platform-gate
@@ -40,3 +42,8 @@ The profile's `extra_gates` defines the order (e.g. after `ui` or `adversarial`)
 
 Profildeki tüm `platform_packs` checklist'leri zorunludur. Kapsam dışı pack
 varsa issue `decisions` kaydında gerekçeli waive gerekir.
+
+## Done when
+
+Her pack maddesi kanıtlandı, `reviews.platform` evidence'a JSON olarak yazıldı ve
+store pack'lerinde otomatik gönderim yapılmadı.

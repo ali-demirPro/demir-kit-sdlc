@@ -1,8 +1,9 @@
 ---
 name: work-package
 description: >-
-  Seal a v2 leaf: demir-kit YAML, AC ↔ tests_plan mapping, risk level, then
-  agent-approved. No seal, no source changes.
+  Seal a v2 leaf: demir-kit YAML, AC to tests_plan mapping, risk level, then
+  agent-approved; no seal, no source changes. Use when an issue needs a seal,
+  when doctor rejects a seal body, or before any source change.
 ---
 
 # work-package
@@ -82,3 +83,8 @@ checkpoints:
 | `behavior: false` | şema fail |
 | Risk düşük yazıldı | `guard.sh` glob ile bloklar |
 | Epic mühürlendi | contract ihlali |
+
+## Done when
+
+`doctor.sh --body` sıfır hata verdi, issue'da mühür var ve `agent-approved`
+etiketi eklendi; kaynak değişikliği henüz başlamadı.

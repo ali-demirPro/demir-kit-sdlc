@@ -1,9 +1,10 @@
 ---
 name: hig-audit
 description: >-
-  Apple design audit for iOS/iPadOS/macOS (SwiftUI first) against the live
-  Human Interface Guidelines. Repo discovery, cited non-negotiables, HIG-*
-  findings with concrete fixes; optional Apple Design Awards and anti-slop lens.
+  Apple design audit for iOS/iPadOS/macOS (SwiftUI first) against the live Human
+  Interface Guidelines: repo discovery, cited non-negotiables, HIG-* findings
+  with concrete fixes. Use when an Apple surface touches UI, when the apple-hig
+  pack is active, or when a design review needs cited findings.
 ---
 
 # hig-audit
@@ -180,3 +181,8 @@ gray cards, uniform `.body` font, no depth)?
 Attach the JSON + Turkish report to the leaf evidence as
 `reviews.hig_audit`. When dispatched by `platform-gate`, the same JSON is
 the pack checklist output (`reviews.platform`).
+
+## Done when
+
+Her bulgu `HIG-*` kimliği, önem derecesi ve canlı HIG referansı taşır; JSON
+`reviews.hig_audit` altına yazıldı ve kritik bulgu kalmadı.

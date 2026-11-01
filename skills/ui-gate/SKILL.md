@@ -2,7 +2,9 @@
 name: ui-gate
 description: >-
   Scoped screenshot compare with INVALID state handling and two independent
-  reviewers (visual + interaction). Reviewers must not read implementation skills.
+  reviewers (visual + interaction); reviewers must not read implementation
+  skills. Use when gates.ui is true, after any UI-visible fix, or when
+  comparison_valid is false.
 ---
 
 # ui-gate
@@ -93,3 +95,8 @@ Record in `delivery/protocol/evidence.md`:
 - UI findings as `{ id: UI-1, status: fixed|open }`
 
 Escalate in human language only (`delivery/policies/human-communication.md`).
+
+## Done when
+
+`reviews.ui_visual` ve `reviews.ui_interaction` `pass`, `comparison_valid: true`
+ve artifact bağlantısı evidence'a yazıldı; açık UI bulgusu kalmadı.

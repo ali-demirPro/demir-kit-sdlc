@@ -1,8 +1,9 @@
 ---
 name: health-check
 description: >-
-  Before the first CP: verify ecosystem paths, gate command, tracker, Orca and
-  baseline waivers. ready:false blocks CP-1.
+  Pre-flight before the first checkpoint: ecosystem paths, gate command,
+  tracker, Orca and baseline waivers; ready false blocks CP-1. Use when a leaf
+  is approved, before the first worker-start, or when the seal changed.
 ---
 
 # health-check
@@ -49,3 +50,8 @@ warnings: []
 `ready: false` → `blocked` + one human-language question
 ([escalation.md](../../delivery/policies/escalation.md)). A waive exists only as a
 `decisions` record.
+
+## Done when
+
+`ready: true` ve `blockers: []` yazıldı; eksik varsa `blocked` etiketi ve tek
+insan sorusu açıldı.

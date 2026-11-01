@@ -627,6 +627,16 @@ def check_skills() -> None:
         if declared != name:
             error(f"{rel(path)}: frontmatter adı '{declared}' ('{name}' bekleniyor)")
 
+    check("skill writing")
+    if skills_root.is_dir():
+        for path in sorted(skills_root.glob("*/SKILL.md")):
+            text = path.read_text(encoding="utf-8")
+            lint_errors, lint_warnings = lint_skill(path, text)
+            for message in lint_errors:
+                error(f"{rel(path)}: {message}")
+            for message in lint_warnings:
+                warn(f"{rel(path)}: {message}")
+
 
 def run(command: list[str]) -> str:
     try:
@@ -644,6 +654,81 @@ def frontmatter_name(text: str) -> str | None:
         return None
     match = re.search(r"^name:\s*(.+)$", block.group(1), re.M)
     return match.group(1).strip().strip("\"'") if match else None
+
+
+SKILL_TRIGGER_RE = re.compile(r"(?i)\b(use when|ne zaman|when the)\b")
+SKILL_LINK_RE = re.compile(r"\[[^\]]*\]\(([^)\s]+)\)")
+
+
+def frontmatter_data(text: str) -> dict:
+    """Parse the SKILL.md frontmatter block as YAML (empty dict on failure)."""
+    block = re.match(r"^---\n(.*?)\n---", text, re.S)
+    if not block:
+        return {}
+    try:
+        data = yaml.safe_load(block.group(1))
+    except yaml.YAMLError:
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def relative_links(text: str) -> list[str]:
+    """Relative markdown link targets, in document order, anchors stripped."""
+    links: list[str] = []
+    for match in SKILL_LINK_RE.finditer(text):
+        target = match.group(1)
+        if re.match(r"^[a-z][a-z0-9+.-]*:", target, re.I) or target.startswith("#"):
+            continue
+        target = target.split("#", 1)[0]
+        if target:
+            links.append(target)
+    return links
+
+
+def lint_skill(path: Path, text: str) -> tuple[list[str], list[str]]:
+    """Lint one SKILL.md; returns (errors, warnings).
+
+    Contract: delivery/policies/skill-writing.md. Pure function so the tests can
+    call it without touching the repo tree.
+    """
+    errors: list[str] = []
+    warnings: list[str] = []
+
+    data = frontmatter_data(text)
+    description = " ".join(str(data.get("description") or "").split())
+    if not description:
+        errors.append("description yok")
+    else:
+        if not 40 <= len(description) <= 400:
+            errors.append(f"description {len(description)} karakter (40-400)")
+        if not SKILL_TRIGGER_RE.search(description):
+            errors.append("description tetikleyici içermiyor (Use when ...)")
+
+    done = re.search(r"^## Done when\s*$", text, re.M)
+    if not done:
+        errors.append("## Done when bölümü yok")
+    else:
+        rest = text[done.end() :]
+        next_heading = re.search(r"^## ", rest, re.M)
+        section = rest[: next_heading.start()] if next_heading else rest
+        if not section.strip():
+            errors.append("## Done when bölümü boş")
+
+    for link in relative_links(text):
+        candidate = Path(os.path.normpath(path.parent / link))
+        if not candidate.exists():
+            errors.append(f"göreli link çözülmüyor: {link}")
+
+    lines = len(text.splitlines())
+    if lines > 300:
+        errors.append(f"{lines} satır (üst sınır 300)")
+    elif lines > 200:
+        warnings.append(f"{lines} satır (200 üstü)")
+
+    if re.search(r"\b(TODO|TBD)\b", text):
+        warnings.append("TODO/TBD içeriyor")
+
+    return errors, warnings
 
 
 def _json_type(value, expected: str) -> bool:
