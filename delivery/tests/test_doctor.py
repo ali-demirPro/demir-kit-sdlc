@@ -105,6 +105,16 @@ def fenced(tag: str, data) -> str:
     return f"```yaml {tag}\n{yaml.safe_dump(data, sort_keys=False)}\n```\n"
 
 
+def write_project(root: Path, *excludes: str) -> None:
+    (root / "ecosystem.yaml").write_text("products: {}\n", encoding="utf-8")
+    (root / ".kit").mkdir()
+    excludes_yaml = "[" + ", ".join(excludes) + "]"
+    (root / ".kit" / "capabilities.yaml").write_text(
+        f"version: 1\ninclude: []\nexclude: {excludes_yaml}\n",
+        encoding="utf-8",
+    )
+
+
 class DoctorTestCase(unittest.TestCase):
     def setUp(self) -> None:
         doctor.ERRORS.clear()
@@ -253,6 +263,78 @@ class EvidenceTests(DoctorTestCase):
                 root=root,
             )
             self.assertEqual(doctor.ERRORS, [])
+
+    def test_declared_exclude_lowers_risk_floor(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            write_project(root, "domain.payments")
+            doctor.check_issue_body(
+                fenced(
+                    "demir-kit",
+                    leaf(intent="Fatura listesi metnini güncelle.", risk={"level": "medium"}),
+                ),
+                [],
+                None,
+                root=root,
+                title="Fatura",
+            )
+            self.assertEqual(doctor.ERRORS, [])
+
+    def test_declared_exclude_warns_when_risk_is_suppressed(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            write_project(root, "domain.payments")
+            doctor.check_issue_body(
+                fenced(
+                    "demir-kit",
+                    leaf(intent="Fatura listesi metnini güncelle.", risk={"level": "medium"}),
+                ),
+                [],
+                None,
+                root=root,
+                title="Fatura",
+            )
+            self.assertTrue(
+                any(
+                    "capability exclude: domain.payments" in item
+                    for item in doctor.WARNS
+                )
+            )
+
+    def test_declared_exclude_removes_variant_gap(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            write_project(root, "domain.payments")
+            doctor.check_issue_body(
+                fenced(
+                    "demir-kit",
+                    leaf(
+                        intent="Fatura listesi metnini güncelle.",
+                        risk={"level": "high", "reasons": ["metadata"]},
+                    ),
+                ),
+                [],
+                None,
+                root=root,
+                title="Fatura",
+            )
+            self.assertEqual(doctor.ERRORS, [])
+
+    def test_declared_exclude_keeps_evidence_agent_allowed(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            write_project(root, "domain.payments")
+            doctor.check_issue_body(
+                fenced("demir-kit", leaf(intent="Fatura listesi metnini güncelle.")),
+                ["leaf-done"],
+                [fenced("demir-kit-evidence", evidence(agent="data"))],
+                root=root,
+                title="Fatura",
+            )
+            self.assertFalse(
+                any("agent 'data'" in item for item in doctor.ERRORS),
+                doctor.ERRORS,
+            )
 
     def test_capability_risk_floor_blocks_seal(self) -> None:
         doctor.check_issue_body(

@@ -880,6 +880,27 @@ def check_issue_body(
             .keys()
         )
     risk_floor = resolution.get("risk_floor", "low")
+    # An exclude must not silently lower the risk below what the project would
+    # otherwise owe; keep the decision visible in doctor output.
+    effective_risk = risk_floor
+    if resolver_lib.RISK_ORDER.get(risk or "low", 0) > resolver_lib.RISK_ORDER.get(
+        risk_floor, 0
+    ):
+        effective_risk = risk or "low"
+    suppressed = sorted(
+        set(resolution_for_evidence["capabilities"]) - set(resolution["capabilities"])
+    )
+    for capability in suppressed:
+        spec = (capability_registry.get("capabilities") or {}).get(capability) or {}
+        suppressed_floor = spec.get("risk_floor") or "low"
+        if resolver_lib.RISK_ORDER.get(suppressed_floor, 0) > resolver_lib.RISK_ORDER.get(
+            effective_risk, 0
+        ):
+            warn(
+                f"capability exclude: {capability} proje exclude listesinde; "
+                f"risk tabanı '{suppressed_floor}' uygulanmadı (seal: "
+                f"'{effective_risk}')"
+            )
     if resolver_lib.RISK_ORDER.get(risk_floor, 0) > resolver_lib.RISK_ORDER.get(
         risk or "low", 0
     ):
