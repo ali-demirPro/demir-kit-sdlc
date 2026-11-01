@@ -22,11 +22,12 @@ gates:
   snapshot: "./tools/snap.sh"
 ```
 
-- `behavior` gate komutu `{checkpoint}` alır ve **exit 0** döner.
+- `behavior` gate komutu, `{checkpoint}` yerine CP id konmuş hâliyle çalışır ve
+  **exit 0** döner.
 - `selftest` aynı işi uygulama içinde koşar; PASS/FAIL satırı basar.
 - `snapshot` sayfa başına PNG üretir.
 
-Üçü de yoksa yüzey hazır değildir: `health-check` `ready: false` verir.
+Biri eksikse yüzey hazır değildir: `health-check` `ready: false` verir.
 
 ## Self-test
 

@@ -81,8 +81,8 @@ frontmatter sonrası gövde üzerinden yapılır.
 
 ## 8 — Kapsam
 
-Lint yalnız `skills/<name>/SKILL.md` runtime skill'lerini denetler
-(`registry.yaml` `skills.runtime`). Kapsam dışı kalan dosyalar bilinçlidir:
+Lint her `skills/<name>/SKILL.md` dizinini denetler: `skills.runtime` ve
+`skills.scoped` (capability'ye bağlı skill'ler) aynı sözleşmeye tabidir. Kapsam dışı kalan dosyalar bilinçlidir:
 
 - `delivery/agents/<rol>/SKILL.md` ve `delivery/orchestrator/SKILL.md` rol
   işaretçisi dokümanlardır; sözleşme metinleri `how.md` içindedir ve `doctor`

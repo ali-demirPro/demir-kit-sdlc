@@ -633,7 +633,11 @@ def check_skills() -> None:
         error("registry.yaml: skills.scoped mapping değil")
         scoped = {}
     seen_scoped: dict[str, str] = {}
+    capability_registry = load_yaml(DELIVERY / "capabilities" / "registry.yaml") or {}
+    known_caps = set((capability_registry.get("capabilities") or {}).keys())
     for capability, names in (scoped or {}).items():
+        if str(capability) not in known_caps:
+            error(f"registry.skills.scoped: bilinmeyen capability '{capability}'")
         if not isinstance(names, list):
             error(f"registry.skills.scoped.{capability} liste değil")
             continue
@@ -642,6 +646,13 @@ def check_skills() -> None:
             path = skills_root / name / "SKILL.md"
             if not path.is_file():
                 error(f"registry.skills.scoped.{capability}: {rel(path)} yok")
+                continue
+            declared_name = frontmatter_name(path.read_text(encoding="utf-8")) or ""
+            if declared_name != name:
+                error(
+                    f"{rel(path)}: frontmatter adı '{declared_name}' "
+                    f"('{name}' bekleniyor)"
+                )
             if name in seen_scoped:
                 error(
                     "registry.skills.scoped: "

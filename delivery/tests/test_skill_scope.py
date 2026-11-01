@@ -89,6 +89,68 @@ class ScopedRegistryTest(unittest.TestCase):
         scoped = {name for names in (skills.get("scoped") or {}).values() for name in names}
         self.assertFalse(runtime & scoped)
 
+    def test_unknown_capability_is_an_error(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            project = Path(raw)
+            (project / ".kit").mkdir()
+            (project / ".kit" / "capabilities.yaml").write_text(
+                "version: 1\ninclude: [platform.macosx]\nexclude: []\n",
+                encoding="utf-8",
+            )
+            with self.assertRaises(ValueError) as error:
+                skill_scope.select(project, ROOT)
+        self.assertIn("bilinmeyen capability", str(error.exception))
+
+    def test_malformed_include_is_an_error(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            project = Path(raw)
+            (project / ".kit").mkdir()
+            (project / ".kit" / "capabilities.yaml").write_text(
+                "version: 1\ninclude: platform.macos\nexclude: []\n",
+                encoding="utf-8",
+            )
+            with self.assertRaises(ValueError):
+                skill_scope.select(project, ROOT)
+
+    def test_excluded_capability_is_not_installed(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            project = Path(raw)
+            (project / ".kit").mkdir()
+            (project / ".kit" / "capabilities.yaml").write_text(
+                "version: 1\ninclude: [platform.macos]\nexclude: [platform.macos]\n",
+                encoding="utf-8",
+            )
+            data = skill_scope.select(project, ROOT)
+        self.assertEqual(data["scoped"], [])
+
+    def test_same_skill_in_two_capabilities_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            for name in ("alpha", "beta"):
+                (root / name).mkdir()
+                (root / name / "SKILL.md").write_text(
+                    f"---\nname: {name}\ndescription: >-\n  Demo skill. Use when testing.\n---\n\n## Done when\n\nOk.\n",
+                    encoding="utf-8",
+                )
+            registry = {
+                "skills": {
+                    "dir": "skills",
+                    "runtime": ["alpha"],
+                    "scoped": {
+                        "platform.macos": ["beta"],
+                        "platform.ios": ["beta"],
+                    },
+                }
+            }
+            doctor.ERRORS.clear()
+            with patch.object(doctor, "load_yaml", return_value=registry), patch.object(
+                doctor, "skill_dir", return_value=root
+            ):
+                doctor.check_skills()
+        self.assertTrue(
+            any("iki capability'de" in item for item in doctor.ERRORS), doctor.ERRORS
+        )
+
     def test_duplicate_scoped_skill_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)

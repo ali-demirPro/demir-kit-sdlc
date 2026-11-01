@@ -5,6 +5,7 @@
 #   ./install.sh                 # v2 skills/ (local source)
 #   ./install.sh --dry-run       # print source + skills, install nothing
 #   ./install.sh --with-platform # + orchestration, orca-cli (global)
+#   ./install.sh --capabilities  # + capability-scoped skills (skills.scoped)
 #   ./install.sh --legacy        # same runtime set from the v1 archive
 set -euo pipefail
 
@@ -75,6 +76,11 @@ done < <(tail -n +2 <<< "$REGISTRY_OUT")
 
 if [[ ${#SKILLS[@]} -eq 0 ]]; then
   echo "install.sh: registry.skills.runtime is empty" >&2
+  exit 1
+fi
+
+if [[ "$LEGACY" == true && "$CAPABILITIES" == true ]]; then
+  echo "install.sh: --legacy ve --capabilities birlikte kullanılmaz (v1'de scoped skill yok)." >&2
   exit 1
 fi
 

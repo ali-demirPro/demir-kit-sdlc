@@ -24,6 +24,10 @@ except ImportError:  # pragma: no cover
 
 ROOT = Path(__file__).resolve().parents[2]
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import resolver  # noqa: E402
+
 
 def load_registry(root: Path) -> dict:
     path = root / "delivery" / "registry.yaml"
@@ -35,21 +39,37 @@ def load_registry(root: Path) -> dict:
 
 
 def declared_capabilities(project: Path) -> set[str]:
+    """Effective capabilities for the project, or ValueError when unclear.
+
+    Uses the kit resolver so profile-composed capabilities count and `exclude`
+    is honoured; a malformed file or an unknown capability is an error, never a
+    silent runtime-only install.
+    """
     path = project / ".kit" / "capabilities.yaml"
-    try:
-        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-    except (OSError, yaml.YAMLError):
-        return set()
-    if not isinstance(data, dict):
-        return set()
-    return {str(item) for item in data.get("include") or []}
+    if path.is_file():
+        try:
+            data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        except (OSError, yaml.YAMLError) as exc:
+            raise ValueError(f".kit/capabilities.yaml okunamadı: {exc}") from exc
+        if not isinstance(data, dict):
+            raise ValueError(".kit/capabilities.yaml kök mapping değil")
+        for key in ("include", "exclude"):
+            if key in data and not isinstance(data[key], list):
+                raise ValueError(f".kit/capabilities.yaml {key} liste değil")
+    declared = resolver.load_declared(project)
+    active = set(declared.get("include") or []) - set(declared.get("exclude") or [])
+    available = set((resolver.load_capabilities().get("capabilities") or {}).keys())
+    unknown = sorted(active - available)
+    if unknown:
+        raise ValueError("bilinmeyen capability: " + ", ".join(unknown))
+    return active
 
 
 def select(project: Path, root: Path = ROOT) -> dict:
     skills = (load_registry(root).get("skills") or {}) if isinstance(load_registry(root), dict) else {}
     runtime = [str(name) for name in skills.get("runtime") or []]
     scoped_map = skills.get("scoped") or {}
-    declared = declared_capabilities(project)
+    declared = declared_capabilities(project) if project else set()
     scoped: list[str] = []
     for capability, names in (scoped_map.items() if isinstance(scoped_map, dict) else []):
         if str(capability) not in declared:
@@ -58,10 +78,14 @@ def select(project: Path, root: Path = ROOT) -> dict:
             name = str(name)
             if name not in scoped:
                 scoped.append(name)
+    install: list[str] = []
+    for name in runtime + scoped:
+        if name not in install:
+            install.append(name)
     return {
         "runtime": runtime,
         "scoped": scoped,
-        "install": runtime + scoped,
+        "install": install,
         "declared": sorted(declared),
     }
 
@@ -72,7 +96,11 @@ def main() -> int:
     parser.add_argument("--root", default=str(ROOT))
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
-    data = select(Path(args.project), Path(args.root))
+    try:
+        data = select(Path(args.project), Path(args.root))
+    except ValueError as exc:
+        print(f"skill_scope: {exc}", file=sys.stderr)
+        return 1
     if args.json:
         print(json.dumps(data, ensure_ascii=False, indent=2))
     else:
