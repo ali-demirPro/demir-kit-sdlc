@@ -1,4 +1,4 @@
-# delivery/registry.yaml — v2.36
+# delivery/registry.yaml — v2.37
 # Tek kaynak: agent envanteri, path routing, risk glob'ları, etiket adları.
 # Sözleşme: delivery/CONTRACT.md · Denetim: delivery/scripts/doctor.sh
 
@@ -197,3 +197,5 @@ skills:
     - platform-gate
     - checkpoint-planner
     - hig-audit
+  scoped:
+    platform.macos: [mac-verify, swift-stack]

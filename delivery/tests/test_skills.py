@@ -268,11 +268,14 @@ class RuntimeSkillsTest(unittest.TestCase):
         registry = yaml.safe_load(
             (ROOT / "delivery" / "registry.yaml").read_text(encoding="utf-8")
         )
-        runtime = set((registry.get("skills") or {}).get("runtime") or [])
+        skills = registry.get("skills") or {}
+        expected = set(skills.get("runtime") or [])
+        for names in (skills.get("scoped") or {}).values():
+            expected |= set(names or [])
         linted = {
             path.parent.name for path in (ROOT / "skills").glob("*/SKILL.md")
         }
-        self.assertEqual(runtime, linted)
+        self.assertEqual(expected, linted)
 
     def test_runtime_skills_have_trigger_and_done_when(self) -> None:
         for path in sorted((ROOT / "skills").glob("*/SKILL.md")):

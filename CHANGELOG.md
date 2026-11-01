@@ -1,5 +1,21 @@
 # Changelog
 
+## 2.37.0 — 2026-11-01
+
+- **Capability'ye bağlı skill'ler** — `registry.yaml` `skills.scoped`:
+  `platform.macos` → `mac-verify`, `swift-stack`. Bu iki skill yalnız macOS
+  capability'si bildiren projelerde kurulur; web projesinde gürültü olmaz.
+- **`mac-verify`** — macOS kanıt sözleşmesi: `behavior`/`selftest`/`snapshot`
+  komutları, `/tmp` store, light+dark, inaktif pencere kuralı, refactor
+  `ui_unchanged` modu.
+- **`swift-stack`** — Swift 6 izolasyonu, SwiftData geçişi, AppKit köprüsü sınırı,
+  CLI build/imza (içten dışa) ve tanılama tuzakları.
+- **`install.sh --capabilities`** — `skill_scope.py` ile projenin
+  `.kit/capabilities.yaml` bildirimine göre runtime + scoped skill listesi
+  üretir; `--dry-run` doğru listeyi basar.
+- **`doctor` `scoped skills`** — scoped skill dosyası var mı, aynı skill iki
+  capability'de mi, runtime ile çakışıyor mu denetlenir.
+
 ## 2.36.0 — 2026-11-01
 
 - **`apple-macos` pack** — macOS yüzeyi için 14 maddelik platform checklist'i:

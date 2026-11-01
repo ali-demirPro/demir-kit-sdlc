@@ -627,6 +627,32 @@ def check_skills() -> None:
         if declared != name:
             error(f"{rel(path)}: frontmatter adı '{declared}' ('{name}' bekleniyor)")
 
+    check("scoped skills")
+    scoped = skills.get("scoped")
+    if scoped is not None and not isinstance(scoped, dict):
+        error("registry.yaml: skills.scoped mapping değil")
+        scoped = {}
+    seen_scoped: dict[str, str] = {}
+    for capability, names in (scoped or {}).items():
+        if not isinstance(names, list):
+            error(f"registry.skills.scoped.{capability} liste değil")
+            continue
+        for name in names:
+            name = str(name)
+            path = skills_root / name / "SKILL.md"
+            if not path.is_file():
+                error(f"registry.skills.scoped.{capability}: {rel(path)} yok")
+            if name in seen_scoped:
+                error(
+                    "registry.skills.scoped: "
+                    f"'{name}' iki capability'de — {seen_scoped[name]} / {capability}"
+                )
+            seen_scoped[name] = str(capability)
+            if name in expected:
+                error(
+                    f"registry.skills.scoped: '{name}' hem runtime hem scoped"
+                )
+
     lint_runtime_skills(skills_root)
 
 
