@@ -37,8 +37,8 @@ No repo coding conventions, no "good enough" shortcuts.
 
 `unchanged` modunda kabul koşulu **aynı** viewport, aynı seed ve aynı
 appearance ile alınmış snapshot'ların **aynı hash**'i vermesidir. Tek piksel
-farkı `comparison_valid: false` üretir ve refactor kanıtı (`ui_unchanged`)
-düşer; fark bilinçliyse iş refactor değildir, ayrı leaf açar.
+farkı `ui_unchanged` kanıtını düşürür ve `comparison_valid: true`
+yazılamaz; fark bilinçliyse iş refactor değildir, ayrı leaf açar.
 
 ## Capture — Orca typed browser
 

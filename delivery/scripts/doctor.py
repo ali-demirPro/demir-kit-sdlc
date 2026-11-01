@@ -570,6 +570,10 @@ def surface_gate_errors(product: str, surface: str, spec: dict) -> list[str]:
             f"{prefix}: gates.ui açık ama gates.snapshot yok "
             "(görsel kanıt olmadan UI gate koşamaz)"
         )
+    if not isinstance(gates.get("ui"), (bool, type(None))):
+        errors.append(f"{prefix}: gates.ui boolean olmalı")
+    if not isinstance(gates.get("ui_compare"), (str, type(None))):
+        errors.append(f"{prefix}: gates.ui_compare string olmalı")
     for key in ("selftest", "snapshot", "behavior"):
         value = gates.get(key)
         if value is not None and not isinstance(value, str):

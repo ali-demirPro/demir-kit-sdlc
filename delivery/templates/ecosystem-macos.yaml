@@ -1,5 +1,6 @@
-# macOS surface contract — kopyala, product adını ve yolları düzelt.
+# macOS surface contract — kopyala, name/tracker/product adını ve yolları düzelt.
 # Üç kanıt komutu da tanımlı olmalı: behavior, selftest, snapshot.
+name: MacApp
 products:
   app:
     description: "macOS uygulaması (SwiftUI)."
@@ -10,9 +11,13 @@ products:
         platforms: [macos]
         gates:
           behavior: "./build.sh && ./tools/selftest.sh {checkpoint}"
-          behavior_mode: full
+          behavior_mode: headless
           selftest: "./tools/selftest.sh"
           snapshot: "./tools/snap.sh"
           snapshot_pages: [main, settings]
           ui: true
           ui_compare: screenshot
+
+tracker:
+  provider: github
+  repo: owner/repo

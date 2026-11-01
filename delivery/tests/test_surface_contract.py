@@ -65,6 +65,12 @@ class SurfaceGateTest(unittest.TestCase):
         )
         self.assertTrue(any("string" in item for item in errors), errors)
 
+    def test_ui_must_be_boolean(self) -> None:
+        errors = doctor.surface_gate_errors(
+            "app", "macos.app", {"gates": {"behavior": "./b", "ui": "true"}}
+        )
+        self.assertTrue(any("ui boolean" in item for item in errors), errors)
+
     def test_snapshot_pages_must_be_list(self) -> None:
         errors = doctor.surface_gate_errors(
             "app",
@@ -72,6 +78,34 @@ class SurfaceGateTest(unittest.TestCase):
             {"gates": {"behavior": "./build.sh", "snapshot_pages": "main"}},
         )
         self.assertTrue(any("liste" in item for item in errors), errors)
+
+
+class EcosystemWiringTest(unittest.TestCase):
+    def test_check_ecosystem_reports_missing_snapshot(self) -> None:
+        import tempfile
+        from unittest.mock import patch
+
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            (root / "ecosystem.yaml").write_text(
+                "name: T\n"
+                "products:\n"
+                "  app:\n"
+                "    surfaces:\n"
+                "      macos.app:\n"
+                "        path: .\n"
+                "        gates: { behavior: './build.sh', ui: true }\n",
+                encoding="utf-8",
+            )
+            (root / "kit.config.yaml").write_text(
+                "kit:\n  protocol: '2'\n", encoding="utf-8"
+            )
+            doctor.ERRORS.clear()
+            with patch.object(doctor, "ROOT", root):
+                doctor.check_ecosystem()
+        self.assertTrue(
+            any("snapshot" in item for item in doctor.ERRORS), doctor.ERRORS
+        )
 
 
 class TemplatesAndDocsTest(unittest.TestCase):
