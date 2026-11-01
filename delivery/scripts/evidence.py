@@ -94,7 +94,22 @@ def is_ancestor(base: str, after: str, root: Path = ROOT) -> bool:
     return git(["merge-base", "--is-ancestor", base, after], root).returncode == 0
 
 
-def verify_refactor(block, root: Path = ROOT, repo: str | None = None) -> list[str]:
+def changed_files(base: str, after: str, root: Path = ROOT) -> int | None:
+    """Files changed between two commits, or None when the range is unreadable."""
+    if not (COMMIT_RE.fullmatch(base or "") and COMMIT_RE.fullmatch(after or "")):
+        return None
+    result = git(["diff", "--name-only", "--no-renames", f"{base}..{after}"], root)
+    if result.returncode != 0:
+        return None
+    return len([line for line in result.stdout.splitlines() if line.strip()])
+
+
+def verify_refactor(
+    block,
+    root: Path = ROOT,
+    repo: str | None = None,
+    commit: str | None = None,
+) -> list[str]:
     """Refactor proof: behavior unchanged between a baseline and an after commit."""
     errors: list[str] = []
     if not isinstance(block, dict):
@@ -107,15 +122,15 @@ def verify_refactor(block, root: Path = ROOT, repo: str | None = None) -> list[s
         if not isinstance(point, dict):
             errors.append(f"refactor.{label} yok")
             continue
-        commit = str(point.get("commit") or "")
-        local = commit_exists(commit, root)
+        ref = str(point.get("commit") or "")
+        local = commit_exists(ref, root)
         if not local and repo:
-            local = fetch_commit(commit, root)
+            local = fetch_commit(ref, root)
         if not local:
-            errors.append(f"refactor.{label} commit bulunamadı: {commit or 'yok'}")
+            errors.append(f"refactor.{label} commit bulunamadı: {ref or 'yok'}")
         if point.get("tests") != "pass":
             errors.append(f"refactor.{label} tests pass olmalı")
-        commits[label] = commit
+        commits[label] = ref
     base = commits.get("baseline")
     after = commits.get("after")
     if base and after:
@@ -124,9 +139,21 @@ def verify_refactor(block, root: Path = ROOT, repo: str | None = None) -> list[s
         elif commit_exists(base, root) and commit_exists(after, root):
             if not is_ancestor(base, after, root):
                 errors.append("refactor baseline, after'ın atası değil")
-    files = block.get("files_changed")
-    if isinstance(files, int) and not isinstance(files, bool) and files > 20:
-        errors.append(f"refactor files_changed {files} (üst sınır 20)")
+    if commit and after and after != commit:
+        errors.append("refactor.after kanıt commit'i ile aynı olmalı")
+    declared = block.get("files_changed")
+    if not isinstance(declared, int) or isinstance(declared, bool) or declared < 1:
+        errors.append("refactor files_changed pozitif tam sayı olmalı")
+    elif base and after and commit_exists(base, root) and commit_exists(after, root):
+        actual = changed_files(base, after, root)
+        if actual is None:
+            errors.append("refactor dosya sayısı ölçülemedi")
+        elif declared != actual:
+            errors.append(
+                f"refactor files_changed {declared} ama gerçek değişim {actual}"
+            )
+        elif actual > 20:
+            errors.append(f"refactor {actual} dosya (üst sınır 20)")
     if block.get("ui_unchanged") is True:
         before = (block.get("baseline") or {}).get("snapshots")
         final = (block.get("after") or {}).get("snapshots")
@@ -134,6 +161,10 @@ def verify_refactor(block, root: Path = ROOT, repo: str | None = None) -> list[s
             errors.append("ui_unchanged için iki snapshot hash gerekli")
         elif before != final:
             errors.append("ui_unchanged ama snapshot hash farklı")
+    baseline_perf = (block.get("baseline") or {}).get("perf_ms")
+    after_perf = (block.get("after") or {}).get("perf_ms")
+    if (baseline_perf is None) != (after_perf is None):
+        errors.append("perf_ms iki tarafta da olmalı ya da hiç olmamalı")
     return errors
 
 
@@ -230,7 +261,9 @@ def verify(
             errors.append(f"reviewer {index}: farklı diff'i incelemiş")
 
     if "refactor" in record:
-        errors += verify_refactor(record.get("refactor"), root=root, repo=repo)
+        errors += verify_refactor(
+            record.get("refactor"), root=root, repo=repo, commit=commit
+        )
 
     return errors
 

@@ -22,7 +22,7 @@ Tüm leaf'ler bitince **zorunlu**. Bu rapor `status: pass` olmadan epic
 
 Fail → `epic-reconcile` issue aç veya eksik child'ları listele.
 
-## 2b — Borç check-in (architect)
+## 2.1 — Borç check-in (architect)
 
 Refactor tetikleri ([refactor-triggers.md](../policies/refactor-triggers.md))
 taranır; bu adım epic kapanışında **zorunludur**.

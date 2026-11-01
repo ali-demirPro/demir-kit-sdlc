@@ -41,6 +41,22 @@ def make_repo(root: Path) -> tuple[str, str]:
     return first, second
 
 
+def make_many_files_repo(root: Path) -> tuple[str, str]:
+    """Repo whose second commit touches 21 files."""
+    git(["init", "-q"], root)
+    git(["config", "user.email", "test@example.com"], root)
+    git(["config", "user.name", "Test"], root)
+    (root / "base.txt").write_text("base\n")
+    git(["add", "base.txt"], root)
+    git(["commit", "-q", "-m", "base"], root)
+    first = git(["rev-parse", "HEAD"], root)
+    for index in range(21):
+        (root / f"file-{index}.txt").write_text("x\n")
+    git(["add", "."], root)
+    git(["commit", "-q", "-m", "many"], root)
+    return first, git(["rev-parse", "HEAD"], root)
+
+
 def bare_remote_fixture(base: Path) -> tuple[Path, Path, str]:
     """A clone missing the newest commit, its source repo and that commit.
 
@@ -254,7 +270,7 @@ class EvidenceTests(unittest.TestCase):
             "baseline": {"commit": self.first, "tests": "pass"},
             "after": {"commit": self.second, "tests": "pass"},
             "unchanged": True,
-            "files_changed": 4,
+            "files_changed": 1,
         }
         block.update(overrides)
         return block
@@ -292,11 +308,44 @@ class EvidenceTests(unittest.TestCase):
         errors = evidence.verify_refactor(block, root=self.root)
         self.assertTrue(any("tests pass" in item for item in errors), errors)
 
-    def test_refactor_file_limit(self) -> None:
+    def test_refactor_files_must_match_git(self) -> None:
         errors = evidence.verify_refactor(
-            self.refactor_block(files_changed=21), root=self.root
+            self.refactor_block(files_changed=5), root=self.root
         )
+        self.assertTrue(any("gerçek değişim" in item for item in errors), errors)
+
+    def test_refactor_file_limit(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            first, second = make_many_files_repo(root)
+            block = {
+                "baseline": {"commit": first, "tests": "pass"},
+                "after": {"commit": second, "tests": "pass"},
+                "unchanged": True,
+                "files_changed": 21,
+            }
+            errors = evidence.verify_refactor(block, root=root)
         self.assertTrue(any("üst sınır" in item for item in errors), errors)
+
+    def test_refactor_after_must_equal_evidence_commit(self) -> None:
+        block = self.refactor_block()
+        errors = evidence.verify_refactor(block, root=self.root, commit=self.first)
+        self.assertTrue(
+            any("kanıt commit'i ile aynı" in item for item in errors), errors
+        )
+
+    def test_refactor_requires_files_changed(self) -> None:
+        block = self.refactor_block()
+        block.pop("files_changed")
+        errors = evidence.verify_refactor(block, root=self.root)
+        self.assertTrue(any("files_changed" in item for item in errors), errors)
+
+    def test_refactor_perf_needs_both_sides(self) -> None:
+        block = self.refactor_block(
+            baseline={"commit": self.first, "tests": "pass", "perf_ms": 12}
+        )
+        errors = evidence.verify_refactor(block, root=self.root)
+        self.assertTrue(any("perf_ms" in item for item in errors), errors)
 
     def test_refactor_ui_unchanged_needs_equal_hashes(self) -> None:
         hashes = "sha256:" + "a" * 64

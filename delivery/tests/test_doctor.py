@@ -360,6 +360,93 @@ class LeafSchemaTests(DoctorTestCase):
             doctor.check_issue_body(fenced("demir-kit", data), ["leaf-done"], comments)
         self.assertTrue(any("adımlara böl" in item for item in doctor.WARNS), doctor.WARNS)
 
+    def test_refactor_ui_checkpoint_requires_ui_unchanged(self) -> None:
+        data = self.refactor_leaf()
+        data["checkpoints"][0]["gates"]["architect"] = True
+        data["checkpoints"][0]["gates"]["ui"] = True
+        record = self.v4_record()
+        record["verification"]["refactor"] = {
+            "baseline": {"commit": "a" * 40, "tests": "pass"},
+            "after": {"commit": "b" * 40, "tests": "pass"},
+            "unchanged": True,
+            "files_changed": 3,
+        }
+        comments = [fenced("demir-kit-evidence", record), "run degrade: unit test"]
+        with patch.object(doctor.evidence_lib, "verify", return_value=[]):
+            doctor.check_issue_body(fenced("demir-kit", data), ["leaf-done"], comments)
+        self.assertTrue(
+            any("ui_unchanged" in item for item in doctor.ERRORS), doctor.ERRORS
+        )
+
+    def test_refactor_ui_checkpoint_with_proof_passes(self) -> None:
+        data = self.refactor_leaf()
+        data["checkpoints"][0]["gates"]["architect"] = True
+        data["checkpoints"][0]["gates"]["ui"] = True
+        hashes = "sha256:" + "a" * 64
+        record = self.v4_record()
+        record["verification"]["refactor"] = {
+            "baseline": {"commit": "a" * 40, "tests": "pass", "snapshots": hashes},
+            "after": {"commit": "b" * 40, "tests": "pass", "snapshots": hashes},
+            "unchanged": True,
+            "ui_unchanged": True,
+            "files_changed": 3,
+        }
+        comments = [fenced("demir-kit-evidence", record), "run degrade: unit test"]
+        with patch.object(doctor.evidence_lib, "verify", return_value=[]):
+            doctor.check_issue_body(fenced("demir-kit", data), ["leaf-done"], comments)
+        self.assertFalse(
+            any("ui_unchanged" in item for item in doctor.ERRORS), doctor.ERRORS
+        )
+
+    def test_refactor_block_rejected_on_non_refactor_leaf(self) -> None:
+        data = leaf(package_version=4)
+        data["tests_plan"][0]["cases"][0]["check"] = "unit"
+        record = self.v4_record()
+        record["verification"]["refactor"] = {
+            "baseline": {"commit": "a" * 40, "tests": "pass"},
+            "after": {"commit": "b" * 40, "tests": "pass"},
+            "unchanged": True,
+            "files_changed": 3,
+        }
+        comments = [fenced("demir-kit-evidence", record), "run degrade: unit test"]
+        with patch.object(doctor.evidence_lib, "verify", return_value=[]):
+            doctor.check_issue_body(fenced("demir-kit", data), ["leaf-done"], comments)
+        self.assertTrue(
+            any("yalnız refactor leaf'te" in item for item in doctor.ERRORS),
+            doctor.ERRORS,
+        )
+
+    def test_refactor_requires_architect_on_every_checkpoint(self) -> None:
+        data = self.refactor_leaf()
+        data["checkpoints"][0]["gates"]["architect"] = True
+        data["checkpoints"].append(
+            {
+                "id": "CP-2",
+                "title": "İkinci adım",
+                "depends_on": ["CP-1"],
+                "gates": {
+                    "behavior": True,
+                    "architect": False,
+                    "commercial": False,
+                    "ui": False,
+                    "human": False,
+                },
+            }
+        )
+        data["tests_plan"].append(
+            {
+                "checkpoint_id": "CP-2",
+                "cases": [
+                    {"id": "T-2", "ac": "AC-1", "text": "İkinci adım.", "check": "unit"}
+                ],
+            }
+        )
+        doctor.check_issue_body(fenced("demir-kit", data), [], None)
+        self.assertTrue(
+            any("CP-2: refactor leaf'te gates.architect" in item for item in doctor.ERRORS),
+            doctor.ERRORS,
+        )
+
     def test_unknown_check_kind_is_rejected(self) -> None:
         bad = leaf(package_version=4)
         bad["tests_plan"][0]["cases"][0]["check"] = "vibes"

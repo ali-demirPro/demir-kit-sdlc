@@ -1280,6 +1280,11 @@ def check_issue_body(
             if isinstance(verification, dict):
                 block = verification.get("refactor")
                 if isinstance(block, dict):
+                    if entry_kind != "refactor":
+                        error(
+                            f"{cp_id}: verification.refactor yalnız refactor "
+                            "leaf'te kullanılır"
+                        )
                     files = block.get("files_changed")
                     if isinstance(files, int) and 10 < files <= 20:
                         warn(
@@ -1333,6 +1338,10 @@ def check_issue_body(
             gates = cp_gates.get(cp_id, {})
             if gates.get("ui") and reviews.get("ui") != "pass":
                 error(f"{cp_id}: gates.ui açık ama UI onayı yok")
+            if entry_kind == "refactor" and gates.get("ui"):
+                proof = (record.get("verification") or {}).get("refactor") or {}
+                if not isinstance(proof, dict) or proof.get("ui_unchanged") is not True:
+                    error(f"{cp_id}: refactor UI checkpoint'te ui_unchanged ister")
             if package_version >= 4 and gates.get("human") and reviews.get(
                 "human"
             ) != "approved":

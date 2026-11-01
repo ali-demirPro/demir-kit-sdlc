@@ -8,15 +8,14 @@ Refactor'u "kodu bir ara temizleriz" işinden çıkarıp planlı, kanıtlı bir 
 
 Aşağıdakilerden **biri** yeterlidir.
 
-| Tetik | Eşik | Ölçüm |
-|-------|------|-------|
-| Dosya boyutu | > 600 satır (1000'de zorunlu) | `find . -name '*.py' -o -name '*.swift' \| xargs wc -l \| sort -n \| tail -20` |
+| Tetik | Eşik | Ölçüm komutu |
+|-------|------|--------------|
+| Dosya boyutu | > 600 satır (1000'de zorunlu) | `find delivery skills -name '*.py' -print0 \| xargs -0 wc -l \| sort -n \| tail -20` |
 | Tip boyutu | Tek tip > 400 satır | `rg -n '^(class\|struct\|enum) ' <dosya>` |
-| Yayılma | Bir feature > 6 dosya veya > 2 target | `git show --stat <commit>` |
-| Tekrar eden hata | Aynı modülde 3 fix kaydı | `learnings.py --digest` |
-| Epic kapanışı | Her closure öncesi zorunlu check-in | `runbooks/epic-closure.md` |
-| Test edilemez bağımlılık | Bir bağımlılık testte değiştirilemiyor | test yazmayı dene, takıldığın yeri kaydet |
-| Büyük feature öncesi | "Bu feature'ı kolaylaştıracak hangi değişiklik?" | seal notu |
+| Yayılma | Bir feature > 6 dosya | `git show --stat --format= <commit>` |
+| Tekrar eden hata | Aynı modülde 3 fix kaydı | `python3 delivery/scripts/learnings.py --digest` |
+| Test edilemez bağımlılık | Bağımlılık testte değiştirilemiyor | `python3 -m unittest discover -s delivery/tests -k <modül>` |
+| Epic kapanışı | Her closure öncesi check-in | `python3 delivery/scripts/report.py --issue <epic>` |
 
 Tetik yoksa refactor leaf'i açılmaz. "Kod hoşuma gitmedi" tetik değildir.
 

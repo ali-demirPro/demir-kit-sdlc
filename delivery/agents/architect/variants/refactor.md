@@ -3,9 +3,9 @@
 **Entry:** `entry.kind: refactor` · **Gate:** `architect`, `behavior`
 **Politika:** [refactor-triggers.md](../../../policies/refactor-triggers.md)
 
-## Ne zaman aktif
+## Kapsam
 
-Leaf `entry.kind: refactor` ile mühürlendiyse. Capability tabanlı bir varyant
+`entry.kind: refactor` ile mühürlenen her leaf. Capability tabanlı bir varyant
 değildir; her platformda geçerlidir. Refactor tetiği yoksa leaf açılmaz.
 
 ## Girdiler
