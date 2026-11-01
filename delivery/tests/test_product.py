@@ -51,6 +51,27 @@ def make_product(root: Path, protocol: str = "2", gate_script: bool = True) -> N
     (root / "AGENTS.md").write_text("# Agents\n")
 
 
+def git(path: Path, *args: str) -> str:
+    result = subprocess.run(
+        ["git", "-C", str(path), *args],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return result.stdout.strip()
+
+
+def init_kit_repo(path: Path) -> str:
+    path.mkdir(parents=True, exist_ok=True)
+    git(path, "init", "-q")
+    git(path, "config", "user.email", "test@example.com")
+    git(path, "config", "user.name", "Test")
+    (path / "VERSION").write_text("2.31.1\n", encoding="utf-8")
+    git(path, "add", "-A")
+    git(path, "commit", "-q", "-m", "release")
+    return git(path, "rev-parse", "HEAD")
+
+
 class ProductDoctorTests(unittest.TestCase):
     def setUp(self) -> None:
         doctor.ERRORS.clear()
@@ -267,6 +288,58 @@ class ProductDoctorTests(unittest.TestCase):
             (ROOT / "delivery" / "profiles" / "web-product.yaml").is_file()
         )
         self.assertFalse((ROOT / "delivery" / "templates" / "product").exists())
+
+    def test_kit_pin_must_be_on_main(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            make_product(root)
+            kit = root / "demir-kit"
+            released = init_kit_repo(kit)
+            git(kit, "update-ref", "refs/remotes/origin/main", released)
+            (kit / "extra.md").write_text("branch work\n", encoding="utf-8")
+            git(kit, "add", "-A")
+            git(kit, "commit", "-q", "-m", "unmerged")
+            doctor.check_product(root)
+            self.assertTrue(
+                any("kit pin yayınlanmış değil" in item for item in doctor.ERRORS),
+                doctor.ERRORS,
+            )
+
+    def test_kit_pin_on_main_passes(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            make_product(root)
+            kit = root / "demir-kit"
+            released = init_kit_repo(kit)
+            git(kit, "update-ref", "refs/remotes/origin/main", released)
+            doctor.check_product(root)
+            self.assertFalse(
+                any("kit pin" in item for item in doctor.ERRORS), doctor.ERRORS
+            )
+            self.assertFalse(
+                any("kit pin" in item for item in doctor.WARNS), doctor.WARNS
+            )
+
+    def test_kit_pin_without_remote_ref_warns(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            make_product(root)
+            kit = root / "demir-kit"
+            init_kit_repo(kit)
+            git(kit, "branch", "-m", "main", "trunk")
+            doctor.check_product(root)
+            self.assertTrue(
+                any("kit pin doğrulanamadı" in item for item in doctor.WARNS),
+                doctor.WARNS,
+            )
+
+    def test_vendored_kit_skips_pin_check(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            make_product(root)
+            doctor.check_product(root)
+            self.assertFalse(any("kit pin" in item for item in doctor.WARNS))
+            self.assertFalse(any("kit pin" in item for item in doctor.ERRORS))
 
     def test_product_issue_reads_product_tracker(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

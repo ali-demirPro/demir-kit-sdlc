@@ -14,6 +14,11 @@
 - **Sessiz risk indirimi yok** — exclude bir capability'yi susturduğunda ve o
   capability'nin risk tabanı seal riskinin üstündeyse doctor `capability
   exclude:` uyarısı basar; karar görünür kalır.
+- **Kit pin'i yayınlanmış olmalı** — `doctor --product` artık kit submodule
+  pininin `origin/main`in atası olduğunu doğrular. VERSION dizesi aynı olsa da
+  merge edilmemiş bir branch commit'ine bağlanmak hata verir; `origin/main`
+  ref'i yoksa (çevrimdışı/eksik klon) uyarı basar. Yalnız `.git` içeren
+  submodule/kurulumlarda çalışır; `vendor_sync` kopyaları etkilenmez.
 
 ## 2.31.0 — 2026-10-31
 

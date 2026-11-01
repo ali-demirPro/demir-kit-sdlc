@@ -1277,6 +1277,68 @@ def check_issue(
                 "demir-kit-accept comment'i gerekli"
             )
 
+def _git_output(path: Path, *args: str) -> str | None:
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(path), *args],
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if result.returncode != 0:
+        return None
+    return result.stdout.strip()
+
+
+def kit_pin_status(root: Path, kit_path: Path) -> tuple[str, str]:
+    """Pin durumu: ok / unmerged / unverifiable / absent.
+
+    VERSION eşitliği tek başına yetmez: merge edilmemiş bir branch commit'i de
+    aynı sürüm dizesini taşır. Pin, `origin/main`in atası olmalı.
+    """
+    if not (kit_path / ".git").exists():
+        return "absent", ""
+    sha = None
+    try:
+        rel = kit_path.relative_to(root).as_posix()
+    except ValueError:
+        rel = kit_path.name
+    tree = _git_output(root, "ls-tree", "HEAD", "--", rel)
+    if tree:
+        parts = tree.split()
+        if len(parts) >= 3 and parts[0] == "160000":
+            sha = parts[2]
+    if not sha:
+        sha = _git_output(kit_path, "rev-parse", "HEAD")
+    if not sha:
+        return "unverifiable", "git HEAD okunamadı"
+    ref = None
+    for candidate in ("origin/main", "main"):
+        if _git_output(kit_path, "rev-parse", "--verify", "--quiet", candidate):
+            ref = candidate
+            break
+    if not ref:
+        return "unverifiable", "origin/main ref yok"
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(kit_path), "merge-base", "--is-ancestor", sha, ref],
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return "unverifiable", "merge-base çalıştırılamadı"
+    if result.returncode == 0:
+        return "ok", sha
+    if result.returncode == 1:
+        return "unmerged", sha
+    return "unverifiable", f"{sha[:7]} kit klonunda yok"
+
+
 def check_product(root: Path) -> None:
     check("product")
     config = load_yaml(root / "kit.config.yaml")
@@ -1300,6 +1362,18 @@ def check_product(root: Path) -> None:
                 "submodule → 'git submodule update --remote demir-kit'; "
                 "vendor → 'vendor_sync.sh --target <proje> --apply'"
             )
+    pin_state, pin_detail = kit_pin_status(root, root / kit_root)
+    if pin_state == "unmerged":
+        error(
+            f"kit pin yayınlanmış değil: {kit_root} {pin_detail[:7]} "
+            "origin/main'in atası değil — merge edilmemiş commit'e bağlanmak "
+            "yerine yayınlanmış kit sürümüne dön"
+        )
+    elif pin_state == "unverifiable":
+        warn(
+            f"kit pin doğrulanamadı ({pin_detail}) — "
+            f"'git -C {kit_root} fetch origin main' sonrası tekrar çalıştır"
+        )
 
     factory = config.get("factory") or {}
     app_paths = factory.get("app_paths") or ["src", "app", "lib"]
