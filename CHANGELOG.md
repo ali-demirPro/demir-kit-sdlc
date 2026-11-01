@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.39.0 — 2026-11-01
+
+- **Kalan üç rolde macOS varyantı** — devops, pazarlama/mağaza ve inceleme
+  rolleri artık `variants/macos.md` + `evals/macos.md` yüklüyor. Önceki hâlde
+  mobil doküman (TestFlight, cihaz matrisi) geliyordu.
+- **Resolver temiz** — macOS yüzeyi için `mobile.md`/`ios.md` yüklenmiyor;
+  alias lint bu üç rolde de devrede.
+- **Regresyon testleri** — eşleme, yedi bölüm, 10 senaryo, eval bütünlüğü ve
+  resolver çıktısı test edilir.
+
 ## 2.38.0 — 2026-11-01
 
 - **Yüzey sözleşmesi** — `ecosystem.yaml` `gates` altında `selftest` ve

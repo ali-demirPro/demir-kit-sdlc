@@ -15,7 +15,7 @@ capabilities_required:
   - distribution.web
 variants:
   platform.ios: { doc: variants/apple.md, eval: evals/stores.md, min_level: practitioner }
-  platform.macos: { doc: variants/apple.md, eval: evals/stores.md, min_level: practitioner }
+  platform.macos: { doc: variants/macos.md, eval: evals/macos.md, min_level: practitioner }
   platform.android: { doc: variants/google.md, eval: evals/stores.md, min_level: practitioner }
   domain.analytics: { doc: variants/aso.md, eval: evals/stores.md, min_level: practitioner }
   domain.i18n: { doc: variants/aso.md, eval: evals/stores.md, min_level: practitioner }

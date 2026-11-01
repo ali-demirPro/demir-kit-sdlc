@@ -23,7 +23,7 @@ variants:
   platform.web: { doc: variants/application.md, eval: evals/application.md, min_level: expert }
   platform.api: { doc: variants/application.md, eval: evals/application.md, min_level: expert }
   platform.ios: { doc: variants/mobile.md, eval: evals/application.md, min_level: expert }
-  platform.macos: { doc: variants/mobile.md, eval: evals/application.md, min_level: expert }
+  platform.macos: { doc: variants/macos.md, eval: evals/macos.md, min_level: expert }
   platform.android: { doc: variants/mobile.md, eval: evals/application.md, min_level: expert }
   domain.auth: { doc: variants/payments-auth.md, eval: evals/risk.md, min_level: expert }
   domain.payments: { doc: variants/payments-auth.md, eval: evals/risk.md, min_level: expert }
