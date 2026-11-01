@@ -16,6 +16,7 @@ capabilities_required:
   - quality.performance
   - quality.observability
   - distribution.app_store
+  - distribution.direct
   - distribution.play
   - distribution.web
 variants:
@@ -31,6 +32,7 @@ variants:
   quality.performance: { doc: variants/observability.md, eval: evals/operability.md, min_level: practitioner }
   quality.observability: { doc: variants/observability.md, eval: evals/operability.md, min_level: expert }
   distribution.app_store: { doc: variants/mobile.md, eval: evals/platform.md, min_level: expert }
+  distribution.direct: { doc: variants/direct.md, eval: evals/platform.md, min_level: expert }
   distribution.play: { doc: variants/mobile.md, eval: evals/platform.md, min_level: expert }
   distribution.web: { doc: variants/web.md, eval: evals/platform.md, min_level: expert }
 handoffs: [developer, tester, release, security, orchestrator]

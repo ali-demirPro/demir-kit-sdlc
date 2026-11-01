@@ -1,5 +1,20 @@
 # Changelog
 
+## 2.36.0 — 2026-11-01
+
+- **`apple-macos` pack** — macOS yüzeyi için 14 maddelik platform checklist'i:
+  menü çubuğu, kısayol, toolbar, sidebar, pencere, kontrol ölçüsü, tipografi,
+  erişilebilirlik, Liquid Glass (yalnız macOS 26+ ve functional layer), sandbox,
+  imza/notarization, güncelleme kanalı, veri/migration, gizlilik. Her madde
+  kaynak referanslı.
+- **`distribution.direct`** — App Store dışı dağıtım capability'si: `dmg`,
+  `notarize` anahtar kelimeleriyle aktifleşir; risk tabanı `medium`, insan
+  kapısı ister. Önceki durumda yalnız `distribution.app_store` (kritik) vardı,
+  bu yüzden notarize edilmiş bir DMG dağıtımı gereksiz yere kritik sayılıyordu.
+- **`devops/variants/direct.md`** — paketleme, imza, notarization, kanal ve geri
+  dönüş playbook'u.
+- **`macos-app` profili** artık `apple-macos` pack'ini listeliyor.
+
 ## 2.35.0 — 2026-11-01
 
 - **macOS varyantları** — `designer`, `developer`, `tester`, `architect` için

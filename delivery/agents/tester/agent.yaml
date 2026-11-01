@@ -22,6 +22,7 @@ capabilities_required:
   - quality.privacy
   - quality.observability
   - distribution.web
+  - distribution.direct
 variants:
   platform.web:
     doc: variants/web.md
@@ -92,6 +93,10 @@ variants:
     eval: evals/quality.md
     min_level: practitioner
   distribution.web:
+    doc: variants/delivery.md
+    eval: evals/delivery.md
+    min_level: practitioner
+  distribution.direct:
     doc: variants/delivery.md
     eval: evals/delivery.md
     min_level: practitioner

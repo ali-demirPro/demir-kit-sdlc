@@ -112,6 +112,7 @@ roles:
       quality.privacy: practitioner
       quality.observability: practitioner
       distribution.web: practitioner
+      distribution.direct: practitioner
     focus: [risk-based test, edge cases, regression, adversarial]
     evidence: [test matrix, ADV-*, regression set, failure injection]
 
@@ -133,6 +134,7 @@ roles:
       quality.observability: practitioner
       distribution.app_store: practitioner
       distribution.play: practitioner
+      distribution.direct: practitioner
       distribution.web: practitioner
     focus: [threat model, authz, secrets, supply chain]
     evidence: [SEC-*, threat model, authz matrix, dependency audit]
