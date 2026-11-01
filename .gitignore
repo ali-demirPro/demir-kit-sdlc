@@ -3,6 +3,10 @@
 .idea/
 .vscode/
 .orchestration/
+# install.sh → npx skills add çıktısı: makineye özel, kaynaktan türetilir
+.agents/
+.claude/
+skills-lock.json
 __pycache__/
 *.pyc
 .venv/
