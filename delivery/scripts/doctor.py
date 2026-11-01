@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import shlex
 import subprocess
@@ -848,13 +849,14 @@ def check_issue_body(
     signals = resolver_lib.scoped_signals(ecosystem, data)
     declared = resolver_lib.load_declared(root)
     # Historical evidence must stay valid after a project-level exclude; the
-    # seal's own surfaces decide which roles could have produced it.
+    # seal's own surfaces decide which roles could have produced it. Risk floor
+    # and capability gaps, however, must honour the project's real excludes.
     declared_for_issue = {
         "version": 1,
         "include": declared.get("include") or [],
         "exclude": [],
     }
-    resolution = resolver_lib.resolve(
+    resolution_for_evidence = resolver_lib.resolve(
         capability_registry,
         resolver_lib.load_matrix(),
         resolver_lib.load_agent_variants(),
@@ -863,13 +865,43 @@ def check_issue_body(
         f"{title}\n{data.get('intent', '')}\n{routing.strip_seal(body)}",
         declared=declared_for_issue,
     )
-    for capability in resolution["capabilities"]:
+    resolution = resolver_lib.resolve(
+        capability_registry,
+        resolver_lib.load_matrix(),
+        resolver_lib.load_agent_variants(),
+        path_id,
+        signals,
+        f"{title}\n{data.get('intent', '')}\n{routing.strip_seal(body)}",
+        declared=declared,
+    )
+    for capability in resolution_for_evidence["capabilities"]:
         allowed_agents.update(
             ((capability_registry.get("capabilities") or {}).get(capability) or {})
             .get("roles", {})
             .keys()
         )
     risk_floor = resolution.get("risk_floor", "low")
+    # An exclude must not silently lower the risk below what the project would
+    # otherwise owe; keep the decision visible in doctor output.
+    effective_risk = risk_floor
+    if resolver_lib.RISK_ORDER.get(risk or "low", 0) > resolver_lib.RISK_ORDER.get(
+        risk_floor, 0
+    ):
+        effective_risk = risk or "low"
+    suppressed = sorted(
+        set(resolution_for_evidence["capabilities"]) - set(resolution["capabilities"])
+    )
+    for capability in suppressed:
+        spec = (capability_registry.get("capabilities") or {}).get(capability) or {}
+        suppressed_floor = spec.get("risk_floor") or "low"
+        if resolver_lib.RISK_ORDER.get(suppressed_floor, 0) > resolver_lib.RISK_ORDER.get(
+            effective_risk, 0
+        ):
+            warn(
+                f"capability exclude: {capability} proje exclude listesinde; "
+                f"risk tabanı '{suppressed_floor}' uygulanmadı (seal: "
+                f"'{effective_risk}')"
+            )
     if resolver_lib.RISK_ORDER.get(risk_floor, 0) > resolver_lib.RISK_ORDER.get(
         risk or "low", 0
     ):
@@ -1246,6 +1278,98 @@ def check_issue(
                 "demir-kit-accept comment'i gerekli"
             )
 
+def check_worktree_management(root: Path = ROOT) -> None:
+    """Linked worktree Orca'da kayıtlı olmalı; ham `git worktree add` yakalanır."""
+    check("worktree")
+    if os.environ.get("CI"):
+        return
+    git_dir = _git_output(root, "rev-parse", "--git-dir")
+    common = _git_output(root, "rev-parse", "--git-common-dir")
+    if not git_dir or not common:
+        return
+
+    def resolve(value: str) -> Path:
+        path = Path(value)
+        return path.resolve() if path.is_absolute() else (root / path).resolve()
+
+    if resolve(git_dir) == resolve(common):
+        return  # ana checkout; worktree kuralı burada uygulanmaz
+    if not epic_worktree.orca_available(root):
+        return  # Orca yok: kayıtlı degrade mod
+    worktree = epic_worktree.current_worktree(root) or {}
+    recorded = str((worktree.get("git") or {}).get("path") or "")
+    # Orca dışarıdan bulduğu worktree'yi listeler ama createdAt yazmaz; Orca'nın
+    # açtığı checkout'ta bu alan vardır.
+    managed = bool(worktree.get("createdAt"))
+    if not recorded or Path(recorded).resolve() != root.resolve() or not managed:
+        error(
+            "worktree: bu checkout Orca dışında açılmış — kaynak değişikliği "
+            "için 'orca worktree create' kullan, ham 'git worktree add' açma"
+        )
+
+
+def _git_output(path: Path, *args: str) -> str | None:
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(path), *args],
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if result.returncode != 0:
+        return None
+    return result.stdout.strip()
+
+
+def kit_pin_status(root: Path, kit_path: Path) -> tuple[str, str]:
+    """Pin durumu: ok / unmerged / unverifiable / absent.
+
+    VERSION eşitliği tek başına yetmez: merge edilmemiş bir branch commit'i de
+    aynı sürüm dizesini taşır. Pin, `origin/main`in atası olmalı.
+    """
+    if not (kit_path / ".git").exists():
+        return "absent", ""
+    sha = None
+    try:
+        rel = kit_path.relative_to(root).as_posix()
+    except ValueError:
+        rel = kit_path.name
+    tree = _git_output(root, "ls-tree", "HEAD", "--", rel)
+    if tree:
+        parts = tree.split()
+        if len(parts) >= 3 and parts[0] == "160000":
+            sha = parts[2]
+    if not sha:
+        sha = _git_output(kit_path, "rev-parse", "HEAD")
+    if not sha:
+        return "unverifiable", "git HEAD okunamadı"
+    ref = None
+    for candidate in ("origin/main", "main"):
+        if _git_output(kit_path, "rev-parse", "--verify", "--quiet", candidate):
+            ref = candidate
+            break
+    if not ref:
+        return "unverifiable", "origin/main ref yok"
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(kit_path), "merge-base", "--is-ancestor", sha, ref],
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return "unverifiable", "merge-base çalıştırılamadı"
+    if result.returncode == 0:
+        return "ok", sha
+    if result.returncode == 1:
+        return "unmerged", sha
+    return "unverifiable", f"{sha[:7]} kit klonunda yok"
+
+
 def check_product(root: Path) -> None:
     check("product")
     config = load_yaml(root / "kit.config.yaml")
@@ -1269,6 +1393,18 @@ def check_product(root: Path) -> None:
                 "submodule → 'git submodule update --remote demir-kit'; "
                 "vendor → 'vendor_sync.sh --target <proje> --apply'"
             )
+    pin_state, pin_detail = kit_pin_status(root, root / kit_root)
+    if pin_state == "unmerged":
+        error(
+            f"kit pin yayınlanmış değil: {kit_root} {pin_detail[:7]} "
+            "origin/main'in atası değil — merge edilmemiş commit'e bağlanmak "
+            "yerine yayınlanmış kit sürümüne dön"
+        )
+    elif pin_state == "unverifiable":
+        warn(
+            f"kit pin doğrulanamadı ({pin_detail}) — "
+            f"'git -C {kit_root} fetch origin main' sonrası tekrar çalıştır"
+        )
 
     factory = config.get("factory") or {}
     app_paths = factory.get("app_paths") or ["src", "app", "lib"]
@@ -1405,6 +1541,7 @@ def main() -> int:
     args = parser.parse_args()
 
     product_root = (args.root or Path.cwd()).resolve()
+    check_worktree_management(product_root if args.product else ROOT)
     if args.product:
         check_product(product_root)
     else:

@@ -137,6 +137,8 @@ otomatik yükselir; agent düşüremez. Ayrıntı: `policies/quality-gates.md`.
 | I14 | Orca çalışıyorsa `worker-start` zorunlu; native subagent yalnız kayıtlı degrade modda. |
 | I15 | Orca canlı durumdur, GitHub kalıcı kayıttır; `transition`/`update` ikisini senkronlar. |
 | I16 | İnsan kapısı Orca gate + GitHub `human-qa` birlikte; evidence'ta gate kaydı beklenir. |
+| I17 | Worktree yalnız `orca worktree create` ile açılır; ham `git worktree add` kayıtlı degrade mod dışında yasaktır. Linked worktree Orca'da kayıtlı değilse `doctor` hata verir. |
+| I18 | Ürün reposu kit deposuna yama yazmaz. Kit düzeltmesi bu repoda yapılır; ürün submodule'ü yalnız `origin/main` atası (yayınlanmış) bir commit'e pinlenir, `doctor --product` bunu denetler. |
 | I11 | Etiket geçişleri yalnız `scripts/transition.sh` ile yapılır; doğrudan etiket yazımı yasaktır. |
 | I12 | Capability seviyesi kanıtla atanır; agent `expert` üstüne çıkamaz, `authority` insan/principal içindir. |
 | I13 | `epic-done` yalnız insan-authored `demir-kit-accept` + kapalı child'larla; agent kendi kabulünü yazamaz. **Kapsam: ürün teslimatı.** Kit self-improvement lane'de kabul makine kapısıdır (`doctor --strict` + testler yeşil). |

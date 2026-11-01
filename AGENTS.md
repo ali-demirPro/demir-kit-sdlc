@@ -77,6 +77,10 @@ If prose and registry disagree, registry + doctor win; fix the prose.
 - Risk C: `low`/`medium` auto-close, `high`/`critical` human, irreversible always human.
 - One `executing` leaf per epic unless dependencies are disjoint.
 - Contract change = VERSION + CHANGELOG + doctor green.
+- Worktrees come from `orca worktree create`; raw `git worktree add` is only a
+  recorded degrade. A linked worktree that Orca does not know fails `doctor`.
+- A product never patches the kit. Kit fixes land here; a product pins a commit
+  that is an ancestor of `origin/main`, and `doctor --product` enforces it.
 
 ## Language
 
