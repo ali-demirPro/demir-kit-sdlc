@@ -24,7 +24,7 @@ variants:
   platform.api: { doc: variants/api.md, eval: evals/platform.md, min_level: expert }
   platform.cli: { doc: variants/api.md, eval: evals/platform.md, min_level: practitioner }
   platform.ios: { doc: variants/mobile.md, eval: evals/platform.md, min_level: practitioner }
-  platform.macos: { doc: variants/mobile.md, eval: evals/platform.md, min_level: practitioner }
+  platform.macos: { doc: variants/macos.md, eval: evals/macos.md, min_level: practitioner }
   platform.android: { doc: variants/mobile.md, eval: evals/platform.md, min_level: practitioner }
   domain.data: { doc: variants/api.md, eval: evals/platform.md, min_level: practitioner }
   quality.security: { doc: variants/observability.md, eval: evals/operability.md, min_level: practitioner }

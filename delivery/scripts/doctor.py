@@ -34,6 +34,24 @@ import evidence as evidence_lib  # noqa: E402
 import profiles as profiles_lib  # noqa: E402
 import resolver as resolver_lib  # noqa: E402
 import variants as variants_lib  # noqa: E402
+from doctor_skills import (  # noqa: E402, F401  (public re-exports)
+    frontmatter_data,
+    frontmatter_name,
+    has_trigger,
+    inline_link_targets,
+    lint_skill,
+    normalize_link,
+    relative_links,
+    strip_code_and_comments,
+    undefined_references,
+)
+from doctor_skills import (  # noqa: E402, F401  (public re-exports)
+    SKILL_NEGATION_RE,
+    SKILL_REF_DEF_RE,
+    SKILL_REF_USE_RE,
+    SKILL_TRIGGER_RE,
+)
+from doctor_surfaces import surface_gate_errors  # noqa: E402
 import routing  # noqa: E402
 
 try:
@@ -558,32 +576,6 @@ def check_fleet() -> None:
         seen.add(name)
 
 
-def surface_gate_errors(product: str, surface: str, spec: dict) -> list[str]:
-    """Gate contract for one surface: behavior always, snapshot for UI."""
-    errors: list[str] = []
-    gates = (spec or {}).get("gates") or {}
-    prefix = f"ecosystem.{product}.{surface}"
-    if not gates.get("behavior"):
-        errors.append(f"{prefix}: gates.behavior yok")
-    if gates.get("ui") is True and not gates.get("snapshot"):
-        errors.append(
-            f"{prefix}: gates.ui açık ama gates.snapshot yok "
-            "(görsel kanıt olmadan UI gate koşamaz)"
-        )
-    if not isinstance(gates.get("ui"), (bool, type(None))):
-        errors.append(f"{prefix}: gates.ui boolean olmalı")
-    if not isinstance(gates.get("ui_compare"), (str, type(None))):
-        errors.append(f"{prefix}: gates.ui_compare string olmalı")
-    for key in ("selftest", "snapshot", "behavior"):
-        value = gates.get(key)
-        if value is not None and not isinstance(value, str):
-            errors.append(f"{prefix}: gates.{key} string olmalı")
-    pages = gates.get("snapshot_pages")
-    if pages is not None and not isinstance(pages, list):
-        errors.append(f"{prefix}: gates.snapshot_pages liste olmalı")
-    return errors
-
-
 def check_ecosystem() -> None:
     check("ecosystem")
     eco = load_yaml(ROOT / "ecosystem.yaml")
@@ -701,228 +693,6 @@ def run(command: list[str]) -> str:
     if result.returncode != 0:
         return ""
     return result.stdout
-
-
-def frontmatter_name(text: str) -> str | None:
-    block = re.match(r"^---\n(.*?)\n---", text, re.S)
-    if not block:
-        return None
-    match = re.search(r"^name:\s*(.+)$", block.group(1), re.M)
-    return match.group(1).strip().strip("\"'") if match else None
-
-
-SKILL_TRIGGER_RE = re.compile(
-    r"(?i)\b("
-    r"use when|use this skill when|use the skill when|whenever|"
-    r"ne zaman|şu durumda kullan"
-    r")\b"
-)
-SKILL_NEGATION_RE = re.compile(
-    r"(?i)\b(not|never|don'?t|doesn'?t|avoid|asla|değil)\W{0,3}$"
-)
-SKILL_REF_DEF_RE = re.compile(r"^\s{0,3}\[([^\]]+)\]:\s*(\S+)", re.M)
-SKILL_REF_USE_RE = re.compile(r"\[([^\]]+)\]\[([^\]]*)\]")
-
-
-def frontmatter_data(text: str) -> dict:
-    """Parse the SKILL.md frontmatter block as YAML (empty dict on failure)."""
-    block = re.match(r"^---\n(.*?)\n---", text, re.S)
-    if not block:
-        return {}
-    try:
-        data = yaml.safe_load(block.group(1))
-    except yaml.YAMLError:
-        return {}
-    return data if isinstance(data, dict) else {}
-
-
-def has_trigger(description: str) -> bool:
-    """True when a non-negated trigger phrase appears in the description."""
-    for match in SKILL_TRIGGER_RE.finditer(description):
-        if SKILL_NEGATION_RE.search(description[: match.start()][-20:]):
-            continue
-        return True
-    return False
-
-
-def strip_code_and_comments(text: str) -> str:
-    """Blank out fenced code blocks and HTML comments.
-
-    Examples of the skill format must not satisfy (or break) structural checks:
-    a fenced `## Done when` is documentation, not a section. Nested fences are
-    tracked by character and length, so a four-backtick block may contain a
-    three-backtick example.
-    """
-    out: list[str] = []
-    fence_char: str | None = None
-    fence_len = 0
-    in_comment = False
-    for line in text.splitlines():
-        stripped = line.strip()
-        if fence_char:
-            closing = re.fullmatch(rf"{re.escape(fence_char)}{{{fence_len},}}\s*", stripped)
-            if closing:
-                fence_char = None
-            out.append("")
-            continue
-        opening = re.match(r"^(`{3,}|~{3,})", stripped)
-        if opening:
-            fence_char = opening.group(1)[0]
-            fence_len = len(opening.group(1))
-            out.append("")
-            continue
-        if in_comment:
-            if "-->" in line:
-                in_comment = False
-            out.append("")
-            continue
-        if "<!--" in line:
-            before, _, after = line.partition("<!--")
-            if "-->" in after:
-                out.append(before + after.split("-->", 1)[1])
-            else:
-                in_comment = True
-                out.append(before)
-            continue
-        out.append(line)
-    return "\n".join(out)
-
-
-def normalize_link(target: str) -> str:
-    """Strip angle brackets, query string and fragment from a link target."""
-    target = target.strip()
-    if target.startswith("<") and target.endswith(">"):
-        target = target[1:-1].strip()
-    target = target.split("#", 1)[0]
-    target = target.split("?", 1)[0]
-    return target
-
-
-def inline_link_targets(text: str) -> list[str]:
-    """Destinations of inline links, allowing parentheses inside a title."""
-    targets: list[str] = []
-    for match in re.finditer(r"\]\(", text):
-        index = match.end()
-        start = index
-        depth = 1
-        in_angle = False
-        while index < len(text):
-            char = text[index]
-            if char == "<":
-                in_angle = True
-            elif char == ">":
-                in_angle = False
-            elif char == "(" and not in_angle:
-                depth += 1
-            elif char == ")" and not in_angle:
-                depth -= 1
-                if depth == 0:
-                    break
-            index += 1
-        raw = text[start:index].strip()
-        if not raw:
-            continue
-        if raw.startswith("<"):
-            end = raw.find(">")
-            targets.append(raw[: end + 1] if end > 0 else raw)
-        else:
-            targets.append(raw.split()[0])
-    return targets
-
-
-def relative_links(text: str) -> list[str]:
-    """Relative markdown link targets (inline and reference style)."""
-    definitions = {
-        label.lower(): target for label, target in SKILL_REF_DEF_RE.findall(text)
-    }
-    targets = inline_link_targets(text) + list(definitions.values())
-    result: list[str] = []
-    for target in targets:
-        normalized = normalize_link(target)
-        if not normalized:
-            continue
-        if re.match(r"^[a-z][a-z0-9+.-]*:", normalized, re.I):
-            continue
-        if normalized.startswith("#"):
-            continue
-        result.append(normalized)
-    return result
-
-
-def undefined_references(text: str) -> list[str]:
-    """Reference-style usages whose label has no definition."""
-    definitions = {
-        label.lower() for label, _ in SKILL_REF_DEF_RE.findall(text)
-    }
-    missing: list[str] = []
-    for label, ref in SKILL_REF_USE_RE.findall(text):
-        key = (ref or label).lower()
-        if key not in definitions:
-            missing.append(key)
-    return missing
-
-
-def lint_skill(path: Path, text: str) -> tuple[list[str], list[str]]:
-    """Lint one SKILL.md; returns (errors, warnings).
-
-    Contract: delivery/policies/skill-writing.md. Pure function so the tests can
-    call it without touching the repo tree.
-    """
-    errors: list[str] = []
-    warnings: list[str] = []
-
-    data = frontmatter_data(text)
-    description = " ".join(str(data.get("description") or "").split())
-    if not description:
-        errors.append("description yok")
-    else:
-        if not 40 <= len(description) <= 400:
-            errors.append(f"description {len(description)} karakter (40-400)")
-        if not has_trigger(description):
-            errors.append("description tetikleyici içermiyor (Use when ...)")
-
-    prose = strip_code_and_comments(text)
-    done = re.search(r"^## Done when\b", prose, re.M)
-    if not done:
-        errors.append("## Done when bölümü yok")
-    else:
-        rest = prose[done.end() :]
-        next_heading = re.search(r"^#{1,6} ", rest, re.M)
-        section = rest[: next_heading.start()] if next_heading else rest
-        lines = section.splitlines()
-        setext = any(
-            re.fullmatch(r"[=-]{3,}\s*", lines[index + 1].strip())
-            and lines[index].strip()
-            for index in range(len(lines) - 1)
-        )
-        if next_heading or setext:
-            errors.append("## Done when son bölüm değil")
-        content = [
-            line
-            for line in lines
-            if line.strip() and not re.fullmatch(r"[=-]{3,}\s*", line.strip())
-        ]
-        if not content:
-            errors.append("## Done when bölümü boş")
-
-    for link in relative_links(prose):
-        candidate = Path(os.path.normpath(path.parent / link))
-        if not candidate.exists():
-            errors.append(f"göreli link çözülmüyor: {link}")
-    for label in undefined_references(prose):
-        errors.append(f"referans tanımı yok: {label}")
-
-    body = re.sub(r"\A---\n.*?\n---\n", "", text, count=1, flags=re.S)
-    lines = len(body.splitlines())
-    if lines > 300:
-        errors.append(f"gövde {lines} satır (üst sınır 300)")
-    elif lines > 200:
-        warnings.append(f"gövde {lines} satır (200 üstü)")
-
-    if re.search(r"\b(TODO|TBD)\b", prose):
-        warnings.append("TODO/TBD içeriyor")
-
-    return errors, warnings
 
 
 def lint_runtime_skills(root: Path) -> None:

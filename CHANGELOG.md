@@ -1,5 +1,26 @@
 # Changelog
 
+## 2.40.0 — 2026-11-01
+
+- **`doctor.py` ayrıştırıldı (refactor)** — skill lint yardımcıları
+  `doctor_skills.py`'ye, yüzey sözleşmesi `doctor_surfaces.py`'ye taşındı.
+  `doctor` aynı isimleri yeniden dışa aktarır; arayüz ve davranış değişmedi.
+  Dosya 1975 → 1787 satır.
+- **Refactor kanıtı** — `verification.refactor` ile baseline/after aynı test
+  sonucunu veriyor (`unchanged: true`), dosya sayısı git'ten ölçüldü.
+- **Regresyon testi** — modül varlığı, arayüz, satır eşiği ve lint davranışı
+  `test_doctor_modules.py` içinde.
+
+## 2.39.0 — 2026-11-01
+
+- **Kalan üç rolde macOS varyantı** — devops, pazarlama/mağaza ve inceleme
+  rolleri artık `variants/macos.md` + `evals/macos.md` yüklüyor. Önceki hâlde
+  mobil doküman (TestFlight, cihaz matrisi) geliyordu.
+- **Resolver temiz** — macOS yüzeyi için `mobile.md`/`ios.md` yüklenmiyor;
+  alias lint bu üç rolde de devrede.
+- **Regresyon testleri** — eşleme, yedi bölüm, 10 senaryo, eval bütünlüğü ve
+  resolver çıktısı test edilir.
+
 ## 2.38.0 — 2026-11-01
 
 - **Yüzey sözleşmesi** — `ecosystem.yaml` `gates` altında `selftest` ve
