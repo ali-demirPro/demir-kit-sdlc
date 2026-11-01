@@ -22,8 +22,9 @@ kanalı. Sunucu yoktur; tek yazıcı uygulama sürecidir.
    ayrı hedefte olmalı ki testler uygulama açmadan koşsun.
 3. **Depolama:** store konumu, migration planı, yedek/geri dönüş; şema
    değişiminde varsayılan değer.
-4. **Dağıtım:** imza, notarization, güncelleme kanalı (Sparkle veya App Store,
-   ikisi birden değil); sandbox ve entitlement listesi.
+4. **Dağıtım:** imza, notarization, güncelleme kanalı. Kit politikası tek kanal
+   ister; iki kanal birlikte kullanılacaksa gerekçesi ADR'de yazılır. Sandbox ve
+   entitlement listesi.
 5. **NFR:** açılış süresi, bellek, arka plan işi, çoklu ekran davranışı.
 6. **Risk:** geri dönüşü zor kararlar ADR ister.
 
@@ -41,14 +42,14 @@ kanalı. Sunucu yoktur; tek yazıcı uygulama sürecidir.
 | Süreç | Tek yazıcı, köprü sınırı tanımlı |
 | Modül | Kit hedefi UI'sız, bağımlılık yönü tek |
 | Depolama | Migration + yedek + geri dönüş |
-| Dağıtım | Tek kanal, imza/notarization planı |
+| Dağıtım | Kanal gerekçeli, imza/notarization planı |
 | NFR | Açılış/bellek/arka plan hedefi yazılı |
 | Kayıt | `ARCHITECTURE.md` kodla uyumlu |
 
 ## Anti-pattern'ler
 
 - Her şeyi App hedefinde toplamak; test edilemeyen saf mantık.
-- İki güncelleme kanalını birlikte açmak.
+- Gerekçesiz iki güncelleme kanalı açmak.
 - Sandbox'ı "performans" gerekçesiyle kapatmak.
 - Migration'ı "kullanıcı sayısı az" diye atlamak.
 - CLI köprüsünü ikinci yazıcı yapmak.
