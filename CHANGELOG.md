@@ -9,8 +9,9 @@
 - **Regresyon testi** — worktree içinden `check()` ok döner, ana dizinden hata
   verir; mutasyonla doğrulandı.
 - **`main_root()` sertleştirildi** — ana çalışma dizini `git worktree list
-  --porcelain` ilk satırından okunur; submodule ve `--separate-git-dir`
-  düzenlerinde de doğru sonuç verir.
+  --porcelain` ilk satırından okunur. Submodule ve `--separate-git-dir`
+  düzenlerinde git ortak git dizinini bildirir; kapı bu durumda da kapalı
+  yönde davranır (ana çalışma dizininden commit engellenir).
 - **Gerçek git düzeni testi** — `git init` + `git worktree add` ile kurulan
   depoda `main_root` ve `check()` doğrulanır.
 - Degrade worktree dalındaki karşılaştırma bilinçli olarak değişmedi.

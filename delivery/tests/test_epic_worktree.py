@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import sys
 import tempfile
 import unittest
@@ -185,8 +186,19 @@ class MainRootIntegrationTests(unittest.TestCase):
         root = base / "repo"
         root.mkdir()
 
+        env = dict(os.environ)
+        for key in ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE"):
+            env.pop(key, None)
+        env["GIT_CONFIG_GLOBAL"] = os.devnull
+        env["GIT_CONFIG_SYSTEM"] = os.devnull
+
         def run(args, cwd):
-            subprocess.check_call(["git", *args], cwd=cwd, stdout=subprocess.DEVNULL)
+            subprocess.check_call(
+                ["git", "-c", "commit.gpgsign=false", *args],
+                cwd=cwd,
+                stdout=subprocess.DEVNULL,
+                env=env,
+            )
 
         run(["init", "-q"], root)
         run(["config", "user.email", "test@example.com"], root)
@@ -227,7 +239,7 @@ class MainRootIntegrationTests(unittest.TestCase):
                 result = epic_worktree.check(15, linked)
             self.assertTrue(result["ok"])
 
-            main_record = dict(record, isMainWorktree=True, path=str(root))
+            main_record = dict(record, isMainWorktree=False, path=str(root))
             with patch.object(
                 epic_worktree, "orca_available", return_value=True
             ), patch.object(epic_worktree, "current_worktree", return_value=main_record):

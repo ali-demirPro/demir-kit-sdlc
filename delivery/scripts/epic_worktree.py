@@ -49,7 +49,12 @@ def state_path(project: Path, epic: int) -> Path:
 
 
 def main_root(project: Path) -> Path:
-    """The primary checkout, even when called from a linked worktree."""
+    """The worktree git reports first (the primary checkout in a normal layout).
+
+    Submodule and `--separate-git-dir` layouts make git report the common git
+    directory instead; the guard then fails closed rather than letting the main
+    checkout through.
+    """
     listed = git(["worktree", "list", "--porcelain"], project)
     if listed.returncode == 0:
         for line in listed.stdout.splitlines():
