@@ -24,10 +24,17 @@ SKILL_TRIGGER_RE = re.compile(
 )
 
 SKILL_NEGATION_RE = re.compile(
-    r"(?i)\b(not|never|don'?t|doesn'?t|avoid|asla|değil)\W{0,3}$"
+    r"(?i)\b(not|never|don'?t|doesn'?t|avoid|asla|değil)\b"
 )
+# Turkish negation can follow the trigger: "... kullanma", "... gerekmiyor".
+SKILL_POST_NEGATION_RE = re.compile(
+    r"(?i)\b(kullanma|kullanmay|kullanılmaz|gerekmiyor|değil)"
+)
+CLAUSE_RE = re.compile(r"[.;!?\n]")
 
-SKILL_REF_DEF_RE = re.compile(r"^\s{0,3}\[([^\]]+)\]:\s*(\S+)", re.M)
+SKILL_REF_DEF_RE = re.compile(
+    r"^\s{0,3}\[([^\]]+)\]:\s*(<[^>]*>|(?:\\.|\S)+)", re.M
+)
 
 SKILL_REF_USE_RE = re.compile(r"\[([^\]]+)\]\[([^\]]*)\]")
 
@@ -54,7 +61,19 @@ def frontmatter_data(text: str) -> dict:
 def has_trigger(description: str) -> bool:
     """True when a non-negated trigger phrase appears in the description."""
     for match in SKILL_TRIGGER_RE.finditer(description):
-        if SKILL_NEGATION_RE.search(description[: match.start()][-20:]):
+        prefix = description[: match.start()]
+        clause_start = 0
+        for sep in CLAUSE_RE.finditer(prefix):
+            clause_start = sep.end()
+        clause = prefix[clause_start:][-80:]
+        if SKILL_NEGATION_RE.search(clause):
+            continue
+        rest = description[match.end() :]
+        clause_end = len(rest)
+        for sep in CLAUSE_RE.finditer(rest):
+            clause_end = sep.start()
+            break
+        if SKILL_POST_NEGATION_RE.search(rest[:clause_end]):
             continue
         return True
     return False
@@ -86,6 +105,13 @@ def strip_code_and_comments(text: str) -> str:
             fence_len = len(opening.group(1))
             out.append("")
             continue
+        # Blank inline code spans outside fences so `[x](y)` in backticks is
+        # documentation, not a link, and a `<!--` inside a span is not a comment.
+        line = re.sub(
+            r"(`+)(?!`)(.*?)\1",
+            lambda m: " " * len(m.group(0)),
+            line,
+        )
         if in_comment:
             if "-->" in line:
                 in_comment = False
@@ -108,6 +134,7 @@ def normalize_link(target: str) -> str:
     target = target.strip()
     if target.startswith("<") and target.endswith(">"):
         target = target[1:-1].strip()
+    target = re.sub(r"\\(.)", r"\1", target)
     target = target.split("#", 1)[0]
     target = target.split("?", 1)[0]
     return target
@@ -141,14 +168,19 @@ def inline_link_targets(text: str) -> list[str]:
             end = raw.find(">")
             targets.append(raw[: end + 1] if end > 0 else raw)
         else:
-            targets.append(raw.split()[0])
+            # A backslash-escaped space is part of the destination, not a title
+            # separator: protect it, split, restore.
+            protected = raw.replace("\\ ", "\x00")
+            targets.append(protected.split()[0].replace("\x00", " "))
     return targets
 
 
 def relative_links(text: str) -> list[str]:
     """Relative markdown link targets (inline and reference style)."""
     definitions = {
-        label.lower(): target for label, target in SKILL_REF_DEF_RE.findall(text)
+        label.lower(): target
+        for label, target in SKILL_REF_DEF_RE.findall(text)
+        if not label.startswith("^")
     }
     targets = inline_link_targets(text) + list(definitions.values())
     result: list[str] = []
@@ -158,7 +190,7 @@ def relative_links(text: str) -> list[str]:
             continue
         if re.match(r"^[a-z][a-z0-9+.-]*:", normalized, re.I):
             continue
-        if normalized.startswith("#"):
+        if normalized.startswith("#") or normalized.startswith("//"):
             continue
         result.append(normalized)
     return result
@@ -168,6 +200,7 @@ def undefined_references(text: str) -> list[str]:
     """Reference-style usages whose label has no definition."""
     definitions = {
         label.lower() for label, _ in SKILL_REF_DEF_RE.findall(text)
+        if not label.startswith("^")
     }
     missing: list[str] = []
     for label, ref in SKILL_REF_USE_RE.findall(text):
@@ -202,11 +235,11 @@ def lint_skill(path: Path, text: str) -> tuple[list[str], list[str]]:
         errors.append("## Done when bölümü yok")
     else:
         rest = prose[done.end() :]
-        next_heading = re.search(r"^#{1,6} ", rest, re.M)
+        next_heading = re.search(r"^ {0,3}#{1,6} ", rest, re.M)
         section = rest[: next_heading.start()] if next_heading else rest
         lines = section.splitlines()
         setext = any(
-            re.fullmatch(r"[=-]{3,}\s*", lines[index + 1].strip())
+            re.fullmatch(r"[=-]+\s*", lines[index + 1].strip())
             and lines[index].strip()
             for index in range(len(lines) - 1)
         )
@@ -215,7 +248,7 @@ def lint_skill(path: Path, text: str) -> tuple[list[str], list[str]]:
         content = [
             line
             for line in lines
-            if line.strip() and not re.fullmatch(r"[=-]{3,}\s*", line.strip())
+            if line.strip() and not re.fullmatch(r"[=-]+\s*", line.strip())
         ]
         if not content:
             errors.append("## Done when bölümü boş")

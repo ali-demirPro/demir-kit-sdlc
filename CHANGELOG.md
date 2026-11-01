@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.41.0 — 2026-11-01
+
+- **Skill lint kenar durumları** — kaçışlı boşluklu link hedefi doğru çözülür;
+  protokol-göreli (`//host`) link dış sayılır; satır içi kod spanındaki link ve
+  `<!--` taranmaz; dipnot tanımı (`[^1]:`) link sayılmaz.
+- **Olumsuzluk** — cümle başına kadar genişletildi ve Türkçe sonek
+  (`… kullanma`, `… gerekmiyor`) yakalanıyor.
+- **Son bölüm** — girintili ATX (`   ## Next`) ve kısa setext (`--`) başlıkları
+  artık ihlal sayılır.
+
 ## 2.40.0 — 2026-11-01
 
 - **`doctor.py` ayrıştırıldı (refactor)** — skill lint yardımcıları

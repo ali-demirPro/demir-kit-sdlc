@@ -84,9 +84,11 @@ frontmatter sonrası gövde üzerinden yapılır.
 Lint her `skills/<name>/SKILL.md` dizinini denetler: `skills.runtime` ve
 `skills.scoped` (capability'ye bağlı skill'ler) aynı sözleşmeye tabidir. Kapsam dışı kalan dosyalar bilinçlidir:
 
-- `delivery/agents/<rol>/SKILL.md` ve `delivery/orchestrator/SKILL.md` rol
-  işaretçisi dokümanlardır; sözleşme metinleri `how.md` içindedir ve `doctor`
-  `role contracts` kontrolüyle denetlenir.
+- `delivery/agents/<rol>/SKILL.md` rol işaretçisi dokümanlardır; sözleşme
+  metinleri `how.md` içindedir ve `doctor` `role contracts` kontrolüyle
+  (`registry.role_order_default` rolleri) denetlenir.
+- `delivery/orchestrator/how.md` bu denetimin **dışındadır**; orchestrator
+  `role_order_default` içinde değildir.
 - `delivery/packs/*/checklist.md` ve `delivery/protocol/*.md` skill değildir;
   kendi gate ve protokol kurallarıyla denetlenir.
 
