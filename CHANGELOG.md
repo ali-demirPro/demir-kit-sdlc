@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.34.1 — 2026-11-01
+
+- **Epic worktree kapısı** — `epic_worktree.check()` ana çalışma dizinini
+  `main_root()` ile karşılaştırıyor. Önceki karşılaştırma (`path == toplevel`)
+  worktree içinde her zaman doğruydu; kapı hiç yeşile dönmüyor, her leaf
+  degrade kaydıyla ilerliyordu (#108).
+- **Regresyon testi** — worktree içinden `check()` ok döner, ana dizinden hata
+  verir; mutasyonla doğrulandı.
+- Degrade worktree dalındaki karşılaştırma bilinçli olarak değişmedi.
+
 ## 2.34.0 — 2026-11-01
 
 - **Refactor leaf türü** — `entry.kind: refactor`; yol `pure_technical`.

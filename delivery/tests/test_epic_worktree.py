@@ -121,6 +121,24 @@ class EpicWorktreeTests(unittest.TestCase):
             self.assertEqual(result["run_id"], "run_x")
             self.assertEqual(result["branch"], "epic-15")
 
+    def test_check_accepts_worktree_when_toplevel_is_the_worktree(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = project(Path(directory))
+            record = epic_worktree_record(root, 15)
+            epic_worktree.save_state(
+                root,
+                15,
+                {"epic": 15, "path": record["path"], "run_id": "run_x"},
+            )
+            with patch.object(epic_worktree, "orca_available", return_value=True), patch.object(
+                epic_worktree, "current_worktree", return_value=record
+            ), patch.object(
+                epic_worktree, "toplevel", return_value=Path(record["path"]).resolve()
+            ), patch.object(epic_worktree, "main_root", return_value=root):
+                result = epic_worktree.check(15, root)
+            self.assertTrue(result["ok"])
+            self.assertEqual(Path(result["path"]), Path(record["path"]).resolve())
+
     def test_check_requires_run(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = project(Path(directory))

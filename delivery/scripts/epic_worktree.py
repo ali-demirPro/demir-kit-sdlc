@@ -396,7 +396,7 @@ def check(epic: int, project: Path | None = None) -> dict:
         path = Path(str(current.get("path") or "")).resolve()
         display = str(current.get("displayName") or "")
         branch = branch_name(current)
-        if current.get("isMainWorktree") or path == top:
+        if current.get("isMainWorktree") or path == main_root(project).resolve():
             raise WorktreeError(
                 f"ana checkout'tasın; `{name}` worktree'sine geç: "
                 f"`orca worktree activate {name}` veya `cd {state.get('path') or '<epic path>'}`"
