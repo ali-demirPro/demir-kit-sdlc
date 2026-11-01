@@ -104,6 +104,21 @@ def changed_files(base: str, after: str, root: Path = ROOT) -> int | None:
     return len([line for line in result.stdout.splitlines() if line.strip()])
 
 
+def commit_count(base: str, after: str, root: Path = ROOT) -> int | None:
+    """Commits between base..after, or None when the range is unreadable."""
+    resolved_base = resolve_commit(base, root)
+    resolved_after = resolve_commit(after, root)
+    if not resolved_base or not resolved_after:
+        return None
+    result = git(["rev-list", "--count", f"{resolved_base}..{resolved_after}"], root)
+    if result.returncode != 0:
+        return None
+    try:
+        return int(result.stdout.strip() or "0")
+    except ValueError:
+        return None
+
+
 def range_diff_hash(base: str, after: str, root: Path = ROOT) -> str | None:
     """Hash the whole baseline..after diff; reviewers must review this range."""
     resolved_base = resolve_commit(base, root)
@@ -171,15 +186,19 @@ def verify_refactor(
             )
         elif actual > 20:
             errors.append(f"refactor {actual} dosya (üst sınır 20)")
+    baseline_point = block.get("baseline")
+    after_point = block.get("after")
+    baseline_point = baseline_point if isinstance(baseline_point, dict) else {}
+    after_point = after_point if isinstance(after_point, dict) else {}
     if block.get("ui_unchanged") is True:
-        before = (block.get("baseline") or {}).get("snapshots")
-        final = (block.get("after") or {}).get("snapshots")
+        before = baseline_point.get("snapshots")
+        final = after_point.get("snapshots")
         if not before or not final:
             errors.append("ui_unchanged için iki snapshot hash gerekli")
         elif before != final:
             errors.append("ui_unchanged ama snapshot hash farklı")
-    baseline_perf = (block.get("baseline") or {}).get("perf_ms")
-    after_perf = (block.get("after") or {}).get("perf_ms")
+    baseline_perf = baseline_point.get("perf_ms")
+    after_perf = after_point.get("perf_ms")
     if (baseline_perf is None) != (after_perf is None):
         errors.append("perf_ms iki tarafta da olmalı ya da hiç olmamalı")
     return errors
@@ -254,12 +273,26 @@ def verify(
         record.get("refactor") if isinstance(record.get("refactor"), dict) else {}
     )
     if refactor_block:
-        base_ref = str((refactor_block.get("baseline") or {}).get("commit") or "")
-        after_ref = str((refactor_block.get("after") or {}).get("commit") or "")
+        baseline_point = refactor_block.get("baseline")
+        after_point = refactor_block.get("after")
+        base_ref = (
+            str(baseline_point.get("commit") or "")
+            if isinstance(baseline_point, dict)
+            else ""
+        )
+        after_ref = (
+            str(after_point.get("commit") or "")
+            if isinstance(after_point, dict)
+            else ""
+        )
         if base_ref and after_ref:
             range_hash = range_diff_hash(base_ref, after_ref, root)
             if range_hash:
-                allowed_diffs.add(range_hash)
+                steps = commit_count(base_ref, after_ref, root)
+                if steps is not None and steps > 1:
+                    allowed_diffs = {range_hash}
+                else:
+                    allowed_diffs.add(range_hash)
 
     reviewers = record.get("reviewers")
     reviewers = reviewers if isinstance(reviewers, list) else []

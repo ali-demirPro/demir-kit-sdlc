@@ -41,8 +41,27 @@ def make_repo(root: Path) -> tuple[str, str]:
     return first, second
 
 
-def make_many_files_repo(root: Path) -> tuple[str, str]:
-    """Repo whose second commit touches 21 files."""
+def make_three_commit_repo(root: Path) -> tuple[str, str]:
+    """Repo with three commits; returns (first, third)."""
+    git(["init", "-q"], root)
+    git(["config", "user.email", "test@example.com"], root)
+    git(["config", "user.name", "Test"], root)
+    path = root / "file.txt"
+    path.write_text("one\n")
+    git(["add", "file.txt"], root)
+    git(["commit", "-q", "-m", "one"], root)
+    first = git(["rev-parse", "HEAD"], root)
+    path.write_text("two\n")
+    git(["add", "file.txt"], root)
+    git(["commit", "-q", "-m", "two"], root)
+    path.write_text("three\n")
+    git(["add", "file.txt"], root)
+    git(["commit", "-q", "-m", "three"], root)
+    return first, git(["rev-parse", "HEAD"], root)
+
+
+def make_many_files_repo(root: Path, count: int = 21) -> tuple[str, str]:
+    """Repo whose second commit touches `count` files."""
     git(["init", "-q"], root)
     git(["config", "user.email", "test@example.com"], root)
     git(["config", "user.name", "Test"], root)
@@ -50,7 +69,7 @@ def make_many_files_repo(root: Path) -> tuple[str, str]:
     git(["add", "base.txt"], root)
     git(["commit", "-q", "-m", "base"], root)
     first = git(["rev-parse", "HEAD"], root)
-    for index in range(21):
+    for index in range(count):
         (root / f"file-{index}.txt").write_text("x\n")
     git(["add", "."], root)
     git(["commit", "-q", "-m", "many"], root)
@@ -344,13 +363,51 @@ class EvidenceTests(unittest.TestCase):
         self.assertFalse(any("aynı olmalı" in item for item in errors), errors)
 
     def test_refactor_range_hash_is_reviewable(self) -> None:
-        block = self.refactor_block()
-        range_hash = evidence.range_diff_hash(self.first, self.second, self.root)
-        self.assertTrue(range_hash)
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            first, third = make_three_commit_repo(root)
+            range_hash = evidence.range_diff_hash(first, third, root)
+            commit_hash = evidence.diff_hash(third, root)
+            self.assertNotEqual(range_hash, commit_hash)
+            block = {
+                "baseline": {"commit": first, "tests": "pass"},
+                "after": {"commit": third, "tests": "pass"},
+                "unchanged": True,
+                "files_changed": 1,
+            }
+            good = {
+                "commit": third,
+                "diff_hash": commit_hash,
+                "ci": {"status": "skipped", "reason": "unit"},
+                "reviewers": [reviewer("ses_reviewer", range_hash)],
+                "refactor": block,
+            }
+            self.assertEqual(evidence.verify(good, root=root, risk="low"), [])
+            bad = dict(good)
+            bad["reviewers"] = [reviewer("ses_reviewer", commit_hash)]
+            errors = evidence.verify(bad, root=root, risk="low")
+            self.assertTrue(
+                any("farklı diff" in item for item in errors), errors
+            )
+
+    def test_refactor_malformed_point_does_not_crash(self) -> None:
         record = self.record(
-            refactor=block, reviewers=[reviewer("ses_reviewer", range_hash)]
+            refactor={"baseline": "abc", "after": [], "unchanged": True}
         )
-        self.assertEqual(evidence.verify(record, root=self.root, risk="low"), [])
+        errors = evidence.verify(record, root=self.root, risk="low")
+        self.assertTrue(any("baseline" in item for item in errors), errors)
+
+    def test_refactor_twenty_files_pass(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            first, second = make_many_files_repo(root, count=20)
+            block = {
+                "baseline": {"commit": first, "tests": "pass"},
+                "after": {"commit": second, "tests": "pass"},
+                "unchanged": True,
+                "files_changed": 20,
+            }
+            self.assertEqual(evidence.verify_refactor(block, root=root), [])
 
     def test_refactor_requires_files_changed(self) -> None:
         block = self.refactor_block()

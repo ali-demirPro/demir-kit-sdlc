@@ -10,11 +10,11 @@ Aşağıdakilerden **biri** yeterlidir.
 
 | Tetik | Eşik | Ölçüm komutu |
 |-------|------|--------------|
-| Dosya boyutu | > 600 satır (1000'de zorunlu) | `find <src> -name '*.py' -o -name '*.swift' \| xargs wc -l \| sort -n \| tail -20` |
+| Dosya boyutu | > 600 satır (1000'de zorunlu) | `find <src> \( -name '*.py' -o -name '*.swift' \) -print0 \| xargs -0 wc -l \| sort -n \| tail -20` |
 | Tip boyutu | Tek tip > 400 satır | `rg -n '^(class\|struct\|enum) ' <dosya>` |
-| Yayılma | Bir feature > 6 dosya | `git show --stat --format= <commit>` |
+| Yayılma | Bir feature > 6 dosya | `git diff --stat <base>..<after>` |
 | Tekrar eden hata | Aynı modülde 3 fix kaydı | `python3 delivery/scripts/learnings.py --digest` |
-| Test edilemez bağımlılık | Bağımlılık testte değiştirilemiyor | `python3 -m unittest <modül>` |
+| Test edilemez bağımlılık | Bağımlılık testte değiştirilemiyor | `python3 -m unittest <modül>` (test double yazmayı dene; takıldığın yeri kaydet) |
 | Epic kapanışı | Her closure öncesi check-in | `python3 delivery/scripts/report.py --issue <epic>` |
 
 Komutlar örnektir: ürün deposunda `<src>` ve test yolu ürünün yapısına göre
