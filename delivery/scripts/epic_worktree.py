@@ -50,6 +50,13 @@ def state_path(project: Path, epic: int) -> Path:
 
 def main_root(project: Path) -> Path:
     """The primary checkout, even when called from a linked worktree."""
+    listed = git(["worktree", "list", "--porcelain"], project)
+    if listed.returncode == 0:
+        for line in listed.stdout.splitlines():
+            if line.startswith("worktree "):
+                candidate = Path(line[len("worktree ") :].strip())
+                if candidate:
+                    return candidate.resolve()
     result = git(["rev-parse", "--git-common-dir"], project)
     if result.returncode == 0 and result.stdout.strip():
         common = Path(result.stdout.strip())

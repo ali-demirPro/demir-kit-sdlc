@@ -8,6 +8,11 @@
   degrade kaydıyla ilerliyordu (#108).
 - **Regresyon testi** — worktree içinden `check()` ok döner, ana dizinden hata
   verir; mutasyonla doğrulandı.
+- **`main_root()` sertleştirildi** — ana çalışma dizini `git worktree list
+  --porcelain` ilk satırından okunur; submodule ve `--separate-git-dir`
+  düzenlerinde de doğru sonuç verir.
+- **Gerçek git düzeni testi** — `git init` + `git worktree add` ile kurulan
+  depoda `main_root` ve `check()` doğrulanır.
 - Degrade worktree dalındaki karşılaştırma bilinçli olarak değişmedi.
 
 ## 2.34.0 — 2026-11-01
