@@ -65,6 +65,20 @@ ister. Kit kendi geliştirmesinde yeni Orca sürümlerine uyarlanır.
 Yeni leaf'e başlamadan önce `git merge origin/main` (rebase yasak; evidence
 commit SHA'ları korunur). `epic_worktree.py sync --epic E` bunu uygular.
 
+### Branch görünürlüğü
+
+`issue-doctor` iş akışı `main` dalını checkout eder. Kanıt commit'i epic
+branch'inde olduğu için **leaf `leaf-done` almadan önce epic branch'i origin'e
+push edilmiş olmalı**:
+
+```bash
+git push -u origin epic-<E>
+```
+
+Push yoksa CI commit'i göremez (`commit bulunamadı`). `evidence.verify()`
+commit'i yerelde bulamazsa `origin`'den tek commit fetch eder ve `diff_hash`
+kontrolünü yine yapar; uzakta da yoksa kanıt reddedilir.
+
 İnsan kapısı `orca orchestration gate-create --task <task_id>` ile açılır;
 onayda `gate-resolve` çözülür. Worker sorusu `ask/reply`, coordinator mesajı
 `inbox` üzerinden yürür; GitHub yorumu kalıcı kayıttır.

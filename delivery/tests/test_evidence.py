@@ -41,6 +41,29 @@ def make_repo(root: Path) -> tuple[str, str]:
     return first, second
 
 
+def bare_remote_fixture(base: Path) -> tuple[Path, Path, str]:
+    """A clone missing the newest commit, its source repo and that commit.
+
+    The bare remote enables SHA fetch like GitHub does, so `fetch_commit` can be
+    tested end to end.
+    """
+    origin = base / "origin.git"
+    source = base / "source"
+    clone = base / "clone"
+    subprocess.check_call(["git", "init", "--bare", "-q", str(origin)])
+    git(["config", "uploadpack.allowAnySHA1InWant", "true"], origin)
+    source.mkdir()
+    make_repo(source)
+    git(["remote", "add", "origin", str(origin)], source)
+    git(["push", "-q", "origin", "HEAD:main"], source)
+    subprocess.check_call(["git", "clone", "-q", str(origin), str(clone)])
+    (source / "file.txt").write_text("three\n")
+    git(["add", "file.txt"], source)
+    git(["commit", "-q", "-m", "three"], source)
+    git(["push", "-q", "origin", "HEAD:main"], source)
+    return clone, source, git(["rev-parse", "HEAD"], source)
+
+
 def reviewer(identifier: str, diff_hash: str) -> dict:
     return {
         "role": "adversarial",
@@ -78,6 +101,61 @@ class EvidenceTests(unittest.TestCase):
             evidence.diff_hash(self.first, self.root),
             evidence.diff_hash(self.second, self.root),
         )
+
+    def test_remote_commit_satisfies_missing_local_commit(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            clone, source, new = bare_remote_fixture(Path(raw))
+            self.assertFalse(evidence.commit_exists(new, clone))
+            record = self.record(
+                commit=new,
+                diff_hash=evidence.diff_hash(new, source),
+                reviewers=[reviewer("ses_reviewer", evidence.diff_hash(new, source))],
+            )
+            errors = evidence.verify(
+                record, root=clone, repo="org/repo", risk="low"
+            )
+            self.assertEqual(errors, [])
+            self.assertTrue(evidence.commit_exists(new, clone))
+
+    def test_fetched_commit_still_checks_diff_hash(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            clone, source, new = bare_remote_fixture(Path(raw))
+            wrong = "sha256:" + "0" * 64
+            record = self.record(
+                commit=new, diff_hash=wrong, reviewers=[reviewer("ses_reviewer", wrong)]
+            )
+            errors = evidence.verify(
+                record, root=clone, repo="org/repo", risk="low"
+            )
+        self.assertTrue(any("eşleşmiyor" in item for item in errors), errors)
+
+    def test_missing_commit_everywhere_fails(self) -> None:
+        record = self.record(commit="b" * 40)
+        with patch.object(evidence, "fetch_commit", return_value=False):
+            errors = evidence.verify(
+                record, root=self.root, repo="org/repo", risk="low"
+            )
+        self.assertTrue(any("commit bulunamadı" in item for item in errors), errors)
+
+    def test_missing_commit_without_repo_fails(self) -> None:
+        record = self.record(commit="c" * 40)
+        with patch.object(evidence, "fetch_commit") as fetch:
+            errors = evidence.verify(record, root=self.root, risk="low")
+            fetch.assert_not_called()
+        self.assertTrue(any("commit bulunamadı" in item for item in errors), errors)
+
+    def test_fetch_commit_rejects_non_commit_input(self) -> None:
+        self.assertFalse(evidence.fetch_commit("not-a-sha", self.root))
+
+    def test_fetch_commit_from_origin(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            clone, source, new = bare_remote_fixture(Path(raw))
+            self.assertFalse(evidence.commit_exists(new, clone))
+            self.assertTrue(evidence.fetch_commit(new, clone))
+            self.assertTrue(evidence.commit_exists(new, clone))
+            self.assertEqual(
+                evidence.diff_hash(new, clone), evidence.diff_hash(new, source)
+            )
 
     def test_valid_verification(self) -> None:
         self.assertEqual(

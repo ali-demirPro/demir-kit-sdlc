@@ -34,6 +34,28 @@ def commit_exists(commit: str, root: Path = ROOT) -> bool:
     return git(["cat-file", "-e", f"{commit}^{{commit}}"], root).returncode == 0
 
 
+def fetch_commit(commit: str, root: Path = ROOT) -> bool:
+    """Fetch one commit from origin so a branch-only commit can be verified.
+
+    Epic leaves close before the epic branch is merged, so a CI checkout of the
+    default branch may not carry the commit object. Fetching keeps diff_hash
+    verification intact instead of trusting a remote existence check.
+    """
+    if not COMMIT_RE.fullmatch(commit or ""):
+        return False
+    try:
+        result = subprocess.run(
+            ["git", "fetch", "--no-tags", "origin", commit],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return result.returncode == 0 and commit_exists(commit, root)
+
+
 def resolve_commit(value: str, root: Path = ROOT) -> str | None:
     result = git(["rev-parse", value], root)
     if result.returncode != 0:
@@ -79,10 +101,13 @@ def verify(
         return ["verification mapping değil"]
 
     commit = str(record.get("commit") or "")
-    if not commit_exists(commit, root):
+    local_commit = commit_exists(commit, root)
+    if not local_commit and repo:
+        local_commit = fetch_commit(commit, root)
+    if not local_commit:
         errors.append(f"commit bulunamadı: {commit or 'yok'}")
 
-    expected = diff_hash(commit, root) if commit_exists(commit, root) else None
+    expected = diff_hash(commit, root) if local_commit else None
     recorded_diff = str(record.get("diff_hash") or "")
     if not HASH_RE.fullmatch(recorded_diff):
         errors.append("diff_hash sha256 biçiminde değil")

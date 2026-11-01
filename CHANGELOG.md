@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.32.1 — 2026-11-01
+
+- **CI: commit görünürlüğü** — `evidence.verify()` commit'i yerelde bulamazsa
+  `origin`'den fetch eder ve `diff_hash` kontrolünü korur. Epic branch'i
+  birleşmeden kapandığı için commit `main`'de yoktu; `issue-doctor` kırmızıya
+  düşüyordu. Protokol artık leaf kapanışından önce `git push -u origin epic-<E>`
+  istiyor. Uzakta da bulunmayan commit reddedilir.
+- **Regresyon testleri** — sahte origin'den fetch, uzakta olmayan commit,
+  repo yokken fetch atlama ve fetch sonrası `diff_hash` eşleşmesi test edilir.
+
 ## 2.32.0 — 2026-11-01
 
 - **Skill yazım sözleşmesi** — `delivery/policies/skill-writing.md`: description
