@@ -1,4 +1,4 @@
-# Delivery flow — v2.37
+# Delivery flow — v2.38
 
 Tek doğruluk kaynağı [CONTRACT.md](CONTRACT.md). Bu dosya yalnız hızlı
 yönlendirmedir; akış, etiketler ve otonomi sınırı CONTRACT'ta tanımlıdır.
