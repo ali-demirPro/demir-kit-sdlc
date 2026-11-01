@@ -12,5 +12,5 @@ Behavior veya dedicated CP sonrası. Derin tarama prosedürü:
 - Reduce Motion: animasyon alternatifi veya respect
 - Keyboard / Switch Control: odak sırası ve donanım klavye hazırlığı
   (macOS/iPadOS)
-- Touch target ≥ 44×44 pt
+- Touch target ≥ 44×44 pt (dokunmatik platformlar; macOS'ta `apple-macos` pack)
 - XCTest accessibility audit exit 0 (ürün script'i ecosystem'te tanımlı)

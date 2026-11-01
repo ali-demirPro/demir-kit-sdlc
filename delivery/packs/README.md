@@ -7,6 +7,7 @@ olduğunu belirler.
 | Pack | Gate id | Ne doğrular |
 |------|---------|-------------|
 | `apple-hig` | platform.hig | Human Interface Guidelines (UI reviewer checklist) |
+| `apple-macos` | platform.macos | macOS yüzeyi: menü, toolbar, sandbox, notarization, Liquid Glass |
 | `apple-a11y` | platform.a11y | VoiceOver, Dynamic Type, contrast, Reduce Motion |
 | `apple-privacy` | platform.privacy | Privacy manifest, ATT, required reason APIs |
 | `apple-asc` | platform.store | App Store Connect metadata, screenshots spec |

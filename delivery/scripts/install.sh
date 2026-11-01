@@ -5,6 +5,7 @@
 #   ./install.sh                 # v2 skills/ (local source)
 #   ./install.sh --dry-run       # print source + skills, install nothing
 #   ./install.sh --with-platform # + orchestration, orca-cli (global)
+#   ./install.sh --capabilities  # + capability-scoped skills (skills.scoped)
 #   ./install.sh --legacy        # same runtime set from the v1 archive
 set -euo pipefail
 
@@ -14,6 +15,7 @@ cd "$ROOT"
 WITH_PLATFORM=false
 LEGACY=false
 DRY_RUN=false
+CAPABILITIES=false
 
 usage() {
   sed -n '2,8p' "$SCRIPT_PATH"
@@ -22,6 +24,7 @@ usage() {
 for arg in "$@"; do
   case "$arg" in
     --with-platform) WITH_PLATFORM=true ;;
+    --capabilities) CAPABILITIES=true ;;
     --legacy) LEGACY=true ;;
     --dry-run) DRY_RUN=true ;;
     -h|--help)
@@ -76,6 +79,11 @@ if [[ ${#SKILLS[@]} -eq 0 ]]; then
   exit 1
 fi
 
+if [[ "$LEGACY" == true && "$CAPABILITIES" == true ]]; then
+  echo "install.sh: --legacy ve --capabilities birlikte kullanılmaz (v1'de scoped skill yok)." >&2
+  exit 1
+fi
+
 if [[ "$LEGACY" == true ]]; then
   SRC="file://${ROOT}/archive/v1.7"
   SKILL_ROOT="${ROOT}/archive/v1.7/skills"
@@ -90,12 +98,21 @@ else
   SKILL_ROOT="${ROOT}/${SKILL_DIR_REL}"
 fi
 
+if [[ "$CAPABILITIES" == true ]]; then
+  SCOPED_SKILLS="$(python3 "${ROOT}/delivery/scripts/skill_scope.py" \
+    --project "${ROOT}" --root "${ROOT}" --json \
+    | python3 -c 'import json,sys; print("\n".join(json.load(sys.stdin)["scoped"]))')"
+  while IFS= read -r skill; do
+    [[ -n "$skill" ]] && SKILLS+=("$skill")
+  done <<< "$SCOPED_SKILLS"
+fi
+
 MISSING=()
 for skill in "${SKILLS[@]}"; do
   [[ -f "${SKILL_ROOT}/${skill}/SKILL.md" ]] || MISSING+=("$skill")
 done
 if [[ ${#MISSING[@]} -gt 0 ]]; then
-  echo "install.sh: missing runtime skills under ${SKILL_ROOT}:" >&2
+  echo "install.sh: missing skills under ${SKILL_ROOT}:" >&2
   printf '  - %s\n' "${MISSING[@]}" >&2
   exit 1
 fi

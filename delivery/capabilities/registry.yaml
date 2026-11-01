@@ -300,6 +300,21 @@ capabilities:
     evidence: [locale_matrix, pseudo_locale, copy_review]
 
   # ------------------------------------------------------------ distribution
+  distribution.direct:
+    kind: distribution
+    label: Doğrudan dağıtım
+    description: "App Store dışı dağıtım: paketleme, imzalama, notarization ve güncelleme kanalı."
+    match:
+      distribution: [direct, dmg, notarize, notarization, notarized, sparkle]
+    roles:
+      devops: expert
+      security: practitioner
+      tester: practitioner
+    packs: [apple-macos, launch-readiness]
+    risk_floor: medium
+    gates: [behavior, platform, human]
+    evidence: [signing, notarization, update_channel]
+
   distribution.app_store:
     kind: distribution
     label: App Store

@@ -1,4 +1,4 @@
-# Delivery contract — v2.34
+# Delivery contract — v2.37
 
 Bu dosya delivery'nin **tek durum makinesi**dir. Agent, path ve risk verisi
 `registry.yaml`'da; artefakt şekilleri `schemas/` altında; uygulama
@@ -111,7 +111,9 @@ otomatik yükselir; agent düşüremez. Ayrıntı: `policies/quality-gates.md`.
   `package_version: 2` ise doğrulanabilir `verification` + evidence comment.
   `package_version: 3` ise ayrıca `worktree` ve `worker`/`degrade` zorunlu.
   `package_version: 4` ise ayrıca her `tests_plan` case'inde `check` zorunlu:
-  `snap` → CP `gates.ui: true`, `manual` → CP `gates.human: true`.
+  `snap` → CP `gates.ui: true`, `manual` → CP `gates.human: true`. Aktif bir
+  capability `gates` listesinde `human` bildiriyorsa en az bir CP
+  `gates.human: true` olmalı.
 - **Leaf:** tüm CP'ler + her AC en az bir test case ile kapsanmış + açık bulgu yok +
   risk `high`/`critical` ise insan QA + `leaf-done`. Leaf commit'i epic branch'inde
   kalır; `leaf-done` main merge beklemez.

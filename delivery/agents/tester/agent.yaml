@@ -22,6 +22,7 @@ capabilities_required:
   - quality.privacy
   - quality.observability
   - distribution.web
+  - distribution.direct
 variants:
   platform.web:
     doc: variants/web.md
@@ -32,8 +33,8 @@ variants:
     eval: evals/ios.md
     min_level: expert
   platform.macos:
-    doc: variants/ios.md
-    eval: evals/ios.md
+    doc: variants/macos.md
+    eval: evals/macos.md
     min_level: expert
   platform.android:
     doc: variants/android.md
@@ -94,6 +95,10 @@ variants:
   distribution.web:
     doc: variants/delivery.md
     eval: evals/delivery.md
+    min_level: practitioner
+  distribution.direct:
+    doc: variants/direct.md
+    eval: evals/direct.md
     min_level: practitioner
 handoffs: [developer, orchestrator]
 escalation: [coverage_gap, flaky_test, device_unavailable, environment_down]

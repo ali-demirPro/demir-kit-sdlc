@@ -627,6 +627,43 @@ def check_skills() -> None:
         if declared != name:
             error(f"{rel(path)}: frontmatter adı '{declared}' ('{name}' bekleniyor)")
 
+    check("scoped skills")
+    scoped = skills.get("scoped")
+    if scoped is not None and not isinstance(scoped, dict):
+        error("registry.yaml: skills.scoped mapping değil")
+        scoped = {}
+    seen_scoped: dict[str, str] = {}
+    capability_registry = load_yaml(DELIVERY / "capabilities" / "registry.yaml") or {}
+    known_caps = set((capability_registry.get("capabilities") or {}).keys())
+    for capability, names in (scoped or {}).items():
+        if str(capability) not in known_caps:
+            error(f"registry.skills.scoped: bilinmeyen capability '{capability}'")
+        if not isinstance(names, list):
+            error(f"registry.skills.scoped.{capability} liste değil")
+            continue
+        for name in names:
+            name = str(name)
+            path = skills_root / name / "SKILL.md"
+            if not path.is_file():
+                error(f"registry.skills.scoped.{capability}: {rel(path)} yok")
+                continue
+            declared_name = frontmatter_name(path.read_text(encoding="utf-8")) or ""
+            if declared_name != name:
+                error(
+                    f"{rel(path)}: frontmatter adı '{declared_name}' "
+                    f"('{name}' bekleniyor)"
+                )
+            if name in seen_scoped:
+                error(
+                    "registry.skills.scoped: "
+                    f"'{name}' iki capability'de — {seen_scoped[name]} / {capability}"
+                )
+            seen_scoped[name] = str(capability)
+            if name in expected:
+                error(
+                    f"registry.skills.scoped: '{name}' hem runtime hem scoped"
+                )
+
     lint_runtime_skills(skills_root)
 
 
@@ -1181,6 +1218,25 @@ def check_issue_body(
             f"issue seal: capability risk_floor '{risk_floor}' seal risk "
             f"'{risk}' üstünde; seal riskini yükselt"
         )
+    if package_version >= 4:
+        human_caps = [
+            capability
+            for capability in resolution.get("capabilities") or []
+            if "human"
+            in (
+                (capability_registry.get("capabilities") or {}).get(capability) or {}
+            ).get("gates", [])
+        ]
+        if human_caps and not any(
+            (cp.get("gates") or {}).get("human") is True
+            for cp in cps
+            if isinstance(cp, dict)
+        ):
+            error(
+                "capability insan kapısı istiyor: "
+                + ", ".join(human_caps)
+                + " — bir checkpoint'te gates.human true olmalı"
+            )
     if risk in {"high", "critical"}:
         seen_gaps = set()
         for gap in resolution.get("variant_gaps") or []:

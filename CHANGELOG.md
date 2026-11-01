@@ -1,5 +1,62 @@
 # Changelog
 
+## 2.37.0 — 2026-11-01
+
+- **Capability'ye bağlı skill'ler** — `registry.yaml` `skills.scoped`:
+  `platform.macos` → `mac-verify`, `swift-stack`. Bu iki skill yalnız macOS
+  capability'si bildiren projelerde kurulur; web projesinde gürültü olmaz.
+- **`mac-verify`** — macOS kanıt sözleşmesi: `behavior`/`selftest`/`snapshot`
+  komutları, `/tmp` store, light+dark, inaktif pencere kuralı, refactor
+  `ui_unchanged` modu.
+- **`swift-stack`** — Swift 6 izolasyonu, SwiftData geçişi, AppKit köprüsü sınırı,
+  CLI build/imza (içten dışa) ve tanılama tuzakları.
+- **`install.sh --capabilities`** — `skill_scope.py` ile projenin
+  `.kit/capabilities.yaml` bildirimine göre runtime + scoped skill listesi
+  üretir; `--dry-run` doğru listeyi basar.
+- **`doctor` `scoped skills`** — scoped skill dosyası var mı, aynı skill iki
+  capability'de mi, runtime ile çakışıyor mu denetlenir.
+
+## 2.36.0 — 2026-11-01
+
+- **`apple-macos` pack** — macOS yüzeyi için 14 maddelik platform checklist'i:
+  menü çubuğu, kısayol, toolbar, sidebar, pencere, kontrol ölçüsü, tipografi,
+  erişilebilirlik, Liquid Glass (yalnız macOS 26+ ve functional layer), sandbox,
+  imza/notarization, güncelleme kanalı, veri/migration, gizlilik. 10–12. maddeler
+  Apple dağıtım belgelerine, diğerleri HIG sayfalarına dayanır. `apple-hig` ve
+  `apple-a11y` içindeki 44×44 pt kuralı dokunmatik platformlara daraltıldı;
+  macOS için bu pack geçerli.
+- **`distribution.direct`** — App Store dışı dağıtım capability'si: `dmg`,
+  `notarize`, `notarization`, `sparkle` değerleriyle aktifleşir; risk tabanı
+  `medium`. Önceki durumda doğrudan dağıtım için capability yoktu, yani
+  notarization ve güncelleme kanalı kanıt olarak istenmiyordu.
+- **İnsan kapısı zorlanıyor** — `gates` alanında `human` bildiren bir capability
+  aktifse, `package_version: 4` seal'inde en az bir checkpoint `gates.human: true`
+  olmak zorunda; `doctor` bunu denetler.
+- **Rol kapsamı** — `devops` (expert), `security` (practitioner), `tester`
+  (practitioner). `release` ve `documenter`'ın `agent.yaml` dosyası olmadığı
+  için resolver bu rollere capability'ye özgü **varyant dokümanı** veremiyor;
+  temel roller dokümanları yine yüklenir. Varyant haritası üç rolle sınırlı;
+  `release` rolünün dağıtım onayı akışı ayrı iş (insan kapısı) olarak yürür.
+- **Geçiş notu** — 2.36 öncesi mühürlenmiş `package_version: 4` leaf'lerde
+  `gates.human: true` CP yoksa `doctor --issue` artık hata verir; kural
+  geriye dönük uygulanır.
+- **Playbook'lar** — `devops/variants/direct.md` (paketleme, imza, notarization,
+  kanal, geri dönüş), `tester/variants/direct.md` (spctl/stapler doğrulaması),
+  `security/variants/direct.md` (imza zinciri, entitlement, appcast).
+- **`macos-app` profili** artık `apple-macos` pack'ini listeliyor.
+
+## 2.35.0 — 2026-11-01
+
+- **macOS varyantları** — `designer`, `developer`, `tester`, `architect` için
+  `variants/macos.md`. Önceki hâlde `platform.macos` iOS/mobile dokümanına
+  işaret ediyordu; macOS leaf'i iPhone ekran matrisi ve XCUITest talimatı
+  alıyordu.
+- **Alias lint** — `variants.py`, kendi `macos.md` dosyası olan bir rolde
+  `platform.macos` eşlemesi başka dosyaya bakıyorsa hata verir. Paylaşımlı
+  doküman kullanan roller (security, devops, marketing) etkilenmez.
+- **Regresyon testleri** — dört rolün eşlemesi, yedi bölümlü doküman şablonu,
+  alias reddi ve `resolver` çıktısında `ios.md` bulunmaması test edilir.
+
 ## 2.34.1 — 2026-11-01
 
 - **Epic worktree kapısı** — `epic_worktree.check()` ana çalışma dizinini
