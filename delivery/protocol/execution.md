@@ -72,8 +72,11 @@ branch'inde olduğu için **leaf `leaf-done` almadan önce epic branch'i origin'
 push edilmiş olmalı**:
 
 ```bash
-git push -u origin epic-<E>
+git push -u origin HEAD
 ```
+
+Branch adı namespaced olabilir (`ali-demirPro/epic-<E>`); `HEAD` kullanmak
+refspec hatasını önler.
 
 Push yoksa CI commit'i göremez (`commit bulunamadı`). `evidence.verify()`
 commit'i yerelde bulamazsa `origin`'den tek commit fetch eder ve `diff_hash`
