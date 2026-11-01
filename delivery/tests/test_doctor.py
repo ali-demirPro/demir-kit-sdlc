@@ -159,7 +159,10 @@ class LeafSchemaTests(DoctorTestCase):
                     fenced("demir-kit", leaf(package_version=version)), [], None
                 )
                 self.assertFalse(
-                    any("denetim türü" in item for item in doctor.ERRORS),
+                    any(
+                        "denetim türü" in item or "insan onayı" in item
+                        for item in doctor.ERRORS
+                    ),
                     doctor.ERRORS,
                 )
 
@@ -277,6 +280,19 @@ class LeafSchemaTests(DoctorTestCase):
             any("insan onayı" in item for item in doctor.ERRORS), doctor.ERRORS
         )
 
+    def test_v3_human_gate_keeps_old_behaviour(self) -> None:
+        data = leaf(package_version=3)
+        data["checkpoints"][0]["gates"]["human"] = True
+        comments = [
+            fenced("demir-kit-evidence", self.v4_record()),
+            "run degrade: unit test",
+        ]
+        with patch.object(doctor.evidence_lib, "verify", return_value=[]):
+            doctor.check_issue_body(fenced("demir-kit", data), ["leaf-done"], comments)
+        self.assertFalse(
+            any("insan onayı" in item for item in doctor.ERRORS), doctor.ERRORS
+        )
+
     def test_unknown_check_kind_is_rejected(self) -> None:
         bad = leaf(package_version=4)
         bad["tests_plan"][0]["cases"][0]["check"] = "vibes"
@@ -294,9 +310,10 @@ class LeafSchemaTests(DoctorTestCase):
     def test_test_plan_skill_documents_five_kinds(self) -> None:
         text = (ROOT / "skills" / "test-plan" / "SKILL.md").read_text(encoding="utf-8")
         for kind in ("gate", "unit", "snap", "manual", "doc"):
-            self.assertIn(f"`{kind}`", text)
+            self.assertIn(f"| `{kind}` |", text)
         self.assertIn("gates.ui", text)
         self.assertIn("gates.human", text)
+        self.assertIn("Seçim kuralı", text)
 
     def test_checkpoint_membership(self) -> None:
         doctor.check_issue_body(

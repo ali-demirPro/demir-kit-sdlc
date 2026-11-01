@@ -10,6 +10,9 @@
 - **Gate eşleşmesi** — `snap` türü case, checkpoint'te `gates.ui: true`;
   `manual` türü case `gates.human: true` olmadan mühürlenemez. Görsel veya
   insan doğrulaması isteyen AC artık ilgili gate olmadan geçemez.
+- **İnsan kapısı kanıtı** — `package_version: 4` leaf'te `gates.human: true`
+  olan her CP `leaf-done` anında `reviews.human: approved` ister; düşük riskte
+  bile açık insan kapısı kendiliğinden kapanmaz.
 - **Skill'ler** — `test-plan` beş türü ve seçim kuralını, `work-package`
   şablonu v4'ü ve `check` alanını anlatıyor.
 

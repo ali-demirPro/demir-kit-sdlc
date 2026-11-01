@@ -94,8 +94,9 @@ workers:
   `worker`/`workers` zorunludur. Orca yoksa `worker` yerine `degrade.reason` yazılır
   ve issue'da `run degrade:` yorumu bulunur.
 - `package_version: 4` yukarıdakileri devralır. `snap` case'i olan CP
-  `ui_visual`, `ui_interaction` ve `comparison_valid: true`; `manual` case'i olan
-  CP `reviews.human: approved` borçludur.
+  `ui_visual`, `ui_interaction` ve `comparison_valid: true` borçludur.
+  `gates.human: true` olan CP `reviews.human: approved` ister; `manual` test
+  türü bu kapıyı seal anında zorunlu kılar.
 - `orca` bloğu run/task/dispatch kanıtını taşır; insan kapısı varsa `gate_id`
   beklenir. UI/native kanıtı `orca.artifact` linkiyle eklenir. Degrade modunda
   `orca` yerine `degrade` yeterlidir.
