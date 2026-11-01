@@ -154,7 +154,7 @@ class MacosMappingTest(unittest.TestCase):
     def test_validate_agent_reports_alias(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)
-            agent_dir = root / "designer"
+            agent_dir = root / "delivery" / "agents" / "designer"
             (agent_dir / "variants").mkdir(parents=True)
             (agent_dir / "evals").mkdir()
             (agent_dir / "variants" / "macos.md").write_text("x\n", encoding="utf-8")
@@ -163,6 +163,7 @@ class MacosMappingTest(unittest.TestCase):
             (agent_dir / "evals" / "macos.md").write_text("x\n", encoding="utf-8")
             agent = {
                 "id": "designer",
+                "capabilities_required": ["platform.macos"],
                 "variants": {
                     "platform.macos": {
                         "doc": "variants/ios.md",
@@ -173,11 +174,14 @@ class MacosMappingTest(unittest.TestCase):
                 "handoffs": [],
                 "escalation": ["x"],
             }
-            capabilities = {"capabilities": {"platform.macos": {"roles": {}}}}
+            capabilities = {"platform.macos": {"roles": {"designer": "expert"}}}
             errors = variants.validate_agent(
                 "designer", agent, capabilities, {"designer"}, root=root
             )
-        self.assertTrue(any("macos.md" in item for item in errors), errors)
+        self.assertTrue(
+            any("macOS varyantı" in item and "variants/ios.md" in item for item in errors),
+            errors,
+        )
 
     def test_repository_variants_validate(self) -> None:
         result = subprocess.run(
