@@ -5,6 +5,9 @@ Runtime skills are always installed. Scoped skills (registry `skills.scoped`)
 are installed only when the project declares the matching capability in
 `.kit/capabilities.yaml`.
 
+`--root` yalnız `registry.yaml` konumunu belirler; capability çözümlemesi
+(profil ve .kit bildirimi) her zaman kit köküne göre yapılır.
+
 Usage:
   python3 delivery/scripts/skill_scope.py --project .
   python3 delivery/scripts/skill_scope.py --project . --json

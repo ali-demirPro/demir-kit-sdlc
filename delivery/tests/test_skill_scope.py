@@ -142,8 +142,18 @@ class ScopedRegistryTest(unittest.TestCase):
                     },
                 }
             }
+            capabilities = {
+                "capabilities": {
+                    "platform.macos": {"roles": {}},
+                    "platform.ios": {"roles": {}},
+                }
+            }
+
+            def fake_load(path):
+                return capabilities if "capabilities" in str(path) else registry
+
             doctor.ERRORS.clear()
-            with patch.object(doctor, "load_yaml", return_value=registry), patch.object(
+            with patch.object(doctor, "load_yaml", side_effect=fake_load), patch.object(
                 doctor, "skill_dir", return_value=root
             ):
                 doctor.check_skills()
