@@ -1,6 +1,6 @@
 # DevOps — macOS
 
-**Capability:** `platform.macos` · **Min level:** expert
+**Capability:** `platform.macos` · **Min level:** practitioner
 **Gate:** `behavior`, `platform`
 
 ## Kapsam

@@ -1,6 +1,6 @@
 # Security — macOS
 
-**Capability:** `platform.macos` · **Min level:** practitioner
+**Capability:** `platform.macos` · **Min level:** expert
 **Gate:** `platform`
 
 ## Kapsam
