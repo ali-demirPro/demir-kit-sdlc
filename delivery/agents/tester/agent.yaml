@@ -32,7 +32,7 @@ variants:
     eval: evals/ios.md
     min_level: expert
   platform.macos:
-    doc: variants/ios.md
+    doc: variants/macos.md
     eval: evals/ios.md
     min_level: expert
   platform.android:

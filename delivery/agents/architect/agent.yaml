@@ -24,7 +24,7 @@ capabilities_required:
 variants:
   platform.web: { doc: variants/web.md, eval: evals/design.md, min_level: expert }
   platform.ios: { doc: variants/mobile.md, eval: evals/design.md, min_level: expert }
-  platform.macos: { doc: variants/mobile.md, eval: evals/design.md, min_level: expert }
+  platform.macos: { doc: variants/macos.md, eval: evals/design.md, min_level: expert }
   platform.android: { doc: variants/mobile.md, eval: evals/design.md, min_level: expert }
   platform.api: { doc: variants/api.md, eval: evals/design.md, min_level: expert }
   platform.cli: { doc: variants/api.md, eval: evals/design.md, min_level: practitioner }

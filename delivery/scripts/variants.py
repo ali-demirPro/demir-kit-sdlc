@@ -14,6 +14,21 @@ ROOT = Path(__file__).resolve().parents[2]
 AGENTS = ROOT / "delivery" / "agents"
 LEVELS = ["aware", "practitioner", "expert", "authority"]
 
+# A role that ships its own macOS playbook must point platform.macos at it.
+# Aliasing macOS to ios.md sends iPhone instructions to a Mac app. Roles that
+# keep one shared desktop/mobile doc (security, devops, marketing) are left
+# alone until they get their own file.
+def macos_alias_error(role: str, cap_id: str, doc: str, agent_dir: Path) -> str | None:
+    if cap_id != "platform.macos":
+        return None
+    if not (agent_dir / "variants" / "macos.md").is_file():
+        return None
+    if Path(doc).name == "macos.md":
+        return None
+    return (
+        f"{role}.{cap_id}: macOS varyantı variants/macos.md olmalı — {doc}"
+    )
+
 
 def load_yaml(path: Path) -> dict:
     try:
@@ -77,6 +92,9 @@ def validate_agent(
             errors.append(f"{role}.{cap_id}: doc yolu variants/*.md olmalı")
         elif not (agent_dir / doc).is_file():
             errors.append(f"{role}.{cap_id}: variant doc yok — {doc}")
+        alias = macos_alias_error(role, cap_id, doc, agent_dir)
+        if alias:
+            errors.append(alias)
         if not eval_doc.startswith("evals/") or not eval_doc.endswith(".md"):
             errors.append(f"{role}.{cap_id}: eval yolu evals/*.md olmalı")
         elif not (agent_dir / eval_doc).is_file():

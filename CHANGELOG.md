@@ -1,5 +1,17 @@
 # Changelog
 
+## 2.35.0 — 2026-11-01
+
+- **macOS varyantları** — `designer`, `developer`, `tester`, `architect` için
+  `variants/macos.md`. Önceki hâlde `platform.macos` iOS/mobile dokümanına
+  işaret ediyordu; macOS leaf'i iPhone ekran matrisi ve XCUITest talimatı
+  alıyordu.
+- **Alias lint** — `variants.py`, kendi `macos.md` dosyası olan bir rolde
+  `platform.macos` eşlemesi başka dosyaya bakıyorsa hata verir. Paylaşımlı
+  doküman kullanan roller (security, devops, marketing) etkilenmez.
+- **Regresyon testleri** — dört rolün eşlemesi, yedi bölümlü doküman şablonu,
+  alias reddi ve `resolver` çıktısında `ios.md` bulunmaması test edilir.
+
 ## 2.34.1 — 2026-11-01
 
 - **Epic worktree kapısı** — `epic_worktree.check()` ana çalışma dizinini
