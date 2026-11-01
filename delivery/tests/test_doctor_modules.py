@@ -24,7 +24,19 @@ class ModuleSplitTest(unittest.TestCase):
             self.assertTrue((SCRIPTS / name).is_file(), name)
 
     def test_doctor_uses_the_modules(self) -> None:
-        self.assertEqual(doctor.lint_skill.__module__, "doctor_skills")
+        for name in (
+            "lint_skill",
+            "frontmatter_name",
+            "frontmatter_data",
+            "relative_links",
+            "strip_code_and_comments",
+            "normalize_link",
+            "inline_link_targets",
+            "undefined_references",
+            "has_trigger",
+        ):
+            with self.subTest(symbol=name):
+                self.assertEqual(getattr(doctor, name).__module__, "doctor_skills")
         self.assertEqual(doctor.surface_gate_errors.__module__, "doctor_surfaces")
 
     def test_interface_is_unchanged(self) -> None:

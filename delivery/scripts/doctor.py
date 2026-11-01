@@ -34,7 +34,7 @@ import evidence as evidence_lib  # noqa: E402
 import profiles as profiles_lib  # noqa: E402
 import resolver as resolver_lib  # noqa: E402
 import variants as variants_lib  # noqa: E402
-from doctor_skills import (  # noqa: E402
+from doctor_skills import (  # noqa: E402, F401  (public re-exports)
     frontmatter_data,
     frontmatter_name,
     has_trigger,
@@ -44,6 +44,12 @@ from doctor_skills import (  # noqa: E402
     relative_links,
     strip_code_and_comments,
     undefined_references,
+)
+from doctor_skills import (  # noqa: E402, F401  (public re-exports)
+    SKILL_NEGATION_RE,
+    SKILL_REF_DEF_RE,
+    SKILL_REF_USE_RE,
+    SKILL_TRIGGER_RE,
 )
 from doctor_surfaces import surface_gate_errors  # noqa: E402
 import routing  # noqa: E402
@@ -570,8 +576,6 @@ def check_fleet() -> None:
         seen.add(name)
 
 
-
-
 def check_ecosystem() -> None:
     check("ecosystem")
     eco = load_yaml(ROOT / "ecosystem.yaml")
@@ -689,26 +693,6 @@ def run(command: list[str]) -> str:
     if result.returncode != 0:
         return ""
     return result.stdout
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 def lint_runtime_skills(root: Path) -> None:
