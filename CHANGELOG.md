@@ -19,6 +19,10 @@
   merge edilmemiş bir branch commit'ine bağlanmak hata verir; `origin/main`
   ref'i yoksa (çevrimdışı/eksik klon) uyarı basar. Yalnız `.git` içeren
   submodule/kurulumlarda çalışır; `vendor_sync` kopyaları etkilenmez.
+- **Ham worktree yakalanır** — `doctor` linked worktree'nin Orca'da kayıtlı
+  olduğunu doğrular; `git worktree add` ile açılan checkout hata verir. Orca
+  yoksa sessizce degrade olur, CI'da atlanır. `CONTRACT.md` I17/I18 olarak
+  kurala bağlandı.
 
 ## 2.31.0 — 2026-10-31
 

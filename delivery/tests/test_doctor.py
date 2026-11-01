@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -1060,6 +1061,96 @@ class VersionDriftTests(DoctorTestCase):
         doctor.check_version_drift(ROOT, version)
         self.assertEqual(doctor.ERRORS, [])
         self.assertEqual(doctor.WARNS, [])
+
+
+class WorktreeManagementTests(DoctorTestCase):
+    def run_check(
+        self,
+        root: Path,
+        *,
+        linked: bool = True,
+        recorded: str | None = None,
+        orca: bool = True,
+        ci: bool = False,
+    ) -> None:
+        def git_stub(path, *args):
+            if args[-1] == "--git-dir":
+                return str(root / ".git" / "worktrees" / "wt") if linked else str(
+                    root / ".git"
+                )
+            if args[-1] == "--git-common-dir":
+                return str(root / ".git")
+            return None
+
+        worktree = (
+            {"git": {"path": recorded}, "createdAt": 1}
+            if recorded is not None
+            else None
+        )
+        env = {"CI": "1"} if ci else {"CI": ""}
+        with patch.object(doctor, "_git_output", side_effect=git_stub), patch.object(
+            doctor.epic_worktree, "orca_available", return_value=orca
+        ), patch.object(
+            doctor.epic_worktree, "current_worktree", return_value=worktree
+        ), patch.dict(os.environ, env):
+            doctor.check_worktree_management(root)
+
+    def test_raw_worktree_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.run_check(root)
+            self.assertTrue(
+                any("Orca dışında açılmış" in item for item in doctor.ERRORS),
+                doctor.ERRORS,
+            )
+
+    def test_orca_worktree_passes(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.run_check(root, recorded=str(root))
+            self.assertEqual(doctor.ERRORS, [])
+
+    def test_external_worktree_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            worktree = {"git": {"path": str(root)}}  # Orca buldu ama açmadı
+            env = {"CI": ""}
+
+            def git_stub(path, *args):
+                if args[-1] == "--git-dir":
+                    return str(root / ".git" / "worktrees" / "wt")
+                if args[-1] == "--git-common-dir":
+                    return str(root / ".git")
+                return None
+
+            with patch.object(doctor, "_git_output", side_effect=git_stub), patch.object(
+                doctor.epic_worktree, "orca_available", return_value=True
+            ), patch.object(
+                doctor.epic_worktree, "current_worktree", return_value=worktree
+            ), patch.dict(os.environ, env):
+                doctor.check_worktree_management(root)
+            self.assertTrue(
+                any("Orca dışında açılmış" in item for item in doctor.ERRORS),
+                doctor.ERRORS,
+            )
+
+    def test_main_checkout_is_not_policed(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.run_check(root, linked=False)
+            self.assertEqual(doctor.ERRORS, [])
+
+    def test_missing_orca_degrades_silently(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.run_check(root, orca=False)
+            self.assertEqual(doctor.ERRORS, [])
+
+    def test_ci_is_skipped(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.run_check(root, ci=True)
+            self.assertEqual(doctor.ERRORS, [])
 
 
 if __name__ == "__main__":

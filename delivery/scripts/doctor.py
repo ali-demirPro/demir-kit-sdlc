@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import shlex
 import subprocess
@@ -1277,6 +1278,36 @@ def check_issue(
                 "demir-kit-accept comment'i gerekli"
             )
 
+def check_worktree_management(root: Path = ROOT) -> None:
+    """Linked worktree Orca'da kayıtlı olmalı; ham `git worktree add` yakalanır."""
+    check("worktree")
+    if os.environ.get("CI"):
+        return
+    git_dir = _git_output(root, "rev-parse", "--git-dir")
+    common = _git_output(root, "rev-parse", "--git-common-dir")
+    if not git_dir or not common:
+        return
+
+    def resolve(value: str) -> Path:
+        path = Path(value)
+        return path.resolve() if path.is_absolute() else (root / path).resolve()
+
+    if resolve(git_dir) == resolve(common):
+        return  # ana checkout; worktree kuralı burada uygulanmaz
+    if not epic_worktree.orca_available(root):
+        return  # Orca yok: kayıtlı degrade mod
+    worktree = epic_worktree.current_worktree(root) or {}
+    recorded = str((worktree.get("git") or {}).get("path") or "")
+    # Orca dışarıdan bulduğu worktree'yi listeler ama createdAt yazmaz; Orca'nın
+    # açtığı checkout'ta bu alan vardır.
+    managed = bool(worktree.get("createdAt"))
+    if not recorded or Path(recorded).resolve() != root.resolve() or not managed:
+        error(
+            "worktree: bu checkout Orca dışında açılmış — kaynak değişikliği "
+            "için 'orca worktree create' kullan, ham 'git worktree add' açma"
+        )
+
+
 def _git_output(path: Path, *args: str) -> str | None:
     try:
         result = subprocess.run(
@@ -1510,6 +1541,7 @@ def main() -> int:
     args = parser.parse_args()
 
     product_root = (args.root or Path.cwd()).resolve()
+    check_worktree_management(product_root if args.product else ROOT)
     if args.product:
         check_product(product_root)
     else:
