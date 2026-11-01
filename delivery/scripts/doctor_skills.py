@@ -28,11 +28,13 @@ SKILL_NEGATION_RE = re.compile(
 )
 # Turkish negation can follow the trigger: "... kullanma", "... gerekmiyor".
 SKILL_POST_NEGATION_RE = re.compile(
-    r"(?i)\b(kullanma|kullanmay|gerekmiyor|değil)\b"
+    r"(?i)\b(kullanma|kullanmay|kullanılmaz|gerekmiyor|değil)"
 )
 CLAUSE_RE = re.compile(r"[.;!?\n]")
 
-SKILL_REF_DEF_RE = re.compile(r"^\s{0,3}\[([^\]]+)\]:\s*(\S+)", re.M)
+SKILL_REF_DEF_RE = re.compile(
+    r"^\s{0,3}\[([^\]]+)\]:\s*(<[^>]*>|\S.*?)\s*$", re.M
+)
 
 SKILL_REF_USE_RE = re.compile(r"\[([^\]]+)\]\[([^\]]*)\]")
 
@@ -105,7 +107,11 @@ def strip_code_and_comments(text: str) -> str:
             continue
         # Blank inline code spans outside fences so `[x](y)` in backticks is
         # documentation, not a link, and a `<!--` inside a span is not a comment.
-        line = re.sub(r"`[^`]*`", lambda m: " " * len(m.group(0)), line)
+        line = re.sub(
+            r"(`+)(?!`)(.*?)\1",
+            lambda m: " " * len(m.group(0)),
+            line,
+        )
         if in_comment:
             if "-->" in line:
                 in_comment = False

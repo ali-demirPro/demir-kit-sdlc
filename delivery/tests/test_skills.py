@@ -223,6 +223,26 @@ class LintEdgeCaseTest(unittest.TestCase):
         errors, _ = self.lint("## Steps\n\nRead [x](my\\ file.md).\n")
         self.assertFalse(any("göreli link" in item for item in errors), errors)
 
+    def test_escaped_space_in_reference_definition(self) -> None:
+        (self.root / "my file.md").write_text("x\n", encoding="utf-8")
+        for definition in ("[doc]: <my\\ file.md>", "[doc]: my\\ file.md"):
+            with self.subTest(definition=definition):
+                body = f"## Steps\n\nRead [x][doc].\n\n{definition}\n"
+                errors, _ = self.lint(body)
+                self.assertFalse(
+                    any("göreli link" in item for item in errors), errors
+                )
+
+    def test_missing_reference_definition_with_space_is_reported(self) -> None:
+        body = "## Steps\n\nRead [x][doc].\n\n[doc]: <missing file.md>\n"
+        errors, _ = self.lint(body)
+        self.assertTrue(any("göreli link" in item for item in errors), errors)
+
+    def test_multi_backtick_span_does_not_hide_a_broken_link(self) -> None:
+        body = "## Steps\n\nSample ``a ` b`` then [x](missing.md).\n"
+        errors, _ = self.lint(body)
+        self.assertTrue(any("göreli link" in item for item in errors), errors)
+
     def test_protocol_relative_link_is_external(self) -> None:
         errors, _ = self.lint("## Steps\n\nSee [s](//example.com/x).\n")
         self.assertEqual(errors, [])
@@ -258,6 +278,20 @@ class LintEdgeCaseTest(unittest.TestCase):
         )
         errors, _ = doctor.lint_skill(self.path, text)
         self.assertTrue(any("tetikleyici" in item for item in errors), errors)
+
+    def test_turkish_suffix_variants_are_rejected(self) -> None:
+        for suffix in ("kullanma.", "kullanmayın.", "kullanmayız."):
+            with self.subTest(suffix=suffix):
+                text = skill(
+                    description=(
+                        "Leaf mühürler ve her kriteri bir case'e bağlar. "
+                        f"Ne zaman mühür gerekliyse {suffix}"
+                    )
+                )
+                errors, _ = doctor.lint_skill(self.path, text)
+                self.assertTrue(
+                    any("tetikleyici" in item for item in errors), errors
+                )
 
     def test_indented_atx_after_done_when_is_rejected(self) -> None:
         text = skill(done_when="## Done when\n\nShipped.\n\n   ## Next\n\nMore.\n")
