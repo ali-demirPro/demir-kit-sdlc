@@ -127,10 +127,17 @@ class CpCloseTests(unittest.TestCase):
         self.assertIn("geri alındı", err)
 
     def test_comment_body_is_marked(self) -> None:
+        import re
+
+        import yaml
+
         body = cp_close.comment_body(RECORD)
-        self.assertTrue(body.startswith("```yaml\ndemir-kit-evidence"))
-        parsed = cp_close.load_evidence(Path("/dev/stdin")) if False else None
-        self.assertIn("cp_id: CP-1", body)
+        match = re.search(
+            r"```yaml\s+demir-kit-evidence\s*\n(.*?)```", body, re.S
+        )
+        self.assertIsNotNone(match)
+        parsed = yaml.safe_load(match.group(1))
+        self.assertEqual(parsed["cp_id"], "CP-1")
 
     def test_delete_failure_is_reported(self) -> None:
         with patch.object(cp_close, "run_gate", return_value=(0, "")), patch.object(
@@ -235,6 +242,54 @@ status: pass
         errors = list(doctor.ERRORS)
         self.assertFalse(any("CP-2 evidence yok" in e for e in errors))
         self.assertTrue(any("reviewer onayı gerekli" in e for e in errors))
+
+    def test_evidence_mode_fails_closed(self) -> None:
+        doctor = cp_close.doctor
+        body = """```yaml demir-kit
+demir_kit_version: "2"
+package_version: 4
+mode: extend
+epic: 1
+entry: {kind: feature}
+factory: {profile: kit-internal}
+intent: iki checkpointli test leaf
+surfaces: [kit.docs]
+reference: {kind: github_paths, summary: referans dokuman, paths: [delivery/CONTRACT.md]}
+acceptance_criteria: [{id: AC-1, text: kabul kriteri metni}]
+out_of_scope: [kapsam disi]
+risk: {level: low}
+tests_plan:
+  - checkpoint_id: CP-1
+    cases: [{id: T-1, ac: AC-1, text: test metni, check: doc}]
+  - checkpoint_id: CP-2
+    cases: [{id: T-2, ac: AC-1, text: test metni, check: doc}]
+checkpoints:
+  - {id: CP-1, title: birinci, gates: {behavior: true}}
+  - {id: CP-2, title: ikinci, gates: {behavior: true}}
+```
+"""
+        evidence = """```yaml
+demir-kit-evidence
+cp_id: CP-1
+status: pass
+```
+"""
+        doctor.ERRORS.clear()
+        doctor.WARNS.clear()
+        doctor.check_issue_body(
+            body, ["executing"], None, root=doctor.ROOT, repo=None,
+            evidence_text="", checkpoint="CP-1",
+        )
+        self.assertTrue(any("kayıt bulunamadı" in e for e in doctor.ERRORS))
+
+        doctor.ERRORS.clear()
+        doctor.check_issue_body(
+            body, ["executing"], None, root=doctor.ROOT, repo=None,
+            evidence_text=evidence, checkpoint="CP-2",
+        )
+        self.assertTrue(
+            any("checkpoint CP-2 için kayıt yok" in e for e in doctor.ERRORS)
+        )
 
     def test_load_evidence_fenced_and_plain(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

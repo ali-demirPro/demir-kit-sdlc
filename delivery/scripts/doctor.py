@@ -999,6 +999,12 @@ def check_issue_body(
                 error(f"evidence: cp_id '{record['cp_id']}' seal'de yok")
             evidence[record["cp_id"]] = record
 
+        if evidence_text is not None:
+            if not evidence:
+                error("evidence: kayıt bulunamadı")
+            elif checkpoint and checkpoint != "CP-HEALTH" and checkpoint not in evidence:
+                error(f"evidence: checkpoint {checkpoint} için kayıt yok")
+
         # Only the latest evidence per CP is authoritative; earlier retries stay
         # in the issue history without blocking the leaf.
         for cp_id, record in evidence.items():
