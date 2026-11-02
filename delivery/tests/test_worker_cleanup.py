@@ -40,7 +40,7 @@ class WorkerCleanupTests(unittest.TestCase):
         )
         self.assertIsNone(cleanup.skip_reason(worker("d", "succeeded", "reclaimable")))
         self.assertIn(
-            "retained", cleanup.skip_reason(worker("e", "succeeded", "retained"))
+            "elle incele", cleanup.skip_reason(worker("e", "succeeded", "retained"))
         )
         self.assertIn(
             "bilinmiyor", cleanup.skip_reason(worker("f", "succeeded", ""))

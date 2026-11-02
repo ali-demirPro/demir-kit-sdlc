@@ -260,6 +260,23 @@ class WorkerUsageTests(unittest.TestCase):
                 picked = usage.sessions_in(worktree)
         self.assertEqual([row["id"] for row in picked], ["right"])
 
+    def test_sessions_in_ignores_blank_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as worktree:
+            old = Path.cwd()
+            import os
+
+            os.chdir(worktree)
+            try:
+                rows = [
+                    {"id": "blank", "directory": ""},
+                    {"id": "right", "directory": worktree},
+                ]
+                with patch.object(usage, "run_in", return_value=json.dumps(rows)):
+                    picked = usage.sessions_in(worktree)
+            finally:
+                os.chdir(old)
+        self.assertEqual([row["id"] for row in picked], ["right"])
+
     def test_ambiguous_window_returns_none(self) -> None:
         sessions = [
             {"id": "a", "created": 10_000},

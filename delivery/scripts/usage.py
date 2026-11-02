@@ -365,11 +365,8 @@ def dispatch_usage(dispatch_id: str) -> dict:
 def run_workers(run_id: str) -> list[dict]:
     rows: list[dict] = []
     cursor = None
-    seen: set[str | None] = set()
+    seen: set[str] = set()
     while True:
-        if cursor in seen:
-            break
-        seen.add(cursor)
         args = [
             "orchestration",
             "worker-list",
@@ -387,6 +384,7 @@ def run_workers(run_id: str) -> list[dict]:
         next_cursor = (result.get("page") or {}).get("nextCursor")
         if not next_cursor or next_cursor in seen or not page:
             break
+        seen.add(str(next_cursor))
         cursor = next_cursor
     return rows
 
