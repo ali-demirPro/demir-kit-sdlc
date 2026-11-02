@@ -1637,8 +1637,9 @@ def check_product(root: Path) -> None:
             if not (root / surface_path).exists():
                 error(f"ecosystem.{pname}.{sname}: path yok — {surface_path}")
             gate = (spec.get("gates") or {}).get("behavior")
+            for message in surface_gate_errors(str(pname), str(sname), spec):
+                error(message)
             if not gate:
-                error(f"ecosystem.{pname}.{sname}: gates.behavior yok")
                 continue
             try:
                 first = shlex.split(gate)[0]
@@ -1647,9 +1648,33 @@ def check_product(root: Path) -> None:
             if first.startswith(("./", "scripts/")) and not (root / first).is_file():
                 error(f"ecosystem.{pname}.{sname}: gate script yok — {first}")
 
+    node_stacks = {
+        "node",
+        "javascript",
+        "typescript",
+        "next",
+        "react",
+        "vue",
+        "svelte",
+        "sveltekit",
+        "vite",
+        "astro",
+        "web",
+        "deno",
+        "bun",
+    }
+    node_surface = False
+    for product in products.values():
+        for spec in (product.get("surfaces") or {}).values():
+            stacks = (spec or {}).get("stacks") or []
+            if isinstance(stacks, str):
+                stacks = [stacks]
+            if any(str(stack).lower() in node_stacks for stack in stacks):
+                node_surface = True
     package = root / "package.json"
     if not package.is_file():
-        warn("package.json yok")
+        if node_surface:
+            warn("package.json yok")
     else:
         data = load_json(package)
         if isinstance(data, dict):

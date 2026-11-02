@@ -30,6 +30,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import resolver  # noqa: E402
+import routing  # noqa: E402
 
 
 def load_registry(root: Path) -> dict:
@@ -39,6 +40,14 @@ def load_registry(root: Path) -> dict:
     except (OSError, yaml.YAMLError):
         return {}
     return data if isinstance(data, dict) else {}
+
+
+def resolve_project(cwd: Path, kit_root: Path) -> Path:
+    """Product root when the caller stands in one; otherwise the kit root.
+
+    Delegates to routing.project_root so the rule lives in one place.
+    """
+    return routing.project_root(Path(kit_root), Path(cwd))
 
 
 def declared_capabilities(project: Path) -> set[str]:
@@ -95,12 +104,20 @@ def select(project: Path, root: Path = ROOT) -> dict:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="resolve skills to install")
-    parser.add_argument("--project", default=".")
+    parser.add_argument("--project")
+    parser.add_argument("--cwd", help="current directory; product root is resolved from it")
     parser.add_argument("--root", default=str(ROOT))
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
+    root = Path(args.root)
+    if args.project:
+        project = Path(args.project)
+    elif args.cwd:
+        project = resolve_project(Path(args.cwd), root)
+    else:
+        project = Path(".")
     try:
-        data = select(Path(args.project), Path(args.root))
+        data = select(project, root)
     except ValueError as exc:
         print(f"skill_scope: {exc}", file=sys.stderr)
         return 1

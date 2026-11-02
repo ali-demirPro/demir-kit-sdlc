@@ -284,3 +284,79 @@ class DirectDistributionTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ProductCheckTest(unittest.TestCase):
+    """doctor --product must validate the product's own ecosystem contract."""
+
+    def _run(self, root: Path) -> None:
+        import importlib.util
+        from unittest.mock import patch
+
+        spec = importlib.util.spec_from_file_location("doctor", SCRIPTS / "doctor.py")
+        doctor = importlib.util.module_from_spec(spec)
+        assert spec.loader is not None
+        spec.loader.exec_module(doctor)
+        doctor.ERRORS.clear()
+        doctor.WARNS.clear()
+        with patch.object(doctor, "ROOT", root):
+            doctor.check_product(root)
+        self.errors = list(doctor.ERRORS)
+        self.warns = list(doctor.WARNS)
+
+    def _product(self, root: Path, gates: str, stacks: str = "[swift]") -> None:
+        (root / "kit.config.yaml").write_text(
+            "kit:\n  root: kit\n  protocol: '2'\n  version: '0'\n"
+            "factory:\n  app_paths: [App]\n",
+            encoding="utf-8",
+        )
+        (root / "kit").mkdir()
+        (root / "kit" / "delivery" / "scripts").mkdir(parents=True)
+        (root / "kit" / "delivery" / "scripts" / "doctor.py").write_text("")
+        (root / "kit" / "VERSION").write_text("0\n")
+        (root / "App").mkdir()
+        (root / "AGENTS.md").write_text("# demo\n", encoding="utf-8")
+        (root / "ecosystem.yaml").write_text(
+            "name: Demo\nproducts:\n  app:\n    surfaces:\n      app:\n"
+            f"        path: App\n        stacks: {stacks}\n        gates: {gates}\n",
+            encoding="utf-8",
+        )
+
+    def test_ui_surface_without_snapshot_is_an_error(self) -> None:
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            self._product(root, "{ behavior: 'true', ui: true }")
+            self._run(root)
+        self.assertTrue(any("snapshot" in item for item in self.errors), self.errors)
+
+    def test_swift_project_does_not_warn_about_package_json(self) -> None:
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            self._product(
+                root,
+                "{ behavior: 'true', ui: true, snapshot: './snap.sh' }",
+            )
+            self._run(root)
+        self.assertFalse(
+            any("package.json" in item for item in self.warns), self.warns
+        )
+
+
+    def test_node_surface_without_package_json_warns(self) -> None:
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            self._product(
+                root,
+                "{ behavior: 'true', ui: false }",
+                stacks="[next]",
+            )
+            self._run(root)
+        self.assertTrue(
+            any("package.json" in item for item in self.warns), self.warns
+        )

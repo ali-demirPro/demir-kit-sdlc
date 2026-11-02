@@ -6,6 +6,7 @@ Run: python3 -m unittest discover -s delivery/tests -v
 from __future__ import annotations
 
 import importlib.util
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -71,6 +72,53 @@ class SkillScopeTest(unittest.TestCase):
             data = skill_scope.select(project, ROOT)
         self.assertEqual(sorted(data["scoped"]), sorted(SCOPED))
         self.assertEqual(len(data["install"]), len(set(data["install"])))
+
+
+class InstallProjectRootTest(unittest.TestCase):
+    def test_resolve_project_prefers_product_checkout(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            product = Path(raw)
+            (product / "kit.config.yaml").write_text("kit: {root: kit}\n")
+            self.assertEqual(
+                skill_scope.resolve_project(product, Path("/kit")), product
+            )
+
+    def test_resolve_project_falls_back_to_kit_root(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            plain = Path(raw)
+            self.assertEqual(
+                skill_scope.resolve_project(plain, Path("/kit")), Path("/kit")
+            )
+
+    def test_cwd_mode_reads_the_product_declaration(self) -> None:
+        from unittest.mock import patch
+        import subprocess
+        import sys
+
+        with tempfile.TemporaryDirectory() as raw:
+            product = Path(raw)
+            (product / "kit.config.yaml").write_text("kit: {root: kit}\n")
+            (product / ".kit").mkdir()
+            (product / ".kit" / "capabilities.yaml").write_text(
+                "version: 1\ninclude: [platform.macos]\nexclude: []\n",
+                encoding="utf-8",
+            )
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(SCRIPTS / "skill_scope.py"),
+                    "--cwd",
+                    str(product),
+                    "--root",
+                    str(ROOT),
+                    "--json",
+                ],
+                capture_output=True,
+                text=True,
+            )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertEqual(sorted(payload["scoped"]), sorted(SCOPED))
 
 
 class ScopedRegistryTest(unittest.TestCase):
@@ -190,3 +238,61 @@ class ScopedRegistryTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class InstallScriptTest(unittest.TestCase):
+    """End-to-end: install.sh must read the product's own declaration."""
+
+    def run_install(self, product: Path) -> tuple[int, str]:
+        import os
+        import subprocess
+        import sys
+
+        bindir = product / ".fakebin"
+        bindir.mkdir()
+        stub = bindir / "npx"
+        stub.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        stub.chmod(0o755)
+        env = dict(os.environ)
+        env["PATH"] = f"{bindir}:{env.get('PATH', '')}"
+        result = subprocess.run(
+            [
+                "bash",
+                str(SCRIPTS / "install.sh"),
+                "--capabilities",
+                "--dry-run",
+            ],
+            cwd=product,
+            capture_output=True,
+            text=True,
+            env=env,
+        )
+        return result.returncode, result.stdout + result.stderr
+
+    def product(self, root: Path, include: str = "platform.macos") -> None:
+        (root / "kit.config.yaml").write_text("kit: {root: kit}\n", encoding="utf-8")
+        (root / ".kit").mkdir()
+        (root / ".kit" / "capabilities.yaml").write_text(
+            f"version: 1\ninclude: [{include}]\nexclude: []\n", encoding="utf-8"
+        )
+
+    def test_product_declaration_adds_scoped_skills(self) -> None:
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as raw:
+            product = Path(raw)
+            self.product(product)
+            code, output = self.run_install(product)
+        self.assertEqual(code, 0, output)
+        for name in SCOPED:
+            self.assertIn(name, output)
+
+    def test_unknown_capability_fails_the_install(self) -> None:
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as raw:
+            product = Path(raw)
+            self.product(product, include="platform.nonexistent")
+            code, output = self.run_install(product)
+        self.assertNotEqual(code, 0, output)
+        self.assertIn("bilinmeyen capability", output)

@@ -9,6 +9,7 @@
 #   ./install.sh --legacy        # same runtime set from the v1 archive
 set -euo pipefail
 
+CALLER_PWD="$PWD"
 SCRIPT_PATH="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$ROOT"
@@ -99,9 +100,12 @@ else
 fi
 
 if [[ "$CAPABILITIES" == true ]]; then
-  SCOPED_SKILLS="$(python3 "${ROOT}/delivery/scripts/skill_scope.py" \
-    --project "${ROOT}" --root "${ROOT}" --json \
-    | python3 -c 'import json,sys; print("\n".join(json.load(sys.stdin)["scoped"]))')"
+  if ! SCOPED_SKILLS="$(python3 "${ROOT}/delivery/scripts/skill_scope.py" \
+      --cwd "${CALLER_PWD}" --root "${ROOT}" --json \
+      | python3 -c 'import json,sys; print("\n".join(json.load(sys.stdin)["scoped"]))')"; then
+    echo "install.sh: capability bildirimi okunamadı (.kit/capabilities.yaml)" >&2
+    exit 1
+  fi
   while IFS= read -r skill; do
     [[ -n "$skill" ]] && SKILLS+=("$skill")
   done <<< "$SCOPED_SKILLS"

@@ -617,12 +617,12 @@ class EvidenceTests(DoctorTestCase):
             doctor.check_issue_body(
                 fenced(
                     "demir-kit",
-                    leaf(intent="Fatura listesi metnini güncelle.", risk={"level": "medium"}),
+                    leaf(intent="Ödeme listesi metnini güncelle.", risk={"level": "medium"}),
                 ),
                 [],
                 None,
                 root=root,
-                title="Fatura",
+                title="Ödeme",
             )
             self.assertEqual(doctor.ERRORS, [])
 
@@ -633,12 +633,12 @@ class EvidenceTests(DoctorTestCase):
             doctor.check_issue_body(
                 fenced(
                     "demir-kit",
-                    leaf(intent="Fatura listesi metnini güncelle.", risk={"level": "medium"}),
+                    leaf(intent="Ödeme listesi metnini güncelle.", risk={"level": "medium"}),
                 ),
                 [],
                 None,
                 root=root,
-                title="Fatura",
+                title="Ödeme",
             )
             self.assertTrue(
                 any(
@@ -655,14 +655,14 @@ class EvidenceTests(DoctorTestCase):
                 fenced(
                     "demir-kit",
                     leaf(
-                        intent="Fatura listesi metnini güncelle.",
+                        intent="Ödeme listesi metnini güncelle.",
                         risk={"level": "high", "reasons": ["metadata"]},
                     ),
                 ),
                 [],
                 None,
                 root=root,
-                title="Fatura",
+                title="Ödeme",
             )
             self.assertEqual(doctor.ERRORS, [])
 
@@ -671,11 +671,11 @@ class EvidenceTests(DoctorTestCase):
             root = Path(directory)
             write_project(root, "domain.payments")
             doctor.check_issue_body(
-                fenced("demir-kit", leaf(intent="Fatura listesi metnini güncelle.")),
+                fenced("demir-kit", leaf(intent="Ödeme listesi metnini güncelle.")),
                 ["leaf-done"],
                 [fenced("demir-kit-evidence", evidence(agent="data"))],
                 root=root,
-                title="Fatura",
+                title="Ödeme",
             )
             self.assertFalse(
                 any("agent 'data'" in item for item in doctor.ERRORS),
