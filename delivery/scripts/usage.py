@@ -304,6 +304,58 @@ def empty_tokens() -> dict:
 
 
 _UNSET = object()
+SESSION_MAP = "worker-sessions.json"
+
+
+def state_root() -> Path:
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--path-format=absolute", "--git-common-dir"],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode == 0:
+            candidate = Path(result.stdout.strip()).parent
+            if candidate.is_dir():
+                return candidate
+    except (FileNotFoundError, OSError):
+        pass
+    return project_root()
+
+
+def session_map_path() -> Path:
+    return state_root() / ".orchestration" / SESSION_MAP
+
+
+def load_session_map() -> dict:
+    try:
+        data = json.loads(session_map_path().read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def record_session(dispatch_id: str, session: dict) -> None:
+    data = load_session_map()
+    data[str(dispatch_id)] = {
+        "id": str(session.get("id") or ""),
+        "title": str(session.get("title") or ""),
+        "created": int(session.get("created") or 0),
+        "updated": int(session.get("updated") or 0),
+    }
+    if len(data) > 200:
+        for key in sorted(
+            data, key=lambda item: int((data[item] or {}).get("created") or 0)
+        )[: len(data) - 200]:
+            data.pop(key, None)
+    path = session_map_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def mapped_session(dispatch_id: str) -> dict | None:
+    entry = load_session_map().get(str(dispatch_id))
+    return entry if isinstance(entry, dict) and entry.get("id") else None
 
 
 def worker_window(dispatch_id: str) -> dict:
@@ -395,7 +447,12 @@ def dispatch_usage(
         "confidence": "unavailable",
     }
     if session is _UNSET:
-        session = session_for_window(sessions_in(path), start_ms, end_ms)
+        mapped = mapped_session(dispatch_id)
+        session = (
+            mapped
+            if mapped
+            else session_for_window(sessions_in(path), start_ms, end_ms)
+        )
     if not session:
         return base
     try:
@@ -470,7 +527,10 @@ def run_usage(run_id: str) -> dict:
         dispatch_usage(
             str(window["dispatch_id"]),
             window=window,
-            session=assigned.get(str(window["dispatch_id"])),
+            session=(
+                mapped_session(str(window["dispatch_id"]))
+                or assigned.get(str(window["dispatch_id"]))
+            ),
         )
         for window in windows
     ]

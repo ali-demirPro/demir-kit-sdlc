@@ -32,7 +32,10 @@ tahmin edilmez.
 
 - Kaynak: GitHub issue etiket zamanları + evidence comment'leri.
 - Worker sayıları: `python3 delivery/scripts/usage.py --run <run_id> --json`
-  (dispatch → OpenCode çalışması eşlemesi; bulunamazsa `unavailable`). Aynı
+  (dispatch → OpenCode çalışması eşlemesi; bulunamazsa `unavailable`).
+  `review_wave` başlattığı worker'ın çalışma kimliğini
+  `.orchestration/worker-sessions.json`'a yazar; `usage` önce bu kaydı kullanır.
+  Kayıt yoksa aynı
   worktree'de paralel dispatch'ler başlangıç sırasına göre monoton eşleştirilir;
   tamamlanmış dispatch'te bitişe en yakın `updated`, aktif dispatch'te oluşma
   sırası kullanılır. 1 saniyeden kısa arayla başlayan veya tek `--dispatch`

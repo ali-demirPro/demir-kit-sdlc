@@ -26,6 +26,7 @@ import closure  # noqa: E402
 import model_policy  # noqa: E402
 import review_packet  # noqa: E402
 import routing  # noqa: E402
+import usage  # noqa: E402
 import worker_cleanup  # noqa: E402
 
 SETTLED = {"succeeded", "failed", "stopped"}
@@ -94,6 +95,20 @@ def parse_verdict(text: str) -> bool | None:
         return True
     return None
 
+def capture_session(
+    dispatch_id: str, worktree: str, known_ids: set[str], timeout: int = 20
+) -> dict | None:
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        for session in usage.sessions_in(worktree):
+            if str(session.get("id")) in known_ids:
+                continue
+            usage.record_session(dispatch_id, session)
+            return session
+        time.sleep(0.5)
+    return None
+
+
 def start_worker(
     name: str, spec: str, run_id: str, worktree: str, model: str | None = None
 ) -> dict:
@@ -115,6 +130,7 @@ def start_worker(
     task_id = str((task.get("task") or {}).get("id") or task.get("taskId") or "")
     if not task_id:
         return {"name": name, "error": "task oluşmadı"}
+    known = {str(item.get("id")) for item in usage.sessions_in(worktree)}
     started = orca(
         [
             "orchestration",
@@ -134,6 +150,8 @@ def start_worker(
         ]
     )
     dispatch = str(started.get("dispatchId") or "")
+    if dispatch:
+        capture_session(dispatch, worktree, known)
     return {
         "name": name,
         "task_id": task_id,

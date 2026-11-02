@@ -208,6 +208,16 @@ class WorkerUsageTests(unittest.TestCase):
         self.assertEqual(row["tokens"]["input"], 200)
         self.assertEqual(row["context_peak"], 270)
 
+    def test_record_and_mapped_session(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "map.json"
+            with patch.object(usage, "session_map_path", return_value=path):
+                usage.record_session(
+                    "ctx_a",
+                    {"id": "s1", "title": "t", "created": 1, "updated": 2},
+                )
+                self.assertEqual(usage.mapped_session("ctx_a")["id"], "s1")
+
     def test_assign_parallel_sessions(self) -> None:
         windows = [
             {"dispatch_id": "a", "path": "/w", "start_ms": 0, "end_ms": 10_000},

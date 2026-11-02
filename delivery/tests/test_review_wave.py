@@ -45,27 +45,39 @@ class ReviewWaveTests(unittest.TestCase):
         self.assertIn("approved: true|false", text)
         self.assertIn("dosya değiştirme", text)
 
+    def test_capture_session_records_new(self) -> None:
+        with patch.object(
+            review_wave.usage, "sessions_in", return_value=[{"id": "s_new"}]
+        ), patch.object(review_wave.usage, "record_session") as record:
+            session = review_wave.capture_session("ctx", "/w", {"s_old"}, timeout=1)
+        self.assertEqual(session["id"], "s_new")
+        record.assert_called_once()
+
     def test_start_worker(self) -> None:
         responses = [
             {"task": {"id": "task_1"}},
             {"dispatchId": "ctx_1"},
         ]
-        with patch.object(review_wave, "orca", side_effect=responses) as orca:
+        with patch.object(
+            review_wave, "capture_session", return_value=None
+        ), patch.object(review_wave, "orca", side_effect=responses) as orca:
             worker = review_wave.start_worker("a", "SPEC", "run_1", "/tmp")
         self.assertEqual(worker["dispatch_id"], "ctx_1")
         self.assertEqual(orca.call_count, 2)
 
     def test_start_worker_passes_model_only_when_set(self) -> None:
         responses = [{"task": {"id": "t1"}}, {"dispatchId": "ctx"}]
-        with patch.object(review_wave, "orca", side_effect=responses) as orca:
+        with patch.object(
+            review_wave, "capture_session", return_value=None
+        ), patch.object(review_wave, "orca", side_effect=responses) as orca:
             review_wave.start_worker("a", "SPEC", "run", "/tmp", "p/m")
         args = orca.call_args_list[1].args[0]
         self.assertIn("--model", args)
         self.assertIn("p/m", args)
 
         with patch.object(
-            review_wave, "orca", side_effect=responses
-        ) as orca:
+            review_wave, "capture_session", return_value=None
+        ), patch.object(review_wave, "orca", side_effect=responses) as orca:
             review_wave.start_worker("a", "SPEC", "run", "/tmp")
         self.assertNotIn("--model", orca.call_args_list[1].args[0])
 
