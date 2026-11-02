@@ -31,6 +31,7 @@ import capabilities as capabilities_lib  # noqa: E402
 import delivery_block  # noqa: E402
 import epic_worktree  # noqa: E402
 import evidence as evidence_lib  # noqa: E402
+from schema_lite import validate_schema  # noqa: E402, F401
 import profiles as profiles_lib  # noqa: E402
 import resolver as resolver_lib  # noqa: E402
 import variants as variants_lib  # noqa: E402
@@ -712,80 +713,6 @@ def lint_runtime_skills(root: Path) -> None:
             warn(f"{rel(path)}: {message}")
 
 
-def _json_type(value, expected: str) -> bool:
-    if expected == "object":
-        return isinstance(value, dict)
-    if expected == "array":
-        return isinstance(value, list)
-    if expected == "string":
-        return isinstance(value, str)
-    if expected == "integer":
-        return isinstance(value, int) and not isinstance(value, bool)
-    if expected == "number":
-        return isinstance(value, (int, float)) and not isinstance(value, bool)
-    if expected == "boolean":
-        return isinstance(value, bool)
-    return True
-
-
-def validate_schema(instance, schema, path: str = "$") -> list[str]:
-    """Minimal JSON Schema subset used by the v2 leaf schema."""
-    if not isinstance(schema, dict):
-        return []
-    errors: list[str] = []
-
-    if "type" in schema and not _json_type(instance, schema["type"]):
-        return [f"{path}: '{schema['type']}' bekleniyor"]
-
-    if "const" in schema and instance != schema["const"]:
-        errors.append(f"{path}: {schema['const']!r} bekleniyor")
-    if "enum" in schema and instance not in schema["enum"]:
-        errors.append(f"{path}: {instance!r} enum dışında")
-
-    if isinstance(instance, str):
-        if "minLength" in schema and len(instance) < schema["minLength"]:
-            errors.append(f"{path}: en az {schema['minLength']} karakter")
-        if "pattern" in schema and not re.search(schema["pattern"], instance):
-            errors.append(f"{path}: '{schema['pattern']}' desenine uymuyor")
-    if isinstance(instance, (int, float)) and not isinstance(instance, bool):
-        if "minimum" in schema and instance < schema["minimum"]:
-            errors.append(f"{path}: en az {schema['minimum']}")
-
-    if isinstance(instance, list):
-        if "minItems" in schema and len(instance) < schema["minItems"]:
-            errors.append(f"{path}: en az {schema['minItems']} öğe")
-        if "maxItems" in schema and len(instance) > schema["maxItems"]:
-            errors.append(f"{path}: en fazla {schema['maxItems']} öğe")
-        if "items" in schema:
-            for index, item in enumerate(instance):
-                errors += validate_schema(item, schema["items"], f"{path}[{index}]")
-
-    if isinstance(instance, dict):
-        for key in schema.get("required", []):
-            if key not in instance:
-                errors.append(f"{path}.{key}: eksik")
-        properties = schema.get("properties") or {}
-        for key, value in instance.items():
-            if key in properties:
-                errors += validate_schema(value, properties[key], f"{path}.{key}")
-                continue
-            additional = schema.get("additionalProperties", True)
-            if additional is False:
-                errors.append(f"{path}.{key}: izin verilmeyen alan")
-            elif isinstance(additional, dict):
-                errors += validate_schema(value, additional, f"{path}.{key}")
-
-    if "allOf" in schema:
-        for sub in schema["allOf"]:
-            errors += validate_schema(instance, sub, path)
-
-    if isinstance(schema.get("if"), dict):
-        if not validate_schema(instance, schema["if"], path):
-            then = schema.get("then")
-            if isinstance(then, dict):
-                errors += validate_schema(instance, then, path)
-
-    return errors
 
 
 def check_role_contracts() -> None:
@@ -811,6 +738,7 @@ def check_issue_body(
     root: Path = ROOT,
     repo: str | None = None,
     title: str = "",
+    evidence_text: str | None = None,
 ) -> None:
     check("issue seal")
     match = re.search(r"```yaml\s+demir-kit\s*\n(.*?)```", body, re.S)
@@ -1048,10 +976,11 @@ def check_issue_body(
                 f"{gap.get('reason')}"
             )
 
-    if "leaf-done" in labels and comments is not None:
+    if evidence_text is not None or ("leaf-done" in labels and comments is not None):
         evidence_schema = load_json(DELIVERY / "schemas" / "evidence.schema.json")
         evidence: dict[str, dict] = {}
-        for comment in comments:
+        blocks = [evidence_text] if evidence_text is not None else (comments or [])
+        for comment in blocks:
             block = re.search(r"```yaml\s+demir-kit-evidence\s*\n(.*?)```", comment, re.S)
             if not block:
                 continue
@@ -1066,7 +995,15 @@ def check_issue_body(
             if not record.get("cp_id"):
                 error("evidence: cp_id yok")
                 continue
+            if evidence_text is not None and record["cp_id"] not in cp_ids:
+                error(f"evidence: cp_id '{record['cp_id']}' seal'de yok")
             evidence[record["cp_id"]] = record
+
+        if evidence_text is not None:
+            if not evidence:
+                error("evidence: kayıt bulunamadı")
+            elif checkpoint and checkpoint != "CP-HEALTH" and checkpoint not in evidence:
+                error(f"evidence: checkpoint {checkpoint} için kayıt yok")
 
         # Only the latest evidence per CP is authoritative; earlier retries stay
         # in the issue history without blocking the leaf.
@@ -1170,7 +1107,10 @@ def check_issue_body(
             for cp in cps
             if isinstance(cp, dict)
         }
-        for cp_id in cp_ids:
+        checked = cp_ids if evidence_text is None else [
+            cp_id for cp_id in cp_ids if cp_id in evidence
+        ]
+        for cp_id in checked:
             record = evidence.get(cp_id)
             if not record or record.get("status") != "pass":
                 error(f"leaf-done ama {cp_id} evidence yok/pass değil")
@@ -1307,12 +1247,20 @@ def fetch_comments(repo: str, number: int, page_size: int = 100) -> list[dict]:
     return comments
 
 
+def normalize_evidence_text(text: str | None) -> str | None:
+    """Accept a plain evidence YAML file by wrapping it in a fenced block."""
+    if not text or "demir-kit-evidence" in text:
+        return text
+    return "```yaml\ndemir-kit-evidence\n" + text.rstrip() + "\n```"
+
+
 def check_issue(
     number: int,
     checkpoint: str | None = None,
     root: Path = ROOT,
     assume_labels: set[str] | None = None,
     drop_labels: set[str] | None = None,
+    evidence_file: Path | None = None,
 ) -> None:
     ecosystem = load_yaml(root / "ecosystem.yaml") or {}
     repo = (ecosystem.get("tracker") or {}).get("repo")
@@ -1342,6 +1290,9 @@ def check_issue(
             error(f"issue #{number}: çelişen etiketler — {left} + {right}")
     bodies = [item.get("body", "") for item in comments]
     body = payload.get("body", "")
+    evidence_text = normalize_evidence_text(
+        evidence_file.read_text(encoding="utf-8") if evidence_file else None
+    )
     if re.search(r"```yaml\s+demir-kit\s*\n", body):
         check_issue_body(
             body,
@@ -1351,6 +1302,7 @@ def check_issue(
             root=root,
             repo=repo,
             title=payload.get("title", ""),
+            evidence_text=evidence_text,
         )
     elif "agent-approved" in labels or "leaf-done" in labels:
         error(f"issue #{number}: leaf seal (`demir-kit` bloğu) yok")
@@ -1723,6 +1675,9 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="demir-kit delivery doctor")
     parser.add_argument("--strict", action="store_true", help="uyarıları da hata say")
     parser.add_argument("--issue", type=int, help="seal + evidence doğrula")
+    parser.add_argument(
+        "--evidence", type=Path, help="tek evidence dosyasını issue seal'ine göre doğrula"
+    )
     parser.add_argument("--body", type=Path, help="seal YAML içeren dosya")
     parser.add_argument("--checkpoint", help="behavior gate uyumu için (statik)")
     parser.add_argument(
@@ -1775,6 +1730,7 @@ def main() -> int:
             product_root if args.product else ROOT,
             assume_labels=set(args.assume_label),
             drop_labels=set(args.drop_label),
+            evidence_file=args.evidence,
         )
     if args.body:
         check_issue_body(
