@@ -75,15 +75,21 @@ def reviewer_spec(name: str, packet: str, issue: int, cp_id: str) -> str:
 
 
 def parse_verdict(text: str) -> bool | None:
-    matches = re.findall(r"approved:\s*(true|false)", text or "", re.I)
+    matches = re.findall(
+        r"approved:\s*(true|false)\s*$", text or "", re.I | re.M
+    )
     if matches:
         return matches[-1].lower() == "true"
     lowered = (text or "").lower()
+    if "true|false" in lowered:
+        return None
     if (
         "rejected" in lowered
         or "not approved" in lowered
         or "approved=false" in lowered
         or "approved: false" in lowered
+        or "not yet approved" in lowered
+        or "not approved yet" in lowered
         or "onaylanmadı" in lowered
     ):
         return False
@@ -184,14 +190,12 @@ def read_output(dispatch_id: str) -> str:
 
 
 def collect(workers: list[dict], run_id: str | None = None) -> list[dict]:
-    messages = (
-        orca(["orchestration", "check", "--run", run_id, "--json"]).get(
-            "messages"
-        )
-        or []
+    check = (
+        orca(["orchestration", "check", "--run", run_id, "--json"])
         if run_id
-        else []
+        else {}
     )
+    messages = check.get("messages") or []
     texts: dict[str, str] = {}
     for message in messages:
         handle = str(message.get("from_handle") or "")
@@ -219,6 +223,11 @@ def collect(workers: list[dict], run_id: str | None = None) -> list[dict]:
         item["verdict"] = parse_verdict(output)
         item["summary"] = "\n".join(output.splitlines()[-25:])
         worker_cleanup.release(str(item["dispatch_id"]))
+    delivery = str(check.get("deliveryId") or "")
+    if run_id and delivery:
+        orca(
+            ["orchestration", "check", "--run", run_id, "--ack", delivery]
+        )
     return workers
 
 
@@ -228,6 +237,9 @@ def main() -> int:
     parser.add_argument("--cp", required=True)
     parser.add_argument("--commit", default="HEAD")
     parser.add_argument("--delta")
+    parser.add_argument(
+        "--base", help="full CP range base (default: origin/main merge-base)"
+    )
     parser.add_argument("--reviewers", default="adversarial-a")
     parser.add_argument("--max-chars", type=int, default=12_000)
     parser.add_argument("--run", help="Orca run id (default: epic run)")
@@ -240,7 +252,7 @@ def main() -> int:
     if not names:
         raise SystemExit("review_wave: reviewer yok")
     packet = review_packet.packet_for(
-        args.issue, args.cp, args.commit, args.delta, args.max_chars
+        args.issue, args.cp, args.commit, args.delta, args.max_chars, args.base
     )
     specs = {name: reviewer_spec(name, packet, args.issue, args.cp) for name in names}
     plan = {

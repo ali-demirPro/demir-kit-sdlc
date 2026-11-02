@@ -184,6 +184,18 @@ class ReviewPacketCliTests(unittest.TestCase):
         self.assertEqual(data["delta"], "base")
         self.assertTrue(any(args[:2] == ["diff", "base..abc123"] for args in calls))
 
+    def test_base_range(self) -> None:
+        calls: list[list[str]] = []
+        out = io.StringIO()
+        with patch.object(review_packet, "gh", side_effect=self.fake_gh), patch.object(
+            review_packet, "git", side_effect=self.fake_git(calls)
+        ), patch.object(review_packet.brief, "render_cp_brief", return_value="BRIEF"), patch.object(
+            sys, "argv",
+            ["review_packet.py", "--issue", "144", "--cp", "CP-1", "--base", "parent", "--json"],
+        ), redirect_stdout(out):
+            self.assertEqual(review_packet.main(), 0)
+        self.assertTrue(any(args[:2] == ["diff", "parent..abc123"] for args in calls))
+
     def test_write_file(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             code, out = self.run_cli(

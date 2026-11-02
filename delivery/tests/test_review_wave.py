@@ -32,6 +32,8 @@ class ReviewWaveTests(unittest.TestCase):
             review_wave.parse_verdict("CP-1 review: approved (1 low finding)")
         )
         self.assertFalse(review_wave.parse_verdict("CP-1 review: rejected"))
+        self.assertIsNone(review_wave.parse_verdict("approved: true|false"))
+        self.assertFalse(review_wave.parse_verdict("not yet approved"))
 
     def test_reviewer_spec_contains_packet_and_format(self) -> None:
         text = review_wave.reviewer_spec("adversarial-a", "PACKET", 156, "CP-1")
@@ -66,6 +68,29 @@ class ReviewWaveTests(unittest.TestCase):
         self.assertEqual(result[0]["state"], "succeeded")
         self.assertEqual(result[1]["state"], "failed")
         sleep.assert_called()
+
+    def test_collect_reads_worker_done_message(self) -> None:
+        workers = [{"name": "a", "dispatch_id": "ctx_a", "state": "succeeded"}]
+        responses = [
+            {
+                "messages": [
+                    {
+                        "from_handle": "term_a",
+                        "subject": "CP-1 review: approved (1 low)",
+                        "body": "",
+                    }
+                ],
+                "deliveryId": "d1",
+            },
+            {"worker": {"agentTerminalHandle": "term_a"}},
+            {"ok": True},
+        ]
+        with patch.object(review_wave, "orca", side_effect=responses) as orca, patch.object(
+            review_wave, "read_output", return_value="no verdict"
+        ), patch.object(review_wave.worker_cleanup, "release"):
+            result = review_wave.collect(workers, "run_1")
+        self.assertTrue(result[0]["verdict"])
+        self.assertEqual(orca.call_args.args[0][-1], "d1")
 
     def test_collect_releases_and_parses(self) -> None:
         workers = [
