@@ -7,8 +7,10 @@
   **uyarı**, gerçek mod ise **hata**. Önceki hâlde kanıt aracı henüz olmayan ürün
   ya `ui: false` yalanına ya da kit yamasına itiliyordu.
 - **Tarihli muafiyet** — `gates.ui_waiver: { reason, until, issue }` geçiş
-  döneminde snapshot eksikliğini uyarıya çevirir; süre dolunca veya alanlar
-  bozuksa hata. Muafiyet ürünün kendi `ecosystem.yaml` dosyasında yaşar.
+  döneminde snapshot eksikliğini uyarıya çevirir. `reason` string, `issue`
+  pozitif tam sayı ve `until` en fazla 180 gün ileri olmak zorunda; süre
+  dolunca hata. Snapshot geldikten sonra kalan muafiyet uyarı verir. Tarih
+  karşılaştırması UTC'dir (geliştirici makinesi ile CI aynı günü görsün).
 - **Tek yol** — kit ve ürün denetimi aynı `surface_gate_messages` yardımcısını
   kullanır; `check_ecosystem` ile `doctor --product` artık ayrışamaz.
 

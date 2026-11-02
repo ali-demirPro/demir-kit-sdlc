@@ -1,5 +1,6 @@
 # macOS surface contract — kopyala, name/tracker/product adını ve yolları düzelt.
-# Üç kanıt komutu da tanımlı olmalı: behavior, selftest, snapshot.
+# Kanıt komutları: behavior zorunlu; selftest/snapshot beklenir. snapshot yoksa
+# ui_compare'ı none bırak (uyarı) veya tarihli ui_waiver ekle (aşağıda).
 name: MacApp
 products:
   app:

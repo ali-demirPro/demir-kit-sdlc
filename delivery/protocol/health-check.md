@@ -6,7 +6,8 @@
 
 1. `ecosystem.yaml` var; her `surfaces.*.path` dizini mevcut.
 2. Surface'ın `gates.behavior` komutu çalıştırılabilir (`{checkpoint}` → `CP-HEALTH`).
-3. UI CP varsa `gates.ui: true` ve `ui_compare` tanımlı.
+3. UI CP varsa `gates.ui: true`; `ui_compare` ya tanımlı ya da bilinçli `none`
+   (o zaman snapshot uyarıdır, hata değil).
 4. UI yüzeyinde `gates.snapshot` tanımlı; `doctor` bunu `ecosystem` kontrolünde
    arar. `ui_compare` gerçek bir mod ise snapshot zorunludur; `none` ise uyarı.
    Geçiş için tarihli `gates.ui_waiver` kullanılabilir (süresi dolunca hata).
