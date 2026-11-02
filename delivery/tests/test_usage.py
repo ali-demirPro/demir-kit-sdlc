@@ -229,6 +229,40 @@ class WorkerUsageTests(unittest.TestCase):
         ]
         self.assertIsNone(usage.assign_sessions(windows, {"/w": []})["a"])
 
+    def test_assign_in_flight_uses_creation_order(self) -> None:
+        windows = [
+            {"dispatch_id": "a", "path": "/w", "start_ms": 0, "end_ms": 10_000,
+             "in_flight": True},
+            {"dispatch_id": "b", "path": "/w", "start_ms": 3_000, "end_ms": 12_000,
+             "in_flight": True},
+        ]
+        sessions = {
+            "/w": [
+                {"id": "s1", "created": 2_000, "updated": 9_500},
+                {"id": "s2", "created": 5_000, "updated": 9_900},
+            ]
+        }
+        assigned = usage.assign_sessions(windows, sessions)
+        self.assertEqual(assigned["a"]["id"], "s1")
+        self.assertEqual(assigned["b"]["id"], "s2")
+
+    def test_assign_same_second_is_unavailable(self) -> None:
+        windows = [
+            {"dispatch_id": "a", "path": "/w", "start_ms": 0, "end_ms": 10_000,
+             "in_flight": True},
+            {"dispatch_id": "b", "path": "/w", "start_ms": 100, "end_ms": 10_000,
+             "in_flight": True},
+        ]
+        sessions = {
+            "/w": [
+                {"id": "s1", "created": 1_000, "updated": 9_000},
+                {"id": "s2", "created": 2_000, "updated": 9_000},
+            ]
+        }
+        assigned = usage.assign_sessions(windows, sessions)
+        self.assertIsNone(assigned["a"])
+        self.assertIsNone(assigned["b"])
+
     def test_assign_skips_interleaved_subagent(self) -> None:
         windows = [
             {"dispatch_id": "a", "path": "/w", "start_ms": 0, "end_ms": 10_000},

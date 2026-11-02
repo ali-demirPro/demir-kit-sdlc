@@ -319,6 +319,7 @@ def worker_window(dispatch_id: str) -> dict:
         "path": record["path"],
         "start_ms": int(start.timestamp() * 1000),
         "end_ms": int(end.timestamp() * 1000),
+        "in_flight": not bool(dispatch.get("completedAt")),
     }
 
 
@@ -335,27 +336,39 @@ def assign_sessions(
             sessions_by_path.get(path) or [],
             key=lambda item: int(item.get("created") or 0),
         )
-        taken: set[str] = set()
-        for window in sorted(
+        ordered = sorted(
             group, key=lambda item: (item["start_ms"], item["dispatch_id"])
-        ):
+        )
+        cursor = 0
+        for window in ordered:
             start = window["start_ms"]
             end = window["end_ms"]
             upper = min(end, start + 120_000)
-            candidates = [
-                session
-                for session in sessions
-                if str(session.get("id")) not in taken
-                and start - 10_000 <= int(session.get("created") or 0) <= upper
-            ]
+            if any(
+                other is not window and abs(other["start_ms"] - start) < 1_000
+                for other in ordered
+            ):
+                assigned[window["dispatch_id"]] = None
+                continue
+            candidates = []
+            for index in range(cursor, len(sessions)):
+                session = sessions[index]
+                created = int(session.get("created") or 0)
+                if start - 10_000 <= created <= upper:
+                    candidates.append((index, session))
             if not candidates:
                 assigned[window["dispatch_id"]] = None
                 continue
-            chosen = min(
-                candidates,
-                key=lambda item: abs(int(item.get("updated") or 0) - end),
-            )
-            taken.add(str(chosen.get("id")))
+            if window.get("in_flight"):
+                index, chosen = candidates[0]
+            else:
+                index, chosen = min(
+                    candidates,
+                    key=lambda item: abs(
+                        int(item[1].get("updated") or 0) - end
+                    ),
+                )
+            cursor = index + 1
             assigned[window["dispatch_id"]] = chosen
     return assigned
 
