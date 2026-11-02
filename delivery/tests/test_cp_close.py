@@ -182,6 +182,60 @@ class CpCloseTests(unittest.TestCase):
         self.assertIn("--product", command)
         self.assertIn("demir-kit/delivery/scripts/doctor.sh", " ".join(command))
 
+    def test_normalize_evidence_text_wraps_plain_yaml(self) -> None:
+        doctor = cp_close.doctor
+        wrapped = doctor.normalize_evidence_text("cp_id: CP-1\nstatus: pass\n")
+        self.assertTrue(wrapped.startswith("```yaml\ndemir-kit-evidence"))
+        fenced = "```yaml\ndemir-kit-evidence\ncp_id: CP-1\n```"
+        self.assertEqual(doctor.normalize_evidence_text(fenced), fenced)
+        self.assertIsNone(doctor.normalize_evidence_text(None))
+
+    def test_evidence_mode_checks_only_given_cp(self) -> None:
+        doctor = cp_close.doctor
+        body = """```yaml demir-kit
+demir_kit_version: "2"
+package_version: 4
+mode: extend
+epic: 1
+entry: {kind: feature}
+factory: {profile: kit-internal}
+intent: iki checkpointli test leaf
+surfaces: [kit.docs]
+reference: {kind: github_paths, summary: referans dokuman, paths: [delivery/CONTRACT.md]}
+acceptance_criteria: [{id: AC-1, text: kabul kriteri metni}]
+out_of_scope: [kapsam disi]
+risk: {level: low}
+tests_plan:
+  - checkpoint_id: CP-1
+    cases: [{id: T-1, ac: AC-1, text: test metni, check: doc}]
+  - checkpoint_id: CP-2
+    cases: [{id: T-2, ac: AC-1, text: test metni, check: doc}]
+checkpoints:
+  - {id: CP-1, title: birinci, gates: {behavior: true}}
+  - {id: CP-2, title: ikinci, gates: {behavior: true}}
+```
+"""
+        evidence = """```yaml
+demir-kit-evidence
+demir_kit_version: "2"
+cp_id: CP-1
+issue: 999
+agent: developer
+behavior: {command: x, exit_code: 0}
+reviews: {adversarial: {reviewer_a: skipped}, risk: low}
+tests: [{case: T-1, result: pass}]
+status: pass
+```
+"""
+        doctor.ERRORS.clear()
+        doctor.WARNS.clear()
+        doctor.check_issue_body(
+            body, ["executing"], None, root=doctor.ROOT, repo=None, evidence_text=evidence
+        )
+        errors = list(doctor.ERRORS)
+        self.assertFalse(any("CP-2 evidence yok" in e for e in errors))
+        self.assertTrue(any("reviewer onayı gerekli" in e for e in errors))
+
     def test_load_evidence_fenced_and_plain(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "e.md"

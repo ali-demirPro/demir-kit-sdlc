@@ -995,6 +995,8 @@ def check_issue_body(
             if not record.get("cp_id"):
                 error("evidence: cp_id yok")
                 continue
+            if evidence_text is not None and record["cp_id"] not in cp_ids:
+                error(f"evidence: cp_id '{record['cp_id']}' seal'de yok")
             evidence[record["cp_id"]] = record
 
         # Only the latest evidence per CP is authoritative; earlier retries stay
@@ -1099,7 +1101,10 @@ def check_issue_body(
             for cp in cps
             if isinstance(cp, dict)
         }
-        for cp_id in cp_ids:
+        checked = cp_ids if evidence_text is None else [
+            cp_id for cp_id in cp_ids if cp_id in evidence
+        ]
+        for cp_id in checked:
             record = evidence.get(cp_id)
             if not record or record.get("status") != "pass":
                 error(f"leaf-done ama {cp_id} evidence yok/pass değil")
@@ -1236,6 +1241,13 @@ def fetch_comments(repo: str, number: int, page_size: int = 100) -> list[dict]:
     return comments
 
 
+def normalize_evidence_text(text: str | None) -> str | None:
+    """Accept a plain evidence YAML file by wrapping it in a fenced block."""
+    if not text or "demir-kit-evidence" in text:
+        return text
+    return "```yaml\ndemir-kit-evidence\n" + text.rstrip() + "\n```"
+
+
 def check_issue(
     number: int,
     checkpoint: str | None = None,
@@ -1272,7 +1284,7 @@ def check_issue(
             error(f"issue #{number}: çelişen etiketler — {left} + {right}")
     bodies = [item.get("body", "") for item in comments]
     body = payload.get("body", "")
-    evidence_text = (
+    evidence_text = normalize_evidence_text(
         evidence_file.read_text(encoding="utf-8") if evidence_file else None
     )
     if re.search(r"```yaml\s+demir-kit\s*\n", body):
