@@ -68,21 +68,21 @@ def evidence_blocks(comments: list[dict]) -> list[dict]:
 
 
 def open_findings(comments: list[dict]) -> list[dict]:
-    rows = []
+    """Latest status per (cp_id, finding id); only still-open findings."""
+    latest: dict[tuple[str, str], dict] = {}
     for record in evidence_blocks(comments):
+        cp_id = str(record.get("cp_id") or "?")
         for finding in record.get("findings") or []:
             if not isinstance(finding, dict):
                 continue
-            if finding.get("status") != "open":
-                continue
-            rows.append(
-                {
-                    "id": str(finding.get("id") or "?"),
-                    "cp_id": str(record.get("cp_id") or "?"),
-                    "note": str(finding.get("note") or ""),
-                }
-            )
-    return rows
+            finding_id = str(finding.get("id") or "?")
+            latest[(cp_id, finding_id)] = {
+                "id": finding_id,
+                "cp_id": cp_id,
+                "status": str(finding.get("status") or ""),
+                "note": str(finding.get("note") or ""),
+            }
+    return [row for row in latest.values() if row["status"] == "open"]
 
 
 def commit_range(commit: str, delta: str | None) -> str:
@@ -114,24 +114,40 @@ def compose_packet(
     ]
 
     tail = "\n".join(finding_lines + ["## Diff özeti", diff_stat.strip() or "(boş)"])
-    fixed = "\n".join(header + [brief_text.strip(), tail, "## Diff"])
-    footer = "\n".join(review)
-
-    def assemble(payload: str) -> str:
-        return fixed + "\n" + payload + "\n\n" + footer + "\n"
+    prefix = "\n".join(header) + "\n"
+    middle = "\n" + tail + "\n## Diff\n"
+    closing = "\n\n" + "\n".join(review) + "\n"
 
     def size(text: str) -> int:
         return len(text.encode("utf-8"))
 
+    def trim(text: str, limit: int, note: str) -> str:
+        raw = text.encode("utf-8")[: max(0, limit)].decode("utf-8", "ignore")
+        return raw + note
+
     body = diff.strip() or "(diff yok)"
-    budget = max_chars - size(assemble(""))
-    if budget <= 0:
+    brief_part = brief_text.strip()
+
+    room_for_brief = max_chars - size(prefix + middle + closing)
+    if room_for_brief <= 0:
+        packet = prefix + brief_part + middle + body + closing
+        return packet.encode("utf-8")[:max_chars].decode("utf-8", "ignore")
+    if size(brief_part) > room_for_brief:
+        brief_part = trim(brief_part, room_for_brief - 40, "\n... [brief kısaltıldı]")
+
+    fixed = prefix + brief_part + middle
+    room = max_chars - size(fixed + closing)
+    if room <= 0:
         body = "[diff sığmadı: --max-chars artır]"
-    elif size(body) > budget:
-        keep = max(0, budget - 80)
-        raw = body.encode("utf-8")[:keep].decode("utf-8", "ignore")
-        body = raw + f"\n... [diff kısaltıldı: {size(body) - size(raw)} bayt]"
-    return assemble(body)
+    elif size(body) > room:
+        keep = max(0, room - 90)
+        body = trim(body, keep, "") + (
+            f"\n... [diff kısaltıldı: {size(body) - keep} bayt]"
+        )
+    packet = fixed + body + closing
+    if size(packet) > max_chars:
+        packet = packet.encode("utf-8")[:max_chars].decode("utf-8", "ignore")
+    return packet
 
 
 def main() -> int:

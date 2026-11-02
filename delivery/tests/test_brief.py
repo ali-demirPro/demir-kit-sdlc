@@ -144,6 +144,16 @@ class CpBriefTests(unittest.TestCase):
         self.assertTrue(gates.get("human"))
         self.assertTrue(gates.get("platform"))
 
+    def test_brief_without_evidence_for_review(self) -> None:
+        text = brief.render_cp_brief(
+            {"issue": 142, "risk": "medium"},
+            SEAL,
+            "CP-1",
+            include_evidence=False,
+        )
+        self.assertNotIn("demir-kit-evidence", text)
+        self.assertIn("AC (bu CP)", text)
+
     def test_case_less_cp_does_not_invent_tests(self) -> None:
         text = brief.render_cp_brief(
             {"issue": 142, "risk": "medium"}, SEAL, "CP-3"
