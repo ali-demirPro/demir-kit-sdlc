@@ -327,7 +327,9 @@ class ProductCheckTest(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)
-            self._product(root, "{ behavior: 'true', ui: true }")
+            self._product(
+                root, "{ behavior: 'true', ui: true, ui_compare: screenshot }"
+            )
             self._run(root)
         self.assertTrue(any("snapshot" in item for item in self.errors), self.errors)
 

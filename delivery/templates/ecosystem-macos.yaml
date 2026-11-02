@@ -17,6 +17,8 @@ products:
           snapshot_pages: [main, settings]
           ui: true
           ui_compare: screenshot
+          # snapshot henüz yoksa geçiş için tarihli muafiyet (süre dolunca hata):
+          # ui_waiver: { reason: "snapshot araci hazirlaniyor", until: "2026-12-15", issue: 12 }
 
 tracker:
   provider: github

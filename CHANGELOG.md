@@ -1,5 +1,17 @@
 # Changelog
 
+## 2.43.0 — 2026-11-01
+
+- **Yüzey kapısı kademelendi** — `ui: true` olan yüzeyde `snapshot` zorunluluğu
+  artık beyan edilen karşılaştırma moduna bağlı: `ui_compare` yok/`none` ise
+  **uyarı**, gerçek mod ise **hata**. Önceki hâlde kanıt aracı henüz olmayan ürün
+  ya `ui: false` yalanına ya da kit yamasına itiliyordu.
+- **Tarihli muafiyet** — `gates.ui_waiver: { reason, until, issue }` geçiş
+  döneminde snapshot eksikliğini uyarıya çevirir; süre dolunca veya alanlar
+  bozuksa hata. Muafiyet ürünün kendi `ecosystem.yaml` dosyasında yaşar.
+- **Tek yol** — kit ve ürün denetimi aynı `surface_gate_messages` yardımcısını
+  kullanır; `check_ecosystem` ile `doctor --product` artık ayrışamaz.
+
 ## 2.42.0 — 2026-11-01
 
 - **Üründe scoped skill kurulumu** — `install.sh --capabilities` artık

@@ -8,7 +8,8 @@
 2. Surface'ın `gates.behavior` komutu çalıştırılabilir (`{checkpoint}` → `CP-HEALTH`).
 3. UI CP varsa `gates.ui: true` ve `ui_compare` tanımlı.
 4. UI yüzeyinde `gates.snapshot` tanımlı; `doctor` bunu `ecosystem` kontrolünde
-   arar. Snapshot komutu yoksa görsel kanıt üretilemez, `ready: false`.
+   arar. `ui_compare` gerçek bir mod ise snapshot zorunludur; `none` ise uyarı.
+   Geçiş için tarihli `gates.ui_waiver` kullanılabilir (süresi dolunca hata).
 5. Native yüzeyde `gates.selftest` tanımlıysa çalıştırılabilir; tanımlı
    değilse `behavior` komutu self-test'i kapsamak zorunda.
 6. `gh auth status` OK (GitHub tracker).

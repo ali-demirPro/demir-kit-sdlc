@@ -25,13 +25,87 @@ HEALTH = ROOT / "delivery" / "protocol" / "health-check.md"
 
 
 class SurfaceGateTest(unittest.TestCase):
-    def test_ui_surface_requires_snapshot(self) -> None:
+    def test_ui_surface_requires_snapshot_when_comparison_declared(self) -> None:
         errors = doctor.surface_gate_errors(
             "app",
             "macos.app",
-            {"gates": {"behavior": "./build.sh", "ui": True}},
+            {
+                "gates": {
+                    "behavior": "./build.sh",
+                    "ui": True,
+                    "ui_compare": "screenshot",
+                }
+            },
         )
         self.assertTrue(any("snapshot" in item for item in errors), errors)
+
+    def test_ui_surface_without_comparison_warns_only(self) -> None:
+        spec = {"gates": {"behavior": "./build.sh", "ui": True}}
+        errors = doctor.surface_gate_errors("app", "macos.app", spec)
+        warnings = doctor.surface_gate_warnings("app", "macos.app", spec)
+        self.assertEqual(errors, [])
+        self.assertTrue(any("ui_compare" in item for item in warnings), warnings)
+
+    def test_valid_waiver_turns_error_into_warning(self) -> None:
+        from datetime import date
+
+        spec = {
+            "gates": {
+                "behavior": "./build.sh",
+                "ui": True,
+                "ui_compare": "screenshot",
+                "ui_waiver": {
+                    "reason": "snapshot aracı hazırlanıyor",
+                    "until": "2026-12-15",
+                    "issue": 7,
+                },
+            }
+        }
+        today = date(2026, 11, 2)
+        self.assertEqual(
+            doctor.surface_gate_errors("app", "macos.app", spec, today=today), []
+        )
+        warnings = doctor.surface_gate_warnings("app", "macos.app", spec, today=today)
+        self.assertTrue(any("muafiyeti" in item for item in warnings), warnings)
+
+    def test_expired_waiver_is_an_error(self) -> None:
+        from datetime import date
+
+        spec = {
+            "gates": {
+                "behavior": "./build.sh",
+                "ui": True,
+                "ui_compare": "screenshot",
+                "ui_waiver": {
+                    "reason": "geçici",
+                    "until": "2026-10-01",
+                    "issue": 7,
+                },
+            }
+        }
+        errors = doctor.surface_gate_errors(
+            "app", "macos.app", spec, today=date(2026, 11, 2)
+        )
+        self.assertTrue(any("süresi doldu" in item for item in errors), errors)
+
+    def test_malformed_waiver_is_an_error(self) -> None:
+        for waiver in (
+            "geçici",
+            {"reason": "x"},
+            {"reason": "x", "until": "2026-13-01", "issue": 1},
+            {"reason": "", "until": "2026-12-01", "issue": 1},
+        ):
+            with self.subTest(waiver=waiver):
+                spec = {
+                    "gates": {
+                        "behavior": "./build.sh",
+                        "ui": True,
+                        "ui_compare": "screenshot",
+                        "ui_waiver": waiver,
+                    }
+                }
+                errors = doctor.surface_gate_errors("app", "macos.app", spec)
+                self.assertTrue(any("ui_waiver" in item for item in errors), errors)
 
     def test_ui_surface_with_snapshot_passes(self) -> None:
         errors = doctor.surface_gate_errors(
@@ -94,7 +168,7 @@ class EcosystemWiringTest(unittest.TestCase):
                 "    surfaces:\n"
                 "      macos.app:\n"
                 "        path: .\n"
-                "        gates: { behavior: './build.sh', ui: true }\n",
+                "        gates: { behavior: './build.sh', ui: true, ui_compare: screenshot }\n",
                 encoding="utf-8",
             )
             (root / "kit.config.yaml").write_text(
