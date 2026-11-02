@@ -2,7 +2,7 @@
 
 ## Repo
 
-demir-kit 2.44 — delivery-first agent system. Docs, YAML and small bash/python
+demir-kit 2.45 — delivery-first agent system. Docs, YAML and small bash/python
 scripts; Python unittest suite and CI, no app build system or package manager.
 "Correct" means the contract, registry, schemas and policies agree — `doctor.sh`
 decides.
@@ -110,6 +110,15 @@ see `delivery/policies/human-communication.md`.
 `./delivery/scripts/doctor.sh --strict` before finishing (0 warnings). CI strict is
 wired by Epic 0 #4. For a sealed leaf also run `doctor.sh --issue N`; for source
 changes run `guard.sh --issue N`.
+
+## Token and context
+
+- Each epic starts a fresh context; do not carry one session across epics.
+- Start each CP from `brief.py --cp CP-x`; never read all of
+  `CONTRACT.md` / `quality-gates.md`. Details:
+  `delivery/policies/context-budget.md`.
+- 120k tokens warns, 200k stops the session. Write a short handoff, then continue
+  in a new session.
 
 <!-- demir-kit:delivery:start -->
 ## demir-kit çalışma akışı

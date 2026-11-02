@@ -23,6 +23,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import resolver  # noqa: E402
 import profiles as profiles_mod  # noqa: E402
 import routing  # noqa: E402
+import brief as brief_mod  # noqa: E402
 
 
 def gh(args: list[str]) -> str:
@@ -203,6 +204,16 @@ def build_plan(
                 "options": ["approve", "revise"],
             }
         deps = [f"task:{item}" for item in cp.get("depends_on") or []]
+        try:
+            cp_brief = brief_mod.render_cp_brief(
+                {"issue": issue, "risk": risk},
+                seal,
+                str(cp_id),
+                prefix,
+                reviewers=cp_evidence_reviewers,
+            )
+        except ValueError:
+            cp_brief = ""
         spec = (
             f"demir-kit #{issue} {cp_id}: {cp.get('title', '')}\n"
             f"Target: issue #{issue}, epic #{epic}, surfaces: {surfaces}\n"
@@ -211,7 +222,8 @@ def build_plan(
             f"Required reviewers: {', '.join(cp_evidence_reviewers)}\n"
             f"Advisory roles: {', '.join(cp_reviewers)}\n"
             + (f"Human gate: {gate['question']}\n" if gate else "")
-            + f"Read:\n{docs}\n"
+            + (cp_brief + "\n" if cp_brief else "")
+            + f"Ek dosyalar (yalnız ilgili satır için aç, tamamını okuma):\n{docs}\n"
             f"- {prefix}delivery/CONTRACT.md\n"
             f"- {prefix}delivery/policies/quality-gates.md\n"
             f"Change: implement only {cp_id} for this sealed leaf.\n"
@@ -236,6 +248,8 @@ def build_plan(
                 "effort": launch.get("effort"),
                 "agent": launch.get("agent"),
                 "gate": gate,
+                "brief_chars": len(cp_brief),
+                "spec_chars": len(spec),
                 "spec": spec,
             }
         )

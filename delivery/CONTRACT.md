@@ -1,4 +1,4 @@
-# Delivery contract — v2.44
+# Delivery contract — v2.45
 
 Bu dosya delivery'nin **tek durum makinesi**dir. Agent, path ve risk verisi
 `registry.yaml`'da; artefakt şekilleri `schemas/` altında; uygulama
@@ -171,6 +171,8 @@ kabul **makine kapısıdır**: `doctor.sh --strict` + testler yeşilse kurallaş
 - Hazırlık: `protocol/health-check.md`
 - Kanıt: `protocol/evidence.md`
 - Gate matrisi: `policies/quality-gates.md`
+- Bağlam/token bütçesi: `policies/context-budget.md` (epic başına yeni bağlam,
+  CP brief, okuma ve compaction sınırları)
 - Skill yazımı: `policies/skill-writing.md` (`doctor` `skill writing` kontrolü)
 - Blocker: `policies/escalation.md`
 - İnsan dili: `policies/human-communication.md`

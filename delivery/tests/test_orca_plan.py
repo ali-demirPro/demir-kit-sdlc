@@ -58,6 +58,10 @@ class OrcaPlanTests(unittest.TestCase):
         )
         self.assertNotIn("--product", first["spec"])
         self.assertIn("delivery/agents/designer/SKILL.md", second["spec"])
+        self.assertIn("tamamını okuma", first["spec"])
+        self.assertIn("CP brief — CP-1", first["spec"])
+        self.assertLess(len(first["spec"]), 6000)
+        self.assertLess(first["brief_chars"], 3000)
 
     def test_profile_skills_packs_and_gates(self) -> None:
         profile = {
