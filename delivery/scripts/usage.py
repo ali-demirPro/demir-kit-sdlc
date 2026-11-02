@@ -303,17 +303,72 @@ def empty_tokens() -> dict:
     return token_totals(None)
 
 
-def dispatch_usage(dispatch_id: str) -> dict:
-    """Token/cost of one supervised worker, resolved by worktree + time window."""
+_UNSET = object()
+
+
+def worker_window(dispatch_id: str) -> dict:
     record = dispatch_record(dispatch_id)
     dispatch = record["dispatch"]
-    path = record["path"]
     start = parse_dispatch_time(dispatch.get("dispatchedAt"))
     end = parse_dispatch_time(
         dispatch.get("completedAt") or dispatch.get("lastHeartbeatAt")
     )
-    start_ms = int(start.timestamp() * 1000)
-    end_ms = int(end.timestamp() * 1000)
+    return {
+        "dispatch_id": dispatch_id,
+        "dispatch": dispatch,
+        "path": record["path"],
+        "start_ms": int(start.timestamp() * 1000),
+        "end_ms": int(end.timestamp() * 1000),
+    }
+
+
+def assign_sessions(
+    windows: list[dict], sessions_by_path: dict[str, list[dict]]
+) -> dict[str, dict | None]:
+    """Pair parallel dispatches with sessions by order and end-time fit."""
+    groups: dict[str, list[dict]] = {}
+    for window in windows:
+        groups.setdefault(str(window.get("path") or ""), []).append(window)
+    assigned: dict[str, dict | None] = {}
+    for path, group in groups.items():
+        sessions = sorted(
+            sessions_by_path.get(path) or [],
+            key=lambda item: int(item.get("created") or 0),
+        )
+        taken: set[str] = set()
+        for window in sorted(
+            group, key=lambda item: (item["start_ms"], item["dispatch_id"])
+        ):
+            start = window["start_ms"]
+            end = window["end_ms"]
+            upper = min(end, start + 120_000)
+            candidates = [
+                session
+                for session in sessions
+                if str(session.get("id")) not in taken
+                and start - 10_000 <= int(session.get("created") or 0) <= upper
+            ]
+            if not candidates:
+                assigned[window["dispatch_id"]] = None
+                continue
+            chosen = min(
+                candidates,
+                key=lambda item: abs(int(item.get("updated") or 0) - end),
+            )
+            taken.add(str(chosen.get("id")))
+            assigned[window["dispatch_id"]] = chosen
+    return assigned
+
+
+def dispatch_usage(
+    dispatch_id: str, window: dict | None = None, session=_UNSET
+) -> dict:
+    """Token/cost of one supervised worker, resolved by worktree + time window."""
+    window = window or worker_window(dispatch_id)
+    dispatch = window["dispatch"]
+    path = window["path"]
+    start_ms = window["start_ms"]
+    end_ms = window["end_ms"]
     base = {
         "dispatch_id": dispatch_id,
         "run_id": dispatch.get("runId"),
@@ -327,7 +382,8 @@ def dispatch_usage(dispatch_id: str) -> dict:
         "duration_seconds": round((end_ms - start_ms) / 1000, 1),
         "confidence": "unavailable",
     }
-    session = session_for_window(sessions_in(path), start_ms, end_ms)
+    if session is _UNSET:
+        session = session_for_window(sessions_in(path), start_ms, end_ms)
     if not session:
         return base
     try:
@@ -390,7 +446,22 @@ def run_workers(run_id: str) -> list[dict]:
 
 
 def run_usage(run_id: str) -> dict:
-    rows = [dispatch_usage(str(item.get("dispatchId"))) for item in run_workers(run_id)]
+    windows = [
+        worker_window(str(item.get("dispatchId")))
+        for item in run_workers(run_id)
+    ]
+    sessions_by_path: dict[str, list[dict]] = {}
+    for path in {str(window.get("path") or "") for window in windows}:
+        sessions_by_path[path] = sessions_in(path)
+    assigned = assign_sessions(windows, sessions_by_path)
+    rows = [
+        dispatch_usage(
+            str(window["dispatch_id"]),
+            window=window,
+            session=assigned.get(str(window["dispatch_id"])),
+        )
+        for window in windows
+    ]
     measured = [row for row in rows if row.get("confidence") != "unavailable"]
     totals = {
         "cost_usd": round(sum(float(row.get("cost") or 0) for row in measured), 6)

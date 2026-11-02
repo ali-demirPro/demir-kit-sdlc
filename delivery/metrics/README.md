@@ -32,7 +32,10 @@ tahmin edilmez.
 
 - Kaynak: GitHub issue etiket zamanları + evidence comment'leri.
 - Worker sayıları: `python3 delivery/scripts/usage.py --run <run_id> --json`
-  (dispatch → OpenCode çalışması eşlemesi; bulunamazsa `unavailable`). Çıktıdaki
+  (dispatch → OpenCode çalışması eşlemesi; bulunamazsa `unavailable`). Aynı
+  worktree'de paralel dispatch'ler başlangıç sırası ve bitişe en yakın
+  `updated` ile eşleştirilir; tek `--dispatch` belirsizlikte `unavailable`
+  kalır. Çıktıdaki
   `totals.worker_count`, `totals.tokens_in`, `totals.tokens_out`,
   `totals.cache_read`, `totals.context_peak`, `totals.cost_usd` doğrudan
   closure metriklerine yazılır.

@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.53.0 — 2026-11-02
+
+- **Paralel worker eşleştirme** — `usage.py --run` aynı worktree'deki
+  dispatch'leri başlangıç sırası ve bitişe en yakın `updated` ile global
+  eşleştirir; paralel reviewer'lar artık `exact` ölçülür. Tek `--dispatch`
+  belirsizlikte `unavailable` kalır (güvenli yol).
+- **Atama** — `assign_sessions()` saf fonksiyon; eksik çalışma, araya giren
+  subagent ve farklı worktree vakaları test edilir.
+- **Metrik notu** — metrics README eşleştirme kuralını ve sınırını yazar.
+
 ## 2.52.0 — 2026-11-02
 
 - **Model nötrlüğü** — kit varsayılan olarak `--model`/`--effort` geçirmez;

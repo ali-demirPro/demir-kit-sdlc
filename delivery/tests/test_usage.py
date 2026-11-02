@@ -208,6 +208,80 @@ class WorkerUsageTests(unittest.TestCase):
         self.assertEqual(row["tokens"]["input"], 200)
         self.assertEqual(row["context_peak"], 270)
 
+    def test_assign_parallel_sessions(self) -> None:
+        windows = [
+            {"dispatch_id": "a", "path": "/w", "start_ms": 0, "end_ms": 10_000},
+            {"dispatch_id": "b", "path": "/w", "start_ms": 1_000, "end_ms": 20_000},
+        ]
+        sessions = {
+            "/w": [
+                {"id": "s1", "created": 2_000, "updated": 9_500},
+                {"id": "s2", "created": 4_000, "updated": 20_000},
+            ]
+        }
+        assigned = usage.assign_sessions(windows, sessions)
+        self.assertEqual(assigned["a"]["id"], "s1")
+        self.assertEqual(assigned["b"]["id"], "s2")
+
+    def test_assign_missing_session(self) -> None:
+        windows = [
+            {"dispatch_id": "a", "path": "/w", "start_ms": 0, "end_ms": 10_000}
+        ]
+        self.assertIsNone(usage.assign_sessions(windows, {"/w": []})["a"])
+
+    def test_assign_skips_interleaved_subagent(self) -> None:
+        windows = [
+            {"dispatch_id": "a", "path": "/w", "start_ms": 0, "end_ms": 10_000},
+            {"dispatch_id": "b", "path": "/w", "start_ms": 1_000, "end_ms": 20_000},
+        ]
+        sessions = {
+            "/w": [
+                {"id": "s1", "created": 2_000, "updated": 9_800},
+                {"id": "sub", "created": 3_000, "updated": 4_000},
+                {"id": "s2", "created": 5_000, "updated": 20_000},
+            ]
+        }
+        assigned = usage.assign_sessions(windows, sessions)
+        self.assertEqual(assigned["a"]["id"], "s1")
+        self.assertEqual(assigned["b"]["id"], "s2")
+
+    def test_assign_respects_worktrees(self) -> None:
+        windows = [
+            {"dispatch_id": "a", "path": "/a", "start_ms": 0, "end_ms": 10_000},
+            {"dispatch_id": "b", "path": "/b", "start_ms": 0, "end_ms": 10_000},
+        ]
+        sessions = {
+            "/a": [{"id": "sa", "created": 1_000, "updated": 9_000}],
+            "/b": [{"id": "sb", "created": 1_000, "updated": 9_000}],
+        }
+        assigned = usage.assign_sessions(windows, sessions)
+        self.assertEqual(assigned["a"]["id"], "sa")
+        self.assertEqual(assigned["b"]["id"], "sb")
+
+    def test_run_usage_uses_global_assignment(self) -> None:
+        windows = [
+            {"dispatch_id": "a", "path": "/w", "start_ms": 0, "end_ms": 10_000},
+            {"dispatch_id": "b", "path": "/w", "start_ms": 1_000, "end_ms": 20_000},
+        ]
+        sessions = {
+            "/w": [
+                {"id": "s1", "created": 2_000, "updated": 9_500},
+                {"id": "s2", "created": 4_000, "updated": 20_000},
+            ]
+        }
+        rows = [
+            {"dispatch_id": "a", "confidence": "exact", "cost": 1, "tokens": {}, "context_peak": 0},
+            {"dispatch_id": "b", "confidence": "exact", "cost": 1, "tokens": {}, "context_peak": 0},
+        ]
+        with patch.object(
+            usage, "run_workers", return_value=[{"dispatchId": "a"}, {"dispatchId": "b"}]
+        ), patch.object(usage, "worker_window", side_effect=windows), patch.object(
+            usage, "sessions_in", side_effect=lambda path: sessions.get(path, [])
+        ), patch.object(usage, "dispatch_usage", side_effect=rows) as call:
+            usage.run_usage("run_x")
+        used = [item.kwargs["session"]["id"] for item in call.call_args_list]
+        self.assertEqual(used, ["s1", "s2"])
+
     def test_run_workers_paginates(self) -> None:
         pages = [
             {"workers": [{"dispatchId": "ctx_a"}], "page": {"nextCursor": "c1"}},
