@@ -2,13 +2,12 @@
 
 ## 2.53.0 — 2026-11-02
 
-- **Paralel worker eşleştirme** — `usage.py --run` aynı worktree'deki
-  dispatch'leri başlangıç sırası ve bitişe en yakın `updated` ile global
-  eşleştirir; paralel reviewer'lar artık `exact` ölçülür. Tek `--dispatch`
-  belirsizlikte `unavailable` kalır (güvenli yol).
-- **Atama** — `assign_sessions()` saf fonksiyon; eksik çalışma, araya giren
-  subagent ve farklı worktree vakaları test edilir.
-- **Metrik notu** — metrics README eşleştirme kuralını ve sınırını yazar.
+- **Paralel worker eşleştirme** — `review_wave` başlattığı worker'ın çalışma
+  kimliğini `.orchestration/worker-sessions.json`'a yazar; `usage.py --run`
+  yalnız bu kaydı kullanır ve paralel reviewer'ları `exact` ölçer. Kayıt yoksa
+  `unavailable` döner; tahminle maliyet yazılmaz. Tek `--dispatch` pencereyle
+  dener, belirsizse `unavailable` kalır.
+- **Metrik notu** — metrics README kayıt kuralını ve sınırını yazar.
 
 ## 2.52.0 — 2026-11-02
 
