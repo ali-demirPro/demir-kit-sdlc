@@ -33,7 +33,8 @@ class CiTemplateTests(unittest.TestCase):
         self.assertIsInstance(job, dict)
         condition = str(job.get("if") or "")
         self.assertIn("refs/heads/main", condition)
-        self.assertIn("Merge pull request", condition)
+        self.assertIn("!startsWith", condition)
+        self.assertIn("Merge pull request #", condition)
         runs = "\n".join(
             str(step.get("run") or "") for step in job.get("steps") or []
         )

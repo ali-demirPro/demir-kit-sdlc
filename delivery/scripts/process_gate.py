@@ -22,27 +22,36 @@ def _run(args: list[str], cwd: Path) -> str | None:
     return result.stdout if result.returncode == 0 else None
 
 
+def _load(path: Path) -> dict:
+    if not path.is_file():
+        return {}
+    try:
+        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except yaml.YAMLError as exc:
+        raise RuntimeError(f"{path} okunamadı: {exc}") from exc
+    return data if isinstance(data, dict) else {}
+
+
 def app_paths(root: Path) -> list[str]:
     paths: set[str] = set()
-    try:
-        eco = yaml.safe_load((root / "ecosystem.yaml").read_text(encoding="utf-8")) or {}
-    except (FileNotFoundError, yaml.YAMLError):
-        eco = {}
+    eco = _load(root / "ecosystem.yaml")
     for product in (eco.get("products") or {}).values():
         if not isinstance(product, dict):
             continue
         for surface in (product.get("surfaces") or {}).values():
             if isinstance(surface, dict) and surface.get("path"):
                 paths.add(str(surface["path"]).strip("/"))
-    try:
-        config = yaml.safe_load((root / "kit.config.yaml").read_text(encoding="utf-8")) or {}
-    except (FileNotFoundError, yaml.YAMLError):
-        config = {}
+    config = _load(root / "kit.config.yaml")
     for item in ((config.get("factory") or {}).get("app_paths") or []):
         paths.add(str(item).strip("/"))
     kit_root = str((config.get("kit") or {}).get("root") or ".")
     if kit_root in {".", ""}:
         paths.update({"delivery", "skills", "install.sh"})
+    elif not paths:
+        raise RuntimeError(
+            "app_paths tanımsız: ecosystem.yaml surfaces.path veya "
+            "factory.app_paths gerekli"
+        )
     return sorted(path for path in paths if path)
 
 
@@ -113,6 +122,12 @@ if [[ "$branch" == "main" || "$branch" == "master" ]]; then
   echo "demir-kit: main'e dogrudan push yasak; epic PR kullan." >&2
   exit 1
 fi
+while read -r local_ref local_sha remote_ref remote_sha; do
+  if [[ "$remote_ref" == "refs/heads/main" || "$remote_ref" == "refs/heads/master" ]]; then
+    echo "demir-kit: main'e dogrudan push yasak; epic PR kullan." >&2
+    exit 1
+  fi
+done
 """
 
 

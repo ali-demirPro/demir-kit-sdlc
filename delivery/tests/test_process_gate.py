@@ -47,6 +47,21 @@ class ProcessGateTests(unittest.TestCase):
         (root / "docs" / "note.md").write_text("x", encoding="utf-8")
         self.assertEqual(process_gate.dirty_sources(root), ["App/x.swift"])
 
+    def test_malformed_config_fails_closed(self) -> None:
+        root = repo()
+        (root / "ecosystem.yaml").write_text("products: [", encoding="utf-8")
+        with self.assertRaises(RuntimeError):
+            process_gate.dirty_sources(root)
+
+    def test_missing_product_paths_fails_closed(self) -> None:
+        root = repo()
+        (root / "ecosystem.yaml").unlink()
+        (root / "kit.config.yaml").write_text(
+            "kit:\n  root: demir-kit\n", encoding="utf-8"
+        )
+        with self.assertRaises(RuntimeError):
+            process_gate.dirty_sources(root)
+
     def test_clean_tree_has_no_dirty_sources(self) -> None:
         self.assertEqual(process_gate.dirty_sources(repo()), [])
 
@@ -58,6 +73,7 @@ class ProcessGateTests(unittest.TestCase):
         self.assertTrue(pre_commit.is_file())
         self.assertTrue(os.access(pre_commit, os.X_OK))
         self.assertIn("# demir-kit:hook", pre_commit.read_text())
+        self.assertIn("remote_ref", (process_gate.hooks_dir(root) / "pre-push").read_text())
         second = process_gate.install_hooks(root, "")
         self.assertEqual(second["written"], [])
         self.assertEqual(process_gate.missing_hooks(root), [])
