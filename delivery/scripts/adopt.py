@@ -13,6 +13,7 @@ import yaml
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import init as init_mod  # noqa: E402
+import process_gate  # noqa: E402
 import delivery_block  # noqa: E402
 import standards as standards_mod  # noqa: E402
 import vendor_sync  # noqa: E402
@@ -113,7 +114,9 @@ def apply(project: Path, force: bool = False, vendor: bool = False) -> dict:
         return {**data, "applied": False, "verify": None}
 
     root = Path(data["project"])
-    applied = init_mod.apply_plan(data["init_plan"], force=force)
+    applied = init_mod.apply_plan(
+        data["init_plan"], force=force, install_hooks=False
+    )
     steps = [
         {
             "step": "init",
@@ -140,6 +143,13 @@ def apply(project: Path, force: bool = False, vendor: bool = False) -> dict:
                 data["issues"].append("vendor sync yakınsamadı")
     else:
         steps.append({"step": "vendor", "actions": ["mevcut kit korundu"]})
+
+    try:
+        hooks = process_gate.install_hooks(root)
+        steps.append({"step": "hooks", **hooks})
+    except RuntimeError as exc:
+        data["issues"].append(f"hook kurulumu başarısız: {exc}")
+        steps.append({"step": "hooks", "written": [], "skipped": [str(exc)]})
 
     injected = standards_mod.inject(root, apply=True)
     steps.append(

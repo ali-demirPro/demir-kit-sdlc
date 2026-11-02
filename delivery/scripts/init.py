@@ -391,7 +391,7 @@ def ensure_worktreeinclude(root: Path, force: bool = False) -> dict:
     return {"changed": True, "applied": True}
 
 
-def apply_plan(plan: dict, force: bool = False) -> dict:
+def apply_plan(plan: dict, force: bool = False, install_hooks: bool = True) -> dict:
     root = Path(plan["project"])
     written: list[str] = []
     skipped: list[str] = []
@@ -414,7 +414,11 @@ def apply_plan(plan: dict, force: bool = False) -> dict:
     config = ensure_config_flag(root)
     orca_yaml = ensure_orca_yaml(root, plan, force=force)
     worktreeinclude = ensure_worktreeinclude(root, force=force)
-    hooks = process_gate.install_hooks(root)
+    hooks = (
+        process_gate.install_hooks(root)
+        if install_hooks
+        else {"written": [], "skipped": []}
+    )
     written.extend(hooks["written"])
     return {
         "written": written,

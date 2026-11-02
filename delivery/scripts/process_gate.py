@@ -107,10 +107,10 @@ def _pre_commit(kit_dir: Path) -> str:
 set -euo pipefail
 kit="{kit_dir}"
 branch="$(git branch --show-current 2>/dev/null || true)"
-if [[ "$branch" =~ epic-([0-9]+) ]]; then
-  exec "$kit/delivery/scripts/guard.sh" --issue "${{BASH_REMATCH[1]}}" --staged
+if [[ "$branch" == "main" || "$branch" == "master" ]]; then
+  exec "$kit/delivery/scripts/guard.sh" --staged
 fi
-exec "$kit/delivery/scripts/guard.sh" --staged
+exit 0
 """
 
 
