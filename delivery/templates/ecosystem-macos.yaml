@@ -1,5 +1,6 @@
 # macOS surface contract — kopyala, name/tracker/product adını ve yolları düzelt.
-# Üç kanıt komutu da tanımlı olmalı: behavior, selftest, snapshot.
+# Kanıt komutları: behavior zorunlu; selftest/snapshot beklenir. snapshot yoksa
+# ui_compare'ı none bırak (uyarı) veya tarihli ui_waiver ekle (aşağıda).
 name: MacApp
 products:
   app:
@@ -17,6 +18,8 @@ products:
           snapshot_pages: [main, settings]
           ui: true
           ui_compare: screenshot
+          # snapshot henüz yoksa geçiş için tarihli muafiyet (süre dolunca hata):
+          # ui_waiver: { reason: "snapshot araci hazirlaniyor", until: "2026-12-15", issue: 12 }
 
 tracker:
   provider: github

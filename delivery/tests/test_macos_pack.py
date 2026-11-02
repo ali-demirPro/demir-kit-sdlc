@@ -327,7 +327,9 @@ class ProductCheckTest(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)
-            self._product(root, "{ behavior: 'true', ui: true }")
+            self._product(
+                root, "{ behavior: 'true', ui: true, ui_compare: screenshot }"
+            )
             self._run(root)
         self.assertTrue(any("snapshot" in item for item in self.errors), self.errors)
 
@@ -345,6 +347,33 @@ class ProductCheckTest(unittest.TestCase):
             any("package.json" in item for item in self.warns), self.warns
         )
 
+
+    def test_ui_compare_none_warns_in_doctor(self) -> None:
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            self._product(root, "{ behavior: 'true', ui: true }")
+            self._run(root)
+        self.assertTrue(
+            any("ui_compare" in item for item in self.warns), self.warns
+        )
+
+    def test_stale_waiver_next_to_snapshot_warns(self) -> None:
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            self._product(
+                root,
+                "{ behavior: 'true', ui: true, ui_compare: screenshot, "
+                "snapshot: './snap.sh', ui_waiver: { reason: 'artik gereksiz', "
+                "until: '2026-12-01', issue: 1 } }",
+            )
+            self._run(root)
+        self.assertTrue(
+            any("gereksiz" in item for item in self.warns), self.warns
+        )
 
     def test_node_surface_without_package_json_warns(self) -> None:
         import tempfile

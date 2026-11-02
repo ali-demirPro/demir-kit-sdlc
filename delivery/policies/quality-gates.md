@@ -17,6 +17,30 @@ Risk tabanlı gate matrisi. Sözleşme: [CONTRACT.md](../CONTRACT.md) · Risk ve
 `entry.kind: refactor` leaf'lerinde `architect` gate'i riskten bağımsız olarak
 her checkpoint'te zorunludur; `verification.refactor` olmadan `leaf-done` geçmez.
 
+## Yüzey kanıtı
+
+Bir ürünün `ecosystem.yaml` yüzeyi kendi kanıt seviyesini bildirir:
+
+| `ui` | `ui_compare` | `snapshot` | Sonuç |
+|------|--------------|------------|-------|
+| `true` | yok / `none` | yok | **uyarı** — UI gate henüz kanıt üretmiyor |
+| `true` | gerçek mod | var | geçer |
+| `true` | gerçek mod | yok | **hata** |
+| `true` | gerçek mod | yok + geçerli `ui_waiver` | **uyarı** (bitiş tarihi yazılır) |
+| `true` | gerçek mod | yok + süresi dolmuş/bozuk muafiyet | **hata** |
+
+Muafiyet ürünün kendi `ecosystem.yaml` dosyasında yaşar; kit'e yama yapılmaz.
+`reason` boş olmayan string, `issue` pozitif tam sayı, `until` en fazla 180 gün
+ileri olmalı; snapshot eklendikten sonra kalan muafiyet "artık gereksiz" uyarısı
+verir, süresi dolmuş muafiyet her durumda hatadır.
+
+```yaml
+gates:
+  ui: true
+  ui_compare: screenshot
+  ui_waiver: { reason: "snapshot araci hazirlaniyor", until: "2026-12-15", issue: 12 }
+```
+
 ## CI kanıtı
 
 - `critical`: CI `success` zorunlu; `skipped` kabul edilmez.

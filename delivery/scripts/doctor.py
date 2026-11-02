@@ -51,7 +51,11 @@ from doctor_skills import (  # noqa: E402, F401  (public re-exports)
     SKILL_REF_USE_RE,
     SKILL_TRIGGER_RE,
 )
-from doctor_surfaces import surface_gate_errors  # noqa: E402
+from doctor_surfaces import (  # noqa: E402, F401
+    surface_gate_errors,
+    surface_gate_messages,
+    surface_gate_warnings,
+)
 import routing  # noqa: E402
 
 try:
@@ -592,8 +596,7 @@ def check_ecosystem() -> None:
                 continue
             if not (ROOT / raw).exists():
                 error(f"ecosystem.{name}.{surface}: path yok — {raw}")
-            for message in surface_gate_errors(str(name), str(surface), spec or {}):
-                error(message)
+            surface_gate_messages(str(name), str(surface), spec or {}, error, warn)
     tracker = (eco.get("tracker") or {}).get("repo")
     if tracker:
         result = run(["git", "remote", "get-url", "origin"])
@@ -1637,8 +1640,7 @@ def check_product(root: Path) -> None:
             if not (root / surface_path).exists():
                 error(f"ecosystem.{pname}.{sname}: path yok — {surface_path}")
             gate = (spec.get("gates") or {}).get("behavior")
-            for message in surface_gate_errors(str(pname), str(sname), spec):
-                error(message)
+            surface_gate_messages(str(pname), str(sname), spec, error, warn)
             if not gate:
                 continue
             try:
