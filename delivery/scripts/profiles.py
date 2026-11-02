@@ -26,6 +26,21 @@ def load_profile(name: str) -> dict:
     return load_yaml(PROFILE_DIR / f"{name}.yaml")
 
 
+def gates_for(project: Path, seal_profile: str = "") -> dict:
+    """Effective profile gates, aligned with doctor's needs_platform rule."""
+    if seal_profile:
+        data = load_profile(seal_profile)
+    else:
+        try:
+            data = compose(project)
+        except ValueError:
+            data = {}
+    gates = {str(gate): True for gate in data.get("extra_gates") or []}
+    if data.get("platform_packs"):
+        gates["platform"] = True
+    return gates
+
+
 def overlay_names() -> set[str]:
     return {
         path.stem

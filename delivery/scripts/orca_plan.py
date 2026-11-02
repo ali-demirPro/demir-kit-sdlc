@@ -124,11 +124,7 @@ def build_plan(
             profile_data = profiles_mod.compose(project)
         except ValueError:
             profile_data = {}
-    profile_gates = {
-        str(gate): True for gate in profile_data.get("extra_gates") or []
-    }
-    if profile_data.get("platform_packs"):
-        profile_gates["platform"] = True
+    profile_gates = profiles_mod.gates_for(project, seal_profile)
     profile_docs = [
         f"{prefix}skills/{skill}/SKILL.md"
         for skill in profile_data.get("required_skills") or []
@@ -151,10 +147,9 @@ def build_plan(
     capabilities = resolution["capabilities"]
     active_variants = resolution["active_variants"]
     risk_order = {"low": 0, "medium": 1, "high": 2, "critical": 3}
-    effective_risk = max(
-        (risk if risk in risk_order else "low"),
+    effective_risk = routing.effective_risk(
+        risk if risk in risk_order else "low",
         resolution["risk_floor"],
-        key=lambda value: risk_order.get(value, 0),
     )
     reviewers = required_reviewers(
         {"ui": False, "architect": False, "commercial": False, **profile_gates},
@@ -199,6 +194,7 @@ def build_plan(
                 prefix,
                 gates=effective_gates,
                 risk=effective_risk,
+                profile_gates=profile_gates,
             )
         except ValueError:
             cp_brief = ""

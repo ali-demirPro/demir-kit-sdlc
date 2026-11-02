@@ -100,7 +100,7 @@ class CpBriefTests(unittest.TestCase):
             gates={"behavior": True, "platform": True},
             risk="critical",
         )
-        self.assertIn("platform: approved", text)
+        self.assertIn("platform: pass", text)
         self.assertIn("human_second: approved", text)
         self.assertIn("platform", text.split("Kanıt")[0])
 
@@ -110,7 +110,24 @@ class CpBriefTests(unittest.TestCase):
         )
         self.assertNotIn("AC-1:", text)
         self.assertNotIn("T-1", text)
+        self.assertNotIn("demir-kit-evidence", text)
         self.assertIn("seal'i düzelt", text)
+
+    def test_medium_human_gate_adds_human(self) -> None:
+        text = brief.render_cp_brief(
+            {"issue": 142, "risk": "medium"},
+            SEAL,
+            "CP-1",
+            gates={"behavior": True, "human": True},
+            risk="medium",
+        )
+        self.assertIn("human: approved", text)
+
+    def test_ui_gate_adds_ui_pass(self) -> None:
+        text = brief.render_cp_brief(
+            {"issue": 142, "risk": "medium"}, SEAL, "CP-2"
+        )
+        self.assertIn("ui: pass", text)
 
     def test_skeleton_matches_routing_reviewers(self) -> None:
         gates = {"behavior": True, "ui": True}

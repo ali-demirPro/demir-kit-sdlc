@@ -22,6 +22,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import resolver  # noqa: E402
 import routing  # noqa: E402
+import profiles  # noqa: E402
 
 
 def gh(args: list[str]) -> str:
@@ -147,16 +148,19 @@ def cp_selection(seal: dict, cp_id: str) -> tuple[dict, list[dict]]:
     return cp, cases
 
 
-def evidence_skeleton(
-    reviewers: list[str], risk: str, gate_command: str
-) -> list[str]:
+def evidence_skeleton(reviewers: list[str], risk: str) -> list[str]:
     """Evidence lines derived from the same reviewer set doctor enforces."""
-    lines = ["  adversarial: {reviewer_a: approved}"]
     if "adversarial-b" in reviewers:
         lines = ["  adversarial: {reviewer_a: approved, reviewer_b: approved}"]
-    for role in ("architect", "commercial", "human", "human_second", "platform"):
+    else:
+        lines = ["  adversarial: {reviewer_a: approved}"]
+    for role in ("architect", "commercial", "human", "human_second"):
         if role in reviewers:
             lines.append(f"  {role}: approved")
+    if "platform" in reviewers:
+        lines.append("  platform: pass")
+    if "ui" in reviewers:
+        lines.append("  ui: pass")
     if "ui_visual" in reviewers:
         lines += [
             "  ui_visual: pass",
@@ -174,6 +178,7 @@ def render_cp_brief(
     prefix: str = "",
     gates: dict | None = None,
     risk: str | None = None,
+    profile_gates: dict | None = None,
 ) -> str:
     """Compact per-checkpoint brief: scope, AC, tests, evidence skeleton."""
     cp, cases = cp_selection(seal, cp_id)
@@ -184,8 +189,10 @@ def render_cp_brief(
         or data.get("risk")
         or "n/a"
     )
-    role = cp_role(effective_gates)
-    reviewers = routing.evidence_reviewers(effective_gates, effective_risk)
+    role = cp_role(cp.get("gates") or {})
+    reviewers = routing.evidence_reviewers(
+        effective_gates, effective_risk, profile_gates
+    )
     ac_ids = {str(case.get("ac")) for case in cases if case.get("ac")}
     criteria = seal.get("acceptance_criteria") or []
     selected = [
@@ -198,10 +205,11 @@ def render_cp_brief(
         + (" --product --root ." if prefix else "")
         + f" --checkpoint {cp_id}"
     )
+    gate_source = {**effective_gates, **(profile_gates or {})}
     active = [
         item
         for item in ("ui", "architect", "commercial", "platform", "human")
-        if effective_gates.get(item)
+        if gate_source.get(item)
     ]
     gate_text = "behavior" + (", " + ", ".join(active) if active else "")
 
@@ -230,28 +238,34 @@ def render_cp_brief(
         lines.append("Yollar:")
         lines += [f"- {prefix}{path}" if prefix else f"- {path}" for path in reference]
 
+    if cases:
+        lines += [
+            f"Kanıt (agent: {role}, reviewer: {', '.join(reviewers)}):",
+            "```yaml",
+            "demir-kit-evidence",
+            'demir_kit_version: "2"',
+            f"cp_id: {cp_id}",
+            f"issue: {data['issue']}",
+            f"agent: {role}",
+            "commit: <sha>",
+            f'behavior: {{command: "{gate_command}", exit_code: 0, checkpoint: {cp_id}}}',
+            "reviews:",
+        ]
+        lines += evidence_skeleton(reviewers, effective_risk)
+        lines.append("tests:")
+        for case in cases:
+            lines.append(f"  - {{case: {case.get('id')}, result: pass}}")
+        lines += [
+            "findings: []",
+            "status: pass",
+            "```",
+        ]
+    else:
+        lines.append(
+            "Kanıt: case olmadığı için evidence iskeleti üretilmedi; "
+            "önce seal'i düzelt."
+        )
     lines += [
-        f"Kanıt (agent: {role}, reviewer: {', '.join(reviewers)}):",
-        "```yaml",
-        "demir-kit-evidence",
-        'demir_kit_version: "2"',
-        f"cp_id: {cp_id}",
-        f"issue: {data['issue']}",
-        f"agent: {role}",
-        "commit: <sha>",
-        f'behavior: {{command: "{gate_command}", exit_code: 0, checkpoint: {cp_id}}}',
-        "reviews:",
-    ]
-    lines += evidence_skeleton(reviewers, effective_risk, gate_command)
-    lines.append("tests:")
-    for case in cases:
-        lines.append(f"  - {{case: {case.get('id')}, result: pass}}")
-    if not cases:
-        lines.append("  []")
-    lines += [
-        "findings: []",
-        "status: pass",
-        "```",
         f"Komut: `{gate_command}`",
         "Okuma: bu brief yeterli; ek dosyayı yalnız ilgili satır için aç "
         "(`rg -n`), CONTRACT.md ve quality-gates.md tamamını okuma.",
@@ -385,8 +399,22 @@ def main() -> int:
         if not seal:
             sys.exit("brief: issue seal (`demir-kit` bloğu) yok")
         try:
+            cp, _ = cp_selection(seal, args.cp)
+            project = routing.project_root(ROOT)
+            seal_profile = str((seal.get("factory") or {}).get("profile") or "")
+            profile_gates = profiles.gates_for(project, seal_profile)
+            effective = routing.effective_risk(
+                str((seal.get("risk") or {}).get("level") or "low"),
+                str(data.get("risk_floor") or "low"),
+            )
             text = render_cp_brief(
-                data, seal, args.cp, routing.kit_prefix(ROOT)
+                {"issue": data["issue"], "risk": effective},
+                seal,
+                args.cp,
+                routing.kit_prefix(ROOT),
+                gates=cp.get("gates") or {},
+                risk=effective,
+                profile_gates=profile_gates,
             )
         except ValueError as exc:
             sys.exit(f"brief: {exc}")
@@ -401,9 +429,7 @@ def main() -> int:
                     {
                         "issue": data["issue"],
                         "cp_id": args.cp,
-                        "role": cp_role(
-                            (cp_selection(seal, args.cp)[0].get("gates") or {})
-                        ),
+                        "role": cp_role(cp.get("gates") or {}),
                         "chars": len(text),
                         "brief": text,
                     },
