@@ -130,8 +130,11 @@ def compose_packet(
 
     room_for_brief = max_chars - size(prefix + middle + closing)
     if room_for_brief <= 0:
+        note = "\n... [paket kısaltıldı: --max-chars artır]"
         packet = prefix + brief_part + middle + body + closing
-        return packet.encode("utf-8")[:max_chars].decode("utf-8", "ignore")
+        keep = max(0, max_chars - size(note))
+        trimmed = packet.encode("utf-8")[:keep].decode("utf-8", "ignore")
+        return (trimmed + note) if size(trimmed + note) <= max_chars else trimmed
     if size(brief_part) > room_for_brief:
         brief_part = trim(brief_part, room_for_brief - 40, "\n... [brief kısaltıldı]")
 
@@ -198,7 +201,7 @@ def main() -> int:
         f"## Review packet — #{args.issue} {args.cp}",
         f"Commit: {commit[:12]}"
         + (f" · Delta: {args.delta}..{commit[:12]}" if args.delta else " · Tam commit"),
-        f"Boyut sınırı: {args.max_chars} karakter",
+        f"Boyut sınırı: {args.max_chars} bayt",
     ]
     packet = compose_packet(
         header,

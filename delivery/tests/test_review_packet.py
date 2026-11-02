@@ -106,6 +106,18 @@ class ReviewPacketTests(unittest.TestCase):
         )
         self.assertLessEqual(len(packet.encode("utf-8")), 200)
 
+    def test_non_ascii_limit_is_bytes(self) -> None:
+        packet = review_packet.compose_packet(
+            ["## Review packet"],
+            "Türkçe bağlam " * 200,
+            [],
+            "",
+            "ııı" * 1000,
+            500,
+        )
+        self.assertLessEqual(len(packet.encode("utf-8")), 500)
+        self.assertIn("kısalt", packet)
+
     def test_packet_without_findings(self) -> None:
         packet = review_packet.compose_packet(
             ["## Review packet"], "brief", [], "", "", 12_000
@@ -160,11 +172,14 @@ class ReviewPacketCliTests(unittest.TestCase):
         out = io.StringIO()
         with patch.object(review_packet, "gh", side_effect=self.fake_gh), patch.object(
             review_packet, "git", side_effect=self.fake_git(calls)
-        ), patch.object(review_packet.brief, "render_cp_brief", return_value="BRIEF"), patch.object(
+        ), patch.object(
+            review_packet.brief, "render_cp_brief", return_value="BRIEF"
+        ) as render, patch.object(
             sys, "argv",
             ["review_packet.py", "--issue", "144", "--cp", "CP-1", "--delta", "base", "--json"],
         ), redirect_stdout(out):
             self.assertEqual(review_packet.main(), 0)
+        self.assertFalse(render.call_args.kwargs["include_evidence"])
         data = json.loads(out.getvalue())
         self.assertEqual(data["delta"], "base")
         self.assertTrue(any(args[:2] == ["diff", "base..abc123"] for args in calls))
