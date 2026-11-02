@@ -30,6 +30,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import resolver  # noqa: E402
+import routing  # noqa: E402
 
 
 def load_registry(root: Path) -> dict:
@@ -44,13 +45,9 @@ def load_registry(root: Path) -> dict:
 def resolve_project(cwd: Path, kit_root: Path) -> Path:
     """Product root when the caller stands in one; otherwise the kit root.
 
-    A product checkout has kit.config.yaml at its root; the kit itself does too,
-    so this is the same test for both and keeps self-host behaviour unchanged.
+    Delegates to routing.project_root so the rule lives in one place.
     """
-    cwd = Path(cwd)
-    if (cwd / "kit.config.yaml").is_file():
-        return cwd
-    return Path(kit_root)
+    return routing.project_root(Path(kit_root), Path(cwd))
 
 
 def declared_capabilities(project: Path) -> set[str]:

@@ -304,7 +304,7 @@ class ProductCheckTest(unittest.TestCase):
         self.errors = list(doctor.ERRORS)
         self.warns = list(doctor.WARNS)
 
-    def _product(self, root: Path, gates: str) -> None:
+    def _product(self, root: Path, gates: str, stacks: str = "[swift]") -> None:
         (root / "kit.config.yaml").write_text(
             "kit:\n  root: kit\n  protocol: '2'\n  version: '0'\n"
             "factory:\n  app_paths: [App]\n",
@@ -318,7 +318,7 @@ class ProductCheckTest(unittest.TestCase):
         (root / "AGENTS.md").write_text("# demo\n", encoding="utf-8")
         (root / "ecosystem.yaml").write_text(
             "name: Demo\nproducts:\n  app:\n    surfaces:\n      app:\n"
-            f"        path: App\n        stacks: [swift]\n        gates: {gates}\n",
+            f"        path: App\n        stacks: {stacks}\n        gates: {gates}\n",
             encoding="utf-8",
         )
 
@@ -342,5 +342,21 @@ class ProductCheckTest(unittest.TestCase):
             )
             self._run(root)
         self.assertFalse(
+            any("package.json" in item for item in self.warns), self.warns
+        )
+
+
+    def test_node_surface_without_package_json_warns(self) -> None:
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            self._product(
+                root,
+                "{ behavior: 'true', ui: false }",
+                stacks="[next]",
+            )
+            self._run(root)
+        self.assertTrue(
             any("package.json" in item for item in self.warns), self.warns
         )

@@ -238,3 +238,61 @@ class ScopedRegistryTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class InstallScriptTest(unittest.TestCase):
+    """End-to-end: install.sh must read the product's own declaration."""
+
+    def run_install(self, product: Path) -> tuple[int, str]:
+        import os
+        import subprocess
+        import sys
+
+        bindir = product / ".fakebin"
+        bindir.mkdir()
+        stub = bindir / "npx"
+        stub.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        stub.chmod(0o755)
+        env = dict(os.environ)
+        env["PATH"] = f"{bindir}:{env.get('PATH', '')}"
+        result = subprocess.run(
+            [
+                "bash",
+                str(SCRIPTS / "install.sh"),
+                "--capabilities",
+                "--dry-run",
+            ],
+            cwd=product,
+            capture_output=True,
+            text=True,
+            env=env,
+        )
+        return result.returncode, result.stdout + result.stderr
+
+    def product(self, root: Path, include: str = "platform.macos") -> None:
+        (root / "kit.config.yaml").write_text("kit: {root: kit}\n", encoding="utf-8")
+        (root / ".kit").mkdir()
+        (root / ".kit" / "capabilities.yaml").write_text(
+            f"version: 1\ninclude: [{include}]\nexclude: []\n", encoding="utf-8"
+        )
+
+    def test_product_declaration_adds_scoped_skills(self) -> None:
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as raw:
+            product = Path(raw)
+            self.product(product)
+            code, output = self.run_install(product)
+        self.assertEqual(code, 0, output)
+        for name in SCOPED:
+            self.assertIn(name, output)
+
+    def test_unknown_capability_fails_the_install(self) -> None:
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as raw:
+            product = Path(raw)
+            self.product(product, include="platform.nonexistent")
+            code, output = self.run_install(product)
+        self.assertNotEqual(code, 0, output)
+        self.assertIn("bilinmeyen capability", output)
