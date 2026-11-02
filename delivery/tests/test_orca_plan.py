@@ -88,6 +88,17 @@ class OrcaPlanTests(unittest.TestCase):
         self.assertIn("human", roles)
         self.assertNotIn("platform", roles)
 
+    def test_inherited_model_reaches_task(self) -> None:
+        with patch.object(
+            orca_plan.model_policy,
+            "role_launch",
+            return_value={"model": "provider/model"},
+        ):
+            plan = orca_plan.build_plan(
+                REGISTRY, 17, "Orca: plan adapter", BODY, {"agent-approved"}
+            )
+        self.assertEqual(plan["tasks"][0]["model"], "provider/model")
+
     def test_seal_profile_gates(self) -> None:
         body = """```yaml demir-kit
 epic: 16
