@@ -81,7 +81,7 @@ class ClosureTests(unittest.TestCase):
             ],
         }
         self.assertEqual(closure.lead_time_hours([10, 11], events), 2.0)
-        self.assertEqual(closure.lead_time_hours([10], {}), 0.0)
+        self.assertIsNone(closure.lead_time_hours([10], {}))
 
     def test_coordinator_totals(self) -> None:
         snapshot = {
@@ -96,6 +96,8 @@ class ClosureTests(unittest.TestCase):
             "tokens": {"input": 10, "output": 2, "cache_read": 100},
         }
         with patch.object(closure, "snapshot_for", return_value=snapshot), patch.object(
+            closure.usage, "current_session", return_value={"id": "s1"}
+        ), patch.object(
             closure.usage, "api_session_info", return_value={"id": "s1"}
         ), patch.object(closure.usage, "compute_delta", return_value=delta):
             totals = closure.coordinator_totals([10, 11])
@@ -106,17 +108,57 @@ class ClosureTests(unittest.TestCase):
     def test_coordinator_totals_unavailable_on_mismatch(self) -> None:
         snapshot = {"session_id": "s1", "created_at": "2026-11-02T08:00:00Z"}
         with patch.object(closure, "snapshot_for", return_value=snapshot), patch.object(
+            closure.usage, "current_session", return_value={"id": "s2"}
+        ), patch.object(closure.usage, "compute_delta") as delta:
+            totals = closure.coordinator_totals([10])
+        self.assertTrue(totals["unavailable"])
+        self.assertEqual(totals["reason"], "session mismatch")
+        delta.assert_not_called()
+
+    def test_lead_time_uses_earliest_approval_and_latest_done(self) -> None:
+        events = {
+            10: [
+                {"event": "labeled", "label": {"name": "agent-approved"},
+                 "created_at": "2026-11-02T09:00:00Z"},
+                {"event": "labeled", "label": {"name": "leaf-done"},
+                 "created_at": "2026-11-02T09:30:00Z"},
+            ],
+            11: [
+                {"event": "labeled", "label": {"name": "agent-approved"},
+                 "created_at": "2026-11-02T08:00:00Z"},
+                {"event": "labeled", "label": {"name": "leaf-done"},
+                 "created_at": "2026-11-02T11:00:00Z"},
+            ],
+        }
+        self.assertEqual(closure.lead_time_hours([10, 11], events), 3.0)
+
+    def test_coordinator_uses_earliest_snapshot(self) -> None:
+        early = {"session_id": "s1", "created_at": "2026-11-02T08:00:00Z"}
+        late = {"session_id": "s1", "created_at": "2026-11-02T10:00:00Z"}
+        delta = {"session_id": "s1", "cost": 0.1,
+                 "tokens": {"input": 1, "output": 1, "cache_read": 1}}
+        with patch.object(
+            closure, "snapshot_for", side_effect=[late, early]
+        ), patch.object(
+            closure.usage, "current_session", return_value={"id": "s1"}
+        ), patch.object(
             closure.usage, "api_session_info", return_value={"id": "s1"}
         ), patch.object(
-            closure.usage, "compute_delta", side_effect=ValueError("mismatch")
-        ):
-            self.assertTrue(closure.coordinator_totals([10])["unavailable"])
+            closure.usage, "compute_delta", return_value=delta
+        ) as compute:
+            closure.coordinator_totals([10, 11])
+        self.assertEqual(compute.call_args.args[0], early)
 
     def test_build_metrics_and_schema(self) -> None:
         metrics = closure.build_metrics(
             [10, 11],
             {10: {"checkpoints": [1, 2]}, 11: {"checkpoints": [3, 4]}},
-            {},
+            {
+                10: [{"event": "labeled", "label": {"name": "agent-approved"},
+                      "created_at": "2026-11-02T08:00:00Z"}],
+                11: [{"event": "labeled", "label": {"name": "leaf-done"},
+                      "created_at": "2026-11-02T10:00:00Z"}],
+            },
             {"unavailable": False, "worker_count": 3, "tokens_in": 10,
              "tokens_out": 2, "cache_read": 100, "context_peak": 50, "cost_usd": 0.5},
             {"unavailable": False, "tokens_in": 7, "tokens_out": 1,
@@ -148,19 +190,27 @@ class ClosureTests(unittest.TestCase):
         )
         self.assertNotIn("worker_count", metrics)
         self.assertNotIn("coordinator_cost_usd", metrics)
+        self.assertNotIn("lead_time_hours", metrics)
 
 
 class ClosureCliTests(unittest.TestCase):
     def fake_issue(self, repo: str, number: int) -> dict:
         if number == 154:
-            return {"body": EPIC_BODY}
-        return {"body": LEAF_BODY}
+            return {"body": EPIC_BODY, "labels": []}
+        return {"body": LEAF_BODY, "labels": [{"name": "leaf-done"}]}
+
+    def fake_events(self, repo: str, issue: int) -> list[dict]:
+        if issue == 10:
+            return [{"event": "labeled", "label": {"name": "agent-approved"},
+                     "created_at": "2026-11-02T08:00:00Z"}]
+        return [{"event": "labeled", "label": {"name": "leaf-done"},
+                 "created_at": "2026-11-02T10:00:00Z"}]
 
     def run_main(self, argv: list[str]):
         out, err = io.StringIO(), io.StringIO()
         with patch.object(closure, "repo_name", return_value="o/r"), \
              patch.object(closure, "issue_payload", side_effect=self.fake_issue), \
-             patch.object(closure, "label_events", return_value={}), \
+             patch.object(closure, "label_events", side_effect=self.fake_events), \
              patch.object(closure, "run_id_for", return_value="run_x"), \
              patch.object(closure, "worker_totals", return_value={"unavailable": True}), \
              patch.object(closure, "coordinator_totals", return_value={"unavailable": True}), \
@@ -188,6 +238,23 @@ class ClosureCliTests(unittest.TestCase):
             code, _, _ = self.run_main(["--issue", "154", "--post"])
         self.assertEqual(code, 0)
         self.assertEqual(calls, ["post", "verify"])
+
+    def test_missing_seal_blocks(self) -> None:
+        with patch.object(closure, "repo_name", return_value="o/r"), patch.object(
+            closure, "issue_payload", side_effect=self.fake_issue
+        ), patch.object(
+            closure, "label_events", side_effect=self.fake_events
+        ), patch.object(sys, "argv", ["closure.py", "--issue", "154"]):
+            with patch.object(
+                closure, "issue_payload",
+                side_effect=lambda repo, n: (
+                    {"body": EPIC_BODY, "labels": []}
+                    if n == 154
+                    else {"body": "```yaml demir-kit\nepic: 1\n```\n", "labels": [{"name": "leaf-done"}]}
+                ),
+            ):
+                with self.assertRaises(SystemExit):
+                    closure.main()
 
     def test_verify_failure_rolls_back(self) -> None:
         with patch.object(closure, "post_comment", return_value="c1"), patch.object(

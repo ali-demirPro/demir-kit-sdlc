@@ -71,18 +71,27 @@ def leaf_seal(payload: dict) -> dict:
 
 
 def label_events(repo: str, issue: int) -> list[dict]:
-    raw = run(
-        [
-            "gh",
-            "api",
-            f"repos/{repo}/issues/{issue}/timeline?per_page=100",
-        ]
-    )
-    try:
-        events = json.loads(raw)
-    except json.JSONDecodeError:
-        return []
-    return events if isinstance(events, list) else []
+    events: list[dict] = []
+    page = 1
+    while True:
+        raw = run(
+            [
+                "gh",
+                "api",
+                f"repos/{repo}/issues/{issue}/timeline?per_page=100&page={page}",
+            ]
+        )
+        try:
+            batch = json.loads(raw)
+        except json.JSONDecodeError:
+            break
+        if not isinstance(batch, list) or not batch:
+            break
+        events.extend(batch)
+        if len(batch) < 100:
+            break
+        page += 1
+    return events
 
 
 def parse_time(value: str) -> datetime | None:
@@ -92,7 +101,9 @@ def parse_time(value: str) -> datetime | None:
         return None
 
 
-def lead_time_hours(children: list[int], events: dict[int, list[dict]]) -> float:
+def lead_time_hours(
+    children: list[int], events: dict[int, list[dict]]
+) -> float | None:
     approved = []
     done = []
     for child in children:
@@ -108,7 +119,7 @@ def lead_time_hours(children: list[int], events: dict[int, list[dict]]) -> float
             elif label == "leaf-done":
                 done.append(moment)
     if not approved or not done:
-        return 0.0
+        return None
     return round((max(done) - min(approved)).total_seconds() / 3600, 1)
 
 
@@ -141,17 +152,25 @@ def run_id_for(epic: int) -> str | None:
         if run_id:
             return run_id
     runs = usage.orca_result(["orchestration", "run-list", "--json"]).get("runs") or []
-    for item in runs:
-        if str(item.get("objective")) == f"epic #{epic}":
-            return str(item.get("id") or "") or None
-    return None
+    matches = [
+        item for item in runs if str(item.get("objective")) == f"epic #{epic}"
+    ]
+    matches.sort(key=lambda item: str(item.get("created_at") or ""), reverse=True)
+    return str(matches[0].get("id") or "") or None if matches else None
 
 
 def worker_totals(run_id: str | None) -> dict:
     if not run_id:
         return {"unavailable": True}
     data = usage.run_usage(run_id)
-    return {"unavailable": False, **data["totals"]}
+    totals = data.get("totals") or {}
+    if (
+        not totals.get("worker_count")
+        or not totals.get("measured")
+        or totals.get("unavailable")
+    ):
+        return {"unavailable": True, "partial": bool(totals.get("unavailable"))}
+    return {"unavailable": False, **totals}
 
 
 def snapshot_for(issue: int) -> dict | None:
@@ -174,8 +193,14 @@ def coordinator_totals(children: list[int]) -> dict:
         return {"unavailable": True}
     snapshot = min(snapshots, key=lambda item: str(item.get("created_at") or ""))
     try:
-        current = usage.api_session_info(str(snapshot.get("session_id")))
-        delta = usage.compute_delta(snapshot, current)
+        current = usage.current_session(state_roots()[-1])
+    except (SystemExit, ValueError, json.JSONDecodeError):
+        return {"unavailable": True}
+    if str(current.get("id")) != str(snapshot.get("session_id")):
+        return {"unavailable": True, "reason": "session mismatch"}
+    try:
+        info = usage.api_session_info(str(current.get("id")))
+        delta = usage.compute_delta(snapshot, info)
     except (SystemExit, ValueError, json.JSONDecodeError):
         return {"unavailable": True}
     tokens = delta.get("tokens") or {}
@@ -199,14 +224,16 @@ def build_metrics(
     reconcile_issues: int,
     human_interventions: int,
 ) -> dict:
+    lead = lead_time_hours(children, events)
     metrics = {
         "leaf_count": len(children),
         "cp_count": cp_count(seals),
         "gate_retries": gate_retries,
         "reconcile_issues": reconcile_issues,
         "human_interventions": human_interventions,
-        "lead_time_hours": lead_time_hours(children, events),
     }
+    if lead is not None:
+        metrics["lead_time_hours"] = lead
     if not workers.get("unavailable"):
         metrics.update(
             {
@@ -246,6 +273,32 @@ def render_closure(epic: int, metrics: dict, status: str = "pass") -> str:
         + yaml.safe_dump(payload, sort_keys=False, allow_unicode=True)
         + "```\n"
     )
+
+
+def validate_block(body: str, leaf_count: int) -> list[str]:
+    match = re.search(r"```yaml\s+demir-kit-closure\s*\n(.*?)```", body, re.S)
+    if not match:
+        return ["closure bloğu üretilemedi"]
+    try:
+        record = yaml.safe_load(match.group(1)) or {}
+    except yaml.YAMLError as exc:
+        return [f"closure YAML geçersiz — {exc}"]
+    import doctor
+
+    schema = json.loads(
+        (ROOT / "delivery" / "schemas" / "closure.schema.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    errors = doctor.validate_schema(record, schema, "closure")
+    metrics = record.get("metrics") or {}
+    if metrics.get("leaf_count") != leaf_count:
+        errors.append(
+            f"closure leaf_count {metrics.get('leaf_count')} != {leaf_count}"
+        )
+    if record.get("status") == "pass" and record.get("ready_for_human_qa") is not True:
+        errors.append("closure status pass ama ready_for_human_qa true değil")
+    return errors
 
 
 def post_comment(repo: str, issue: int, body: str) -> str | None:
@@ -307,7 +360,21 @@ def main() -> int:
     children = epic_children(payload)
     if not children:
         raise SystemExit("closure: epic children yok")
-    seals = {child: leaf_seal(issue_payload(repo, child)) for child in children}
+    child_payloads = {child: issue_payload(repo, child) for child in children}
+    seals = {child: leaf_seal(child_payloads[child]) for child in children}
+    missing = [child for child in children if not seals[child].get("checkpoints")]
+    if missing:
+        raise SystemExit(f"closure: seal/checkpoint yok — {missing}")
+    labels = {
+        child: {item.get("name") for item in child_payloads[child].get("labels") or []}
+        for child in children
+    }
+    not_done = [
+        child for child in children
+        if not (labels[child] & {"leaf-done", "deferred"})
+    ]
+    if not_done:
+        raise SystemExit(f"closure: leaf-done/deferred olmayan child — {not_done}")
     events = {child: label_events(repo, child) for child in children}
     workers = worker_totals(run_id_for(args.issue))
     coordinator = coordinator_totals(children)
@@ -321,7 +388,14 @@ def main() -> int:
         args.reconcile_issues,
         args.human_interventions,
     )
+    if "lead_time_hours" not in metrics:
+        raise SystemExit("closure: lead time hesaplanamadı (etiket olayları eksik)")
     body = render_closure(args.issue, metrics)
+    errors = validate_block(body, len(children))
+    if errors:
+        for error in errors:
+            print(f"closure: {error}", file=sys.stderr)
+        return 1
 
     if not args.post:
         if args.json:
