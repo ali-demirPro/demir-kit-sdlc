@@ -161,15 +161,17 @@ def run_id_for(epic: int) -> str | None:
 
 def worker_totals(run_id: str | None) -> dict:
     if not run_id:
-        return {"unavailable": True}
+        return {"unavailable": True, "reason": "run yok"}
     data = usage.run_usage(run_id)
     totals = data.get("totals") or {}
-    if (
-        not totals.get("worker_count")
-        or not totals.get("measured")
-        or totals.get("unavailable")
-    ):
-        return {"unavailable": True, "partial": bool(totals.get("unavailable"))}
+    if not totals.get("worker_count"):
+        return {"unavailable": True, "reason": "0 worker"}
+    if not totals.get("measured") or totals.get("unavailable"):
+        return {
+            "unavailable": True,
+            "partial": bool(totals.get("unavailable")),
+            "reason": "kısmi ölçüm",
+        }
     return {"unavailable": False, **totals}
 
 
@@ -364,13 +366,17 @@ def main() -> int:
         raise SystemExit("closure: epic children yok")
     child_payloads = {child: issue_payload(repo, child) for child in children}
     seals = {child: leaf_seal(child_payloads[child]) for child in children}
-    missing = [child for child in children if not seals[child].get("checkpoints")]
-    if missing:
-        raise SystemExit(f"closure: seal/checkpoint yok — {missing}")
     labels = {
         child: {item.get("name") for item in child_payloads[child].get("labels") or []}
         for child in children
     }
+    deferred = {child for child in children if "deferred" in labels[child]}
+    missing = [
+        child for child in children
+        if child not in deferred and not seals[child].get("checkpoints")
+    ]
+    if missing:
+        raise SystemExit(f"closure: seal/checkpoint yok — {missing}")
     not_done = [
         child for child in children
         if not (labels[child] & {"leaf-done", "deferred"})
@@ -379,9 +385,10 @@ def main() -> int:
         raise SystemExit(f"closure: leaf-done/deferred olmayan child — {not_done}")
     events = {child: label_events(repo, child) for child in children}
     workers = worker_totals(run_id_for(args.issue))
-    if workers.get("partial"):
+    if workers.get("unavailable"):
         print(
-            "closure: worker ölçümü kısmi; worker alanları yazılmadı",
+            f"closure: worker metrikleri yok ({workers.get('reason', 'ölçüm yok')}); "
+            "worker alanları yazılmadı",
             file=sys.stderr,
         )
     coordinator = coordinator_totals(children)

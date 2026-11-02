@@ -96,16 +96,17 @@ class ClosureTests(unittest.TestCase):
             "tokens": {"input": 10, "output": 2, "cache_read": 100},
         }
         with patch.object(
-            closure, "snapshot_for", return_value=(snapshot, Path("/tmp"))
+            closure, "snapshot_for", return_value=(snapshot, Path("/tmp/root"))
         ), patch.object(
             closure.usage, "current_session", return_value={"id": "s1"}
-        ), patch.object(
+        ) as current, patch.object(
             closure.usage, "api_session_info", return_value={"id": "s1"}
         ), patch.object(closure.usage, "compute_delta", return_value=delta):
             totals = closure.coordinator_totals([10, 11])
         self.assertFalse(totals["unavailable"])
         self.assertEqual(totals["cost_usd"], 0.4)
         self.assertEqual(totals["cache_read"], 100)
+        current.assert_called_once_with(Path("/tmp/root"))
 
     def test_coordinator_totals_unavailable_on_mismatch(self) -> None:
         snapshot = {"session_id": "s1", "created_at": "2026-11-02T08:00:00Z"}
@@ -295,6 +296,38 @@ class ClosureCliTests(unittest.TestCase):
             ):
                 with self.assertRaises(SystemExit):
                     closure.main()
+
+    def test_deferred_child_without_seal_is_allowed(self) -> None:
+        def issue(repo: str, number: int) -> dict:
+            if number == 154:
+                return {"body": EPIC_BODY, "labels": []}
+            if number == 10:
+                return {"body": LEAF_BODY, "labels": [{"name": "leaf-done"}]}
+            return {"body": "kapsam", "labels": [{"name": "deferred"}]}
+
+        def events(repo: str, issue_number: int) -> list[dict]:
+            if issue_number == 10:
+                return [
+                    {"event": "labeled", "label": {"name": "agent-approved"},
+                     "created_at": "2026-11-02T08:00:00Z"},
+                    {"event": "labeled", "label": {"name": "leaf-done"},
+                     "created_at": "2026-11-02T10:00:00Z"},
+                ]
+            return []
+
+        out = io.StringIO()
+        with patch.object(closure, "repo_name", return_value="o/r"), patch.object(
+            closure, "issue_payload", side_effect=issue
+        ), patch.object(closure, "label_events", side_effect=events), patch.object(
+            closure, "run_id_for", return_value=None
+        ), patch.object(
+            closure, "coordinator_totals", return_value={"unavailable": True}
+        ), patch.object(sys, "argv", ["closure.py", "--issue", "154"]), redirect_stdout(
+            out
+        ):
+            code = closure.main()
+        self.assertEqual(code, 0)
+        self.assertIn("leaf_count: 2", out.getvalue())
 
     def test_verify_failure_rolls_back(self) -> None:
         with patch.object(closure, "post_comment", return_value="c1"), patch.object(
