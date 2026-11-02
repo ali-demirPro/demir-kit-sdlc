@@ -29,7 +29,10 @@ Bir ürünün `ecosystem.yaml` yüzeyi kendi kanıt seviyesini bildirir:
 | `true` | gerçek mod | yok + geçerli `ui_waiver` | **uyarı** (bitiş tarihi yazılır) |
 | `true` | gerçek mod | yok + süresi dolmuş/bozuk muafiyet | **hata** |
 
-Muafiyet ürünün kendi `ecosystem.yaml` dosyasında yaşar; kit'e yama yapılmaz:
+Muafiyet ürünün kendi `ecosystem.yaml` dosyasında yaşar; kit'e yama yapılmaz.
+`reason` boş olmayan string, `issue` pozitif tam sayı, `until` en fazla 180 gün
+ileri olmalı; snapshot eklendikten sonra kalan muafiyet "artık gereksiz" uyarısı
+verir, süresi dolmuş muafiyet her durumda hatadır.
 
 ```yaml
 gates:

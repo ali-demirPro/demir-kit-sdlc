@@ -191,6 +191,29 @@ class SurfaceGateTest(unittest.TestCase):
         )
         self.assertTrue(any("süresi doldu" in item for item in errors), errors)
 
+    def test_waiver_horizon_boundary(self) -> None:
+        from datetime import date, timedelta
+
+        today = date(2026, 11, 2)
+        for offset, should_pass in ((180, True), (181, False)):
+            with self.subTest(days=offset):
+                spec = {
+                    "gates": {
+                        "behavior": "./b",
+                        "ui": True,
+                        "ui_compare": "screenshot",
+                        "ui_waiver": {
+                            "reason": "sınır",
+                            "until": (today + timedelta(days=offset)).isoformat(),
+                            "issue": 1,
+                        },
+                    }
+                }
+                errors = doctor.surface_gate_errors(
+                    "app", "macos.app", spec, today=today
+                )
+                self.assertEqual(errors == [], should_pass, errors)
+
     def test_malformed_waiver_is_an_error(self) -> None:
         for waiver in (
             "geçici",
