@@ -303,17 +303,86 @@ def empty_tokens() -> dict:
     return token_totals(None)
 
 
-def dispatch_usage(dispatch_id: str) -> dict:
-    """Token/cost of one supervised worker, resolved by worktree + time window."""
+_UNSET = object()
+SESSION_MAP = "worker-sessions.json"
+
+
+def state_root() -> Path:
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--path-format=absolute", "--git-common-dir"],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode == 0:
+            candidate = Path(result.stdout.strip()).parent
+            if candidate.is_dir():
+                return candidate
+    except (FileNotFoundError, OSError):
+        pass
+    return project_root()
+
+
+def session_map_path() -> Path:
+    return state_root() / ".orchestration" / SESSION_MAP
+
+
+def load_session_map() -> dict:
+    try:
+        data = json.loads(session_map_path().read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def record_session(dispatch_id: str, session: dict) -> None:
+    data = load_session_map()
+    data[str(dispatch_id)] = {
+        "id": str(session.get("id") or ""),
+        "title": str(session.get("title") or ""),
+        "created": int(session.get("created") or 0),
+        "updated": int(session.get("updated") or 0),
+    }
+    if len(data) > 200:
+        for key in sorted(
+            data, key=lambda item: int((data[item] or {}).get("created") or 0)
+        )[: len(data) - 200]:
+            data.pop(key, None)
+    path = session_map_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def mapped_session(dispatch_id: str) -> dict | None:
+    entry = load_session_map().get(str(dispatch_id))
+    return entry if isinstance(entry, dict) and entry.get("id") else None
+
+
+def worker_window(dispatch_id: str) -> dict:
     record = dispatch_record(dispatch_id)
     dispatch = record["dispatch"]
-    path = record["path"]
     start = parse_dispatch_time(dispatch.get("dispatchedAt"))
     end = parse_dispatch_time(
         dispatch.get("completedAt") or dispatch.get("lastHeartbeatAt")
     )
-    start_ms = int(start.timestamp() * 1000)
-    end_ms = int(end.timestamp() * 1000)
+    return {
+        "dispatch_id": dispatch_id,
+        "dispatch": dispatch,
+        "path": record["path"],
+        "start_ms": int(start.timestamp() * 1000),
+        "end_ms": int(end.timestamp() * 1000),
+    }
+
+
+def dispatch_usage(
+    dispatch_id: str, window: dict | None = None, session=_UNSET
+) -> dict:
+    """Token/cost of one supervised worker, resolved by worktree + time window."""
+    window = window or worker_window(dispatch_id)
+    dispatch = window["dispatch"]
+    path = window["path"]
+    start_ms = window["start_ms"]
+    end_ms = window["end_ms"]
     base = {
         "dispatch_id": dispatch_id,
         "run_id": dispatch.get("runId"),
@@ -327,7 +396,13 @@ def dispatch_usage(dispatch_id: str) -> dict:
         "duration_seconds": round((end_ms - start_ms) / 1000, 1),
         "confidence": "unavailable",
     }
-    session = session_for_window(sessions_in(path), start_ms, end_ms)
+    if session is _UNSET:
+        mapped = mapped_session(dispatch_id)
+        session = (
+            mapped
+            if mapped
+            else session_for_window(sessions_in(path), start_ms, end_ms)
+        )
     if not session:
         return base
     try:
@@ -390,7 +465,16 @@ def run_workers(run_id: str) -> list[dict]:
 
 
 def run_usage(run_id: str) -> dict:
-    rows = [dispatch_usage(str(item.get("dispatchId"))) for item in run_workers(run_id)]
+    rows = []
+    for item in run_workers(run_id):
+        window = worker_window(str(item.get("dispatchId")))
+        rows.append(
+            dispatch_usage(
+                str(window["dispatch_id"]),
+                window=window,
+                session=mapped_session(str(window["dispatch_id"])),
+            )
+        )
     measured = [row for row in rows if row.get("confidence") != "unavailable"]
     totals = {
         "cost_usd": round(sum(float(row.get("cost") or 0) for row in measured), 6)

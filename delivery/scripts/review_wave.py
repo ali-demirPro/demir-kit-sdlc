@@ -26,6 +26,7 @@ import closure  # noqa: E402
 import model_policy  # noqa: E402
 import review_packet  # noqa: E402
 import routing  # noqa: E402
+import usage  # noqa: E402
 import worker_cleanup  # noqa: E402
 
 SETTLED = {"succeeded", "failed", "stopped"}
@@ -94,6 +95,30 @@ def parse_verdict(text: str) -> bool | None:
         return True
     return None
 
+def capture_session(
+    dispatch_id: str,
+    worktree: str,
+    known_ids: set[str],
+    start_ms: int,
+    timeout: int = 20,
+) -> dict | None:
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        new = [
+            session
+            for session in usage.sessions_in(worktree)
+            if str(session.get("id")) not in known_ids
+            and int(session.get("created") or 0) >= start_ms - 1_000
+        ]
+        if len(new) == 1:
+            usage.record_session(dispatch_id, new[0])
+            return new[0]
+        if len(new) > 1:
+            return None
+        time.sleep(0.5)
+    return None
+
+
 def start_worker(
     name: str, spec: str, run_id: str, worktree: str, model: str | None = None
 ) -> dict:
@@ -115,6 +140,8 @@ def start_worker(
     task_id = str((task.get("task") or {}).get("id") or task.get("taskId") or "")
     if not task_id:
         return {"name": name, "error": "task oluşmadı"}
+    known = {str(item.get("id")) for item in usage.sessions_in(worktree)}
+    started_ms = int(time.time() * 1000)
     started = orca(
         [
             "orchestration",
@@ -134,6 +161,8 @@ def start_worker(
         ]
     )
     dispatch = str(started.get("dispatchId") or "")
+    if dispatch:
+        capture_session(dispatch, worktree, known, started_ms)
     return {
         "name": name,
         "task_id": task_id,

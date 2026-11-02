@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.53.0 — 2026-11-02
+
+- **Paralel worker eşleştirme** — `review_wave` başlattığı worker'ın çalışma
+  kimliğini `.orchestration/worker-sessions.json`'a yazar; `usage.py --run`
+  yalnız bu kaydı kullanır ve paralel reviewer'ları `exact` ölçer. Kayıt yoksa
+  `unavailable` döner; tahminle maliyet yazılmaz. Tek `--dispatch` pencereyle
+  dener, belirsizse `unavailable` kalır.
+- **Metrik notu** — metrics README kayıt kuralını ve sınırını yazar.
+
 ## 2.52.0 — 2026-11-02
 
 - **Model nötrlüğü** — kit varsayılan olarak `--model`/`--effort` geçirmez;
