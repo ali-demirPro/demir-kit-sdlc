@@ -811,6 +811,7 @@ def check_issue_body(
     root: Path = ROOT,
     repo: str | None = None,
     title: str = "",
+    evidence_text: str | None = None,
 ) -> None:
     check("issue seal")
     match = re.search(r"```yaml\s+demir-kit\s*\n(.*?)```", body, re.S)
@@ -1048,10 +1049,11 @@ def check_issue_body(
                 f"{gap.get('reason')}"
             )
 
-    if "leaf-done" in labels and comments is not None:
+    if evidence_text is not None or ("leaf-done" in labels and comments is not None):
         evidence_schema = load_json(DELIVERY / "schemas" / "evidence.schema.json")
         evidence: dict[str, dict] = {}
-        for comment in comments:
+        blocks = [evidence_text] if evidence_text is not None else (comments or [])
+        for comment in blocks:
             block = re.search(r"```yaml\s+demir-kit-evidence\s*\n(.*?)```", comment, re.S)
             if not block:
                 continue
@@ -1313,6 +1315,7 @@ def check_issue(
     root: Path = ROOT,
     assume_labels: set[str] | None = None,
     drop_labels: set[str] | None = None,
+    evidence_file: Path | None = None,
 ) -> None:
     ecosystem = load_yaml(root / "ecosystem.yaml") or {}
     repo = (ecosystem.get("tracker") or {}).get("repo")
@@ -1342,6 +1345,9 @@ def check_issue(
             error(f"issue #{number}: çelişen etiketler — {left} + {right}")
     bodies = [item.get("body", "") for item in comments]
     body = payload.get("body", "")
+    evidence_text = (
+        evidence_file.read_text(encoding="utf-8") if evidence_file else None
+    )
     if re.search(r"```yaml\s+demir-kit\s*\n", body):
         check_issue_body(
             body,
@@ -1351,6 +1357,7 @@ def check_issue(
             root=root,
             repo=repo,
             title=payload.get("title", ""),
+            evidence_text=evidence_text,
         )
     elif "agent-approved" in labels or "leaf-done" in labels:
         error(f"issue #{number}: leaf seal (`demir-kit` bloğu) yok")
@@ -1723,6 +1730,9 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="demir-kit delivery doctor")
     parser.add_argument("--strict", action="store_true", help="uyarıları da hata say")
     parser.add_argument("--issue", type=int, help="seal + evidence doğrula")
+    parser.add_argument(
+        "--evidence", type=Path, help="tek evidence dosyasını issue seal'ine göre doğrula"
+    )
     parser.add_argument("--body", type=Path, help="seal YAML içeren dosya")
     parser.add_argument("--checkpoint", help="behavior gate uyumu için (statik)")
     parser.add_argument(
@@ -1775,6 +1785,7 @@ def main() -> int:
             product_root if args.product else ROOT,
             assume_labels=set(args.assume_label),
             drop_labels=set(args.drop_label),
+            evidence_file=args.evidence,
         )
     if args.body:
         check_issue_body(

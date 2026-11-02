@@ -110,12 +110,16 @@ def run_gate(command: str) -> tuple[int, str]:
     return result.returncode, "\n".join(output.splitlines()[-40:])
 
 
-def post_comment(repo: str, issue: int, record: dict) -> str | None:
-    body = (
-        "```yaml\n"
+def comment_body(record: dict) -> str:
+    return (
+        "```yaml\ndemir-kit-evidence\n"
         + yaml.safe_dump(record, sort_keys=False, allow_unicode=True)
         + "```\n"
     )
+
+
+def post_comment(repo: str, issue: int, record: dict) -> str | None:
+    body = comment_body(record)
     payload = json.dumps({"body": body})
     result = subprocess.run(
         [
@@ -154,11 +158,16 @@ def delete_comment(repo: str, comment_id: str) -> bool:
     return result.returncode == 0
 
 
-def verify_issue(issue: int) -> tuple[int, str]:
-    doctor_script = ROOT / "delivery" / "scripts" / "doctor.sh"
+def verify_issue(issue: int, evidence: Path) -> tuple[int, str]:
+    project = routing.project_root(ROOT)
+    prefix = routing.kit_prefix(ROOT)
+    script = project / prefix / "delivery" / "scripts" / "doctor.sh"
+    command = [str(script), "--issue", str(issue), "--evidence", str(evidence)]
+    if prefix:
+        command += ["--product", "--root", "."]
     result = subprocess.run(
-        [str(doctor_script), "--issue", str(issue)],
-        cwd=str(ROOT),
+        command,
+        cwd=str(project),
         capture_output=True,
         text=True,
     )
@@ -167,14 +176,13 @@ def verify_issue(issue: int) -> tuple[int, str]:
 
 
 def checkpoint(issue: int, cp_id: str) -> bool:
-    return bool(
-        update_mod.orca_checkpoint(
-            "progress",
-            f"{cp_id} kapandı (#{issue})",
-            "sonraki CP",
-            False,
-        )
+    result = update_mod.orca_checkpoint(
+        "progress",
+        f"{cp_id} kapandı (#{issue})",
+        "sonraki CP",
+        False,
     )
+    return bool(result and result.get("ok"))
 
 
 def main() -> int:
@@ -229,16 +237,24 @@ def main() -> int:
         print("cp_close: yorum yazılamadı", file=sys.stderr)
         return 1
 
-    code, output = verify_issue(args.issue)
+    code, output = verify_issue(args.issue, args.evidence)
     if code != 0:
-        delete_comment(repo, comment_id)
-        print(
-            f"cp_close: evidence doctor'da düştü, yorum geri alındı\n{output}",
-            file=sys.stderr,
-        )
+        if delete_comment(repo, comment_id):
+            print(
+                f"cp_close: evidence doctor'da düştü, yorum geri alındı\n{output}",
+                file=sys.stderr,
+            )
+        else:
+            print(
+                f"cp_close: evidence doctor'da düştü; yorum SİLİNEMEDİ "
+                f"(comment {comment_id}) — elle silinmeli\n{output}",
+                file=sys.stderr,
+            )
         return 1
 
     synced = checkpoint(args.issue, args.cp)
+    if not synced:
+        print("cp_close: Orca checkpoint yazılamadı (issue/PR yine de geçerli)", file=sys.stderr)
     result = {**plan, "comment_id": comment_id, "checkpoint": synced, "status": "pass"}
     if args.json:
         print(json.dumps(result, ensure_ascii=False, indent=2))

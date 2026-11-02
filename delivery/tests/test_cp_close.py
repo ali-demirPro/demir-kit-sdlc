@@ -89,7 +89,7 @@ class CpCloseTests(unittest.TestCase):
             side_effect=lambda *a: (calls.append("post"), "c1")[1],
         ), patch.object(
             cp_close, "verify_issue",
-            side_effect=lambda i: (calls.append("verify"), (0, ""))[1],
+            side_effect=lambda i, e: (calls.append("verify"), (0, ""))[1],
         ), patch.object(
             cp_close, "checkpoint",
             side_effect=lambda *a: (calls.append("checkpoint"), True)[1],
@@ -125,6 +125,62 @@ class CpCloseTests(unittest.TestCase):
         delete.assert_called_once_with("o/r", "c1")
         checkpoint.assert_not_called()
         self.assertIn("geri alındı", err)
+
+    def test_comment_body_is_marked(self) -> None:
+        body = cp_close.comment_body(RECORD)
+        self.assertTrue(body.startswith("```yaml\ndemir-kit-evidence"))
+        parsed = cp_close.load_evidence(Path("/dev/stdin")) if False else None
+        self.assertIn("cp_id: CP-1", body)
+
+    def test_delete_failure_is_reported(self) -> None:
+        with patch.object(cp_close, "run_gate", return_value=(0, "")), patch.object(
+            cp_close, "post_comment", return_value="c1"
+        ), patch.object(cp_close, "verify_issue", return_value=(1, "kırmızı")), patch.object(
+            cp_close, "delete_comment", return_value=False
+        ), patch.object(cp_close, "checkpoint") as checkpoint:
+            code, _, err = run_main(
+                ["--issue", "148", "--cp", "CP-1", "--evidence", "e", "--apply"]
+            )
+        self.assertEqual(code, 1)
+        self.assertIn("SİLİNEMEDİ", err)
+        checkpoint.assert_not_called()
+
+    def test_checkpoint_failure_does_not_claim_success(self) -> None:
+        with patch.object(cp_close, "run_gate", return_value=(0, "")), patch.object(
+            cp_close, "post_comment", return_value="c1"
+        ), patch.object(cp_close, "verify_issue", return_value=(0, "")), patch.object(
+            cp_close, "checkpoint", return_value=False
+        ):
+            code, out, err = run_main(
+                ["--issue", "148", "--cp", "CP-1", "--evidence", "e", "--apply"]
+            )
+        self.assertEqual(code, 0)
+        self.assertIn("checkpoint yazılamadı", err)
+        self.assertIn("CP kapandı", out)
+
+    def test_verify_issue_product_mode_uses_evidence(self) -> None:
+        import subprocess as sp
+
+        captured = {}
+
+        class Result:
+            returncode = 0
+            stdout = "ok"
+            stderr = ""
+
+        def fake_run(command, **kwargs):
+            captured["command"] = command
+            return Result()
+
+        with patch.object(cp_close.routing, "kit_prefix", return_value="demir-kit/"), patch.object(
+            cp_close.routing, "project_root", return_value=Path("/tmp/product")
+        ), patch.object(sp, "run", side_effect=fake_run):
+            code, _ = cp_close.verify_issue(148, Path("/tmp/e.yaml"))
+        self.assertEqual(code, 0)
+        command = captured["command"]
+        self.assertIn("--evidence", command)
+        self.assertIn("--product", command)
+        self.assertIn("demir-kit/delivery/scripts/doctor.sh", " ".join(command))
 
     def test_load_evidence_fenced_and_plain(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
