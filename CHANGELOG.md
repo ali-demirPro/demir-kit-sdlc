@@ -1,5 +1,16 @@
 # Changelog
 
+## 2.50.0 — 2026-11-02
+
+- **Paralel reviewer dalgası** — `review_wave.py --issue N --cp CP-x --commit SHA
+  --reviewers a,b --apply` reviewer'ları tek dalgada paralel Orca worker olarak
+  başlatır, paketi (≤12 KB) verir, bekler, `approved:` verdict'lerini toplar ve
+  biten terminalleri serbest bırakır. Hepsi onaylamazsa exit 1.
+- **Review paketi** — `packet_for()` ayrıştırıldı; wave ve CLI aynı üreticiyi
+  kullanır.
+- **Protokol/skill** — execution review adımı ve `adversarial-review` skill'i
+  dalgayı anlatır.
+
 ## 2.49.0 — 2026-11-02
 
 - **Closure otomasyonu** — `closure.py --issue <epic>` leaf/cp sayısını,

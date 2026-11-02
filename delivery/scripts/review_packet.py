@@ -153,6 +153,57 @@ def compose_packet(
     return packet
 
 
+def packet_for(
+    issue_number: int,
+    cp_id: str,
+    commit: str = "HEAD",
+    delta: str | None = None,
+    max_chars: int = 12_000,
+) -> str:
+    issue = json.loads(
+        gh(["api", f"repos/{repo_name()}/issues/{issue_number}"])
+    )
+    comments = json.loads(
+        gh(
+            [
+                "api",
+                f"repos/{repo_name()}/issues/{issue_number}/comments?per_page=100",
+            ]
+        )
+    )
+    seal = routing.seal_body(issue.get("body") or "")
+    if not seal:
+        raise SystemExit("review_packet: issue seal (`demir-kit` bloğu) yok")
+    project = routing.project_root(ROOT)
+    seal_profile = str((seal.get("factory") or {}).get("profile") or "")
+    brief_text = brief.render_cp_brief(
+        {"issue": issue_number, "risk": (seal.get("risk") or {}).get("level")},
+        seal,
+        cp_id,
+        routing.kit_prefix(ROOT),
+        profile_gates=profiles.gates_for(project, seal_profile),
+        include_evidence=False,
+    )
+    commit = git(["rev-parse", commit]).strip()
+    span = commit_range(commit, delta)
+    diff_stat = git(["diff", "--stat", span])
+    diff = git(["diff", span])
+    header = [
+        f"## Review packet — #{issue_number} {cp_id}",
+        f"Commit: {commit[:12]}"
+        + (f" · Delta: {delta}..{commit[:12]}" if delta else " · Tam commit"),
+        f"Boyut sınırı: {max_chars} bayt",
+    ]
+    return compose_packet(
+        header,
+        brief_text,
+        open_findings(comments),
+        diff_stat,
+        diff,
+        max_chars,
+    )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="review packet for one checkpoint")
     parser.add_argument("--issue", type=int, required=True)
@@ -164,53 +215,10 @@ def main() -> int:
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
 
-    issue = json.loads(
-        gh(
-            [
-                "api",
-                f"repos/{repo_name()}/issues/{args.issue}",
-            ]
-        )
-    )
-    comments = json.loads(
-        gh(
-            [
-                "api",
-                f"repos/{repo_name()}/issues/{args.issue}/comments?per_page=100",
-            ]
-        )
-    )
-    seal = routing.seal_body(issue.get("body") or "")
-    if not seal:
-        raise SystemExit("review_packet: issue seal (`demir-kit` bloğu) yok")
-    project = routing.project_root(ROOT)
-    seal_profile = str((seal.get("factory") or {}).get("profile") or "")
-    brief_text = brief.render_cp_brief(
-        {"issue": args.issue, "risk": (seal.get("risk") or {}).get("level")},
-        seal,
-        args.cp,
-        routing.kit_prefix(ROOT),
-        profile_gates=profiles.gates_for(project, seal_profile),
-        include_evidence=False,
+    packet = packet_for(
+        args.issue, args.cp, args.commit, args.delta, args.max_chars
     )
     commit = git(["rev-parse", args.commit]).strip()
-    span = commit_range(commit, args.delta)
-    diff_stat = git(["diff", "--stat", span])
-    diff = git(["diff", span])
-    header = [
-        f"## Review packet — #{args.issue} {args.cp}",
-        f"Commit: {commit[:12]}"
-        + (f" · Delta: {args.delta}..{commit[:12]}" if args.delta else " · Tam commit"),
-        f"Boyut sınırı: {args.max_chars} bayt",
-    ]
-    packet = compose_packet(
-        header,
-        brief_text,
-        open_findings(comments),
-        diff_stat,
-        diff,
-        args.max_chars,
-    )
 
     if args.write:
         args.write.mkdir(parents=True, exist_ok=True)
