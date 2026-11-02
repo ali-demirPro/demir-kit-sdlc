@@ -1,5 +1,17 @@
 # Changelog
 
+## 2.49.0 — 2026-11-02
+
+- **Closure otomasyonu** — `closure.py --issue <epic>` leaf/cp sayısını,
+  etiket zamanlarından lead time'i, run'dan worker sayılarını ve claim
+  snapshot'larından koordinatör deltasını hesaplayıp `demir-kit-closure` bloğu
+  üretir. `--post` yazar ve doctor düşerse yorumu geri alır.
+- **Koordinatör metrikleri** — closure şemasına `coordinator_tokens_in`,
+  `coordinator_tokens_out`, `coordinator_cache_read`, `coordinator_cost_usd`
+  eklendi; metrics README ve runbook güncel.
+- **Oturum uyuşmazlığı** — snapshot oturumu bugünkü oturumla eşleşmezse
+  koordinatör sayıları `unavailable` sayılır, yanlış epic'e yazılmaz.
+
 ## 2.48.0 — 2026-11-02
 
 - **cp-close tek adım** — `cp_close.py --issue N --cp CP-x --evidence <yaml>`

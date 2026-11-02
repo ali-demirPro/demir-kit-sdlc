@@ -79,7 +79,11 @@
         "tokens_out": { "type": "integer", "minimum": 0 },
         "cache_read": { "type": "integer", "minimum": 0 },
         "context_peak": { "type": "integer", "minimum": 0 },
-        "cost_usd": { "type": "number", "minimum": 0 }
+        "cost_usd": { "type": "number", "minimum": 0 },
+        "coordinator_tokens_in": { "type": "integer", "minimum": 0 },
+        "coordinator_tokens_out": { "type": "integer", "minimum": 0 },
+        "coordinator_cache_read": { "type": "integer", "minimum": 0 },
+        "coordinator_cost_usd": { "type": "number", "minimum": 0 }
       }
     },
     "ready_for_human_qa": { "type": "boolean" }

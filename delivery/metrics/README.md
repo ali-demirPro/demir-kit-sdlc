@@ -18,9 +18,14 @@ comment'inde doldurur; epic kabulünde insan görür.
 | `cache_read` | Cache'ten okunan token | `usage.py --run <id>` |
 | `context_peak` | En büyük bağlam (cache read üst sınırı) | `usage.py --run <id>` |
 | `cost_usd` | Worker maliyeti (sağlayıcı para birimi) | `usage.py --run <id>` |
+| `coordinator_tokens_in` | Koordinatör oturum deltası (input) | `closure.py` (claim snapshot) |
+| `coordinator_tokens_out` | Koordinatör oturum deltası (output) | `closure.py` |
+| `coordinator_cache_read` | Koordinatör cache okuması | `closure.py` |
+| `coordinator_cost_usd` | Koordinatör maliyeti | `closure.py` |
 
-Token alanları opsiyoneldir; ölçülemezse yazılmaz. `worker_count` ve token
-sayıları `usage.py --run <run_id>` çıktısından **olduğu gibi** alınır; elle
+Token alanları opsiyoneldir; ölçülemezse yazılmaz. Worker sayıları
+`usage.py --run <run_id>` çıktısından, koordinatör sayıları claim
+snapshot'larından `closure.py --issue <epic>` ile **olduğu gibi** alınır; elle
 tahmin edilmez.
 
 ## Toplama
@@ -72,6 +77,10 @@ metrics:
   cache_read: 18400000
   context_peak: 121000
   cost_usd: 0.82
+  coordinator_tokens_in: 210000
+  coordinator_tokens_out: 12000
+  coordinator_cache_read: 4200000
+  coordinator_cost_usd: 0.31
 ready_for_human_qa: true
 ```
 
