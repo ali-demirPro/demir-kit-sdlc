@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.54.0 — 2026-11-02
+
+- **Kısmi worker ölçümü** — kayıtlı ve kayıtsız worker karışıksa closure ölçülen
+  alanları yazar ve `worker_partial: true` işaretler; hiç ölçüm yoksa alanları
+  yazmaz. Şema, metrics README ve runbook güncel.
+- **Deferred listesi** — defer edilen child'lar closure `deferred` listesine
+  issue + gerekçe ile yazılır; boş liste varsayımı kalktı.
+
 ## 2.53.0 — 2026-11-02
 
 - **Paralel worker eşleştirme** — `review_wave` başlattığı worker'ın çalışma
