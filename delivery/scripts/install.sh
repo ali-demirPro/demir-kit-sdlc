@@ -103,13 +103,9 @@ fi
 # from the caller's checkout (a product or the kit itself) so a product never
 # writes into the vendored kit. Falls back to the kit root when the caller is
 # not a checkout.
-INSTALL_DIR="$ROOT"
-if [[ -f "${CALLER_PWD}/kit.config.yaml" ]]; then
-  INSTALL_DIR="$CALLER_PWD"
-elif [[ "$(cd "${CALLER_PWD}" && pwd)" == "$(cd "${ROOT}" && pwd)" && -f "${ROOT}/../kit.config.yaml" ]]; then
-  # Vendored kit: caller stands inside the submodule, the product root is above.
-  INSTALL_DIR="$(cd "${ROOT}/.." && pwd)"
-fi
+INSTALL_DIR="$(python3 "${ROOT}/delivery/scripts/skill_scope.py" \
+  --install-dir --cwd "${CALLER_PWD}" --root "${ROOT}" 2>/dev/null || echo "${ROOT}")"
+[[ -n "$INSTALL_DIR" ]] || INSTALL_DIR="$ROOT"
 
 if [[ "$CAPABILITIES" == true ]]; then
   if ! SCOPED_SKILLS="$(python3 "${ROOT}/delivery/scripts/skill_scope.py" \

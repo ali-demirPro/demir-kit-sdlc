@@ -240,6 +240,53 @@ if __name__ == "__main__":
     unittest.main()
 
 
+class InstallTargetTest(unittest.TestCase):
+    def test_product_root(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            product = Path(raw)
+            (product / "kit.config.yaml").write_text("kit: {root: kit}\n")
+            kit = product / "kit"
+            kit.mkdir()
+            self.assertEqual(
+                skill_scope.install_target(product, kit), product.resolve()
+            )
+
+    def test_self_host(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            kit = Path(raw) / "kit"
+            kit.mkdir()
+            (kit / "kit.config.yaml").write_text("kit: {root: .}\n")
+            self.assertEqual(skill_scope.install_target(kit, kit), kit.resolve())
+
+    def test_caller_inside_vendored_submodule(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            product = Path(raw)
+            (product / "kit.config.yaml").write_text("kit: {root: kit}\n")
+            kit = product / "demir-kit"
+            kit.mkdir()
+            (kit / "kit.config.yaml").write_text("kit: {root: .}\n")
+            self.assertEqual(
+                skill_scope.install_target(kit, kit), product.resolve()
+            )
+
+    def test_product_subdirectory_falls_back_to_kit(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            product = Path(raw)
+            (product / "kit.config.yaml").write_text("kit: {root: kit}\n")
+            kit = product / "kit"
+            deep = product / "App" / "Features"
+            kit.mkdir()
+            deep.mkdir(parents=True)
+            self.assertEqual(skill_scope.install_target(deep, kit), kit.resolve())
+
+    def test_plain_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            plain = Path(raw)
+            self.assertEqual(
+                skill_scope.install_target(plain, ROOT), ROOT.resolve()
+            )
+
+
 class InstallScriptTest(unittest.TestCase):
     """End-to-end: install.sh must read the product's own declaration."""
 
