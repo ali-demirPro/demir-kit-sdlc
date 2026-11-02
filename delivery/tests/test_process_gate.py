@@ -35,6 +35,17 @@ def repo() -> Path:
         "products:\n  app:\n    surfaces:\n      app: {path: App}\n",
         encoding="utf-8",
     )
+    (directory / "kit.config.yaml").write_text(
+        "kit:\n  root: '.'\n", encoding="utf-8"
+    )
+    guard = directory / "delivery" / "scripts" / "guard.sh"
+    guard.parent.mkdir(parents=True)
+    guard.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    guard.chmod(0o755)
+    git(directory, "config", "user.email", "test@example.com")
+    git(directory, "config", "user.name", "test")
+    git(directory, "add", "-A")
+    git(directory, "commit", "-qm", "init")
     return directory
 
 
@@ -117,6 +128,19 @@ class ProcessGateTests(unittest.TestCase):
         self.assertTrue(
             any("pre-commit" in path for path in result["hooks"]["written"])
         )
+
+    def test_hooks_use_config_kit_root(self) -> None:
+        root = repo()
+        (root / "kit.config.yaml").write_text(
+            "kit:\n  root: demir-kit\n", encoding="utf-8"
+        )
+        (root / "demir-kit" / "delivery" / "scripts").mkdir(parents=True)
+        guard = root / "demir-kit" / "delivery" / "scripts" / "guard.sh"
+        guard.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        guard.chmod(0o755)
+        process_gate.install_hooks(root)
+        hook = (process_gate.hooks_dir(root) / "pre-commit").read_text()
+        self.assertIn(str((root / "demir-kit").resolve()), hook)
 
     def test_foreign_hook_is_not_overwritten(self) -> None:
         root = repo()

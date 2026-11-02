@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 from pathlib import Path
 
@@ -135,8 +136,17 @@ def install_hooks(root: Path, kit_prefix: str = "demir-kit") -> dict:
     hooks = hooks_dir(root)
     if not hooks:
         return {"written": [], "skipped": []}
+    config = _load(root / "kit.config.yaml")
+    kit_root = str((config.get("kit") or {}).get("root") or kit_prefix)
+    kit_dir = (
+        (root / kit_root).resolve()
+        if kit_root not in {".", ""}
+        else root.resolve()
+    )
+    guard = kit_dir / "delivery" / "scripts" / "guard.sh"
+    if not guard.is_file():
+        raise RuntimeError(f"guard.sh bulunamadı: {guard}")
     hooks.mkdir(parents=True, exist_ok=True)
-    kit_dir = (root / kit_prefix).resolve() if kit_prefix else root.resolve()
     written: list[str] = []
     skipped: list[str] = []
     for name, content in (
@@ -166,7 +176,15 @@ def missing_hooks(root: Path) -> list[str]:
         path = hooks / name
         if not path.is_file():
             missing.append(name)
-        elif HOOK_MARKER not in path.read_text(encoding="utf-8", errors="ignore"):
+            continue
+        text = path.read_text(encoding="utf-8", errors="ignore")
+        if HOOK_MARKER not in text:
+            missing.append(name)
+            continue
+        match = re.search(r'^kit="([^"]+)"', text, re.M)
+        if match and not (
+            Path(match.group(1)) / "delivery" / "scripts" / "guard.sh"
+        ).is_file():
             missing.append(name)
     return missing
 
