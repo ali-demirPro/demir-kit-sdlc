@@ -100,9 +100,12 @@ else
 fi
 
 if [[ "$CAPABILITIES" == true ]]; then
-  SCOPED_SKILLS="$(python3 "${ROOT}/delivery/scripts/skill_scope.py" \
-    --cwd "${CALLER_PWD}" --root "${ROOT}" --json \
-    | python3 -c 'import json,sys; print("\n".join(json.load(sys.stdin)["scoped"]))')"
+  if ! SCOPED_SKILLS="$(python3 "${ROOT}/delivery/scripts/skill_scope.py" \
+      --cwd "${CALLER_PWD}" --root "${ROOT}" --json \
+      | python3 -c 'import json,sys; print("\n".join(json.load(sys.stdin)["scoped"]))')"; then
+    echo "install.sh: capability bildirimi okunamadı (.kit/capabilities.yaml)" >&2
+    exit 1
+  fi
   while IFS= read -r skill; do
     [[ -n "$skill" ]] && SKILLS+=("$skill")
   done <<< "$SCOPED_SKILLS"
