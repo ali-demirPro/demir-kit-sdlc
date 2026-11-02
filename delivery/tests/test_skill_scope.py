@@ -240,6 +240,53 @@ if __name__ == "__main__":
     unittest.main()
 
 
+class InstallTargetTest(unittest.TestCase):
+    def test_product_root(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            product = Path(raw)
+            (product / "kit.config.yaml").write_text("kit: {root: kit}\n")
+            kit = product / "kit"
+            kit.mkdir()
+            self.assertEqual(
+                skill_scope.install_target(product, kit), product.resolve()
+            )
+
+    def test_self_host(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            kit = Path(raw) / "kit"
+            kit.mkdir()
+            (kit / "kit.config.yaml").write_text("kit: {root: .}\n")
+            self.assertEqual(skill_scope.install_target(kit, kit), kit.resolve())
+
+    def test_caller_inside_vendored_submodule(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            product = Path(raw)
+            (product / "kit.config.yaml").write_text("kit: {root: kit}\n")
+            kit = product / "demir-kit"
+            kit.mkdir()
+            (kit / "kit.config.yaml").write_text("kit: {root: .}\n")
+            self.assertEqual(
+                skill_scope.install_target(kit, kit), product.resolve()
+            )
+
+    def test_product_subdirectory_falls_back_to_kit(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            product = Path(raw)
+            (product / "kit.config.yaml").write_text("kit: {root: kit}\n")
+            kit = product / "kit"
+            deep = product / "App" / "Features"
+            kit.mkdir()
+            deep.mkdir(parents=True)
+            self.assertEqual(skill_scope.install_target(deep, kit), kit.resolve())
+
+    def test_plain_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            plain = Path(raw)
+            self.assertEqual(
+                skill_scope.install_target(plain, ROOT), ROOT.resolve()
+            )
+
+
 class InstallScriptTest(unittest.TestCase):
     """End-to-end: install.sh must read the product's own declaration."""
 
@@ -286,6 +333,51 @@ class InstallScriptTest(unittest.TestCase):
         self.assertEqual(code, 0, output)
         for name in SCOPED:
             self.assertIn(name, output)
+        resolved = str(product.resolve())
+        self.assertIn(f"Install dir: {resolved}", output)
+        self.assertIn(f"(cd {resolved}) npx skills add", output)
+
+    def test_real_run_uses_the_product_directory(self) -> None:
+        import os
+        import subprocess
+        import sys
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as raw:
+            product = Path(raw)
+            self.product(product)
+            bindir = product / ".fakebin"
+            bindir.mkdir()
+            record = product / "pwd.log"
+            stub = bindir / "npx"
+            stub.write_text(
+                f'#!/bin/sh\necho "$PWD" >> "{record}"\nexit 0\n',
+                encoding="utf-8",
+            )
+            stub.chmod(0o755)
+            env = dict(os.environ)
+            env["PATH"] = f"{bindir}:{env.get('PATH', '')}"
+            result = subprocess.run(
+                ["bash", str(SCRIPTS / "install.sh"), "--capabilities"],
+                cwd=product,
+                capture_output=True,
+                text=True,
+                env=env,
+            )
+            recorded = record.read_text(encoding="utf-8").split()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertTrue(recorded, "npx hiç çağrılmadı")
+        for cwd in recorded:
+            self.assertEqual(Path(cwd).resolve(), product.resolve())
+
+    def test_plain_directory_installs_into_the_kit(self) -> None:
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as raw:
+            plain = Path(raw)
+            code, output = self.run_install(plain)
+        self.assertEqual(code, 0, output)
+        self.assertIn(f"Install dir: {ROOT.resolve()}", output)
 
     def test_unknown_capability_fails_the_install(self) -> None:
         import tempfile

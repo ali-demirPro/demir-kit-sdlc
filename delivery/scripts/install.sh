@@ -99,6 +99,14 @@ else
   SKILL_ROOT="${ROOT}/${SKILL_DIR_REL}"
 fi
 
+# `skills add` installs project-level skills into the working directory. Run it
+# from the caller's checkout (a product or the kit itself) so a product never
+# writes into the vendored kit. Falls back to the kit root when the caller is
+# not a checkout.
+INSTALL_DIR="$(python3 "${ROOT}/delivery/scripts/skill_scope.py" \
+  --install-dir --cwd "${CALLER_PWD}" --root "${ROOT}" 2>/dev/null || echo "${ROOT}")"
+[[ -n "$INSTALL_DIR" ]] || INSTALL_DIR="$ROOT"
+
 if [[ "$CAPABILITIES" == true ]]; then
   if ! SCOPED_SKILLS="$(python3 "${ROOT}/delivery/scripts/skill_scope.py" \
       --cwd "${CALLER_PWD}" --root "${ROOT}" --json \
@@ -152,12 +160,13 @@ if [[ "$WITH_PLATFORM" == true ]]; then
 fi
 
 echo "Skills source: ${SRC} (${#SKILLS[@]} skills)"
+echo "Install dir: ${INSTALL_DIR}"
 for skill in "${SKILLS[@]}"; do
   if [[ "$DRY_RUN" == true ]]; then
-    echo "[dry-run] npx skills add ${SRC} --skill ${skill} -y"
+    echo "[dry-run] (cd ${INSTALL_DIR}) npx skills add ${SRC} --skill ${skill} -y"
   else
     echo "Installing ${skill} ..."
-    npx skills add "$SRC" --skill "$skill" -y
+    ( cd "$INSTALL_DIR" && npx skills add "$SRC" --skill "$skill" -y )
   fi
 done
 

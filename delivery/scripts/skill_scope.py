@@ -50,6 +50,23 @@ def resolve_project(cwd: Path, kit_root: Path) -> Path:
     return routing.project_root(Path(kit_root), Path(cwd))
 
 
+def install_target(cwd: Path, kit_root: Path) -> Path:
+    """Directory `skills add` should run in.
+
+    - caller inside the vendored kit: the enclosing product (one level up when
+      that parent is a checkout) — a submodule must not collect skills;
+    - caller in a product checkout: the product;
+    - otherwise: the kit root.
+    """
+    cwd = Path(cwd).resolve()
+    kit_root = Path(kit_root).resolve()
+    if cwd == kit_root and (kit_root.parent / "kit.config.yaml").is_file():
+        return kit_root.parent
+    if (cwd / "kit.config.yaml").is_file():
+        return cwd
+    return kit_root
+
+
 def declared_capabilities(project: Path) -> set[str]:
     """Effective capabilities for the project, or ValueError when unclear.
 
@@ -106,10 +123,19 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="resolve skills to install")
     parser.add_argument("--project")
     parser.add_argument("--cwd", help="current directory; product root is resolved from it")
+    parser.add_argument(
+        "--install-dir",
+        action="store_true",
+        help="print the directory skills should be installed into",
+    )
     parser.add_argument("--root", default=str(ROOT))
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
     root = Path(args.root)
+    if args.install_dir:
+        cwd = Path(args.cwd) if args.cwd else Path.cwd()
+        print(install_target(cwd, root))
+        return 0
     if args.project:
         project = Path(args.project)
     elif args.cwd:
