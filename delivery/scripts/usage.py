@@ -371,7 +371,6 @@ def worker_window(dispatch_id: str) -> dict:
         "path": record["path"],
         "start_ms": int(start.timestamp() * 1000),
         "end_ms": int(end.timestamp() * 1000),
-        "in_flight": not bool(dispatch.get("completedAt")),
     }
 
 

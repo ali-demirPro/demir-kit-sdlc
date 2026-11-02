@@ -49,9 +49,26 @@ class ReviewWaveTests(unittest.TestCase):
         with patch.object(
             review_wave.usage, "sessions_in", return_value=[{"id": "s_new"}]
         ), patch.object(review_wave.usage, "record_session") as record:
-            session = review_wave.capture_session("ctx", "/w", {"s_old"}, timeout=1)
+            session = review_wave.capture_session("ctx", "/w", {"s_old"}, 0, timeout=1)
         self.assertEqual(session["id"], "s_new")
         record.assert_called_once()
+
+    def test_capture_session_ambiguous_or_timeout(self) -> None:
+        with patch.object(
+            review_wave.usage, "sessions_in",
+            return_value=[{"id": "a"}, {"id": "b"}],
+        ), patch.object(review_wave.usage, "record_session") as record:
+            self.assertIsNone(
+                review_wave.capture_session("ctx", "/w", set(), 0, timeout=1)
+            )
+        record.assert_not_called()
+        with patch.object(
+            review_wave.usage, "sessions_in", return_value=[]
+        ), patch.object(review_wave.usage, "record_session") as record:
+            self.assertIsNone(
+                review_wave.capture_session("ctx", "/w", set(), 0, timeout=0)
+            )
+        record.assert_not_called()
 
     def test_start_worker(self) -> None:
         responses = [

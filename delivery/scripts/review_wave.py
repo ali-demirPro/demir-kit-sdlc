@@ -96,7 +96,11 @@ def parse_verdict(text: str) -> bool | None:
     return None
 
 def capture_session(
-    dispatch_id: str, worktree: str, known_ids: set[str], timeout: int = 20
+    dispatch_id: str,
+    worktree: str,
+    known_ids: set[str],
+    start_ms: int,
+    timeout: int = 20,
 ) -> dict | None:
     deadline = time.time() + timeout
     while time.time() < deadline:
@@ -104,13 +108,13 @@ def capture_session(
             session
             for session in usage.sessions_in(worktree)
             if str(session.get("id")) not in known_ids
+            and int(session.get("created") or 0) >= start_ms - 1_000
         ]
-        if new:
-            chosen = min(
-                new, key=lambda item: int(item.get("created") or 0)
-            )
-            usage.record_session(dispatch_id, chosen)
-            return chosen
+        if len(new) == 1:
+            usage.record_session(dispatch_id, new[0])
+            return new[0]
+        if len(new) > 1:
+            return None
         time.sleep(0.5)
     return None
 
@@ -137,6 +141,7 @@ def start_worker(
     if not task_id:
         return {"name": name, "error": "task oluşmadı"}
     known = {str(item.get("id")) for item in usage.sessions_in(worktree)}
+    started_ms = int(time.time() * 1000)
     started = orca(
         [
             "orchestration",
@@ -157,7 +162,7 @@ def start_worker(
     )
     dispatch = str(started.get("dispatchId") or "")
     if dispatch:
-        capture_session(dispatch, worktree, known)
+        capture_session(dispatch, worktree, known, started_ms)
     return {
         "name": name,
         "task_id": task_id,

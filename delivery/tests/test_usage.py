@@ -208,6 +208,60 @@ class WorkerUsageTests(unittest.TestCase):
         self.assertEqual(row["tokens"]["input"], 200)
         self.assertEqual(row["context_peak"], 270)
 
+    def test_dispatch_usage_with_mapped_session_is_exact(self) -> None:
+        start = int(usage.parse_dispatch_time("2026-11-02 08:00:00").timestamp() * 1000)
+        record = {
+            "dispatch": {
+                "runId": "run_x",
+                "status": "completed",
+                "dispatchedAt": "2026-11-02 08:00:00",
+                "completedAt": "2026-11-02 08:05:00",
+            },
+            "path": "/tmp/worktree",
+        }
+        messages = [
+            {
+                "time": {"created": start + 10_000},
+                "cost": 0.02,
+                "tokens": {
+                    "input": 200, "output": 30, "reasoning": 0,
+                    "cache": {"read": 70, "write": 0},
+                },
+            }
+        ]
+        with patch.object(usage, "dispatch_record", return_value=record), patch.object(
+            usage, "mapped_session", return_value={"id": "ses_w"}
+        ), patch.object(
+            usage, "session_export", return_value=export(messages=messages)
+        ):
+            row = usage.dispatch_usage("ctx_w")
+        self.assertEqual(row["confidence"], "exact")
+        self.assertEqual(row["session_id"], "ses_w")
+
+    def test_run_usage_without_mapping_is_unavailable(self) -> None:
+        windows = [
+            {
+                "dispatch_id": "ctx_a",
+                "dispatch": {
+                    "runId": "run_x",
+                    "status": "completed",
+                    "dispatchedAt": "2026-11-02 08:00:00",
+                    "completedAt": "2026-11-02 08:05:00",
+                },
+                "path": "/w",
+                "start_ms": 0,
+                "end_ms": 10_000,
+            }
+        ]
+        with patch.object(
+            usage, "run_workers", return_value=[{"dispatchId": "ctx_a"}]
+        ), patch.object(usage, "worker_window", return_value=windows[0]), patch.object(
+            usage, "mapped_session", return_value=None
+        ), patch.object(usage, "sessions_in", return_value=[]):
+            data = usage.run_usage("run_x")
+        self.assertEqual(data["totals"]["unavailable"], 1)
+        self.assertIsNone(data["totals"]["cost_usd"])
+
     def test_record_and_mapped_session(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "map.json"
@@ -249,9 +303,15 @@ class WorkerUsageTests(unittest.TestCase):
                 "tokens": {"input": 0, "output": 0, "cache_read": 0},
             },
         ]
+        windows = [
+            {"dispatch_id": "ctx_a", "path": "/w", "start_ms": 0, "end_ms": 10_000},
+            {"dispatch_id": "ctx_b", "path": "/w", "start_ms": 10_000, "end_ms": 20_000},
+        ]
         with patch.object(
             usage, "run_workers", return_value=[{"dispatchId": "ctx_a"}, {"dispatchId": "ctx_b"}]
-        ), patch.object(usage, "dispatch_usage", side_effect=rows):
+        ), patch.object(usage, "worker_window", side_effect=windows), patch.object(
+            usage, "dispatch_usage", side_effect=rows
+        ):
             data = usage.run_usage("run_x")
         self.assertEqual(data["totals"]["worker_count"], 2)
         self.assertEqual(data["totals"]["measured"], 1)
