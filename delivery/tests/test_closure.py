@@ -348,6 +348,8 @@ class ClosureCliTests(unittest.TestCase):
             closure, "run_id_for", return_value=None
         ), patch.object(
             closure, "coordinator_totals", return_value={"unavailable": True}
+        ), patch.object(
+            closure, "deferred_detail", return_value="kapsam dışı (#200)"
         ), patch.object(sys, "argv", ["closure.py", "--issue", "154"]), redirect_stdout(
             out
         ):
@@ -355,7 +357,7 @@ class ClosureCliTests(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertIn("leaf_count: 2", out.getvalue())
         self.assertIn("issue: 11", out.getvalue())
-        self.assertIn("deferred label", out.getvalue())
+        self.assertIn("kapsam dışı (#200)", out.getvalue())
 
     def test_verify_failure_rolls_back(self) -> None:
         with patch.object(closure, "post_comment", return_value="c1"), patch.object(

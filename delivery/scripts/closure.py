@@ -101,6 +101,48 @@ def parse_time(value: str) -> datetime | None:
         return None
 
 
+def issue_comments(repo: str, issue: int) -> list[dict]:
+    rows: list[dict] = []
+    page = 1
+    while True:
+        raw = run(
+            [
+                "gh",
+                "api",
+                f"repos/{repo}/issues/{issue}/comments?per_page=100&page={page}",
+            ]
+        )
+        try:
+            batch = json.loads(raw)
+        except json.JSONDecodeError:
+            break
+        if not isinstance(batch, list) or not batch:
+            break
+        rows.extend(batch)
+        if len(batch) < 100:
+            break
+        page += 1
+    return rows
+
+
+def deferred_detail(repo: str, issue: int) -> str:
+    reason = "deferred label"
+    link = ""
+    for comment in issue_comments(repo, issue):
+        body = comment.get("body") or ""
+        if "run transition:" not in body or "to: deferred" not in body:
+            continue
+        match = re.search(r"^reason:\s*(.+)$", body, re.M)
+        if match:
+            reason = match.group(1).strip()
+        match = re.search(r"^link:\s*(.+)$", body, re.M)
+        if match:
+            link = match.group(1).strip()
+    if link and link != "-":
+        reason = f"{reason} ({link})"
+    return reason
+
+
 def lead_time_hours(
     children: list[int], events: dict[int, list[dict]]
 ) -> float | None:
@@ -414,7 +456,7 @@ def main() -> int:
     if "lead_time_hours" not in metrics:
         raise SystemExit("closure: lead time hesaplanamadı (etiket olayları eksik)")
     deferred_items = [
-        {"issue": child, "reason": "deferred label"}
+        {"issue": child, "reason": deferred_detail(repo, child)}
         for child in children
         if "deferred" in labels[child]
     ]
