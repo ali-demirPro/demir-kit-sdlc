@@ -202,6 +202,37 @@ def inactive_agents(registry: dict, agents: dict) -> list[dict]:
     ]
 
 
+def evidence_reviewers(
+    gates: dict, risk: str, profile_gates: dict | None = None
+) -> list[str]:
+    """Reviewer roles the evidence schema and doctor enforce for a CP."""
+    merged = {**(gates or {}), **(profile_gates or {})}
+    roles = {"adversarial-a"}
+    if risk in {"high", "critical"}:
+        roles.update({"adversarial-a", "adversarial-b", "architect", "human"})
+        if profile_gates or merged.get("platform"):
+            roles.add("platform")
+    if risk == "critical":
+        roles.add("human_second")
+    if merged.get("architect"):
+        roles.add("architect")
+    if merged.get("commercial") or risk == "critical":
+        roles.add("commercial")
+    if merged.get("human"):
+        roles.add("human")
+    if merged.get("ui"):
+        roles.update({"ui", "ui_visual", "ui_interaction"})
+    if merged.get("platform") and (profile_gates or {}).get("platform"):
+        roles.add("platform")
+    return sorted(roles)
+
+
+def effective_risk(risk: str, floor: str) -> str:
+    order = {"low": 0, "medium": 1, "high": 2, "critical": 3}
+    value = risk if risk in order else "low"
+    return max((value, floor), key=lambda item: order.get(item, 0))
+
+
 def role_docs(role: str, prefix: str = "") -> list[str]:
     if role == "orchestrator":
         base = f"{prefix}delivery/orchestrator"

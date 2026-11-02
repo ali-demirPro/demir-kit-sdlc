@@ -23,6 +23,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import resolver  # noqa: E402
 import profiles as profiles_mod  # noqa: E402
 import routing  # noqa: E402
+import brief as brief_mod  # noqa: E402
 
 
 def gh(args: list[str]) -> str:
@@ -90,22 +91,11 @@ def required_reviewers(gates: dict, risk: str, resolution: dict) -> list[str]:
     return sorted(reviewers)
 
 
-def evidence_reviewers(gates: dict, risk: str) -> list[str]:
+def evidence_reviewers(
+    gates: dict, risk: str, profile_gates: dict | None = None
+) -> list[str]:
     """The reviewer roles the evidence schema and doctor actually enforce."""
-    roles = {"adversarial-a"}
-    if risk in {"high", "critical"}:
-        roles.update({"adversarial-a", "adversarial-b", "architect", "human"})
-    if risk == "critical":
-        roles.add("human_second")
-    if gates.get("architect"):
-        roles.add("architect")
-    if gates.get("commercial") or risk == "critical":
-        roles.add("commercial")
-    if gates.get("ui"):
-        roles.update({"ui_visual", "ui_interaction"})
-    if gates.get("platform"):
-        roles.add("platform")
-    return sorted(roles)
+    return routing.evidence_reviewers(gates, risk, profile_gates)
 
 
 def build_plan(
@@ -136,11 +126,7 @@ def build_plan(
             profile_data = profiles_mod.compose(project)
         except ValueError:
             profile_data = {}
-    profile_gates = {
-        str(gate): True for gate in profile_data.get("extra_gates") or []
-    }
-    if profile_data.get("platform_packs"):
-        profile_gates["platform"] = True
+    profile_gates = profiles_mod.gates_for(project, seal_profile)
     profile_docs = [
         f"{prefix}skills/{skill}/SKILL.md"
         for skill in profile_data.get("required_skills") or []
@@ -163,10 +149,9 @@ def build_plan(
     capabilities = resolution["capabilities"]
     active_variants = resolution["active_variants"]
     risk_order = {"low": 0, "medium": 1, "high": 2, "critical": 3}
-    effective_risk = max(
-        (risk if risk in risk_order else "low"),
+    effective_risk = routing.effective_risk(
+        risk if risk in risk_order else "low",
         resolution["risk_floor"],
-        key=lambda value: risk_order.get(value, 0),
     )
     reviewers = required_reviewers(
         {"ui": False, "architect": False, "commercial": False, **profile_gates},
@@ -194,7 +179,9 @@ def build_plan(
         effective_gates = {**gates, **profile_gates}
         cp_reviewers = required_reviewers(effective_gates, effective_risk, resolution)
         reviewers = sorted(set(reviewers) | set(cp_reviewers))
-        cp_evidence_reviewers = evidence_reviewers(effective_gates, effective_risk)
+        cp_evidence_reviewers = evidence_reviewers(
+            effective_gates, effective_risk, profile_gates
+        )
         launch = role_launch(project, role)
         gate = None
         if effective_gates.get("human") or gates.get("human"):
@@ -203,6 +190,18 @@ def build_plan(
                 "options": ["approve", "revise"],
             }
         deps = [f"task:{item}" for item in cp.get("depends_on") or []]
+        try:
+            cp_brief = brief_mod.render_cp_brief(
+                {"issue": issue, "risk": effective_risk},
+                seal,
+                str(cp_id),
+                prefix,
+                gates=effective_gates,
+                risk=effective_risk,
+                profile_gates=profile_gates,
+            )
+        except ValueError:
+            cp_brief = ""
         spec = (
             f"demir-kit #{issue} {cp_id}: {cp.get('title', '')}\n"
             f"Target: issue #{issue}, epic #{epic}, surfaces: {surfaces}\n"
@@ -211,7 +210,8 @@ def build_plan(
             f"Required reviewers: {', '.join(cp_evidence_reviewers)}\n"
             f"Advisory roles: {', '.join(cp_reviewers)}\n"
             + (f"Human gate: {gate['question']}\n" if gate else "")
-            + f"Read:\n{docs}\n"
+            + (cp_brief + "\n" if cp_brief else "")
+            + f"Ek dosyalar (yalnız ilgili satır için aç, tamamını okuma):\n{docs}\n"
             f"- {prefix}delivery/CONTRACT.md\n"
             f"- {prefix}delivery/policies/quality-gates.md\n"
             f"Change: implement only {cp_id} for this sealed leaf.\n"
@@ -236,6 +236,8 @@ def build_plan(
                 "effort": launch.get("effort"),
                 "agent": launch.get("agent"),
                 "gate": gate,
+                "brief_chars": len(cp_brief),
+                "spec_chars": len(spec),
                 "spec": spec,
             }
         )
@@ -258,6 +260,7 @@ def build_plan(
         "evidence_reviewers": evidence_reviewers(
             {"ui": False, "architect": False, "commercial": False, **profile_gates},
             effective_risk,
+            profile_gates,
         ),
         "tasks": tasks,
     }

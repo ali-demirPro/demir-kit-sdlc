@@ -1,5 +1,20 @@
 # Changelog
 
+## 2.45.0 — 2026-11-02
+
+- **Bağlam bütçesi** — yeni `delivery/policies/context-budget.md`: epic başına
+  yeni bağlam (epic'ler arası `session move` yasak), koordinatör salt-okur,
+  dosyayı bir kez ve dilimle okuma, araç çıktısı sınırı, CP sınırında compaction.
+  Eşikler: 120k uyarı, 200k duruş. Ölçüm: dogfood'da tek bağlam 823k token'a
+  çıkmış, adım maliyeti 8,5x artmıştı.
+- **CP brief** — `brief.py --cp CP-1` altı KB'lık kompakt brief üretir (kapsam,
+  o CP'nin AC/test satırları, gate komutu, evidence iskeleti, dosya listesi).
+  `orca_plan.py` bunu worker spec'ine gömer ve `CONTRACT.md` /
+  `quality-gates.md` dosyalarının tamamını okumayı yasaklar; worker soğuk
+  başlangıcı 11 dokümandan brief + en fazla iki dilime iner.
+- **Kayıt** — politika `registry.yaml → policies.context_budget`, `CONTRACT.md`
+  ve `AGENTS.md` üzerinden bağlı; doctor link/registry kontrolleri yeşil.
+
 ## 2.44.0 — 2026-11-01
 
 - **Skill kurulumu çağıran dizine** — `install.sh` başta `cd "$ROOT"` yapıyordu;

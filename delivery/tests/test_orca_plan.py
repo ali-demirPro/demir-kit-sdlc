@@ -58,6 +58,10 @@ class OrcaPlanTests(unittest.TestCase):
         )
         self.assertNotIn("--product", first["spec"])
         self.assertIn("delivery/agents/designer/SKILL.md", second["spec"])
+        self.assertIn("tamamını okuma", first["spec"])
+        self.assertIn("CP brief — CP-1", first["spec"])
+        self.assertLess(len(first["spec"]), 6000)
+        self.assertLess(first["brief_chars"], 3000)
 
     def test_profile_skills_packs_and_gates(self) -> None:
         profile = {
@@ -74,6 +78,15 @@ class OrcaPlanTests(unittest.TestCase):
         self.assertIn("packs/web-ux/checklist.md", first["spec"])
         self.assertIn("architect", first["reviewers"])
         self.assertIn("marketing/stores", first["reviewers"])
+
+    def test_evidence_reviewers_accept_profile_gates(self) -> None:
+        roles = orca_plan.evidence_reviewers(
+            {"behavior": True}, "medium", {"platform": True}
+        )
+        self.assertIn("platform", roles)
+        roles = orca_plan.evidence_reviewers({"behavior": True}, "high", {})
+        self.assertIn("human", roles)
+        self.assertNotIn("platform", roles)
 
     def test_seal_profile_gates(self) -> None:
         body = """```yaml demir-kit

@@ -22,6 +22,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import resolver  # noqa: E402
 import routing  # noqa: E402
+import profiles  # noqa: E402
 
 
 def gh(args: list[str]) -> str:
@@ -125,6 +126,155 @@ def build_brief(
     }
 
 
+def cp_role(gates: dict) -> str:
+    return "designer" if gates.get("ui") else "developer"
+
+
+def cp_selection(seal: dict, cp_id: str) -> tuple[dict, list[dict]]:
+    checkpoints = seal.get("checkpoints") or []
+    cp = next(
+        (item for item in checkpoints if str(item.get("id")) == cp_id),
+        None,
+    )
+    if not isinstance(cp, dict):
+        raise ValueError(f"{cp_id}: seal'de checkpoint yok")
+    cases: list[dict] = []
+    for plan in seal.get("tests_plan") or []:
+        if not isinstance(plan, dict) or str(plan.get("checkpoint_id")) != cp_id:
+            continue
+        for case in plan.get("cases") or []:
+            if isinstance(case, dict):
+                cases.append(case)
+    return cp, cases
+
+
+def evidence_skeleton(reviewers: list[str], risk: str) -> list[str]:
+    """Evidence lines derived from the same reviewer set doctor enforces."""
+    if "adversarial-b" in reviewers:
+        lines = ["  adversarial: {reviewer_a: approved, reviewer_b: approved}"]
+    else:
+        lines = ["  adversarial: {reviewer_a: approved}"]
+    for role in ("architect", "commercial", "human", "human_second"):
+        if role in reviewers:
+            lines.append(f"  {role}: approved")
+    if "platform" in reviewers:
+        lines.append("  platform: pass")
+    if "ui" in reviewers:
+        lines.append("  ui: pass")
+    if "ui_visual" in reviewers:
+        lines += [
+            "  ui_visual: pass",
+            "  ui_interaction: pass",
+            "  comparison_valid: true",
+        ]
+    lines.append(f"  risk: {risk}")
+    return lines
+
+
+def render_cp_brief(
+    data: dict,
+    seal: dict,
+    cp_id: str,
+    prefix: str = "",
+    gates: dict | None = None,
+    risk: str | None = None,
+    profile_gates: dict | None = None,
+) -> str:
+    """Compact per-checkpoint brief: scope, AC, tests, evidence skeleton."""
+    cp, cases = cp_selection(seal, cp_id)
+    effective_gates = gates if gates is not None else (cp.get("gates") or {})
+    effective_risk = str(
+        risk
+        or (seal.get("risk") or {}).get("level")
+        or data.get("risk")
+        or "n/a"
+    )
+    role = cp_role(cp.get("gates") or {})
+    reviewers = routing.evidence_reviewers(
+        effective_gates, effective_risk, profile_gates
+    )
+    ac_ids = {str(case.get("ac")) for case in cases if case.get("ac")}
+    criteria = seal.get("acceptance_criteria") or []
+    selected = [
+        item for item in criteria if str(item.get("id")) in ac_ids
+    ]
+    reference = (seal.get("reference") or {}).get("paths") or []
+    surfaces = ", ".join(str(item) for item in seal.get("surfaces") or []) or "n/a"
+    gate_command = (
+        f"./{prefix}delivery/scripts/doctor.sh --issue {data['issue']}"
+        + (" --product --root ." if prefix else "")
+        + f" --checkpoint {cp_id}"
+    )
+    gate_source = {**effective_gates, **(profile_gates or {})}
+    active = [
+        item
+        for item in ("ui", "architect", "commercial", "platform", "human")
+        if gate_source.get(item)
+    ]
+    gate_text = "behavior" + (", " + ", ".join(active) if active else "")
+
+    lines = [
+        f"## CP brief — {cp_id} · {cp.get('title', '')}",
+        f"Epic: {seal.get('epic')} · Risk: {effective_risk} · Rol: {role}",
+        f"Yüzey: {surfaces} · Gate: {gate_text}",
+        f"Kapsam: {seal.get('intent', '')}",
+    ]
+    if selected:
+        lines.append("AC (bu CP):")
+        for item in selected:
+            lines.append(f"- {item.get('id')}: {item.get('text', '')}")
+    else:
+        lines.append("AC (bu CP): seal'de bu CP'ye bağlı case yok — seal'i düzelt.")
+    if cases:
+        lines.append("Testler:")
+        for case in cases:
+            lines.append(
+                f"- {case.get('id')} ({case.get('ac')}, {case.get('check', 'gate')}): "
+                f"{case.get('text', '')}"
+            )
+    else:
+        lines.append("Testler: seal'de bu CP için case yok — seal'i düzelt.")
+    if reference:
+        lines.append("Yollar:")
+        lines += [f"- {prefix}{path}" if prefix else f"- {path}" for path in reference]
+
+    if cases:
+        lines += [
+            f"Kanıt (agent: {role}, reviewer: {', '.join(reviewers)}):",
+            "```yaml",
+            "demir-kit-evidence",
+            'demir_kit_version: "2"',
+            f"cp_id: {cp_id}",
+            f"issue: {data['issue']}",
+            f"agent: {role}",
+            "commit: <sha>",
+            f'behavior: {{command: "{gate_command}", exit_code: 0, checkpoint: {cp_id}}}',
+            "reviews:",
+        ]
+        lines += evidence_skeleton(reviewers, effective_risk)
+        lines.append("tests:")
+        for case in cases:
+            lines.append(f"  - {{case: {case.get('id')}, result: pass}}")
+        lines += [
+            "findings: []",
+            "status: pass",
+            "```",
+        ]
+    else:
+        lines.append(
+            "Kanıt: case olmadığı için evidence iskeleti üretilmedi; "
+            "önce seal'i düzelt."
+        )
+    lines += [
+        f"Komut: `{gate_command}`",
+        "Okuma: bu brief yeterli; ek dosyayı yalnız ilgili satır için aç "
+        "(`rg -n`), CONTRACT.md ve quality-gates.md tamamını okuma.",
+        "Kurallar: yalnız bu CP; başka CP/contract/CI dosyasına dokunma; tam dosya "
+        "dökme; bağlam 120k'da uyar, 200k'da dur ve kısa özet yaz.",
+    ]
+    return "\n".join(lines) + "\n"
+
+
 def render(data: dict) -> str:
     lines = [
         f"#{data['issue']} {data['title']}",
@@ -223,6 +373,8 @@ def existing_delivery_path(repo: str, issue: int, fetch=None) -> bool:
 def main() -> int:
     parser = argparse.ArgumentParser(description="delivery agent brief")
     parser.add_argument("issue", type=int)
+    parser.add_argument("--cp", help="compact brief for one checkpoint (CP-1)")
+    parser.add_argument("--write", type=Path, help="write the CP brief to this directory")
     parser.add_argument("--json", action="store_true")
     parser.add_argument("--post", action="store_true")
     args = parser.parse_args()
@@ -230,16 +382,64 @@ def main() -> int:
     repo = repo_name()
     issue = json.loads(gh(["api", f"repos/{repo}/issues/{args.issue}"]))
     labels = {item.get("name") for item in issue.get("labels", [])}
+    body = issue.get("body", "") or ""
     data = build_brief(
         routing.load_registry(ROOT),
         args.issue,
         issue.get("title", ""),
-        issue.get("body", "") or "",
+        body,
         labels,
         routing.kit_prefix(ROOT),
         project_ecosystem(),
         project_priorities(),
     )
+
+    if args.cp:
+        seal = routing.seal_body(body)
+        if not seal:
+            sys.exit("brief: issue seal (`demir-kit` bloğu) yok")
+        try:
+            cp, _ = cp_selection(seal, args.cp)
+            project = routing.project_root(ROOT)
+            seal_profile = str((seal.get("factory") or {}).get("profile") or "")
+            profile_gates = profiles.gates_for(project, seal_profile)
+            effective = routing.effective_risk(
+                str((seal.get("risk") or {}).get("level") or "low"),
+                str(data.get("risk_floor") or "low"),
+            )
+            text = render_cp_brief(
+                {"issue": data["issue"], "risk": effective},
+                seal,
+                args.cp,
+                routing.kit_prefix(ROOT),
+                gates=cp.get("gates") or {},
+                risk=effective,
+                profile_gates=profile_gates,
+            )
+        except ValueError as exc:
+            sys.exit(f"brief: {exc}")
+        if args.write:
+            args.write.mkdir(parents=True, exist_ok=True)
+            path = args.write / f"{args.cp}.md"
+            path.write_text(text, encoding="utf-8")
+            print(path)
+        elif args.json:
+            print(
+                json.dumps(
+                    {
+                        "issue": data["issue"],
+                        "cp_id": args.cp,
+                        "role": cp_role(cp.get("gates") or {}),
+                        "chars": len(text),
+                        "brief": text,
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                )
+            )
+        else:
+            print(text)
+        return 0
 
     if args.json:
         print(json.dumps(data, ensure_ascii=False, indent=2))
