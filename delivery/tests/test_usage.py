@@ -268,6 +268,7 @@ class WorkerUsageTests(unittest.TestCase):
         self.assertIsNone(usage.session_for_window(sessions, 10_000, 300_000))
 
     def test_session_total_is_not_charged_to_dispatch(self) -> None:
+        start = int(usage.parse_dispatch_time("2026-11-02 08:00:00").timestamp() * 1000)
         record = {
             "dispatch": {
                 "runId": "run_x",
@@ -278,13 +279,65 @@ class WorkerUsageTests(unittest.TestCase):
             "path": "/tmp/worktree",
         }
         with patch.object(usage, "dispatch_record", return_value=record), patch.object(
-            usage, "sessions_in", return_value=[{"id": "ses_w", "created": 0}]
+            usage, "sessions_in", return_value=[{"id": "ses_w", "created": start}]
         ), patch.object(
             usage, "session_export", return_value=export()
         ):
             row = usage.dispatch_usage("ctx_w")
         self.assertEqual(row["confidence"], "unavailable")
         self.assertIsNone(row["cost"])
+
+    def test_context_peak_uses_window_and_cache_write(self) -> None:
+        start = int(usage.parse_dispatch_time("2026-11-02 08:00:00").timestamp() * 1000)
+        record = {
+            "dispatch": {
+                "runId": "run_x",
+                "status": "completed",
+                "dispatchedAt": "2026-11-02 08:00:00",
+                "completedAt": "2026-11-02 08:05:00",
+            },
+            "path": "/tmp/worktree",
+        }
+        messages = [
+            {
+                "time": {"created": start + 10_000},
+                "cost": 0.02,
+                "tokens": {
+                    "input": 100,
+                    "output": 10,
+                    "reasoning": 0,
+                    "cache": {"read": 50, "write": 10},
+                },
+            },
+            {
+                "time": {"created": start + 600_000},
+                "cost": 9.0,
+                "tokens": {
+                    "input": 1,
+                    "output": 1,
+                    "reasoning": 0,
+                    "cache": {"read": 99_999, "write": 0},
+                },
+            },
+        ]
+        with patch.object(usage, "dispatch_record", return_value=record), patch.object(
+            usage, "sessions_in", return_value=[{"id": "ses_w", "created": start}]
+        ), patch.object(
+            usage, "session_export", return_value=export(messages=messages)
+        ):
+            row = usage.dispatch_usage("ctx_w")
+        self.assertEqual(row["context_peak"], 160)
+
+    def test_repeated_cursor_does_not_loop(self) -> None:
+        pages = [
+            {"workers": [{"dispatchId": "ctx_a"}], "page": {"nextCursor": "c1"}},
+            {"workers": [{"dispatchId": "ctx_b"}], "page": {"nextCursor": "c1"}},
+            {"workers": [{"dispatchId": "ctx_c"}], "page": {"nextCursor": None}},
+        ]
+        with patch.object(usage, "orca_result", side_effect=pages) as orca:
+            rows = usage.run_workers("run_x")
+        self.assertEqual(orca.call_count, 2)
+        self.assertEqual([row["dispatchId"] for row in rows], ["ctx_a", "ctx_b"])
 
 
 if __name__ == "__main__":

@@ -39,6 +39,12 @@ class WorkerCleanupTests(unittest.TestCase):
             cleanup.skip_reason(worker("c", "succeeded", "retained", "user_takeover")),
         )
         self.assertIsNone(cleanup.skip_reason(worker("d", "succeeded", "reclaimable")))
+        self.assertIn(
+            "retained", cleanup.skip_reason(worker("e", "succeeded", "retained"))
+        )
+        self.assertIn(
+            "bilinmiyor", cleanup.skip_reason(worker("f", "succeeded", ""))
+        )
 
     def test_plan_marks_only_settled_workers(self) -> None:
         rows = [
@@ -67,6 +73,27 @@ class WorkerCleanupTests(unittest.TestCase):
         self.assertTrue(result[0]["released"])
         self.assertEqual(result[1]["action"], "failed")
         self.assertFalse(result[2].get("released", False))
+
+    def test_main_exit_codes(self) -> None:
+        with patch.object(cleanup, "plan_for", return_value=[]), patch.object(
+            cleanup.sys, "argv", ["worker_cleanup.py", "--run", "run_x"]
+        ):
+            self.assertEqual(cleanup.main(), 1)
+
+        failed = [{"dispatch_id": "ctx_a", "action": "failed", "reason": None}]
+        started = [{"dispatch_id": "ctx_a", "action": "release", "reason": None}]
+        with patch.object(cleanup, "plan_for", return_value=started), patch.object(
+            cleanup, "apply", return_value=failed
+        ), patch.object(
+            cleanup.sys, "argv", ["worker_cleanup.py", "--run", "run_x", "--apply"]
+        ):
+            self.assertEqual(cleanup.main(), 1)
+
+        planned = [{"dispatch_id": "ctx_a", "action": "release", "reason": None}]
+        with patch.object(cleanup, "plan_for", return_value=planned), patch.object(
+            cleanup.sys, "argv", ["worker_cleanup.py", "--run", "run_x"]
+        ):
+            self.assertEqual(cleanup.main(), 0)
 
 
 if __name__ == "__main__":

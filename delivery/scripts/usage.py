@@ -253,11 +253,14 @@ def sessions_in(path: str) -> list[dict]:
     if not isinstance(rows, list):
         return []
     target = str(Path(path).resolve())
-    return [
-        row
-        for row in rows
-        if str(Path(str(row.get("directory") or "")).resolve()) == target
-    ]
+    picked = []
+    for row in rows:
+        directory = str(row.get("directory") or "").strip()
+        if not directory:
+            continue
+        if str(Path(directory).resolve()) == target:
+            picked.append(row)
+    return picked
 
 
 def session_for_window(
@@ -362,8 +365,11 @@ def dispatch_usage(dispatch_id: str) -> dict:
 def run_workers(run_id: str) -> list[dict]:
     rows: list[dict] = []
     cursor = None
-    seen: set[str] = set()
+    seen: set[str | None] = set()
     while True:
+        if cursor in seen:
+            break
+        seen.add(cursor)
         args = [
             "orchestration",
             "worker-list",
@@ -379,12 +385,9 @@ def run_workers(run_id: str) -> list[dict]:
         page = result.get("workers") or []
         rows.extend(page)
         next_cursor = (result.get("page") or {}).get("nextCursor")
-        if not next_cursor or next_cursor in seen:
+        if not next_cursor or next_cursor in seen or not page:
             break
-        seen.add(str(next_cursor))
         cursor = next_cursor
-        if not page:
-            break
     return rows
 
 
