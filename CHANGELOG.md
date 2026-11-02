@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.55.0 — 2026-11-02
+
+- **Miras modeli hata yakalama** — `session_model` eksik CLI (`OSError`),
+  zaman aşımı (`TimeoutExpired`) ve bozuk yanıtta `None` döner; plan düşmez,
+  model geçirilmez. Mirasın `orca_plan` görevine geçişi test edildi.
+
 ## 2.54.0 — 2026-11-02
 
 - **Kısmi worker ölçümü** — kayıtlı ve kayıtsız worker karışıksa closure ölçülen

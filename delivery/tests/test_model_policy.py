@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -39,6 +40,21 @@ class ModelPolicyTests(unittest.TestCase):
         ):
             launch = model_policy.role_launch(project, "developer")
         self.assertEqual(launch, {"model": "provider/model"})
+
+    def test_session_model_missing_cli_or_timeout(self) -> None:
+        with patch.object(
+            model_policy.usage, "current_session", side_effect=FileNotFoundError
+        ):
+            self.assertIsNone(model_policy.session_model(Path(".")))
+        with patch.object(
+            model_policy.usage,
+            "current_session",
+            side_effect=subprocess.TimeoutExpired(cmd="opencode2", timeout=1),
+        ):
+            self.assertIsNone(model_policy.session_model(Path(".")))
+        project = project_with("orca: {inherit_session_model: true}\n")
+        with patch.object(model_policy, "session_model", return_value=None):
+            self.assertEqual(model_policy.role_launch(project, "developer"), {})
 
     def test_role_defaults_need_allow(self) -> None:
         project = project_with(

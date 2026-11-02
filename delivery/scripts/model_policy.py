@@ -51,7 +51,13 @@ def session_model(project: Path) -> str | None:
     try:
         session = usage.current_session(main_checkout(project))
         info = usage.api_session_info(str(session.get("id")))
-    except (SystemExit, ValueError, json.JSONDecodeError):
+    except (
+        SystemExit,
+        ValueError,
+        json.JSONDecodeError,
+        OSError,
+        subprocess.TimeoutExpired,
+    ):
         return None
     model = info.get("model") or {}
     model_id = str(model.get("id") or "")
