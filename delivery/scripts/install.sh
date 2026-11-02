@@ -100,7 +100,7 @@ fi
 
 if [[ "$CAPABILITIES" == true ]]; then
   SCOPED_SKILLS="$(python3 "${ROOT}/delivery/scripts/skill_scope.py" \
-    --project "${ROOT}" --root "${ROOT}" --json \
+    --cwd "$(pwd)" --root "${ROOT}" --json \
     | python3 -c 'import json,sys; print("\n".join(json.load(sys.stdin)["scoped"]))')"
   while IFS= read -r skill; do
     [[ -n "$skill" ]] && SKILLS+=("$skill")

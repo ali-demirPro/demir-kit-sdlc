@@ -79,7 +79,7 @@ class DetectTests(unittest.TestCase):
     def test_macos_xcodeproj(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            write(root, "Faturalar.xcodeproj/project.pbxproj", "SDKROOT = macosx;\n")
+            write(root, "Ornek.xcodeproj/project.pbxproj", "SDKROOT = macosx;\n")
             write(root, "App/MainView.swift", "import SwiftUI\n")
             data = detect_mod.detect(root)
             platforms = [

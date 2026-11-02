@@ -1,5 +1,18 @@
 # Changelog
 
+## 2.42.0 — 2026-11-01
+
+- **Üründe scoped skill kurulumu** — `install.sh --capabilities` artık
+  `skill_scope`'a kit kökü yerine **ürün kökünü** verir (`--cwd`; ürün
+  checkout'unda `kit.config.yaml` varsa o). Önceki hâlde ürünün
+  `.kit/capabilities.yaml` dosyası hiç okunmuyordu, bu yüzden `mac-verify` ve
+  `swift-stack` hiçbir üründe kurulmuyordu. Self-host davranışı değişmedi.
+- **Üründe yüzey denetimi** — `doctor --product` her yüzey için
+  `surface_gate_errors` çalıştırır: `gates.ui: true` olan yüzey `snapshot`
+  komutu olmadan geçmez, `ui`/`ui_compare` tipleri doğrulanır.
+- **`package.json` uyarısı** — yalnız node/javascript/typescript stack'i olan
+  projelerde aranır; Swift gibi projelerde gürültü yapmaz.
+
 ## 2.41.0 — 2026-11-01
 
 - **Skill lint kenar durumları** — kaçışlı boşluklu link hedefi doğru çözülür;

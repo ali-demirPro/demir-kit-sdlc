@@ -208,7 +208,7 @@ capabilities:
     label: Payments
     description: "Ödeme, abonelik ve iade; para akışı, idempotency ve store kuralları."
     match:
-      keywords: [payment, ödeme, checkout, iap, subscription, abonelik, billing, fatura, iade]
+      keywords: [payment, ödeme, checkout, iap, subscription, abonelik, billing, iade]
       surfaces: [payments]
     roles:
       architect: expert

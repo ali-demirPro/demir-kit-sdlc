@@ -6,6 +6,7 @@ Run: python3 -m unittest discover -s delivery/tests -v
 from __future__ import annotations
 
 import importlib.util
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -71,6 +72,53 @@ class SkillScopeTest(unittest.TestCase):
             data = skill_scope.select(project, ROOT)
         self.assertEqual(sorted(data["scoped"]), sorted(SCOPED))
         self.assertEqual(len(data["install"]), len(set(data["install"])))
+
+
+class InstallProjectRootTest(unittest.TestCase):
+    def test_resolve_project_prefers_product_checkout(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            product = Path(raw)
+            (product / "kit.config.yaml").write_text("kit: {root: kit}\n")
+            self.assertEqual(
+                skill_scope.resolve_project(product, Path("/kit")), product
+            )
+
+    def test_resolve_project_falls_back_to_kit_root(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            plain = Path(raw)
+            self.assertEqual(
+                skill_scope.resolve_project(plain, Path("/kit")), Path("/kit")
+            )
+
+    def test_cwd_mode_reads_the_product_declaration(self) -> None:
+        from unittest.mock import patch
+        import subprocess
+        import sys
+
+        with tempfile.TemporaryDirectory() as raw:
+            product = Path(raw)
+            (product / "kit.config.yaml").write_text("kit: {root: kit}\n")
+            (product / ".kit").mkdir()
+            (product / ".kit" / "capabilities.yaml").write_text(
+                "version: 1\ninclude: [platform.macos]\nexclude: []\n",
+                encoding="utf-8",
+            )
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(SCRIPTS / "skill_scope.py"),
+                    "--cwd",
+                    str(product),
+                    "--root",
+                    str(ROOT),
+                    "--json",
+                ],
+                capture_output=True,
+                text=True,
+            )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertEqual(sorted(payload["scoped"]), sorted(SCOPED))
 
 
 class ScopedRegistryTest(unittest.TestCase):

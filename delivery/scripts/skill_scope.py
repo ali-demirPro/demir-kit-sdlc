@@ -41,6 +41,18 @@ def load_registry(root: Path) -> dict:
     return data if isinstance(data, dict) else {}
 
 
+def resolve_project(cwd: Path, kit_root: Path) -> Path:
+    """Product root when the caller stands in one; otherwise the kit root.
+
+    A product checkout has kit.config.yaml at its root; the kit itself does too,
+    so this is the same test for both and keeps self-host behaviour unchanged.
+    """
+    cwd = Path(cwd)
+    if (cwd / "kit.config.yaml").is_file():
+        return cwd
+    return Path(kit_root)
+
+
 def declared_capabilities(project: Path) -> set[str]:
     """Effective capabilities for the project, or ValueError when unclear.
 
@@ -95,12 +107,20 @@ def select(project: Path, root: Path = ROOT) -> dict:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="resolve skills to install")
-    parser.add_argument("--project", default=".")
+    parser.add_argument("--project")
+    parser.add_argument("--cwd", help="current directory; product root is resolved from it")
     parser.add_argument("--root", default=str(ROOT))
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
+    root = Path(args.root)
+    if args.project:
+        project = Path(args.project)
+    elif args.cwd:
+        project = resolve_project(Path(args.cwd), root)
+    else:
+        project = Path(".")
     try:
-        data = select(Path(args.project), Path(args.root))
+        data = select(project, root)
     except ValueError as exc:
         print(f"skill_scope: {exc}", file=sys.stderr)
         return 1
