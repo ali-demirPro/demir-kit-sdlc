@@ -76,6 +76,8 @@ ready_for_human_qa: true
 ```
 ````
 
+- Blok: `python3 delivery/scripts/closure.py --issue <epic> --post` (leaf/cp,
+  lead time, worker ve koordinatör sayıları otomatik; `--gate-retries` vb. flag).
 - Worker sayıları: `python3 delivery/scripts/usage.py --run <run_id> --json`.
 - Biten terminaller: `python3 delivery/scripts/worker_cleanup.py --run <run_id> --apply`.
 - `status: fail` → `epic-reconcile` + yeni issue; **epic-done yasak**.
