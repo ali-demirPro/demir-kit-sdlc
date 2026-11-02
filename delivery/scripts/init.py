@@ -20,6 +20,7 @@ DEFAULT_UPSTREAM = "https://github.com/ali-demirPro/demir-kit-sdlc.git"
 
 import detect as detect_mod  # noqa: E402
 import delivery_block  # noqa: E402
+import process_gate  # noqa: E402
 import profiles as profiles_mod  # noqa: E402
 import resolver  # noqa: E402
 
@@ -413,6 +414,10 @@ def apply_plan(plan: dict, force: bool = False) -> dict:
     config = ensure_config_flag(root)
     orca_yaml = ensure_orca_yaml(root, plan, force=force)
     worktreeinclude = ensure_worktreeinclude(root, force=force)
+    hooks = process_gate.install_hooks(
+        root, plan.get("agents_prefix", "demir-kit")
+    )
+    written.extend(hooks["written"])
     return {
         "written": written,
         "skipped": skipped,
@@ -424,6 +429,7 @@ def apply_plan(plan: dict, force: bool = False) -> dict:
         "config": config,
         "orca_yaml": orca_yaml,
         "worktreeinclude": worktreeinclude,
+        "hooks": hooks,
     }
 
 

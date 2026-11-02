@@ -16,6 +16,7 @@ import yaml
 SCRIPTS = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPTS))
 import epic_worktree  # noqa: E402
+import process_gate  # noqa: E402
 
 SKIP_LABELS = {"executing", "blocked", "deferred", "leaf-done", "epic-done"}
 CLAIM_PREFIX = "run claim:"
@@ -413,12 +414,34 @@ def main() -> int:
         )
 
     eligible.sort(key=lambda item: item["createdAt"])
+    root = epic_worktree.project_root()
+    dirty = process_gate.dirty_sources(root)
     if not eligible:
+        if dirty:
+            print(
+                "BLOCKED: unsealed work — kaynak dosyalari kirli ama "
+                "agent-approved leaf yok:",
+                file=sys.stderr,
+            )
+            for path in dirty[:10]:
+                print(f"  - {path}", file=sys.stderr)
+            print(
+                "  Once epic + leaf muhurle veya degisiklikleri epic "
+                "worktree'sine tasi.",
+                file=sys.stderr,
+            )
+            return 1
         if args.json:
             print("[]")
         else:
             print("no work")
         return 0
+    if dirty:
+        print(
+            f"uyari: kirli kaynak dosyalari ({len(dirty)}); claim edilen "
+            "epic worktree'sine tasi",
+            file=sys.stderr,
+        )
 
     if args.json and not args.claim:
         print(json.dumps(eligible, indent=2))

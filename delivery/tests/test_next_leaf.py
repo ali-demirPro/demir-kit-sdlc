@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import importlib.util
+import io
 import json
 import sys
 import unittest
+from contextlib import redirect_stderr, redirect_stdout
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
@@ -201,6 +203,22 @@ class LeaseTests(unittest.TestCase):
             side_effect=next_leaf.epic_worktree.WorktreeError("boom"),
         ):
             self.assertEqual(next_leaf.prepare_worktree(46, 44), 1)
+
+
+if __name__ == "__main__":
+    unittest.main()
+
+    def test_dirty_sources_block_when_no_work(self) -> None:
+        out, err = io.StringIO(), io.StringIO()
+        with patch.object(next_leaf, "gh", return_value="[]"), patch.object(
+            next_leaf.process_gate, "dirty_sources", return_value=["App/x.swift"]
+        ), patch.object(sys, "argv", ["next-leaf.py", "--list"]), redirect_stdout(
+            out
+        ), redirect_stderr(err):
+            code = next_leaf.main()
+        self.assertEqual(code, 1)
+        self.assertIn("BLOCKED", err.getvalue())
+        self.assertIn("App/x.swift", err.getvalue())
 
 
 if __name__ == "__main__":
