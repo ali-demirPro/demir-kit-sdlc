@@ -76,9 +76,20 @@ def reviewer_spec(name: str, packet: str, issue: int, cp_id: str) -> str:
 
 def parse_verdict(text: str) -> bool | None:
     matches = re.findall(r"approved:\s*(true|false)", text or "", re.I)
-    if not matches:
-        return None
-    return matches[-1].lower() == "true"
+    if matches:
+        return matches[-1].lower() == "true"
+    lowered = (text or "").lower()
+    if (
+        "rejected" in lowered
+        or "not approved" in lowered
+        or "approved=false" in lowered
+        or "approved: false" in lowered
+        or "onaylanmadı" in lowered
+    ):
+        return False
+    if "approved" in lowered or "onaylandı" in lowered:
+        return True
+    return None
 
 
 def start_worker(
@@ -172,12 +183,39 @@ def read_output(dispatch_id: str) -> str:
     return "\n".join(str(line) for line in terminal.get("tail") or [])
 
 
-def collect(workers: list[dict]) -> list[dict]:
+def collect(workers: list[dict], run_id: str | None = None) -> list[dict]:
+    messages = (
+        orca(["orchestration", "check", "--run", run_id, "--json"]).get(
+            "messages"
+        )
+        or []
+        if run_id
+        else []
+    )
+    texts: dict[str, str] = {}
+    for message in messages:
+        handle = str(message.get("from_handle") or "")
+        if handle:
+            texts[handle] = (
+                f"{message.get('subject') or ''}\n{message.get('body') or ''}"
+            )
     for item in workers:
         if not item.get("dispatch_id"):
             item["verdict"] = None
             continue
+        shown = orca(
+            [
+                "orchestration",
+                "worker-show",
+                "--dispatch",
+                str(item["dispatch_id"]),
+                "--json",
+            ]
+        )
+        handle = str((shown.get("worker") or {}).get("agentTerminalHandle") or "")
         output = read_output(str(item["dispatch_id"]))
+        if handle and handle in texts:
+            output += "\n" + texts[handle]
         item["verdict"] = parse_verdict(output)
         item["summary"] = "\n".join(output.splitlines()[-25:])
         worker_cleanup.release(str(item["dispatch_id"]))
@@ -240,7 +278,7 @@ def main() -> int:
         start_worker(name, specs[name], run_id, worktree) for name in names
     ]
     workers = wait_workers(workers, args.timeout)
-    workers = collect(workers)
+    workers = collect(workers, run_id)
     verdicts = {
         item["name"]: (
             None if item.get("verdict") is None else bool(item["verdict"])
