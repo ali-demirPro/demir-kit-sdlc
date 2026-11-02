@@ -24,6 +24,7 @@ import resolver  # noqa: E402
 import profiles as profiles_mod  # noqa: E402
 import routing  # noqa: E402
 import brief as brief_mod  # noqa: E402
+import model_policy  # noqa: E402
 
 
 def gh(args: list[str]) -> str:
@@ -52,19 +53,8 @@ def project_ecosystem() -> dict:
 
 
 def role_launch(project: Path, role: str) -> dict:
-    try:
-        config = yaml.safe_load((project / "kit.config.yaml").read_text(encoding="utf-8")) or {}
-    except (FileNotFoundError, yaml.YAMLError):
-        config = {}
-    defaults = ((config.get("orca") or {}).get("role_defaults") or {}).get(role) or {}
-    if not isinstance(defaults, dict):
-        return {}
-    return {
-        key: str(defaults[key])
-        for key in ("model", "effort", "agent")
-        if defaults.get(key)
-    }
-
+    """Model/effort policy: default none, opt-in inherit or explicit override."""
+    return model_policy.role_launch(project, role)
 
 def required_reviewers(gates: dict, risk: str, resolution: dict) -> list[str]:
     caps = set(resolution.get("capabilities") or [])

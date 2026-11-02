@@ -46,6 +46,7 @@ OBSERVABLE = (
     "python3",
     "unittest",
     "pytest",
+    "doctor",
     "bash",
     ".sh",
     "sayı",
@@ -65,6 +66,7 @@ OBSERVABLE = (
 CASE_MARKERS = (
     ".py",
     "doctor",
+    "komut",
     "pytest",
     "python3",
     "unittest",

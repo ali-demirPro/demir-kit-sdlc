@@ -1,5 +1,16 @@
 # Changelog
 
+## 2.52.0 — 2026-11-02
+
+- **Model nötrlüğü** — kit varsayılan olarak `--model`/`--effort` geçirmez;
+  worker oturum/ortam modelini kullanır. `orca.inherit_session_model: true`
+  koordinatörün modelini açıkça devralır; `role_defaults` model/effort yalnız
+  `orca.allow_model_override: true` ile uygulanır.
+- **Koruma** — `doctor` (`model policy`) bayraksız rol model/effort ayarını hata
+  sayar; `opencode2` effort ayarını uyarı olarak işaretler.
+- **Politika** — `delivery/policies/model-selection.md`, registry, CONTRACT ve
+  AGENTS bağlantıları; `model_policy.py` tek karar noktası.
+
 ## 2.51.0 — 2026-11-02
 
 - **Seal lint** — `seal_lint.py --body FILE` mühür metnini denetler: belirsiz

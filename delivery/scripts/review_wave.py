@@ -23,6 +23,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import closure  # noqa: E402
+import model_policy  # noqa: E402
 import review_packet  # noqa: E402
 import routing  # noqa: E402
 import worker_cleanup  # noqa: E402
@@ -94,7 +95,7 @@ def parse_verdict(text: str) -> bool | None:
     return None
 
 def start_worker(
-    name: str, spec: str, run_id: str, worktree: str
+    name: str, spec: str, run_id: str, worktree: str, model: str | None = None
 ) -> dict:
     task = orca(
         [
@@ -126,6 +127,7 @@ def start_worker(
             worktree,
             "--agent",
             "opencode2",
+            *(["--model", model] if model else []),
             "--run",
             run_id,
             "--json",
@@ -281,8 +283,11 @@ def main() -> int:
         raise SystemExit("review_wave: Orca run bulunamadı (--run ver)")
     worktree = str(routing.project_root(ROOT))
 
+    model = model_policy.role_launch(
+        routing.project_root(ROOT), "reviewer"
+    ).get("model")
     workers = [
-        start_worker(name, specs[name], run_id, worktree) for name in names
+        start_worker(name, specs[name], run_id, worktree, model) for name in names
     ]
     workers = wait_workers(workers, args.timeout)
     workers = collect(workers, run_id)

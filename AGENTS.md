@@ -2,7 +2,7 @@
 
 ## Repo
 
-demir-kit 2.51 — delivery-first agent system. Docs, YAML and small bash/python
+demir-kit 2.52 — delivery-first agent system. Docs, YAML and small bash/python
 scripts; Python unittest suite and CI, no app build system or package manager.
 "Correct" means the contract, registry, schemas and policies agree — `doctor.sh`
 decides.
@@ -119,6 +119,13 @@ changes run `guard.sh --issue N`.
   `delivery/policies/context-budget.md`.
 - 120k tokens warns, 200k stops the session. Write a short handoff, then continue
   in a new session.
+
+## Model selection
+
+- The kit passes no model/effort by default; the session or environment decides.
+- `orca.inherit_session_model: true` opts into the coordinator model;
+  `orca.role_defaults` model/effort requires `orca.allow_model_override: true`.
+- Details and doctor guard: `delivery/policies/model-selection.md`.
 
 <!-- demir-kit:delivery:start -->
 ## demir-kit çalışma akışı
