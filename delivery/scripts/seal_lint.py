@@ -54,11 +54,9 @@ OBSERVABLE = (
     "içerir",
     "var",
     "/",
-    ".",
 )
 
 CASE_MARKERS = (
-    "test",
     ".py",
     "doctor",
     "pytest",
@@ -95,10 +93,10 @@ def lint(seal: dict) -> list[dict]:
     findings: list[dict] = []
     acs = seal.get("acceptance_criteria") or []
     cases = []
-    for plan in seal.get("tests_plan") or []:
-        for case in plan.get("cases") or []:
+    for plan_index, plan in enumerate(seal.get("tests_plan") or []):
+        for case_index, case in enumerate(plan.get("cases") or []):
             if isinstance(case, dict):
-                cases.append((plan.get("checkpoint_id"), case))
+                cases.append((plan_index, case_index, plan.get("checkpoint_id"), case))
     cps = seal.get("checkpoints") or []
     cp_ids = {str(cp.get("id")) for cp in cps if isinstance(cp, dict)}
     ac_ids = {str(ac.get("id")) for ac in acs if isinstance(ac, dict)}
@@ -118,13 +116,14 @@ def lint(seal: dict) -> list[dict]:
             )
 
     seen: set[str] = set()
-    for index, (cp_id, case) in enumerate(cases):
+    for plan_index, case_index, cp_id, case in cases:
+        base = f"$.tests_plan[{plan_index}].cases[{case_index}]"
         case_id = str(case.get("id") or "")
         if case_id in seen:
             findings.append(
                 {
                     "severity": "error",
-                    "path": f"$.tests_plan[{index}].cases.id",
+                    "path": f"{base}.id",
                     "message": f"tekrarlı case id: {case_id}",
                 }
             )
@@ -134,7 +133,7 @@ def lint(seal: dict) -> list[dict]:
             findings.append(
                 {
                     "severity": "error",
-                    "path": f"$.tests_plan[{index}].cases.ac",
+                    "path": f"{base}.ac",
                     "message": f"bilinmeyen AC: {ac_ref}",
                 }
             )
@@ -142,7 +141,7 @@ def lint(seal: dict) -> list[dict]:
             findings.append(
                 {
                     "severity": "error",
-                    "path": f"$.tests_plan[{index}].checkpoint_id",
+                    "path": base,
                     "message": f"bilinmeyen CP: {cp_id}",
                 }
             )
@@ -154,7 +153,7 @@ def lint(seal: dict) -> list[dict]:
             findings.append(
                 {
                     "severity": "warning",
-                    "path": f"$.tests_plan[{index}].cases[{case_id}].text",
+                    "path": f"{base}.text",
                     "message": f"{check} case'i çalıştırılabilir bir iz taşımıyor",
                 }
             )

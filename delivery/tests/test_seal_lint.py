@@ -53,6 +53,29 @@ class SealLintTests(unittest.TestCase):
         findings = seal_lint.lint(seal(ac_text="Sistem daha iyi olur"))
         self.assertTrue(any(item["severity"] == "warning" for item in findings))
 
+    def test_vague_acceptance_with_punctuation(self) -> None:
+        findings = seal_lint.lint(seal(ac_text="Sistem daha iyi olur."))
+        self.assertTrue(any(item["severity"] == "warning" for item in findings))
+
+    def test_case_with_generic_test_word_is_weak(self) -> None:
+        findings = seal_lint.lint(seal(case_text="kontrol test edilir"))
+        self.assertTrue(
+            any("çalıştırılabilir" in item["message"] for item in findings)
+        )
+
+    def test_finding_paths_are_nested(self) -> None:
+        data = seal()
+        data["tests_plan"].append(
+            {
+                "checkpoint_id": "CP-1",
+                "cases": [{"id": "T-1", "ac": "AC-1", "text": "x", "check": "unit"}],
+            }
+        )
+        findings = seal_lint.lint(data)
+        self.assertTrue(
+            any("$.tests_plan[1].cases[0].id" == item["path"] for item in findings)
+        )
+
     def test_weak_unit_case(self) -> None:
         findings = seal_lint.lint(seal(case_text="kontrol edilir"))
         self.assertTrue(
