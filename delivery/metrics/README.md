@@ -18,12 +18,15 @@ comment'inde doldurur; epic kabulünde insan görür.
 | `cache_read` | Cache'ten okunan token | `usage.py --run <id>` |
 | `context_peak` | En büyük bağlam (cache read üst sınırı) | `usage.py --run <id>` |
 | `cost_usd` | Worker maliyeti (sağlayıcı para birimi) | `usage.py --run <id>` |
+| `worker_partial` | Kısmi worker ölçümü işareti (bazı worker kayıtsız) | `closure.py` |
 | `coordinator_tokens_in` | Koordinatör oturum deltası (input) | `closure.py` (claim snapshot) |
 | `coordinator_tokens_out` | Koordinatör oturum deltası (output) | `closure.py` |
 | `coordinator_cache_read` | Koordinatör cache okuması | `closure.py` |
 | `coordinator_cost_usd` | Koordinatör maliyeti | `closure.py` |
 
-Token alanları opsiyoneldir; ölçülemezse yazılmaz. Worker sayıları
+Kısmi ölçümde ölçülen worker alanları yazılır ve `worker_partial: true`
+eklenir; hiç ölçüm yoksa worker alanları yazılmaz. Token alanları opsiyoneldir;
+ölçülemezse yazılmaz. Worker sayıları
 `usage.py --run <run_id>` çıktısından, koordinatör sayıları claim
 snapshot'larından `closure.py --issue <epic>` ile **olduğu gibi** alınır; elle
 tahmin edilmez.

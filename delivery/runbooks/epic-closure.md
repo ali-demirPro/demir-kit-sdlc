@@ -86,7 +86,8 @@ ready_for_human_qa: true
 - Biten terminaller: `python3 delivery/scripts/worker_cleanup.py --run <run_id> --apply`
   (closure'dan sonra; worker metrikleri worktree silinmeden ölçülür).
 - Koordinatör sayıları claim snapshot'larından gelir; oturum değiştiyse
-  `unavailable` sayılır.
+  `unavailable` sayılır. Kısmi worker ölçümünde `worker_partial: true` yazılır;
+  defer edilen child'lar `deferred` listesine issue + gerekçeyle girer.
 - `status: fail` → `epic-reconcile` + yeni issue; **epic-done yasak**.
 - Metrik tanımları ve retro: [metrics/README.md](../metrics/README.md).
 - Doğrulama: `doctor.sh --issue <epic>` closure bloğunu (issue body veya comment)

@@ -166,13 +166,15 @@ def worker_totals(run_id: str | None) -> dict:
     totals = data.get("totals") or {}
     if not totals.get("worker_count"):
         return {"unavailable": True, "reason": "0 worker"}
-    if not totals.get("measured") or totals.get("unavailable"):
-        return {
-            "unavailable": True,
-            "partial": bool(totals.get("unavailable")),
-            "reason": "kısmi ölçüm",
-        }
-    return {"unavailable": False, **totals}
+    if not totals.get("measured"):
+        return {"unavailable": True, "reason": "kısmi ölçüm"}
+    partial_count = int(totals.get("unavailable") or 0)
+    return {
+        **totals,
+        "unavailable": False,
+        "unavailable_count": partial_count,
+        "partial": partial_count > 0,
+    }
 
 
 def snapshot_for(issue: int) -> tuple[dict, Path] | None:
@@ -249,6 +251,8 @@ def build_metrics(
                 "cost_usd": workers.get("cost_usd") or 0,
             }
         )
+        if workers.get("partial"):
+            metrics["worker_partial"] = True
     if not coordinator.get("unavailable"):
         metrics.update(
             {
@@ -261,14 +265,19 @@ def build_metrics(
     return metrics
 
 
-def render_closure(epic: int, metrics: dict, status: str = "pass") -> str:
+def render_closure(
+    epic: int,
+    metrics: dict,
+    status: str = "pass",
+    deferred: list[dict] | None = None,
+) -> str:
     payload = {
         "demir_kit_version": "2",
         "epic": epic,
         "status": status,
         "gaps": [],
         "unnecessary": [],
-        "deferred": [],
+        "deferred": deferred or [],
         "metrics": metrics,
         "ready_for_human_qa": status == "pass",
     }
@@ -404,7 +413,12 @@ def main() -> int:
     )
     if "lead_time_hours" not in metrics:
         raise SystemExit("closure: lead time hesaplanamadı (etiket olayları eksik)")
-    body = render_closure(args.issue, metrics)
+    deferred_items = [
+        {"issue": child, "reason": "deferred label"}
+        for child in children
+        if "deferred" in labels[child]
+    ]
+    body = render_closure(args.issue, metrics, deferred=deferred_items)
     errors = validate_block(body, len(children))
     if errors:
         for error in errors:
