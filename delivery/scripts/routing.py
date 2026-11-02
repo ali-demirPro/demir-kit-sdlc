@@ -222,7 +222,7 @@ def evidence_reviewers(
         roles.add("human")
     if merged.get("ui"):
         roles.update({"ui", "ui_visual", "ui_interaction"})
-    if merged.get("platform") and risk in {"high", "critical"}:
+    if merged.get("platform") and (profile_gates or {}).get("platform"):
         roles.add("platform")
     return sorted(roles)
 

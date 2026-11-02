@@ -6,6 +6,7 @@ import importlib.util
 import sys
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPTS = ROOT / "delivery" / "scripts"
@@ -92,7 +93,7 @@ class CpBriefTests(unittest.TestCase):
         self.assertIn("human: approved", text)
         self.assertIn("Gate: behavior, architect, commercial", text)
 
-    def test_critical_profile_gate_adds_platform_and_human_second(self) -> None:
+    def test_critical_cp_platform_gate_adds_human_second(self) -> None:
         text = brief.render_cp_brief(
             {"issue": 142, "risk": "critical"},
             SEAL,
@@ -103,6 +104,25 @@ class CpBriefTests(unittest.TestCase):
         self.assertIn("platform: pass", text)
         self.assertIn("human_second: approved", text)
         self.assertIn("platform", text.split("Kanıt")[0])
+
+    def test_profile_platform_gate_at_medium(self) -> None:
+        text = brief.render_cp_brief(
+            {"issue": 142, "risk": "medium"},
+            SEAL,
+            "CP-1",
+            gates={"behavior": True},
+            risk="medium",
+            profile_gates={"platform": True},
+        )
+        self.assertIn("platform: pass", text)
+        self.assertNotIn("platform: approved", text)
+
+    def test_profile_gates_follow_project_packs(self) -> None:
+        with patch.object(
+            brief.profiles, "compose", return_value={"platform_packs": ["apple"]}
+        ):
+            gates = brief.profiles.gates_for(Path("/tmp"), "kit-internal")
+        self.assertTrue(gates.get("platform"))
 
     def test_case_less_cp_does_not_invent_tests(self) -> None:
         text = brief.render_cp_brief(

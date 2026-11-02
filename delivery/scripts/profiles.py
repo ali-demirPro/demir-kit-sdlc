@@ -28,15 +28,17 @@ def load_profile(name: str) -> dict:
 
 def gates_for(project: Path, seal_profile: str = "") -> dict:
     """Effective profile gates, aligned with doctor's needs_platform rule."""
-    if seal_profile:
-        data = load_profile(seal_profile)
-    else:
-        try:
-            data = compose(project)
-        except ValueError:
-            data = {}
+    try:
+        project_data = compose(project)
+    except ValueError:
+        project_data = {}
+    data = load_profile(seal_profile) if seal_profile else project_data
     gates = {str(gate): True for gate in data.get("extra_gates") or []}
-    if data.get("platform_packs"):
+    if (
+        data.get("platform_packs")
+        or data.get("extra_gates")
+        or project_data.get("platform_packs")
+    ):
         gates["platform"] = True
     return gates
 
