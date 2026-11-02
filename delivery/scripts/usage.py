@@ -184,6 +184,226 @@ def session_delta(issue: int) -> dict:
     return compute_delta(snapshot, current)
 
 
+def run_in(cwd: Path, args: list[str]) -> str:
+    result = subprocess.run(
+        args, cwd=str(cwd), capture_output=True, text=True, timeout=120
+    )
+    if result.returncode != 0:
+        raise SystemExit(f"usage: {' '.join(args[:2])} failed — {result.stderr.strip()}")
+    return result.stdout
+
+
+def orca_result(args: list[str]) -> dict:
+    try:
+        result = subprocess.run(
+            ["orca", *args], capture_output=True, text=True, timeout=120
+        )
+    except FileNotFoundError:
+        return {}
+    if result.returncode != 0:
+        return {}
+    try:
+        payload = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return {}
+    if not isinstance(payload, dict) or not payload.get("ok"):
+        return {}
+    data = payload.get("result")
+    return data if isinstance(data, dict) else {}
+
+
+def worktree_path(value: str) -> str:
+    return value.split("::", 1)[1] if "::" in value else value
+
+
+def dispatch_record(dispatch_id: str) -> dict:
+    result = orca_result(
+        ["orchestration", "worker-show", "--dispatch", dispatch_id, "--json"]
+    )
+    dispatch = result.get("dispatch") or {}
+    worker = result.get("worker") or {}
+    raw_path = str(worker.get("worktreeId") or "")
+    return {
+        "dispatch": dispatch,
+        "path": worktree_path(raw_path),
+    }
+
+
+def parse_dispatch_time(value: str | None) -> datetime:
+    text = str(value or "").strip()
+    if not text:
+        return datetime.now(timezone.utc)
+    if "T" not in text:
+        text = text.replace(" ", "T")
+    return parse_time(text, datetime.now(timezone.utc))
+
+
+def sessions_in(path: str) -> list[dict]:
+    """OpenCode sessions whose project directory is the worker worktree."""
+    if not path or not Path(path).is_dir():
+        return []
+    try:
+        raw = run_in(Path(path), [BIN, "session", "list", "-n", "200", "--format", "json"])
+    except (SystemExit, OSError):
+        return []
+    try:
+        rows = json.loads(raw)
+    except json.JSONDecodeError:
+        return []
+    return rows if isinstance(rows, list) else []
+
+
+def session_for_window(
+    sessions: list[dict], start_ms: int, end_ms: int, slack_ms: int = 120_000
+) -> dict | None:
+    """Pick the worker session created closest to the dispatch start."""
+    candidates = []
+    for session in sessions:
+        created = int(session.get("created") or 0)
+        if created and start_ms - slack_ms <= created <= end_ms + slack_ms:
+            candidates.append(session)
+    if not candidates:
+        return None
+    return min(
+        candidates, key=lambda item: abs(int(item.get("created") or 0) - start_ms)
+    )
+
+
+def session_export(session_id: str) -> dict:
+    raw = run([BIN, "session", "export", session_id, "--sanitize"])
+    return json.loads(raw)
+
+
+def empty_tokens() -> dict:
+    return token_totals(None)
+
+
+def dispatch_usage(dispatch_id: str) -> dict:
+    """Token/cost of one supervised worker, resolved by worktree + time window."""
+    record = dispatch_record(dispatch_id)
+    dispatch = record["dispatch"]
+    path = record["path"]
+    start = parse_dispatch_time(dispatch.get("dispatchedAt"))
+    end = parse_dispatch_time(
+        dispatch.get("completedAt") or dispatch.get("lastHeartbeatAt")
+    )
+    start_ms = int(start.timestamp() * 1000)
+    end_ms = int(end.timestamp() * 1000)
+    base = {
+        "dispatch_id": dispatch_id,
+        "run_id": dispatch.get("runId"),
+        "state": dispatch.get("status"),
+        "worktree": path,
+        "session_id": None,
+        "title": None,
+        "cost": None,
+        "tokens": empty_tokens(),
+        "context_peak": 0,
+        "duration_seconds": round((end_ms - start_ms) / 1000, 1),
+        "confidence": "unavailable",
+    }
+    session = session_for_window(sessions_in(path), start_ms, end_ms)
+    if not session:
+        return base
+    try:
+        export = session_export(str(session.get("id")))
+        summary = summarize_export(export, start_ms, end_ms)
+    except (SystemExit, OSError, json.JSONDecodeError):
+        return base
+    peak = 0
+    for message in export.get("messages") or []:
+        tokens = message.get("tokens") or {}
+        cache = tokens.get("cache") or {}
+        peak = max(peak, int(tokens.get("input") or 0) + int(cache.get("read") or 0))
+    return {
+        **base,
+        "session_id": session.get("id"),
+        "title": session.get("title"),
+        "cost": summary.get("cost"),
+        "tokens": summary.get("tokens"),
+        "context_peak": peak,
+        "duration_seconds": summary.get("duration_seconds"),
+        "confidence": summary.get("confidence"),
+    }
+
+
+def run_workers(run_id: str) -> list[dict]:
+    rows: list[dict] = []
+    cursor = None
+    while True:
+        args = [
+            "orchestration",
+            "worker-list",
+            "--run",
+            run_id,
+            "--limit",
+            "100",
+            "--json",
+        ]
+        if cursor:
+            args += ["--cursor", str(cursor)]
+        result = orca_result(args)
+        rows.extend(result.get("workers") or [])
+        cursor = (result.get("page") or {}).get("nextCursor")
+        if not cursor:
+            break
+    return rows
+
+
+def run_usage(run_id: str) -> dict:
+    rows = [dispatch_usage(str(item.get("dispatchId"))) for item in run_workers(run_id)]
+    measured = [row for row in rows if row.get("confidence") != "unavailable"]
+    totals = {
+        "cost": round(sum(float(row.get("cost") or 0) for row in measured), 6)
+        if measured
+        else None,
+        "tokens_in": sum(row["tokens"].get("input", 0) for row in measured),
+        "tokens_out": sum(row["tokens"].get("output", 0) for row in measured),
+        "cache_read": sum(row["tokens"].get("cache_read", 0) for row in measured),
+        "context_peak": max((row.get("context_peak") or 0) for row in rows) if rows else 0,
+        "workers": len(rows),
+        "measured": len(measured),
+        "unavailable": len(rows) - len(measured),
+    }
+    return {"run_id": run_id, "totals": totals, "workers": rows}
+
+
+def render_dispatch(row: dict) -> str:
+    tokens = row.get("tokens") or {}
+    cost = row.get("cost")
+    cost_text = "ölçülemedi" if cost is None else f"${float(cost):.4f}"
+    return "\n".join(
+        [
+            f"Dispatch {row['dispatch_id']} · {row.get('state')} · {row.get('confidence')}",
+            f"Oturum: {row.get('session_id') or '—'} {row.get('title') or ''}".rstrip(),
+            f"Token: {tokens.get('input', 0):,} in · {tokens.get('output', 0):,} out · "
+            f"{tokens.get('cache_read', 0):,} cache",
+            f"Bağlam tepesi: {row.get('context_peak', 0):,} · Süre: {row.get('duration_seconds')} sn",
+            f"Maliyet: {cost_text}",
+        ]
+    )
+
+
+def render_run(data: dict) -> str:
+    totals = data["totals"]
+    cost = totals.get("cost")
+    cost_text = "ölçülemedi" if cost is None else f"${float(cost):.4f}"
+    lines = [
+        f"Run {data['run_id']} · {totals['workers']} worker "
+        f"({totals['measured']} ölçüldü, {totals['unavailable']} belirsiz)",
+        f"Token: {totals['tokens_in']:,} in · {totals['tokens_out']:,} out · "
+        f"{totals['cache_read']:,} cache · bağlam tepesi {totals['context_peak']:,}",
+        f"Maliyet: {cost_text}",
+    ]
+    for row in data["workers"]:
+        lines.append(
+            f"- {row['dispatch_id']} · {row.get('confidence')} · "
+            f"{row.get('title') or row.get('state') or '—'}"
+        )
+    return "\n".join(lines)
+
+
+
 def collect(since: datetime, until: datetime) -> dict:
     since_ms = int(since.timestamp() * 1000)
     until_ms = int(until.timestamp() * 1000)
@@ -319,7 +539,19 @@ def main() -> int:
     parser.add_argument("--snapshot", action="store_true")
     parser.add_argument("--delta", action="store_true")
     parser.add_argument("--issue", type=int)
+    parser.add_argument("--dispatch", help="one supervised worker dispatch id")
+    parser.add_argument("--run", help="aggregate all workers of an Orca run")
     args = parser.parse_args()
+
+    if args.dispatch:
+        data = dispatch_usage(args.dispatch)
+        print(json.dumps(data, ensure_ascii=False, indent=2) if args.json else render_dispatch(data))
+        return 0
+
+    if args.run:
+        data = run_usage(args.run)
+        print(json.dumps(data, ensure_ascii=False, indent=2) if args.json else render_run(data))
+        return 0
 
     if args.snapshot or args.delta:
         if not args.issue:

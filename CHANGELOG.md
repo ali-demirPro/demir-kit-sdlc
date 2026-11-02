@@ -1,5 +1,20 @@
 # Changelog
 
+## 2.46.0 — 2026-11-02
+
+- **Worker token/maliyet sayısı** — `usage.py --dispatch <id>` bir worker'ın
+  worktree'sindeki OpenCode çalışmasını dispatch zaman penceresiyle eşler ve
+  token/maliyet döndürür; eşleşme yoksa `unavailable`. `usage.py --run <id>`
+  run'daki tüm worker'ları toplar (`worker_count`, `tokens_in`, `tokens_out`,
+  `cache_read`, `context_peak`, `cost`).
+- **Closure metrikleri** — şemaya opsiyonel `worker_count`, `tokens_in`,
+  `tokens_out`, `cache_read`, `context_peak`, `cost_usd` eklendi; metrics
+  README ve closure runbook sayıların nereden alınacağını yazar. Eski closure
+  kayıtları geçerli kalır.
+- **Worker temizliği** — yeni `worker_cleanup.py --run <id> --apply` biten
+  worker pencerelerini serbest bırakır; `user_takeover` ve devam eden worker'a
+  dokunmaz. `worker_done` sonrası çağrı execution protokolüne eklendi.
+
 ## 2.45.0 — 2026-11-02
 
 - **Bağlam bütçesi** — yeni `delivery/policies/context-budget.md`: epic başına

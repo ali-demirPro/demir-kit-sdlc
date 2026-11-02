@@ -66,10 +66,18 @@ metrics:
   reconcile_issues: 0
   human_interventions: 0
   lead_time_hours: 2.5
+  worker_count: 6
+  tokens_in: 920000
+  tokens_out: 41000
+  cache_read: 18400000
+  context_peak: 121000
+  cost_usd: 0.82
 ready_for_human_qa: true
 ```
 ````
 
+- Worker sayıları: `python3 delivery/scripts/usage.py --run <run_id> --json`.
+- Biten terminaller: `python3 delivery/scripts/worker_cleanup.py --run <run_id> --apply`.
 - `status: fail` → `epic-reconcile` + yeni issue; **epic-done yasak**.
 - Metrik tanımları ve retro: [metrics/README.md](../metrics/README.md).
 - Doğrulama: `doctor.sh --issue <epic>` closure bloğunu (issue body veya comment)
