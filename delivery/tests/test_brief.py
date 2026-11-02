@@ -124,6 +124,26 @@ class CpBriefTests(unittest.TestCase):
             gates = brief.profiles.gates_for(Path("/tmp"), "kit-internal")
         self.assertTrue(gates.get("platform"))
 
+    def test_profile_gates_from_seal_packs_and_extra_gates(self) -> None:
+        with patch.object(
+            brief.profiles,
+            "load_profile",
+            return_value={"platform_packs": ["apple"], "extra_gates": ["architect"]},
+        ), patch.object(brief.profiles, "compose", return_value={}):
+            gates = brief.profiles.gates_for(Path("/tmp"), "ios-app")
+        self.assertTrue(gates.get("platform"))
+        self.assertTrue(gates.get("architect"))
+
+    def test_profile_gates_from_project_extra_gates(self) -> None:
+        with patch.object(
+            brief.profiles,
+            "compose",
+            return_value={"platform_packs": [], "extra_gates": ["human"]},
+        ):
+            gates = brief.profiles.gates_for(Path("/tmp"))
+        self.assertTrue(gates.get("human"))
+        self.assertTrue(gates.get("platform"))
+
     def test_case_less_cp_does_not_invent_tests(self) -> None:
         text = brief.render_cp_brief(
             {"issue": 142, "risk": "medium"}, SEAL, "CP-3"

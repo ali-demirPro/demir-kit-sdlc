@@ -79,6 +79,15 @@ class OrcaPlanTests(unittest.TestCase):
         self.assertIn("architect", first["reviewers"])
         self.assertIn("marketing/stores", first["reviewers"])
 
+    def test_evidence_reviewers_accept_profile_gates(self) -> None:
+        roles = orca_plan.evidence_reviewers(
+            {"behavior": True}, "medium", {"platform": True}
+        )
+        self.assertIn("platform", roles)
+        roles = orca_plan.evidence_reviewers({"behavior": True}, "high", {})
+        self.assertIn("human", roles)
+        self.assertNotIn("platform", roles)
+
     def test_seal_profile_gates(self) -> None:
         body = """```yaml demir-kit
 epic: 16

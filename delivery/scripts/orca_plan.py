@@ -91,9 +91,11 @@ def required_reviewers(gates: dict, risk: str, resolution: dict) -> list[str]:
     return sorted(reviewers)
 
 
-def evidence_reviewers(gates: dict, risk: str) -> list[str]:
+def evidence_reviewers(
+    gates: dict, risk: str, profile_gates: dict | None = None
+) -> list[str]:
     """The reviewer roles the evidence schema and doctor actually enforce."""
-    return routing.evidence_reviewers(gates, risk)
+    return routing.evidence_reviewers(gates, risk, profile_gates)
 
 
 def build_plan(
@@ -177,7 +179,9 @@ def build_plan(
         effective_gates = {**gates, **profile_gates}
         cp_reviewers = required_reviewers(effective_gates, effective_risk, resolution)
         reviewers = sorted(set(reviewers) | set(cp_reviewers))
-        cp_evidence_reviewers = evidence_reviewers(effective_gates, effective_risk)
+        cp_evidence_reviewers = evidence_reviewers(
+            effective_gates, effective_risk, profile_gates
+        )
         launch = role_launch(project, role)
         gate = None
         if effective_gates.get("human") or gates.get("human"):
@@ -256,6 +260,7 @@ def build_plan(
         "evidence_reviewers": evidence_reviewers(
             {"ui": False, "architect": False, "commercial": False, **profile_gates},
             effective_risk,
+            profile_gates,
         ),
         "tasks": tasks,
     }
