@@ -290,6 +290,39 @@ class InstallScriptTest(unittest.TestCase):
         self.assertIn(f"Install dir: {resolved}", output)
         self.assertIn(f"(cd {resolved}) npx skills add", output)
 
+    def test_real_run_uses_the_product_directory(self) -> None:
+        import os
+        import subprocess
+        import sys
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as raw:
+            product = Path(raw)
+            self.product(product)
+            bindir = product / ".fakebin"
+            bindir.mkdir()
+            record = product / "pwd.log"
+            stub = bindir / "npx"
+            stub.write_text(
+                f'#!/bin/sh\necho "$PWD" >> "{record}"\nexit 0\n',
+                encoding="utf-8",
+            )
+            stub.chmod(0o755)
+            env = dict(os.environ)
+            env["PATH"] = f"{bindir}:{env.get('PATH', '')}"
+            result = subprocess.run(
+                ["bash", str(SCRIPTS / "install.sh"), "--capabilities"],
+                cwd=product,
+                capture_output=True,
+                text=True,
+                env=env,
+            )
+            recorded = record.read_text(encoding="utf-8").split()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertTrue(recorded, "npx hiç çağrılmadı")
+        for cwd in recorded:
+            self.assertEqual(Path(cwd).resolve(), product.resolve())
+
     def test_plain_directory_installs_into_the_kit(self) -> None:
         import tempfile
 

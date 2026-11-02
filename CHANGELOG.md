@@ -6,7 +6,8 @@
   `skills add` proje hedefini çalışma dizininden aldığı için ürün reposunda
   skill'ler `demir-kit/.agents/skills` içine (submodule) kuruluyordu. Artık
   çağıran dizinde `kit.config.yaml` varsa kurulum oraya yapılır
-  (`Install dir: …` çıktıda), yoksa kit köküne. Self-host davranışı değişmedi.
+  (`Install dir: …` çıktıda), yoksa kit köküne. Submodule içinden çağrılırsa
+  bir üst dizindeki ürün köküne kurulur. Self-host davranışı değişmedi.
 - **Kuru çalıştırma** hedef dizini yazar; iki senaryo (ürün, düz dizin) test
   edilir.
 

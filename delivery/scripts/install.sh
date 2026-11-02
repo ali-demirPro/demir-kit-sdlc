@@ -106,6 +106,9 @@ fi
 INSTALL_DIR="$ROOT"
 if [[ -f "${CALLER_PWD}/kit.config.yaml" ]]; then
   INSTALL_DIR="$CALLER_PWD"
+elif [[ "$(cd "${CALLER_PWD}" && pwd)" == "$(cd "${ROOT}" && pwd)" && -f "${ROOT}/../kit.config.yaml" ]]; then
+  # Vendored kit: caller stands inside the submodule, the product root is above.
+  INSTALL_DIR="$(cd "${ROOT}/.." && pwd)"
 fi
 
 if [[ "$CAPABILITIES" == true ]]; then
