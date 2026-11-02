@@ -368,6 +368,46 @@ class ClosureCliTests(unittest.TestCase):
         delete.assert_called_once_with("o/r", "c1")
         self.assertIn("geri alındı", err)
 
+    def test_partial_metrics_schema_roundtrip(self) -> None:
+        metrics = closure.build_metrics(
+            [10], {10: {"checkpoints": [1]}},
+            {10: [{"event": "labeled", "label": {"name": "agent-approved"},
+                   "created_at": "2026-11-02T08:00:00Z"},
+                  {"event": "labeled", "label": {"name": "leaf-done"},
+                   "created_at": "2026-11-02T10:00:00Z"}]},
+            {"unavailable": False, "partial": True, "worker_count": 2,
+             "tokens_in": 1, "tokens_out": 1, "cache_read": 1,
+             "context_peak": 1, "cost_usd": 0.1},
+            {"unavailable": True}, 0, 0, 0,
+        )
+        body = closure.render_closure(1, metrics)
+        block = re.search(
+            r"```yaml\s+demir-kit-closure\s*\n(.*?)```", body, re.S
+        )
+        record = yaml.safe_load(block.group(1))
+        schema = json.loads(
+            (ROOT / "delivery" / "schemas" / "closure.schema.json").read_text()
+        )
+        import doctor
+
+        self.assertEqual(doctor.validate_schema(record, schema), [])
+
+    def test_deferred_detail_fallback(self) -> None:
+        with patch.object(closure, "issue_comments", return_value=[]):
+            self.assertEqual(closure.deferred_detail("o/r", 11), "deferred label")
+
+    def test_deferred_detail_parses_transition(self) -> None:
+        comments = [
+            {
+                "body": "run transition: `run-1`\nfrom: executing\nto: deferred\n"
+                "by: ali\nreason: sonraki epic\nlink: #200"
+            }
+        ]
+        with patch.object(closure, "issue_comments", return_value=comments):
+            self.assertEqual(
+                closure.deferred_detail("o/r", 11), "sonraki epic (#200)"
+            )
+
 
 if __name__ == "__main__":
     unittest.main()
