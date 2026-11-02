@@ -173,7 +173,7 @@ def worker_totals(run_id: str | None) -> dict:
     return {"unavailable": False, **totals}
 
 
-def snapshot_for(issue: int) -> dict | None:
+def snapshot_for(issue: int) -> tuple[dict, Path] | None:
     for root in state_roots():
         path = root / ".orchestration" / f"usage-{issue}.json"
         if not path.is_file():
@@ -183,17 +183,19 @@ def snapshot_for(issue: int) -> dict | None:
         except json.JSONDecodeError:
             continue
         if isinstance(data, dict):
-            return data
+            return data, root
     return None
 
 
 def coordinator_totals(children: list[int]) -> dict:
-    snapshots = [snap for snap in (snapshot_for(c) for c in children) if snap]
-    if not snapshots:
+    found = [item for item in (snapshot_for(c) for c in children) if item]
+    if not found:
         return {"unavailable": True}
-    snapshot = min(snapshots, key=lambda item: str(item.get("created_at") or ""))
+    snapshot, root = min(
+        found, key=lambda item: str(item[0].get("created_at") or "")
+    )
     try:
-        current = usage.current_session(state_roots()[-1])
+        current = usage.current_session(root)
     except (SystemExit, ValueError, json.JSONDecodeError):
         return {"unavailable": True}
     if str(current.get("id")) != str(snapshot.get("session_id")):
@@ -377,6 +379,11 @@ def main() -> int:
         raise SystemExit(f"closure: leaf-done/deferred olmayan child — {not_done}")
     events = {child: label_events(repo, child) for child in children}
     workers = worker_totals(run_id_for(args.issue))
+    if workers.get("partial"):
+        print(
+            "closure: worker ölçümü kısmi; worker alanları yazılmadı",
+            file=sys.stderr,
+        )
     coordinator = coordinator_totals(children)
     metrics = build_metrics(
         children,

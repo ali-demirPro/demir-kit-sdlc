@@ -95,7 +95,9 @@ class ClosureTests(unittest.TestCase):
             "cost": 0.4,
             "tokens": {"input": 10, "output": 2, "cache_read": 100},
         }
-        with patch.object(closure, "snapshot_for", return_value=snapshot), patch.object(
+        with patch.object(
+            closure, "snapshot_for", return_value=(snapshot, Path("/tmp"))
+        ), patch.object(
             closure.usage, "current_session", return_value={"id": "s1"}
         ), patch.object(
             closure.usage, "api_session_info", return_value={"id": "s1"}
@@ -107,13 +109,50 @@ class ClosureTests(unittest.TestCase):
 
     def test_coordinator_totals_unavailable_on_mismatch(self) -> None:
         snapshot = {"session_id": "s1", "created_at": "2026-11-02T08:00:00Z"}
-        with patch.object(closure, "snapshot_for", return_value=snapshot), patch.object(
+        with patch.object(
+            closure, "snapshot_for", return_value=(snapshot, Path("/tmp"))
+        ), patch.object(
             closure.usage, "current_session", return_value={"id": "s2"}
         ), patch.object(closure.usage, "compute_delta") as delta:
             totals = closure.coordinator_totals([10])
         self.assertTrue(totals["unavailable"])
         self.assertEqual(totals["reason"], "session mismatch")
         delta.assert_not_called()
+
+    def test_label_events_paginate(self) -> None:
+        page1 = [{"event": "labeled"}] * 100
+        page2 = [{"event": "labeled"}]
+        with patch.object(
+            closure, "run", side_effect=[json.dumps(page1), json.dumps(page2)]
+        ) as run:
+            events = closure.label_events("o/r", 10)
+        self.assertEqual(len(events), 101)
+        self.assertEqual(run.call_count, 2)
+
+    def test_run_id_prefers_newest_run(self) -> None:
+        runs = {
+            "runs": [
+                {"id": "old", "objective": "epic #1",
+                 "created_at": "2026-11-01T08:00:00Z"},
+                {"id": "new", "objective": "epic #1",
+                 "created_at": "2026-11-02T08:00:00Z"},
+            ]
+        }
+        with patch.object(closure, "state_roots", return_value=[]), patch.object(
+            closure.usage, "orca_result", return_value=runs
+        ):
+            self.assertEqual(closure.run_id_for(1), "new")
+
+    def test_worker_totals_fail_closed(self) -> None:
+        zero = {"totals": {"worker_count": 0, "measured": 0, "unavailable": 0}}
+        partial = {"totals": {"worker_count": 3, "measured": 1, "unavailable": 2,
+                              "cost_usd": 0.1}}
+        with patch.object(closure.usage, "run_usage", return_value=zero):
+            self.assertTrue(closure.worker_totals("run_x")["unavailable"])
+        with patch.object(closure.usage, "run_usage", return_value=partial):
+            result = closure.worker_totals("run_x")
+        self.assertTrue(result["unavailable"])
+        self.assertTrue(result["partial"])
 
     def test_lead_time_uses_earliest_approval_and_latest_done(self) -> None:
         events = {
@@ -138,7 +177,8 @@ class ClosureTests(unittest.TestCase):
         delta = {"session_id": "s1", "cost": 0.1,
                  "tokens": {"input": 1, "output": 1, "cache_read": 1}}
         with patch.object(
-            closure, "snapshot_for", side_effect=[late, early]
+            closure, "snapshot_for",
+            side_effect=[(late, Path("/tmp")), (early, Path("/tmp"))],
         ), patch.object(
             closure.usage, "current_session", return_value={"id": "s1"}
         ), patch.object(
