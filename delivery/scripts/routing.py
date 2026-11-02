@@ -202,6 +202,24 @@ def inactive_agents(registry: dict, agents: dict) -> list[dict]:
     ]
 
 
+def evidence_reviewers(gates: dict, risk: str) -> list[str]:
+    """Reviewer roles the evidence schema and doctor enforce for a CP."""
+    roles = {"adversarial-a"}
+    if risk in {"high", "critical"}:
+        roles.update({"adversarial-a", "adversarial-b", "architect", "human"})
+    if risk == "critical":
+        roles.add("human_second")
+    if gates.get("architect"):
+        roles.add("architect")
+    if gates.get("commercial") or risk == "critical":
+        roles.add("commercial")
+    if gates.get("ui"):
+        roles.update({"ui_visual", "ui_interaction"})
+    if gates.get("platform"):
+        roles.add("platform")
+    return sorted(roles)
+
+
 def role_docs(role: str, prefix: str = "") -> list[str]:
     if role == "orchestrator":
         base = f"{prefix}delivery/orchestrator"

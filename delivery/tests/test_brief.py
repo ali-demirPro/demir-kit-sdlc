@@ -50,6 +50,7 @@ SEAL = {
             "depends_on": ["CP-1"],
             "gates": {"behavior": True, "ui": True},
         },
+        {"id": "CP-3", "title": "Case yok", "gates": {"behavior": True}},
     ],
 }
 
@@ -76,6 +77,52 @@ class CpBriefTests(unittest.TestCase):
         )
         self.assertIn("Rol: designer", text)
         self.assertIn("ui_visual", text)
+
+    def test_high_risk_skeleton_follows_reviewers(self) -> None:
+        text = brief.render_cp_brief(
+            {"issue": 142, "risk": "high"},
+            SEAL,
+            "CP-1",
+            gates={"behavior": True, "architect": True, "commercial": True},
+            risk="high",
+        )
+        self.assertIn("reviewer_a: approved, reviewer_b: approved", text)
+        self.assertIn("architect: approved", text)
+        self.assertIn("commercial: approved", text)
+        self.assertIn("human: approved", text)
+        self.assertIn("Gate: behavior, architect, commercial", text)
+
+    def test_critical_profile_gate_adds_platform_and_human_second(self) -> None:
+        text = brief.render_cp_brief(
+            {"issue": 142, "risk": "critical"},
+            SEAL,
+            "CP-1",
+            gates={"behavior": True, "platform": True},
+            risk="critical",
+        )
+        self.assertIn("platform: approved", text)
+        self.assertIn("human_second: approved", text)
+        self.assertIn("platform", text.split("Kanıt")[0])
+
+    def test_case_less_cp_does_not_invent_tests(self) -> None:
+        text = brief.render_cp_brief(
+            {"issue": 142, "risk": "medium"}, SEAL, "CP-3"
+        )
+        self.assertNotIn("AC-1:", text)
+        self.assertNotIn("T-1", text)
+        self.assertIn("seal'i düzelt", text)
+
+    def test_skeleton_matches_routing_reviewers(self) -> None:
+        gates = {"behavior": True, "ui": True}
+        text = brief.render_cp_brief(
+            {"issue": 142, "risk": "medium"},
+            SEAL,
+            "CP-2",
+            gates=gates,
+            risk="medium",
+        )
+        for role in brief.routing.evidence_reviewers(gates, "medium"):
+            self.assertIn(role, text)
 
     def test_unknown_checkpoint_fails(self) -> None:
         with self.assertRaises(ValueError):

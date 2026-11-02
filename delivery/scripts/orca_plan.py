@@ -93,20 +93,7 @@ def required_reviewers(gates: dict, risk: str, resolution: dict) -> list[str]:
 
 def evidence_reviewers(gates: dict, risk: str) -> list[str]:
     """The reviewer roles the evidence schema and doctor actually enforce."""
-    roles = {"adversarial-a"}
-    if risk in {"high", "critical"}:
-        roles.update({"adversarial-a", "adversarial-b", "architect", "human"})
-    if risk == "critical":
-        roles.add("human_second")
-    if gates.get("architect"):
-        roles.add("architect")
-    if gates.get("commercial") or risk == "critical":
-        roles.add("commercial")
-    if gates.get("ui"):
-        roles.update({"ui_visual", "ui_interaction"})
-    if gates.get("platform"):
-        roles.add("platform")
-    return sorted(roles)
+    return routing.evidence_reviewers(gates, risk)
 
 
 def build_plan(
@@ -206,11 +193,12 @@ def build_plan(
         deps = [f"task:{item}" for item in cp.get("depends_on") or []]
         try:
             cp_brief = brief_mod.render_cp_brief(
-                {"issue": issue, "risk": risk},
+                {"issue": issue, "risk": effective_risk},
                 seal,
                 str(cp_id),
                 prefix,
-                reviewers=cp_evidence_reviewers,
+                gates=effective_gates,
+                risk=effective_risk,
             )
         except ValueError:
             cp_brief = ""

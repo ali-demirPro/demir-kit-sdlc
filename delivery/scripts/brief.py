@@ -129,21 +129,6 @@ def cp_role(gates: dict) -> str:
     return "designer" if gates.get("ui") else "developer"
 
 
-def cp_evidence_reviewers(gates: dict, risk: str) -> list[str]:
-    roles = ["adversarial-a"]
-    if risk in {"high", "critical"} or gates.get("architect"):
-        roles.append("architect")
-    if risk == "critical" or gates.get("commercial"):
-        roles.append("commercial")
-    if gates.get("ui"):
-        roles += ["ui_visual", "ui_interaction"]
-    if risk in {"high", "critical"}:
-        roles.append("human")
-    if risk == "critical":
-        roles.append("human_second")
-    return roles
-
-
 def cp_selection(seal: dict, cp_id: str) -> tuple[dict, list[dict]]:
     checkpoints = seal.get("checkpoints") or []
     cp = next(
@@ -162,25 +147,49 @@ def cp_selection(seal: dict, cp_id: str) -> tuple[dict, list[dict]]:
     return cp, cases
 
 
+def evidence_skeleton(
+    reviewers: list[str], risk: str, gate_command: str
+) -> list[str]:
+    """Evidence lines derived from the same reviewer set doctor enforces."""
+    lines = ["  adversarial: {reviewer_a: approved}"]
+    if "adversarial-b" in reviewers:
+        lines = ["  adversarial: {reviewer_a: approved, reviewer_b: approved}"]
+    for role in ("architect", "commercial", "human", "human_second", "platform"):
+        if role in reviewers:
+            lines.append(f"  {role}: approved")
+    if "ui_visual" in reviewers:
+        lines += [
+            "  ui_visual: pass",
+            "  ui_interaction: pass",
+            "  comparison_valid: true",
+        ]
+    lines.append(f"  risk: {risk}")
+    return lines
+
+
 def render_cp_brief(
     data: dict,
     seal: dict,
     cp_id: str,
     prefix: str = "",
-    reviewers: list[str] | None = None,
+    gates: dict | None = None,
+    risk: str | None = None,
 ) -> str:
     """Compact per-checkpoint brief: scope, AC, tests, evidence skeleton."""
     cp, cases = cp_selection(seal, cp_id)
-    gates = cp.get("gates") or {}
-    risk = str((seal.get("risk") or {}).get("level") or data.get("risk") or "n/a")
-    role = cp_role(gates)
-    reviewers = reviewers or cp_evidence_reviewers(gates, risk)
+    effective_gates = gates if gates is not None else (cp.get("gates") or {})
+    effective_risk = str(
+        risk
+        or (seal.get("risk") or {}).get("level")
+        or data.get("risk")
+        or "n/a"
+    )
+    role = cp_role(effective_gates)
+    reviewers = routing.evidence_reviewers(effective_gates, effective_risk)
     ac_ids = {str(case.get("ac")) for case in cases if case.get("ac")}
     criteria = seal.get("acceptance_criteria") or []
     selected = [
-        item
-        for item in criteria
-        if not ac_ids or str(item.get("id")) in ac_ids
+        item for item in criteria if str(item.get("id")) in ac_ids
     ]
     reference = (seal.get("reference") or {}).get("paths") or []
     surfaces = ", ".join(str(item) for item in seal.get("surfaces") or []) or "n/a"
@@ -189,12 +198,16 @@ def render_cp_brief(
         + (" --product --root ." if prefix else "")
         + f" --checkpoint {cp_id}"
     )
-    active = [item for item in ("ui", "architect", "commercial", "human") if gates.get(item)]
+    active = [
+        item
+        for item in ("ui", "architect", "commercial", "platform", "human")
+        if effective_gates.get(item)
+    ]
     gate_text = "behavior" + (", " + ", ".join(active) if active else "")
 
     lines = [
         f"## CP brief — {cp_id} · {cp.get('title', '')}",
-        f"Epic: {seal.get('epic')} · Risk: {risk} · Rol: {role}",
+        f"Epic: {seal.get('epic')} · Risk: {effective_risk} · Rol: {role}",
         f"Yüzey: {surfaces} · Gate: {gate_text}",
         f"Kapsam: {seal.get('intent', '')}",
     ]
@@ -202,6 +215,8 @@ def render_cp_brief(
         lines.append("AC (bu CP):")
         for item in selected:
             lines.append(f"- {item.get('id')}: {item.get('text', '')}")
+    else:
+        lines.append("AC (bu CP): seal'de bu CP'ye bağlı case yok — seal'i düzelt.")
     if cases:
         lines.append("Testler:")
         for case in cases:
@@ -209,6 +224,8 @@ def render_cp_brief(
                 f"- {case.get('id')} ({case.get('ac')}, {case.get('check', 'gate')}): "
                 f"{case.get('text', '')}"
             )
+    else:
+        lines.append("Testler: seal'de bu CP için case yok — seal'i düzelt.")
     if reference:
         lines.append("Yollar:")
         lines += [f"- {prefix}{path}" if prefix else f"- {path}" for path in reference]
@@ -224,12 +241,13 @@ def render_cp_brief(
         "commit: <sha>",
         f'behavior: {{command: "{gate_command}", exit_code: 0, checkpoint: {cp_id}}}',
         "reviews:",
-        "  adversarial: {reviewer_a: approved}",
-        f"  risk: {risk}",
-        "tests:",
     ]
-    for case in cases or [{"id": "T-1"}]:
+    lines += evidence_skeleton(reviewers, effective_risk, gate_command)
+    lines.append("tests:")
+    for case in cases:
         lines.append(f"  - {{case: {case.get('id')}, result: pass}}")
+    if not cases:
+        lines.append("  []")
     lines += [
         "findings: []",
         "status: pass",
@@ -238,7 +256,7 @@ def render_cp_brief(
         "Okuma: bu brief yeterli; ek dosyayı yalnız ilgili satır için aç "
         "(`rg -n`), CONTRACT.md ve quality-gates.md tamamını okuma.",
         "Kurallar: yalnız bu CP; başka CP/contract/CI dosyasına dokunma; tam dosya "
-        "dökme; bağlam 120k'da dur ve kısa özet yaz.",
+        "dökme; bağlam 120k'da uyar, 200k'da dur ve kısa özet yaz.",
     ]
     return "\n".join(lines) + "\n"
 
