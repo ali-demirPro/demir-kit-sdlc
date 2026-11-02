@@ -55,6 +55,20 @@ class ReviewWaveTests(unittest.TestCase):
         self.assertEqual(worker["dispatch_id"], "ctx_1")
         self.assertEqual(orca.call_count, 2)
 
+    def test_start_worker_passes_model_only_when_set(self) -> None:
+        responses = [{"task": {"id": "t1"}}, {"dispatchId": "ctx"}]
+        with patch.object(review_wave, "orca", side_effect=responses) as orca:
+            review_wave.start_worker("a", "SPEC", "run", "/tmp", "p/m")
+        args = orca.call_args_list[1].args[0]
+        self.assertIn("--model", args)
+        self.assertIn("p/m", args)
+
+        with patch.object(
+            review_wave, "orca", side_effect=responses
+        ) as orca:
+            review_wave.start_worker("a", "SPEC", "run", "/tmp")
+        self.assertNotIn("--model", orca.call_args_list[1].args[0])
+
     def test_wait_workers_settles(self) -> None:
         workers = [
             {"name": "a", "dispatch_id": "ctx_a", "state": "dispatched"},

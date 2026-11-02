@@ -503,6 +503,33 @@ def check_legacy(verbose: bool) -> None:
                 print(f"  · {hit}")
 
 
+def check_model_policy(root: Path = ROOT) -> None:
+    check("model policy")
+    config = load_yaml(root / "kit.config.yaml") or {}
+    orca = config.get("orca") if isinstance(config.get("orca"), dict) else {}
+    defaults = orca.get("role_defaults") or {}
+    if not isinstance(defaults, dict):
+        return
+    overrides = [
+        str(role)
+        for role, value in defaults.items()
+        if isinstance(value, dict) and (value.get("model") or value.get("effort"))
+    ]
+    if overrides and orca.get("allow_model_override") is not True:
+        error(
+            "kit.config.yaml: role_defaults model/effort (roller: "
+            + ", ".join(sorted(overrides))
+            + ") için orca.allow_model_override: true gerekli"
+        )
+    if any(
+        isinstance(value, dict) and value.get("effort") for value in defaults.values()
+    ):
+        warn(
+            "kit.config.yaml: opencode2 --effort desteklemiyor; effort yalnız "
+            "destekleyen agent'ta kullanılmalı"
+        )
+
+
 def check_version() -> None:
     check("version")
     version = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
@@ -1708,6 +1735,7 @@ def main() -> int:
     product_root = (args.root or Path.cwd()).resolve()
     check_worktree_management(product_root if args.product else ROOT)
     check_installed_skills(product_root if args.product else ROOT)
+    check_model_policy(product_root if args.product else ROOT)
     if args.product:
         check_product(product_root)
     else:
