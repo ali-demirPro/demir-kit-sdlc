@@ -32,6 +32,7 @@ import delivery_block  # noqa: E402
 import epic_worktree  # noqa: E402
 import evidence as evidence_lib  # noqa: E402
 from schema_lite import validate_schema  # noqa: E402, F401
+import process_gate  # noqa: E402
 import profiles as profiles_lib  # noqa: E402
 import resolver as resolver_lib  # noqa: E402
 import seal_lint  # noqa: E402
@@ -109,6 +110,7 @@ REQUIRED_FILES = [
     "delivery/scripts/next-leaf.sh",
     "delivery/scripts/vendor_sync.py",
     "delivery/scripts/evidence.py",
+    "delivery/scripts/process_gate.py",
     "delivery/scripts/transition.py",
     "delivery/scripts/transition.sh",
     "delivery/scripts/capabilities.py",
@@ -529,6 +531,12 @@ def check_model_policy(root: Path = ROOT) -> None:
             "destekleyen agent'ta kullanılmalı"
         )
 
+
+def check_unsealed_work(root: Path = ROOT) -> None:
+    check("unsealed work")
+    errors, warnings = process_gate.unsealed_report(root, bool(os.environ.get("CI")))
+    for message in errors: error(message)
+    for message in warnings: warn(message)
 
 def check_version() -> None:
     check("version")
@@ -1736,6 +1744,7 @@ def main() -> int:
     check_worktree_management(product_root if args.product else ROOT)
     check_installed_skills(product_root if args.product else ROOT)
     check_model_policy(product_root if args.product else ROOT)
+    check_unsealed_work(product_root if args.product else ROOT)
     if args.product:
         check_product(product_root)
     else:

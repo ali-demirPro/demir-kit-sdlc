@@ -1,4 +1,4 @@
-# Delivery contract — v2.55
+# Delivery contract — v2.56
 
 Bu dosya delivery'nin **tek durum makinesi**dir. Agent, path ve risk verisi
 `registry.yaml`'da; artefakt şekilleri `schemas/` altında; uygulama
@@ -143,6 +143,7 @@ otomatik yükselir; agent düşüremez. Ayrıntı: `policies/quality-gates.md`.
 | I16 | İnsan kapısı Orca gate + GitHub `human-qa` birlikte; evidence'ta gate kaydı beklenir. |
 | I17 | Worktree yalnız `orca worktree create` ile açılır; ham `git worktree add` kayıtlı degrade mod dışında yasaktır. Linked worktree Orca'da kayıtlı değilse `doctor` hata verir. |
 | I18 | Ürün reposu kit deposuna yama yazmaz. Kit düzeltmesi bu repoda yapılır; ürün submodule'ü yalnız `origin/main` atası (yayınlanmış) bir commit'e pinlenir, `doctor --product` bunu denetler. |
+| I19 | Kaynak değişikliği sealed leaf olmadan başlamaz: `next-leaf` kirli ağaçta BLOCKED, `doctor` ana dalda kirli kaynağı hata sayar, pre-commit/pre-push ve CI main kapısı devrededir. |
 | I11 | Etiket geçişleri yalnız `scripts/transition.sh` ile yapılır; doğrudan etiket yazımı yasaktır. |
 | I12 | Capability seviyesi kanıtla atanır; agent `expert` üstüne çıkamaz, `authority` insan/principal içindir. |
 | I13 | `epic-done` yalnız insan-authored `demir-kit-accept` + kapalı child'larla; agent kendi kabulünü yazamaz. **Kapsam: ürün teslimatı.** Kit self-improvement lane'de kabul makine kapısıdır (`doctor --strict` + testler yeşil). |

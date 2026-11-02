@@ -16,6 +16,18 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  process-gate:
+    name: delivery-process-gate
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      !startsWith(github.event.head_commit.message, 'Merge pull request #')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Reject direct commits to main
+        run: |
+          echo "main'e dogrudan commit yasak; epic PR kullan." >&2
+          exit 1
+
   gate:
     name: delivery-gate
     runs-on: ubuntu-latest

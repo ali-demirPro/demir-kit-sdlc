@@ -1,5 +1,16 @@
 # Changelog
 
+## 2.56.0 — 2026-11-02
+
+- **Fail-closed giriş** — `next-leaf` kaynak dosyaları kirli ve sealed leaf
+  yoksa `BLOCKED` yazar, exit 1 döner; “no work” yalnız değişiklik yokken.
+- **Doctor** — ana dalda kirli kaynak dosyası hata; epic dalında uyarı. Ürün
+  reposunda hook yoksa uyarı.
+- **Hook kurulumu** — `init.py --apply` pre-commit (guard) ve pre-push (main
+  push yasağı) hook’larını kurar; yabancı hook’u ezmez, idempotenttir.
+- **CI şablonu** — `main`’e doğrudan commit’i reddeden `process-gate` işi;
+  merge PR commit’ine izin verir.
+
 ## 2.55.0 — 2026-11-02
 
 - **Miras modeli hata yakalama** — `session_model` eksik CLI (`OSError`),

@@ -25,6 +25,22 @@ def job_steps(job: dict) -> list[dict]:
     ]
 
 
+class CiTemplateTests(unittest.TestCase):
+    def test_template_rejects_direct_main_commits(self) -> None:
+        path = ROOT / "delivery" / "templates" / "ci-delivery.yml"
+        data = yaml.safe_load(path.read_text(encoding="utf-8"))
+        job = (data.get("jobs") or {}).get("process-gate")
+        self.assertIsInstance(job, dict)
+        condition = str(job.get("if") or "")
+        self.assertIn("refs/heads/main", condition)
+        self.assertIn("!startsWith", condition)
+        self.assertIn("Merge pull request #", condition)
+        runs = "\n".join(
+            str(step.get("run") or "") for step in job.get("steps") or []
+        )
+        self.assertIn("exit 1", runs)
+
+
 class CiWorkflowTests(unittest.TestCase):
     def test_issue_workflow_triggers_and_permissions(self) -> None:
         data = load_workflow("issue-doctor.yml")
