@@ -100,11 +100,17 @@ def capture_session(
 ) -> dict | None:
     deadline = time.time() + timeout
     while time.time() < deadline:
-        for session in usage.sessions_in(worktree):
-            if str(session.get("id")) in known_ids:
-                continue
-            usage.record_session(dispatch_id, session)
-            return session
+        new = [
+            session
+            for session in usage.sessions_in(worktree)
+            if str(session.get("id")) not in known_ids
+        ]
+        if new:
+            chosen = min(
+                new, key=lambda item: int(item.get("created") or 0)
+            )
+            usage.record_session(dispatch_id, chosen)
+            return chosen
         time.sleep(0.5)
     return None
 

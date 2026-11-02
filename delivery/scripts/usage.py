@@ -375,55 +375,6 @@ def worker_window(dispatch_id: str) -> dict:
     }
 
 
-def assign_sessions(
-    windows: list[dict], sessions_by_path: dict[str, list[dict]]
-) -> dict[str, dict | None]:
-    """Pair parallel dispatches with sessions by order and end-time fit."""
-    groups: dict[str, list[dict]] = {}
-    for window in windows:
-        groups.setdefault(str(window.get("path") or ""), []).append(window)
-    assigned: dict[str, dict | None] = {}
-    for path, group in groups.items():
-        sessions = sorted(
-            sessions_by_path.get(path) or [],
-            key=lambda item: int(item.get("created") or 0),
-        )
-        ordered = sorted(
-            group, key=lambda item: (item["start_ms"], item["dispatch_id"])
-        )
-        cursor = 0
-        for window in ordered:
-            start = window["start_ms"]
-            end = window["end_ms"]
-            upper = min(end, start + 120_000)
-            if any(
-                other is not window and abs(other["start_ms"] - start) < 1_000
-                for other in ordered
-            ):
-                assigned[window["dispatch_id"]] = None
-                continue
-            candidates = []
-            for index in range(cursor, len(sessions)):
-                session = sessions[index]
-                created = int(session.get("created") or 0)
-                if start - 10_000 <= created <= upper:
-                    candidates.append((index, session))
-            if not candidates:
-                assigned[window["dispatch_id"]] = None
-                continue
-            if window.get("in_flight"):
-                index, chosen = candidates[0]
-            else:
-                near = [
-                    item for item in candidates
-                    if abs(int(item[1].get("updated") or 0) - end) <= 10_000
-                ]
-                index, chosen = (near or candidates)[0]
-            cursor = index + 1
-            assigned[window["dispatch_id"]] = chosen
-    return assigned
-
-
 def dispatch_usage(
     dispatch_id: str, window: dict | None = None, session=_UNSET
 ) -> dict:
@@ -515,25 +466,16 @@ def run_workers(run_id: str) -> list[dict]:
 
 
 def run_usage(run_id: str) -> dict:
-    windows = [
-        worker_window(str(item.get("dispatchId")))
-        for item in run_workers(run_id)
-    ]
-    sessions_by_path: dict[str, list[dict]] = {}
-    for path in {str(window.get("path") or "") for window in windows}:
-        sessions_by_path[path] = sessions_in(path)
-    assigned = assign_sessions(windows, sessions_by_path)
-    rows = [
-        dispatch_usage(
-            str(window["dispatch_id"]),
-            window=window,
-            session=(
-                mapped_session(str(window["dispatch_id"]))
-                or assigned.get(str(window["dispatch_id"]))
-            ),
+    rows = []
+    for item in run_workers(run_id):
+        window = worker_window(str(item.get("dispatchId")))
+        rows.append(
+            dispatch_usage(
+                str(window["dispatch_id"]),
+                window=window,
+                session=mapped_session(str(window["dispatch_id"])),
+            )
         )
-        for window in windows
-    ]
     measured = [row for row in rows if row.get("confidence") != "unavailable"]
     totals = {
         "cost_usd": round(sum(float(row.get("cost") or 0) for row in measured), 6)

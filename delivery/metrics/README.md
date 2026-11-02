@@ -34,12 +34,9 @@ tahmin edilmez.
 - Worker sayıları: `python3 delivery/scripts/usage.py --run <run_id> --json`
   (dispatch → OpenCode çalışması eşlemesi; bulunamazsa `unavailable`).
   `review_wave` başlattığı worker'ın çalışma kimliğini
-  `.orchestration/worker-sessions.json`'a yazar; `usage` önce bu kaydı kullanır.
-  Kayıt yoksa aynı
-  worktree'de paralel dispatch'ler başlangıç sırasına göre monoton eşleştirilir;
-  tamamlanmış dispatch'te bitişe en yakın `updated`, aktif dispatch'te oluşma
-  sırası kullanılır. 1 saniyeden kısa arayla başlayan veya tek `--dispatch`
-  belirsiz olduğunda `unavailable` döner; yanlış maliyet yazılmaz. Çıktıdaki
+  `.orchestration/worker-sessions.json`'a yazar; `usage` yalnız bu kaydı
+  kullanır. Kayıt yoksa veya tek `--dispatch` belirsizse `unavailable` döner;
+  tahminle maliyet yazılmaz. Çıktıdaki
   `totals.worker_count`, `totals.tokens_in`, `totals.tokens_out`,
   `totals.cache_read`, `totals.context_peak`, `totals.cost_usd` doğrudan
   closure metriklerine yazılır.
