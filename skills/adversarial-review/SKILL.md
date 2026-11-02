@@ -21,6 +21,18 @@ Matrix: `delivery/policies/quality-gates.md`.
 
 Reviewer count: 1 for `low`/`medium`, 2 for `high`/`critical`.
 
+## Review packet and delta
+
+Start from the packet instead of the whole repo:
+
+```bash
+python3 delivery/scripts/review_packet.py --issue <N> --cp CP-1 --commit <sha>
+```
+
+- Packet: CP brief, AC/test rows, open findings, diff (max 12 KB).
+- After a fix: `--delta <base>`; re-check only changed hunks and open findings.
+- Script: [review_packet.py](../../delivery/scripts/review_packet.py).
+
 ## Loop
 
 - Open finding → fixer → re-run the required reviewers.
