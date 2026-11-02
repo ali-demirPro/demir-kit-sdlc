@@ -75,28 +75,23 @@ def reviewer_spec(name: str, packet: str, issue: int, cp_id: str) -> str:
 
 
 def parse_verdict(text: str) -> bool | None:
+    value = text or ""
     matches = re.findall(
-        r"approved:\s*(true|false)\s*$", text or "", re.I | re.M
+        r"^\s*approved:\s*(true|false)\s*$", value, re.I | re.M
     )
     if matches:
         return matches[-1].lower() == "true"
-    lowered = (text or "").lower()
-    if "true|false" in lowered:
+    if "true|false" in value.lower():
         return None
-    if (
-        "rejected" in lowered
-        or "not approved" in lowered
-        or "approved=false" in lowered
-        or "approved: false" in lowered
-        or "not yet approved" in lowered
-        or "not approved yet" in lowered
-        or "onaylanmadı" in lowered
+    if re.search(
+        r"approved\s*[:=]\s*false|\brejected\b|\bnot\s+(?:yet\s+)?approved\b|onaylanmadı",
+        value,
+        re.I,
     ):
         return False
-    if "approved" in lowered or "onaylandı" in lowered:
+    if re.search(r"^\s*(?:.*review:\s*)?approved\b", value, re.I | re.M):
         return True
     return None
-
 
 def start_worker(
     name: str, spec: str, run_id: str, worktree: str

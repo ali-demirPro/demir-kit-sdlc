@@ -34,6 +34,10 @@ class ReviewWaveTests(unittest.TestCase):
         self.assertFalse(review_wave.parse_verdict("CP-1 review: rejected"))
         self.assertIsNone(review_wave.parse_verdict("approved: true|false"))
         self.assertFalse(review_wave.parse_verdict("not yet approved"))
+        self.assertFalse(review_wave.parse_verdict("approved:false."))
+        self.assertIsNone(
+            review_wave.parse_verdict("The approved plan has a bug")
+        )
 
     def test_reviewer_spec_contains_packet_and_format(self) -> None:
         text = review_wave.reviewer_spec("adversarial-a", "PACKET", 156, "CP-1")

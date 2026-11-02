@@ -82,6 +82,12 @@ class SealLintTests(unittest.TestCase):
             any("gözlenebilir" in item["message"] for item in findings)
         )
 
+    def test_vague_word_with_observable_is_flagged(self) -> None:
+        findings = seal_lint.lint(seal(ac_text="Test hızlı olur."))
+        self.assertTrue(
+            any("belirsiz" in item["message"] for item in findings)
+        )
+
     def test_word_boundary_avoids_false_vague(self) -> None:
         findings = seal_lint.lint(
             seal(ac_text="Test exit 0 ile doğrulama sağlar.")
