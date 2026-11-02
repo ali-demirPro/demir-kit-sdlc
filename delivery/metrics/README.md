@@ -35,8 +35,8 @@ tahmin edilmez.
   (dispatch → OpenCode çalışması eşlemesi; bulunamazsa `unavailable`). Aynı
   worktree'de paralel dispatch'ler başlangıç sırasına göre monoton eşleştirilir;
   tamamlanmış dispatch'te bitişe en yakın `updated`, aktif dispatch'te oluşma
-  sırası kullanılır. Aynı saniye başlayan veya tek `--dispatch` belirsiz
-  olduğunda `unavailable` döner; yanlış maliyet yazılmaz. Çıktıdaki
+  sırası kullanılır. 1 saniyeden kısa arayla başlayan veya tek `--dispatch`
+  belirsiz olduğunda `unavailable` döner; yanlış maliyet yazılmaz. Çıktıdaki
   `totals.worker_count`, `totals.tokens_in`, `totals.tokens_out`,
   `totals.cache_read`, `totals.context_peak`, `totals.cost_usd` doğrudan
   closure metriklerine yazılır.

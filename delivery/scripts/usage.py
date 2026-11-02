@@ -362,12 +362,11 @@ def assign_sessions(
             if window.get("in_flight"):
                 index, chosen = candidates[0]
             else:
-                index, chosen = min(
-                    candidates,
-                    key=lambda item: abs(
-                        int(item[1].get("updated") or 0) - end
-                    ),
-                )
+                near = [
+                    item for item in candidates
+                    if abs(int(item[1].get("updated") or 0) - end) <= 10_000
+                ]
+                index, chosen = (near or candidates)[0]
             cursor = index + 1
             assigned[window["dispatch_id"]] = chosen
     return assigned
