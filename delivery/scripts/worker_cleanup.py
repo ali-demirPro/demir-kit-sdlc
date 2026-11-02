@@ -55,9 +55,11 @@ def skip_reason(worker: dict) -> str | None:
         return "zaten serbest"
     if retained == "user_takeover":
         return "user_takeover (insan devraldı)"
-    if terminal not in {"reclaimable", "retained", ""}:
-        return f"terminal {terminal}"
-    return None
+    if terminal == "reclaimable":
+        return None
+    if terminal == "retained":
+        return f"retained ({retained or 'sebep yok'}) — elle incele"
+    return f"terminal {terminal or 'bilinmiyor'}"
 
 
 def plan_for(run_id: str) -> list[dict]:
@@ -102,23 +104,34 @@ def main() -> int:
     args = parser.parse_args()
 
     rows = plan_for(args.run)
+    if not rows:
+        print(
+            f"worker_cleanup: {args.run} için worker bulunamadı (run kimliği veya Orca)",
+            file=sys.stderr,
+        )
+        return 1
     if args.apply:
         rows = apply(rows)
 
     if args.json:
         print(json.dumps({"run_id": args.run, "workers": rows}, ensure_ascii=False, indent=2))
-        return 0
+    else:
+        print_summary(args.run, rows, args.apply)
+    return 1 if any(row["action"] == "failed" for row in rows) else 0
 
+def print_summary(run_id: str, rows: list[dict], applied: bool) -> None:
     released = sum(1 for row in rows if row.get("released"))
     planned = sum(1 for row in rows if row["action"] == "release")
+    failed = sum(1 for row in rows if row["action"] == "failed")
     print(
-        f"Run {args.run} · {len(rows)} worker · "
-        f"{'serbest bırakıldı' if args.apply else 'plan'}: {released if args.apply else planned}"
+        f"Run {run_id} · {len(rows)} worker · "
+        f"{'serbest bırakıldı' if applied else 'plan'}: "
+        f"{released if applied else planned}"
+        + (f" · hata: {failed}" if failed else "")
     )
     for row in rows:
         reason = f" — {row['reason']}" if row.get("reason") else ""
         print(f"- {row['dispatch_id']} {row['action']}{reason}")
-    return 0
 
 
 if __name__ == "__main__":

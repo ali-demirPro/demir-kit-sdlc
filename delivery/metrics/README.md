@@ -27,7 +27,10 @@ tahmin edilmez.
 
 - Kaynak: GitHub issue etiket zamanları + evidence comment'leri.
 - Worker sayıları: `python3 delivery/scripts/usage.py --run <run_id> --json`
-  (dispatch → OpenCode çalışması eşlemesi; bulunamazsa `unavailable`).
+  (dispatch → OpenCode çalışması eşlemesi; bulunamazsa `unavailable`). Çıktıdaki
+  `totals.worker_count`, `totals.tokens_in`, `totals.tokens_out`,
+  `totals.cache_read`, `totals.context_peak`, `totals.cost_usd` doğrudan
+  closure metriklerine yazılır.
 - Sadece closure'da toplanır; ayrı metrik dosyası commit edilmez.
 - `leaf_count` ve `cp_count` sıfır olamaz; `ready_for_human_qa: true` yalnız
   `status: pass` ile.

@@ -239,7 +239,7 @@ def parse_dispatch_time(value: str | None) -> datetime:
 
 
 def sessions_in(path: str) -> list[dict]:
-    """OpenCode sessions whose project directory is the worker worktree."""
+    """OpenCode sessions whose directory is the worker worktree."""
     if not path or not Path(path).is_dir():
         return []
     try:
@@ -250,23 +250,45 @@ def sessions_in(path: str) -> list[dict]:
         rows = json.loads(raw)
     except json.JSONDecodeError:
         return []
-    return rows if isinstance(rows, list) else []
+    if not isinstance(rows, list):
+        return []
+    target = str(Path(path).resolve())
+    return [
+        row
+        for row in rows
+        if str(Path(str(row.get("directory") or "")).resolve()) == target
+    ]
 
 
 def session_for_window(
-    sessions: list[dict], start_ms: int, end_ms: int, slack_ms: int = 120_000
+    sessions: list[dict],
+    start_ms: int,
+    end_ms: int,
+    slack_ms: int = 10_000,
+    boot_ms: int = 120_000,
 ) -> dict | None:
-    """Pick the worker session created closest to the dispatch start."""
+    """Pick the worker session created right after the dispatch started.
+
+    Ambiguous matches (two sessions within five seconds) return None instead of
+    charging the wrong dispatch.
+    """
+    upper = min(end_ms, start_ms + boot_ms)
     candidates = []
     for session in sessions:
         created = int(session.get("created") or 0)
-        if created and start_ms - slack_ms <= created <= end_ms + slack_ms:
+        if created and start_ms - slack_ms <= created <= upper:
             candidates.append(session)
     if not candidates:
         return None
-    return min(
+    ranked = sorted(
         candidates, key=lambda item: abs(int(item.get("created") or 0) - start_ms)
     )
+    if len(ranked) > 1:
+        first = int(ranked[0].get("created") or 0)
+        second = int(ranked[1].get("created") or 0)
+        if abs(first - second) < 5_000:
+            return None
+    return ranked[0]
 
 
 def session_export(session_id: str) -> dict:
@@ -310,11 +332,21 @@ def dispatch_usage(dispatch_id: str) -> dict:
         summary = summarize_export(export, start_ms, end_ms)
     except (SystemExit, OSError, json.JSONDecodeError):
         return base
+    if summary.get("confidence") != "exact":
+        return base
     peak = 0
     for message in export.get("messages") or []:
+        created = int((message.get("time") or {}).get("created") or 0)
+        if not start_ms <= created <= end_ms:
+            continue
         tokens = message.get("tokens") or {}
         cache = tokens.get("cache") or {}
-        peak = max(peak, int(tokens.get("input") or 0) + int(cache.get("read") or 0))
+        peak = max(
+            peak,
+            int(tokens.get("input") or 0)
+            + int(cache.get("read") or 0)
+            + int(cache.get("write") or 0),
+        )
     return {
         **base,
         "session_id": session.get("id"),
@@ -330,6 +362,7 @@ def dispatch_usage(dispatch_id: str) -> dict:
 def run_workers(run_id: str) -> list[dict]:
     rows: list[dict] = []
     cursor = None
+    seen: set[str] = set()
     while True:
         args = [
             "orchestration",
@@ -343,9 +376,14 @@ def run_workers(run_id: str) -> list[dict]:
         if cursor:
             args += ["--cursor", str(cursor)]
         result = orca_result(args)
-        rows.extend(result.get("workers") or [])
-        cursor = (result.get("page") or {}).get("nextCursor")
-        if not cursor:
+        page = result.get("workers") or []
+        rows.extend(page)
+        next_cursor = (result.get("page") or {}).get("nextCursor")
+        if not next_cursor or next_cursor in seen:
+            break
+        seen.add(str(next_cursor))
+        cursor = next_cursor
+        if not page:
             break
     return rows
 
@@ -354,14 +392,14 @@ def run_usage(run_id: str) -> dict:
     rows = [dispatch_usage(str(item.get("dispatchId"))) for item in run_workers(run_id)]
     measured = [row for row in rows if row.get("confidence") != "unavailable"]
     totals = {
-        "cost": round(sum(float(row.get("cost") or 0) for row in measured), 6)
+        "cost_usd": round(sum(float(row.get("cost") or 0) for row in measured), 6)
         if measured
         else None,
         "tokens_in": sum(row["tokens"].get("input", 0) for row in measured),
         "tokens_out": sum(row["tokens"].get("output", 0) for row in measured),
         "cache_read": sum(row["tokens"].get("cache_read", 0) for row in measured),
         "context_peak": max((row.get("context_peak") or 0) for row in rows) if rows else 0,
-        "workers": len(rows),
+        "worker_count": len(rows),
         "measured": len(measured),
         "unavailable": len(rows) - len(measured),
     }
@@ -386,10 +424,10 @@ def render_dispatch(row: dict) -> str:
 
 def render_run(data: dict) -> str:
     totals = data["totals"]
-    cost = totals.get("cost")
+    cost = totals.get("cost_usd")
     cost_text = "ölçülemedi" if cost is None else f"${float(cost):.4f}"
     lines = [
-        f"Run {data['run_id']} · {totals['workers']} worker "
+        f"Run {data['run_id']} · {totals['worker_count']} worker "
         f"({totals['measured']} ölçüldü, {totals['unavailable']} belirsiz)",
         f"Token: {totals['tokens_in']:,} in · {totals['tokens_out']:,} out · "
         f"{totals['cache_read']:,} cache · bağlam tepesi {totals['context_peak']:,}",
