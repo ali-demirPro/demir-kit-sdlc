@@ -217,6 +217,9 @@ class WorkerUsageTests(unittest.TestCase):
             rows = usage.run_workers("run_x")
         self.assertEqual([row["dispatchId"] for row in rows], ["ctx_a", "ctx_b"])
         self.assertEqual(orca.call_count, 2)
+        first = orca.call_args_list[0].args[0]
+        self.assertIn("--run", first)
+        self.assertIn("run_x", first)
         self.assertIn("--cursor", orca.call_args.args[0])
 
     def test_run_usage_aggregates_workers(self) -> None:
