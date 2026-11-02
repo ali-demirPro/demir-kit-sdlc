@@ -179,6 +179,7 @@ def render_cp_brief(
     gates: dict | None = None,
     risk: str | None = None,
     profile_gates: dict | None = None,
+    include_evidence: bool = True,
 ) -> str:
     """Compact per-checkpoint brief: scope, AC, tests, evidence skeleton."""
     cp, cases = cp_selection(seal, cp_id)
@@ -238,7 +239,7 @@ def render_cp_brief(
         lines.append("Yollar:")
         lines += [f"- {prefix}{path}" if prefix else f"- {path}" for path in reference]
 
-    if cases:
+    if include_evidence and cases:
         lines += [
             f"Kanıt (agent: {role}, reviewer: {', '.join(reviewers)}):",
             "```yaml",
@@ -260,7 +261,7 @@ def render_cp_brief(
             "status: pass",
             "```",
         ]
-    else:
+    elif include_evidence:
         lines.append(
             "Kanıt: case olmadığı için evidence iskeleti üretilmedi; "
             "önce seal'i düzelt."

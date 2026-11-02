@@ -1,5 +1,17 @@
 # Changelog
 
+## 2.47.0 — 2026-11-02
+
+- **Review paketi** — `review_packet.py --issue N --cp CP-x --commit SHA` dar
+  bir paket üretir: CP brief, AC/test satırları, açık bulgular ve diff (varsayılan
+  12 KB). Reviewer tüm repoyu okumaz; `--delta <base>` ile fix sonrası yalnız
+  aralık diff'i incelenir. `--json` / `--write` çıktı verir, `--max-chars` diff'i
+  kısaltır.
+- **Delta inceleme** — `adversarial-review` skill'i ve execution protokolü
+  paketle başlamayı, fix sonrası yalnız delta + açık bulguları görmeyi anlatır.
+- **brief** — `render_cp_brief(..., include_evidence=False)` ile reviewer
+  paketinde worker evidence iskeleti yer almaz.
+
 ## 2.46.0 — 2026-11-02
 
 - **Worker token/maliyet sayısı** — `usage.py --dispatch <id>` bir worker'ın
