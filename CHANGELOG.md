@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.44.0 — 2026-11-01
+
+- **Skill kurulumu çağıran dizine** — `install.sh` başta `cd "$ROOT"` yapıyordu;
+  `skills add` proje hedefini çalışma dizininden aldığı için ürün reposunda
+  skill'ler `demir-kit/.agents/skills` içine (submodule) kuruluyordu. Artık
+  çağıran dizinde `kit.config.yaml` varsa kurulum oraya yapılır
+  (`Install dir: …` çıktıda), yoksa kit köküne. Self-host davranışı değişmedi.
+- **Kuru çalıştırma** hedef dizini yazar; iki senaryo (ürün, düz dizin) test
+  edilir.
+
 ## 2.43.0 — 2026-11-01
 
 - **Yüzey kapısı kademelendi** — `ui: true` olan yüzeyde `snapshot` zorunluluğu

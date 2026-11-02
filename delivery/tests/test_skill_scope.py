@@ -286,6 +286,18 @@ class InstallScriptTest(unittest.TestCase):
         self.assertEqual(code, 0, output)
         for name in SCOPED:
             self.assertIn(name, output)
+        resolved = str(product.resolve())
+        self.assertIn(f"Install dir: {resolved}", output)
+        self.assertIn(f"(cd {resolved}) npx skills add", output)
+
+    def test_plain_directory_installs_into_the_kit(self) -> None:
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as raw:
+            plain = Path(raw)
+            code, output = self.run_install(plain)
+        self.assertEqual(code, 0, output)
+        self.assertIn(f"Install dir: {ROOT.resolve()}", output)
 
     def test_unknown_capability_fails_the_install(self) -> None:
         import tempfile
