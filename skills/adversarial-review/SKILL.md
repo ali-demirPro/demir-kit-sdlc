@@ -33,6 +33,20 @@ python3 delivery/scripts/review_packet.py --issue <N> --cp CP-1 --commit <sha>
 - After a fix: `--delta <base>`; re-check only changed hunks and open findings.
 - Script: [review_packet.py](../../delivery/scripts/review_packet.py).
 
+## Parallel wave
+
+For two reviewers (high/critical adversarial or UI visual+interaction) start one
+wave instead of separate terminals:
+
+```bash
+python3 delivery/scripts/review_wave.py --issue <N> --cp CP-1 --commit <sha> \
+  --reviewers adversarial-a,adversarial-b --apply
+```
+
+- Each reviewer gets the same packet; the wave waits, parses `approved:`, and
+  releases the workers. Exit 0 only when every verdict is approved.
+- Script: [review_wave.py](../../delivery/scripts/review_wave.py).
+
 ## Loop
 
 - Open finding → fixer → re-run the required reviewers.

@@ -153,8 +153,9 @@ CP'ler `depends_on` topological sırasında yürür. Her CP:
    iskeleti. Bağlam sınırları: [context-budget.md](../policies/context-budget.md).
 1. **behavior** — `tests_plan` case'leri; `ecosystem.yaml` komutu, `{checkpoint}` yerine CP id.
 2. **review** — `review_packet.py --issue N --cp CP-x --commit <sha>`; fix
-   sonrası `--delta <base>`. Risk seviyesine göre:
-   [quality-gates.md](../policies/quality-gates.md).
+   sonrası `--delta <base>`. İki reviewer gerekiyorsa tek dalga:
+   `review_wave.py --issue N --cp CP-x --commit <sha> --reviewers a,b --apply`.
+   Risk seviyesine göre: [quality-gates.md](../policies/quality-gates.md).
 3. **kapanış** — `cp_close.py --issue N --cp CP-x --evidence <yaml> --apply`:
    gate → yorum → `doctor --evidence` doğrulaması → Orca checkpoint. Doğrulama
    düşerse yorum silinir; silme başarısızsa comment id ile bildirilir.
