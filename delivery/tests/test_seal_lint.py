@@ -108,6 +108,16 @@ class SealLintTests(unittest.TestCase):
         data["tests_plan"].append("bozuk")
         self.assertIsInstance(seal_lint.lint(data), list)
 
+    def test_slash_is_not_an_observable_marker(self) -> None:
+        findings = seal_lint.lint(seal(ac_text="Sistem hata/uyari uretir."))
+        self.assertTrue(
+            any("gözlenebilir" in item["message"] for item in findings)
+        )
+        weak = seal_lint.lint(seal(case_text="hata/uyari davranisi"))
+        self.assertTrue(
+            any("çalıştırılabilir" in item["message"] for item in weak)
+        )
+
     def test_python_unittest_marker(self) -> None:
         findings = seal_lint.lint(
             seal(case_text="python3 -m unittest discover çalışır")
@@ -159,7 +169,23 @@ class SealLintTests(unittest.TestCase):
                 encoding="utf-8",
             )
             with patch.object(
+                sys, "argv", ["seal_lint.py", "--body", str(path)]
+            ), redirect_stdout(io.StringIO()):
+                self.assertEqual(seal_lint.main(), 0)
+            with patch.object(
                 sys, "argv", ["seal_lint.py", "--body", str(path), "--strict"]
+            ), redirect_stdout(io.StringIO()):
+                self.assertEqual(seal_lint.main(), 1)
+
+            body["tests_plan"][0]["cases"].append(
+                {"id": "T-1", "ac": "AC-1", "text": "x", "check": "unit"}
+            )
+            path.write_text(
+                "```yaml demir-kit\n" + json.dumps(body) + "\n```\n",
+                encoding="utf-8",
+            )
+            with patch.object(
+                sys, "argv", ["seal_lint.py", "--body", str(path)]
             ), redirect_stdout(io.StringIO()):
                 self.assertEqual(seal_lint.main(), 1)
 

@@ -60,7 +60,6 @@ OBSERVABLE = (
     "görünür",
     "içerir",
     "var",
-    "/",
 )
 
 CASE_MARKERS = (
@@ -72,13 +71,11 @@ CASE_MARKERS = (
     "bash",
     ".sh",
     "npm",
-    "make",
     "swift",
     "go test",
     "cargo",
     "exit 0",
     "./",
-    "/",
 )
 
 VAGUE_PATTERN = re.compile(
