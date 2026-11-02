@@ -73,7 +73,13 @@
         "gate_retries": { "type": "integer", "minimum": 0 },
         "reconcile_issues": { "type": "integer", "minimum": 0 },
         "human_interventions": { "type": "integer", "minimum": 0 },
-        "lead_time_hours": { "type": "number", "minimum": 0 }
+        "lead_time_hours": { "type": "number", "minimum": 0 },
+        "worker_count": { "type": "integer", "minimum": 0 },
+        "tokens_in": { "type": "integer", "minimum": 0 },
+        "tokens_out": { "type": "integer", "minimum": 0 },
+        "cache_read": { "type": "integer", "minimum": 0 },
+        "context_peak": { "type": "integer", "minimum": 0 },
+        "cost_usd": { "type": "number", "minimum": 0 }
       }
     },
     "ready_for_human_qa": { "type": "boolean" }

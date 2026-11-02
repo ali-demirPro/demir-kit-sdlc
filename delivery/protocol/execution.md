@@ -107,6 +107,20 @@ comment; ayrı bir olay yoktur.
 orca orchestration send --type worker_done --outcome succeeded   # veya failed
 ```
 
+`worker_done` sonrası biten worker pencerelerini serbest bırak; `user_takeover`
+kaydına dokunma:
+
+```bash
+python3 delivery/scripts/worker_cleanup.py --run <run_id>          # plan
+python3 delivery/scripts/worker_cleanup.py --run <run_id> --apply  # serbest bırak
+```
+
+Token/maliyet sayısı aynı run için:
+
+```bash
+python3 delivery/scripts/usage.py --run <run_id>
+```
+
 | Amaç | Komut |
 |------|-------|
 | Worktree (epic) | `orca worktree create --name epic-<E> --issue <E>` |
