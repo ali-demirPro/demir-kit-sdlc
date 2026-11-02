@@ -39,7 +39,9 @@ Read first: `delivery/protocol/seal.md`, `delivery/CONTRACT.md`,
 2. Fill the `demir-kit` YAML block.
 3. Run `test-plan`; map cases to AC ids.
 4. Choose risk; `registry.yaml` globs may auto-escalate it.
-5. Validate: `./delivery/scripts/doctor.sh --body /tmp/leaf.md`.
+5. Validate: `./delivery/scripts/doctor.sh --body /tmp/leaf.md`. Seal lint
+   uyarıları belirsiz AC veya çalıştırılabilir iz taşımayan case'leri gösterir;
+   `--strict` ile hata olur.
 6. Update the issue body; add `agent-approved`, remove `intake`.
 7. Next: `health-check`, then `delivery/protocol/execution.md`.
 

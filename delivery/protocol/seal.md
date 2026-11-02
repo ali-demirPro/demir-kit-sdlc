@@ -32,6 +32,10 @@ yalnız eski kayıtlar içindir; onlarda `check` varsa eşleşme yine denetlenir
 ./delivery/scripts/doctor.sh --body /tmp/leaf.md
 ```
 
+`doctor` seal lint uyarılarını da yazar: belirsiz AC metni, çalıştırılabilir iz
+taşımayan unit/gate case'i, tekrarlı ID veya bilinmeyen AC/CP. Uyarılar
+`--strict` ile hata olur.
+
 6. Issue body'yi güncelle ve `agent-approved` ekle.
 7. Sıradaki adım: [health-check.md](health-check.md).
 

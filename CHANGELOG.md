@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.51.0 — 2026-11-02
+
+- **Seal lint** — `seal_lint.py --body FILE` mühür metnini denetler: belirsiz
+  ifade + gözlenebilir sonuç yokluğu, çalıştırılabilir iz taşımayan unit/gate
+  case'i, tekrarlı case ID, bilinmeyen AC/CP referansı. `doctor --body` aynı
+  lint'i çalıştırır; hatalar bloklar, uyarılar yalnız `--strict` ile.
+- **Mühür protokolü/skill** — `seal.md` ve `work-package` lint uyarılarını
+  anlatır; geçmiş issue'lar uyarıyla geçer, bloke edilmez.
+
 ## 2.50.0 — 2026-11-02
 
 - **Paralel reviewer dalgası** — `review_wave.py --issue N --cp CP-x --commit SHA
