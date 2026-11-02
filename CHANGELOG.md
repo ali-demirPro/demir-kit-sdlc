@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.48.0 — 2026-11-02
+
+- **cp-close tek adım** — `cp_close.py --issue N --cp CP-x --evidence <yaml>`
+  planı gösterir; `--apply` sırayla gate → evidence yorumu → `doctor --issue`
+  doğrulaması → Orca checkpoint çalıştırır. Gate düşerse hiç yazmaz; doctor
+  doğrulaması düşerse yorumu siler ve exit 1 verir. Evidence fenced veya düz
+  YAML olabilir; cp/issue/status uyuşmazlığı yazmadan reddedilir.
+- **Protokol** — execution CP döngüsü kapanışı bu scripte bağlar.
+
 ## 2.47.0 — 2026-11-02
 
 - **Review paketi** — `review_packet.py --issue N --cp CP-x --commit SHA` dar

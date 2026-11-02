@@ -1,0 +1,254 @@
+#!/usr/bin/env python3
+"""Close one checkpoint in a single step.
+
+Usage:
+  python3 delivery/scripts/cp_close.py --issue 148 --cp CP-1 --evidence /tmp/e.yaml
+  python3 delivery/scripts/cp_close.py --issue 148 --cp CP-1 --evidence /tmp/e.yaml --apply
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+import yaml
+
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import doctor  # noqa: E402
+import evidence as evidence_lib  # noqa: E402
+import routing  # noqa: E402
+import update as update_mod  # noqa: E402
+
+SCHEMA = ROOT / "delivery" / "schemas" / "evidence.schema.json"
+
+
+def gh(args: list[str], stdin: str | None = None) -> str:
+    result = subprocess.run(
+        ["gh", *args], capture_output=True, text=True, input=stdin
+    )
+    if result.returncode != 0:
+        raise SystemExit(f"cp_close: gh failed — {result.stderr.strip()}")
+    return result.stdout
+
+
+def repo_name() -> str:
+    project = routing.project_root(ROOT)
+    ecosystem = yaml.safe_load((project / "ecosystem.yaml").read_text(encoding="utf-8")) or {}
+    repo = (ecosystem.get("tracker") or {}).get("repo")
+    if not repo:
+        raise SystemExit("cp_close: ecosystem.yaml tracker.repo yok")
+    return repo
+
+
+def issue_payload(repo: str, issue: int) -> dict:
+    return json.loads(gh(["api", f"repos/{repo}/issues/{issue}"]))
+
+
+def load_evidence(path: Path) -> dict:
+    text = path.read_text(encoding="utf-8")
+    match = re.search(r"```yaml\s+demir-kit-evidence\s*\n(.*?)```", text, re.S)
+    raw = match.group(1) if match else text
+    try:
+        data = yaml.safe_load(raw)
+    except yaml.YAMLError as exc:
+        raise SystemExit(f"cp_close: evidence YAML geçersiz — {exc}") from exc
+    if not isinstance(data, dict):
+        raise SystemExit("cp_close: evidence mapping olmalı")
+    return data
+
+
+def risk_of(body: str) -> str:
+    seal = routing.seal_body(body)
+    return str((seal.get("risk") or {}).get("level") or "low")
+
+
+def validate_record(
+    record: dict, issue: int, cp_id: str, risk: str, repo: str
+) -> list[str]:
+    schema = json.loads(SCHEMA.read_text(encoding="utf-8"))
+    errors = doctor.validate_schema(record, schema)
+    if record.get("cp_id") != cp_id:
+        errors.append(f"cp_id '{record.get('cp_id')}' != '{cp_id}'")
+    if record.get("issue") != issue:
+        errors.append(f"issue {record.get('issue')} != {issue}")
+    if record.get("status") != "pass":
+        errors.append("status 'pass' değil")
+    verification = record.get("verification")
+    if isinstance(verification, dict):
+        errors += evidence_lib.verify(
+            verification,
+            root=ROOT,
+            repo=repo,
+            risk=risk,
+            implementer=str(record.get("agent") or ""),
+        )
+    elif record.get("status") == "pass":
+        errors.append("verification bloğu yok")
+    return errors
+
+
+def gate_command(issue: int, cp_id: str) -> str:
+    prefix = routing.kit_prefix(ROOT)
+    command = f"./{prefix}delivery/scripts/doctor.sh --issue {issue} --checkpoint {cp_id}"
+    if prefix:
+        command += " --product --root ."
+    return command
+
+
+def run_gate(command: str) -> tuple[int, str]:
+    result = subprocess.run(
+        command, shell=True, cwd=str(routing.project_root(ROOT)),
+        capture_output=True, text=True,
+    )
+    output = (result.stdout + result.stderr).strip()
+    return result.returncode, "\n".join(output.splitlines()[-40:])
+
+
+def post_comment(repo: str, issue: int, record: dict) -> str | None:
+    body = (
+        "```yaml\n"
+        + yaml.safe_dump(record, sort_keys=False, allow_unicode=True)
+        + "```\n"
+    )
+    payload = json.dumps({"body": body})
+    result = subprocess.run(
+        [
+            "gh",
+            "api",
+            "-X",
+            "POST",
+            f"repos/{repo}/issues/{issue}/comments",
+            "--input",
+            "-",
+        ],
+        capture_output=True,
+        text=True,
+        input=payload,
+    )
+    if result.returncode != 0:
+        return None
+    try:
+        return str(json.loads(result.stdout).get("id") or "")
+    except json.JSONDecodeError:
+        return None
+
+
+def delete_comment(repo: str, comment_id: str) -> bool:
+    result = subprocess.run(
+        [
+            "gh",
+            "api",
+            "-X",
+            "DELETE",
+            f"repos/{repo}/issues/comments/{comment_id}",
+        ],
+        capture_output=True,
+        text=True,
+    )
+    return result.returncode == 0
+
+
+def verify_issue(issue: int) -> tuple[int, str]:
+    doctor_script = ROOT / "delivery" / "scripts" / "doctor.sh"
+    result = subprocess.run(
+        [str(doctor_script), "--issue", str(issue)],
+        cwd=str(ROOT),
+        capture_output=True,
+        text=True,
+    )
+    output = (result.stdout + result.stderr).strip()
+    return result.returncode, "\n".join(output.splitlines()[-20:])
+
+
+def checkpoint(issue: int, cp_id: str) -> bool:
+    return bool(
+        update_mod.orca_checkpoint(
+            "progress",
+            f"{cp_id} kapandı (#{issue})",
+            "sonraki CP",
+            False,
+        )
+    )
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="close one checkpoint")
+    parser.add_argument("--issue", type=int, required=True)
+    parser.add_argument("--cp", required=True)
+    parser.add_argument("--evidence", type=Path, required=True)
+    parser.add_argument("--apply", action="store_true", help="gate, post, verify, checkpoint")
+    parser.add_argument("--json", action="store_true")
+    args = parser.parse_args()
+
+    repo = repo_name()
+    payload = issue_payload(repo, args.issue)
+    risk = risk_of(payload.get("body") or "")
+    record = load_evidence(args.evidence)
+    errors = validate_record(record, args.issue, args.cp, risk, repo)
+    if errors:
+        for error in errors:
+            print(f"cp_close: {error}", file=sys.stderr)
+        return 1
+
+    command = gate_command(args.issue, args.cp)
+    plan = {
+        "issue": args.issue,
+        "cp_id": args.cp,
+        "risk": risk,
+        "gate": command,
+        "evidence_chars": len(yaml.safe_dump(record, allow_unicode=True)),
+        "reviewers": len(record.get("reviewers") or [])
+        if isinstance(record.get("verification"), dict)
+        else 0,
+        "apply": args.apply,
+    }
+    if not args.apply:
+        print(json.dumps(plan, ensure_ascii=False, indent=2) if args.json else "\n".join(
+            [
+                f"CP close planı — #{args.issue} {args.cp} (risk {risk})",
+                f"gate: {command}",
+                f"evidence: {plan['evidence_chars']} karakter",
+                "yazmak için --apply",
+            ]
+        ))
+        return 0
+
+    code, output = run_gate(command)
+    if code != 0:
+        print(f"cp_close: gate düştü (exit {code})\n{output}", file=sys.stderr)
+        return 1
+
+    comment_id = post_comment(repo, args.issue, record)
+    if not comment_id:
+        print("cp_close: yorum yazılamadı", file=sys.stderr)
+        return 1
+
+    code, output = verify_issue(args.issue)
+    if code != 0:
+        delete_comment(repo, comment_id)
+        print(
+            f"cp_close: evidence doctor'da düştü, yorum geri alındı\n{output}",
+            file=sys.stderr,
+        )
+        return 1
+
+    synced = checkpoint(args.issue, args.cp)
+    result = {**plan, "comment_id": comment_id, "checkpoint": synced, "status": "pass"}
+    if args.json:
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+    else:
+        print(
+            f"CP kapandı — #{args.issue} {args.cp} · gate 0 · evidence yazıldı · "
+            f"checkpoint {'yazıldı' if synced else 'yazılamadı'}"
+        )
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

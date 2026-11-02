@@ -155,7 +155,9 @@ CP'ler `depends_on` topological sırasında yürür. Her CP:
 2. **review** — `review_packet.py --issue N --cp CP-x --commit <sha>`; fix
    sonrası `--delta <base>`. Risk seviyesine göre:
    [quality-gates.md](../policies/quality-gates.md).
-3. **evidence** — [evidence.md](evidence.md) şablonuyla issue comment.
+3. **kapanış** — `cp_close.py --issue N --cp CP-x --evidence <yaml> --apply`:
+   gate → yorum → doctor doğrulama → Orca checkpoint. Doğrulama düşerse yorum
+   geri alınır, hiçbir kirli kayıt kalmaz.
 4. Sonraki CP.
 
 Review bağımsızdır: uygulayan onaylayamaz; reviewer'lar birbirinin çıktısını görmez.
