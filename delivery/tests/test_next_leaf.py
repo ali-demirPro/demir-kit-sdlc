@@ -204,10 +204,6 @@ class LeaseTests(unittest.TestCase):
         ):
             self.assertEqual(next_leaf.prepare_worktree(46, 44), 1)
 
-
-if __name__ == "__main__":
-    unittest.main()
-
     def test_dirty_sources_block_when_no_work(self) -> None:
         out, err = io.StringIO(), io.StringIO()
         with patch.object(next_leaf, "gh", return_value="[]"), patch.object(

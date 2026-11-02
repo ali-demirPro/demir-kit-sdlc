@@ -12,14 +12,14 @@ import yaml
 HOOK_MARKER = "# demir-kit:hook"
 
 
-def _run(args: list[str], cwd: Path) -> str:
+def _run(args: list[str], cwd: Path) -> str | None:
     try:
         result = subprocess.run(
             args, cwd=str(cwd), capture_output=True, text=True
         )
     except (FileNotFoundError, OSError):
-        return ""
-    return result.stdout if result.returncode == 0 else ""
+        return None
+    return result.stdout if result.returncode == 0 else None
 
 
 def app_paths(root: Path) -> list[str]:
@@ -40,6 +40,9 @@ def app_paths(root: Path) -> list[str]:
         config = {}
     for item in ((config.get("factory") or {}).get("app_paths") or []):
         paths.add(str(item).strip("/"))
+    kit_root = str((config.get("kit") or {}).get("root") or ".")
+    if kit_root in {".", ""}:
+        paths.update({"delivery", "skills", "install.sh"})
     return sorted(path for path in paths if path)
 
 
@@ -56,6 +59,8 @@ def dirty_sources(root: Path) -> list[str]:
     if not paths:
         return []
     raw = _run(["git", "status", "--porcelain", "-uall"], root)
+    if raw is None:
+        raise RuntimeError("git status okunamadı")
     dirty: list[str] = []
     for line in raw.splitlines():
         if not line.strip():
@@ -70,14 +75,16 @@ def dirty_sources(root: Path) -> list[str]:
 
 
 def current_branch(root: Path) -> str:
-    branch = _run(["git", "rev-parse", "--abbrev-ref", "HEAD"], root).strip()
+    raw = _run(["git", "rev-parse", "--abbrev-ref", "HEAD"], root) or ""
+    branch = raw.strip()
     if branch and branch != "HEAD":
         return branch
-    return _run(["git", "symbolic-ref", "--short", "HEAD"], root).strip()
+    raw = _run(["git", "symbolic-ref", "--short", "HEAD"], root) or ""
+    return raw.strip()
 
 
 def hooks_dir(root: Path) -> Path | None:
-    raw = _run(["git", "rev-parse", "--git-path", "hooks"], root).strip()
+    raw = (_run(["git", "rev-parse", "--git-path", "hooks"], root) or "").strip()
     if not raw:
         return None
     path = Path(raw)
@@ -150,9 +157,12 @@ def missing_hooks(root: Path) -> list[str]:
 
 
 def unsealed_report(root: Path, is_ci: bool = False) -> tuple[list[str], list[str]]:
-    dirty = dirty_sources(root)
     errors: list[str] = []
     warnings: list[str] = []
+    try:
+        dirty = dirty_sources(root)
+    except RuntimeError:
+        return ["kaynak durumu okunamadı (git); fail-closed: epic/leaf olmadan devam etme"], []
     if dirty:
         branch = current_branch(root) or "?"
         detail = ", ".join(dirty[:5]) + (" …" if len(dirty) > 5 else "")

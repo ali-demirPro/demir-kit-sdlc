@@ -415,7 +415,11 @@ def main() -> int:
 
     eligible.sort(key=lambda item: item["createdAt"])
     root = epic_worktree.project_root()
-    dirty = process_gate.dirty_sources(root)
+    try:
+        dirty = process_gate.dirty_sources(root)
+    except RuntimeError:
+        print("BLOCKED: kaynak durumu okunamadı (git); fail-closed", file=sys.stderr)
+        return 1
     if not eligible:
         if dirty:
             print(

@@ -110,6 +110,7 @@ REQUIRED_FILES = [
     "delivery/scripts/next-leaf.sh",
     "delivery/scripts/vendor_sync.py",
     "delivery/scripts/evidence.py",
+    "delivery/scripts/process_gate.py",
     "delivery/scripts/transition.py",
     "delivery/scripts/transition.sh",
     "delivery/scripts/capabilities.py",

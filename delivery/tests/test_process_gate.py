@@ -9,6 +9,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPTS = ROOT / "delivery" / "scripts"
@@ -78,6 +79,28 @@ class ProcessGateTests(unittest.TestCase):
         doctor.check_unsealed_work(root)
         self.assertEqual(doctor.ERRORS, [])
         self.assertFalse(any("kirli" in item for item in doctor.WARNS))
+
+    def test_git_error_is_fail_closed(self) -> None:
+        with patch.object(process_gate, "_run", return_value=None):
+            with self.assertRaises(RuntimeError):
+                process_gate.dirty_sources(Path("/tmp"))
+            errors, _ = process_gate.unsealed_report(Path("/tmp"))
+        self.assertTrue(any("okunamadı" in item for item in errors))
+
+    def test_init_apply_installs_hooks(self) -> None:
+        import init
+
+        root = repo()
+        plan = {"project": str(root), "files": {}, "agents_prefix": ""}
+        with patch.object(
+            init.delivery_block,
+            "inject",
+            return_value={"changed": False, "applied": False},
+        ):
+            result = init.apply_plan(plan)
+        self.assertTrue(
+            any("pre-commit" in path for path in result["hooks"]["written"])
+        )
 
     def test_foreign_hook_is_not_overwritten(self) -> None:
         root = repo()
