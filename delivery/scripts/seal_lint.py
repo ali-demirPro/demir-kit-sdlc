@@ -41,6 +41,13 @@ OBSERVABLE = (
     "komut",
     "test",
     "exit",
+    ".py",
+    ".md",
+    "python3",
+    "unittest",
+    "pytest",
+    "bash",
+    ".sh",
     "sayı",
     "adet",
     "etiket",
@@ -60,14 +67,23 @@ CASE_MARKERS = (
     ".py",
     "doctor",
     "pytest",
+    "python3",
+    "unittest",
+    "bash",
+    ".sh",
     "npm",
     "make",
     "swift",
     "go test",
     "cargo",
-    "gate",
-    "exit",
+    "exit 0",
     "./",
+    "/",
+)
+
+VAGUE_PATTERN = re.compile(
+    r"(?<![a-zçğıöşü])(" + "|".join(sorted(VAGUE)) + r")(?![a-zçğıöşü])",
+    re.I,
 )
 
 
@@ -94,6 +110,8 @@ def lint(seal: dict) -> list[dict]:
     acs = seal.get("acceptance_criteria") or []
     cases = []
     for plan_index, plan in enumerate(seal.get("tests_plan") or []):
+        if not isinstance(plan, dict):
+            continue
         for case_index, case in enumerate(plan.get("cases") or []):
             if isinstance(case, dict):
                 cases.append((plan_index, case_index, plan.get("checkpoint_id"), case))
@@ -105,13 +123,20 @@ def lint(seal: dict) -> list[dict]:
         if not isinstance(ac, dict):
             continue
         text = str(ac.get("text") or "")
-        lowered = text.lower()
-        if any(word in lowered for word in VAGUE) and not has_observable(text):
+        if not has_observable(text):
             findings.append(
                 {
                     "severity": "warning",
                     "path": f"$.acceptance_criteria[{index}].text",
-                    "message": "belirsiz ifade var, gözlenebilir sonuç yok",
+                    "message": "gözlenebilir sonuç yok",
+                }
+            )
+        elif VAGUE_PATTERN.search(text):
+            findings.append(
+                {
+                    "severity": "warning",
+                    "path": f"$.acceptance_criteria[{index}].text",
+                    "message": "belirsiz ifade var",
                 }
             )
 

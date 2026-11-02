@@ -76,6 +76,40 @@ class SealLintTests(unittest.TestCase):
             any("$.tests_plan[1].cases[0].id" == item["path"] for item in findings)
         )
 
+    def test_missing_observable_is_flagged(self) -> None:
+        findings = seal_lint.lint(seal(ac_text="Sistem hazırdır."))
+        self.assertTrue(
+            any("gözlenebilir" in item["message"] for item in findings)
+        )
+
+    def test_word_boundary_avoids_false_vague(self) -> None:
+        findings = seal_lint.lint(
+            seal(ac_text="Test exit 0 ile doğrulama sağlar.")
+        )
+        self.assertFalse(any("belirsiz" in item["message"] for item in findings))
+
+    def test_gate_case_with_generic_word_is_weak(self) -> None:
+        data = seal()
+        data["tests_plan"][0]["cases"][0]["check"] = "gate"
+        data["tests_plan"][0]["cases"][0]["text"] = "gate testi"
+        findings = seal_lint.lint(data)
+        self.assertTrue(
+            any("çalıştırılabilir" in item["message"] for item in findings)
+        )
+
+    def test_non_dict_plan_does_not_crash(self) -> None:
+        data = seal()
+        data["tests_plan"].append("bozuk")
+        self.assertIsInstance(seal_lint.lint(data), list)
+
+    def test_python_unittest_marker(self) -> None:
+        findings = seal_lint.lint(
+            seal(case_text="python3 -m unittest discover çalışır")
+        )
+        self.assertFalse(
+            any("çalıştırılabilir" in item["message"] for item in findings)
+        )
+
     def test_weak_unit_case(self) -> None:
         findings = seal_lint.lint(seal(case_text="kontrol edilir"))
         self.assertTrue(
