@@ -34,6 +34,7 @@ import evidence as evidence_lib  # noqa: E402
 from schema_lite import validate_schema  # noqa: E402, F401
 import profiles as profiles_lib  # noqa: E402
 import resolver as resolver_lib  # noqa: E402
+import seal_lint  # noqa: E402
 import variants as variants_lib  # noqa: E402
 from doctor_skills import (  # noqa: E402, F401  (public re-exports)
     frontmatter_data,
@@ -758,6 +759,13 @@ def check_issue_body(
     if schema:
         for message in validate_schema(data, schema):
             error(f"issue seal {message}")
+
+    for item in seal_lint.lint(data):
+        message = f"seal lint {item['path']}: {item['message']}"
+        if item["severity"] == "error":
+            error(message)
+        else:
+            warn(message)
 
     package_version = data.get("package_version", 1)
     if not isinstance(package_version, int):

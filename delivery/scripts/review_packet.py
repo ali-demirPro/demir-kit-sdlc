@@ -159,6 +159,7 @@ def packet_for(
     commit: str = "HEAD",
     delta: str | None = None,
     max_chars: int = 12_000,
+    base: str | None = None,
 ) -> str:
     issue = json.loads(
         gh(["api", f"repos/{repo_name()}/issues/{issue_number}"])
@@ -185,14 +186,29 @@ def packet_for(
         include_evidence=False,
     )
     commit = git(["rev-parse", commit]).strip()
-    span = commit_range(commit, delta)
+    if base:
+        span = f"{base}..{commit}"
+        range_label = f"{base[:12]}..{commit[:12]}"
+    elif delta:
+        span = f"{delta}..{commit}"
+        range_label = f"{delta}..{commit[:12]}"
+    else:
+        try:
+            merge_base = git(["merge-base", "origin/main", commit]).strip()
+        except SystemExit:
+            merge_base = ""
+        if merge_base and merge_base != commit:
+            span = f"{merge_base}..{commit}"
+            range_label = f"{merge_base[:12]}..{commit[:12]}"
+        else:
+            span = f"{commit}^..{commit}"
+            range_label = f"{commit[:12]} (tek commit)"
     diff_stat = git(["diff", "--stat", span])
     files = git(["diff", "--name-only", span]).strip().splitlines()
     diff = git(["diff", span])
     header = [
         f"## Review packet — #{issue_number} {cp_id}",
-        f"Commit: {commit[:12]}"
-        + (f" · Delta: {delta}..{commit[:12]}" if delta else " · Tam commit"),
+        f"Commit: {commit[:12]} · Aralık: {range_label}",
         f"Boyut sınırı: {max_chars} bayt",
         "Değişen dosyalar:",
     ]
@@ -213,13 +229,14 @@ def main() -> int:
     parser.add_argument("--cp", required=True)
     parser.add_argument("--commit", default="HEAD")
     parser.add_argument("--delta", help="base ref for a fix-only packet")
+    parser.add_argument("--base", help="full CP range base (default: origin/main merge-base)")
     parser.add_argument("--max-chars", type=int, default=12_000)
     parser.add_argument("--write", type=Path)
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
 
     packet = packet_for(
-        args.issue, args.cp, args.commit, args.delta, args.max_chars
+        args.issue, args.cp, args.commit, args.delta, args.max_chars, args.base
     )
     commit = git(["rev-parse", args.commit]).strip()
 

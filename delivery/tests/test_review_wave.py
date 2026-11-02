@@ -28,6 +28,16 @@ class ReviewWaveTests(unittest.TestCase):
         self.assertTrue(review_wave.parse_verdict("approved: true\nnot: ok"))
         self.assertFalse(review_wave.parse_verdict("approved: false"))
         self.assertIsNone(review_wave.parse_verdict("findings: []"))
+        self.assertTrue(
+            review_wave.parse_verdict("CP-1 review: approved (1 low finding)")
+        )
+        self.assertFalse(review_wave.parse_verdict("CP-1 review: rejected"))
+        self.assertIsNone(review_wave.parse_verdict("approved: true|false"))
+        self.assertFalse(review_wave.parse_verdict("not yet approved"))
+        self.assertFalse(review_wave.parse_verdict("approved:false."))
+        self.assertIsNone(
+            review_wave.parse_verdict("The approved plan has a bug")
+        )
 
     def test_reviewer_spec_contains_packet_and_format(self) -> None:
         text = review_wave.reviewer_spec("adversarial-a", "PACKET", 156, "CP-1")
@@ -63,6 +73,29 @@ class ReviewWaveTests(unittest.TestCase):
         self.assertEqual(result[1]["state"], "failed")
         sleep.assert_called()
 
+    def test_collect_reads_worker_done_message(self) -> None:
+        workers = [{"name": "a", "dispatch_id": "ctx_a", "state": "succeeded"}]
+        responses = [
+            {
+                "messages": [
+                    {
+                        "from_handle": "term_a",
+                        "subject": "CP-1 review: approved (1 low)",
+                        "body": "",
+                    }
+                ],
+                "deliveryId": "d1",
+            },
+            {"worker": {"agentTerminalHandle": "term_a"}},
+            {"ok": True},
+        ]
+        with patch.object(review_wave, "orca", side_effect=responses) as orca, patch.object(
+            review_wave, "read_output", return_value="no verdict"
+        ), patch.object(review_wave.worker_cleanup, "release"):
+            result = review_wave.collect(workers, "run_1")
+        self.assertTrue(result[0]["verdict"])
+        self.assertEqual(orca.call_args.args[0][-1], "d1")
+
     def test_collect_releases_and_parses(self) -> None:
         workers = [
             {"name": "a", "dispatch_id": "ctx_a", "state": "succeeded"},
@@ -70,7 +103,9 @@ class ReviewWaveTests(unittest.TestCase):
         ]
         with patch.object(
             review_wave, "read_output", side_effect=["approved: true", "no verdict"]
-        ), patch.object(review_wave.worker_cleanup, "release") as release:
+        ), patch.object(
+            review_wave.worker_cleanup, "release"
+        ) as release:
             result = review_wave.collect(workers)
         self.assertTrue(result[0]["verdict"])
         self.assertIsNone(result[1]["verdict"])
@@ -113,7 +148,7 @@ class ReviewWaveCliTests(unittest.TestCase):
         ), patch.object(
             review_wave,
             "collect",
-            side_effect=lambda items: [
+            side_effect=lambda items, run_id: [
                 {**items[0], "verdict": True},
                 {**items[1], "verdict": True},
             ],
@@ -134,7 +169,7 @@ class ReviewWaveCliTests(unittest.TestCase):
         ), patch.object(
             review_wave,
             "collect",
-            side_effect=lambda items: [{**items[0], "verdict": False}],
+            side_effect=lambda items, run_id: [{**items[0], "verdict": False}],
         ):
             code, _, _ = self.run_main(
                 ["--issue", "156", "--cp", "CP-1", "--run", "run_1", "--apply"]

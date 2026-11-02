@@ -75,11 +75,23 @@ def reviewer_spec(name: str, packet: str, issue: int, cp_id: str) -> str:
 
 
 def parse_verdict(text: str) -> bool | None:
-    matches = re.findall(r"approved:\s*(true|false)", text or "", re.I)
-    if not matches:
+    value = text or ""
+    matches = re.findall(
+        r"^\s*approved:\s*(true|false)\s*$", value, re.I | re.M
+    )
+    if matches:
+        return matches[-1].lower() == "true"
+    if "true|false" in value.lower():
         return None
-    return matches[-1].lower() == "true"
-
+    if re.search(
+        r"approved\s*[:=]\s*false|\brejected\b|\bnot\s+(?:yet\s+)?approved\b|onaylanmadı",
+        value,
+        re.I,
+    ):
+        return False
+    if re.search(r"^\s*(?:.*review:\s*)?approved\b", value, re.I | re.M):
+        return True
+    return None
 
 def start_worker(
     name: str, spec: str, run_id: str, worktree: str
@@ -172,15 +184,45 @@ def read_output(dispatch_id: str) -> str:
     return "\n".join(str(line) for line in terminal.get("tail") or [])
 
 
-def collect(workers: list[dict]) -> list[dict]:
+def collect(workers: list[dict], run_id: str | None = None) -> list[dict]:
+    check = (
+        orca(["orchestration", "check", "--run", run_id, "--json"])
+        if run_id
+        else {}
+    )
+    messages = check.get("messages") or []
+    texts: dict[str, str] = {}
+    for message in messages:
+        handle = str(message.get("from_handle") or "")
+        if handle:
+            texts[handle] = (
+                f"{message.get('subject') or ''}\n{message.get('body') or ''}"
+            )
     for item in workers:
         if not item.get("dispatch_id"):
             item["verdict"] = None
             continue
+        shown = orca(
+            [
+                "orchestration",
+                "worker-show",
+                "--dispatch",
+                str(item["dispatch_id"]),
+                "--json",
+            ]
+        )
+        handle = str((shown.get("worker") or {}).get("agentTerminalHandle") or "")
         output = read_output(str(item["dispatch_id"]))
+        if handle and handle in texts:
+            output += "\n" + texts[handle]
         item["verdict"] = parse_verdict(output)
         item["summary"] = "\n".join(output.splitlines()[-25:])
         worker_cleanup.release(str(item["dispatch_id"]))
+    delivery = str(check.get("deliveryId") or "")
+    if run_id and delivery:
+        orca(
+            ["orchestration", "check", "--run", run_id, "--ack", delivery]
+        )
     return workers
 
 
@@ -190,6 +232,9 @@ def main() -> int:
     parser.add_argument("--cp", required=True)
     parser.add_argument("--commit", default="HEAD")
     parser.add_argument("--delta")
+    parser.add_argument(
+        "--base", help="full CP range base (default: origin/main merge-base)"
+    )
     parser.add_argument("--reviewers", default="adversarial-a")
     parser.add_argument("--max-chars", type=int, default=12_000)
     parser.add_argument("--run", help="Orca run id (default: epic run)")
@@ -202,7 +247,7 @@ def main() -> int:
     if not names:
         raise SystemExit("review_wave: reviewer yok")
     packet = review_packet.packet_for(
-        args.issue, args.cp, args.commit, args.delta, args.max_chars
+        args.issue, args.cp, args.commit, args.delta, args.max_chars, args.base
     )
     specs = {name: reviewer_spec(name, packet, args.issue, args.cp) for name in names}
     plan = {
@@ -240,7 +285,7 @@ def main() -> int:
         start_worker(name, specs[name], run_id, worktree) for name in names
     ]
     workers = wait_workers(workers, args.timeout)
-    workers = collect(workers)
+    workers = collect(workers, run_id)
     verdicts = {
         item["name"]: (
             None if item.get("verdict") is None else bool(item["verdict"])
