@@ -74,6 +74,7 @@ class ReviewWaveTests(unittest.TestCase):
             result = review_wave.collect(workers)
         self.assertTrue(result[0]["verdict"])
         self.assertIsNone(result[1]["verdict"])
+        self.assertIn("approved: true", result[0]["summary"])
         self.assertEqual(release.call_count, 2)
 
 

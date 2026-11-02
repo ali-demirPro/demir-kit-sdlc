@@ -187,13 +187,16 @@ def packet_for(
     commit = git(["rev-parse", commit]).strip()
     span = commit_range(commit, delta)
     diff_stat = git(["diff", "--stat", span])
+    files = git(["diff", "--name-only", span]).strip().splitlines()
     diff = git(["diff", span])
     header = [
         f"## Review packet — #{issue_number} {cp_id}",
         f"Commit: {commit[:12]}"
         + (f" · Delta: {delta}..{commit[:12]}" if delta else " · Tam commit"),
         f"Boyut sınırı: {max_chars} bayt",
+        "Değişen dosyalar:",
     ]
+    header += [f"- {name}" for name in files if name]
     return compose_packet(
         header,
         brief_text,

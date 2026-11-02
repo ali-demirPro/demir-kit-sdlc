@@ -33,7 +33,7 @@ SETTLED = {"succeeded", "failed", "stopped"}
 def orca(args: list[str]) -> dict:
     try:
         result = subprocess.run(
-            ["orca", *args], capture_output=True, text=True, timeout=120
+            ["orca", *args], capture_output=True, text=True, timeout=180
         )
     except (FileNotFoundError, OSError):
         return {}
@@ -64,7 +64,8 @@ def reviewer_spec(name: str, packet: str, issue: int, cp_id: str) -> str:
     return (
         f"demir-kit #{issue} {cp_id} — bağımsız reviewer {name}\n\n"
         f"{packet}\n\n"
-        "Görev: yalnız bu paketi incele; repoyu okuma, dosya değiştirme.\n"
+        "Görev: paketi incele. Gerekirse yalnız paketteki değişen dosyaları aç "
+        "(rg/sed); tüm repoyu tarama, dosya değiştirme.\n"
         "Son mesaj biçimi:\n"
         "approved: true|false\n"
         "findings:\n"
@@ -105,6 +106,8 @@ def start_worker(
         [
             "orchestration",
             "worker-start",
+            "--timeout-ms",
+            "300000",
             "--task",
             task_id,
             "--worktree",
@@ -174,7 +177,9 @@ def collect(workers: list[dict]) -> list[dict]:
         if not item.get("dispatch_id"):
             item["verdict"] = None
             continue
-        item["verdict"] = parse_verdict(read_output(str(item["dispatch_id"])))
+        output = read_output(str(item["dispatch_id"]))
+        item["verdict"] = parse_verdict(output)
+        item["summary"] = "\n".join(output.splitlines()[-25:])
         worker_cleanup.release(str(item["dispatch_id"]))
     return workers
 
