@@ -24,7 +24,10 @@ Komut `python3 delivery/scripts/status.py`; durum dosyası yazmaz (yalnız önbe
 | `stale`, `source` | Durum eksik mi; `live` taze, `cache` önbellek |
 | `kit` | `version`, `pin` (kısa SHA), `dirty` |
 | `project` | `name`, `profile`, `repo_root`, `tracker.provider`, `tracker.repo`; `repo_root` git ortak dizininin üst dizinidir (worktree'de ana checkout), git yoksa `null` |
-| `epics[]` | Yalnız aktif epic'ler (`epic-done` etiketi ve kapalı issue hariç; `--all-epics` hepsini verir): `number`, `title`, `state`, `risk`, `checkpoints.done/total` (`done` = `leaf-done` çocukların CP toplamı), `leaves[]`, `gate`, `open_findings`, `approvals`, `next_action`, `cycle_minutes`, `cost_delta` |
+| `epics[]` | Yalnız aktif epic'ler (`epic-done` etiketi ve kapalı issue hariç; `--all-epics` hepsini verir): `number`, `title`, `state`, `risk`, `checkpoints[]`, `updated_at`, `url`, `leaves[]`, `gate`, `open_findings`, `approvals`, `next_action`, `cycle_minutes`, `cost_delta` |
+| `checkpoints[]` | Epic çocuklarının seal'lerindeki checkpoint'ler, çocuk sırasıyla: `{id, title, done, leaf}`. `done` çocuk bazlıdır: o çocuk `leaf-done` ise `true`, değilse `false`; `leaf` checkpoint'i taşıyan çocuk issue numarasıdır |
+| `updated_at` | Epic issue'sunun `updatedAt` değeri; yalnız ISO-8601 biçimi kabul edilir, `gh` alanı vermezse ya da metin ISO-8601 değilse `null` |
+| `url` | `tracker.repo` varsa GitHub issue bağlantısı, yoksa `null` |
 | `leaves[]` | Epic `children` numaralarından issue listesinde bulunanlar: `{number, title, state}`; seal şartı yok, kapalı çocuklar da listelenir; `state` etiket önceliği `leaf-done` > `blocked` > `deferred` > `executing` > `agent-approved` > `intake` > `closed`/`open` |
 | `counts` | `epics` = listelenen epic sayısı, `leaves` = bu epic'lerin `leaves[]` toplamı, `blocked` = `blocked` etiketli tüm issue'lar |
 | `warnings` | Kısa Türkçe uyarı metinleri |
@@ -44,7 +47,7 @@ issue) atlar; bu yüzden günlük panelde yalnız açık iş görünür. Bir epi
 `leaves[]` listesi tüm çocuklarını taşır (kapalılar dahil), `counts.leaves` de bu
 listelerin toplamıdır. Epic'in `leaves[]` listesi `children` içinde adı geçen ve
 issue listesinde bulunan çocukları taşır; seal'i olmayan çocuk da başlığı ve
-durumuyla listelenir, seal yalnız `checkpoints` sayımını besler. `--all-epics`
+durumuyla listelenir, seal yalnız `checkpoints[]` listesini besler. `--all-epics`
 kapanmış epic'leri de aynı biçimde listeler.
 
 ## Önbellek
@@ -74,7 +77,12 @@ oluşturulmaz. `gh` yoksa ya da oturum yoksa komut düşmez: `epics: []`,
               "tracker": {"provider": "github", "repo": "owner/repo"}},
   "epics": [{
     "number": 12, "title": "Epic", "state": "executing", "risk": null,
-    "checkpoints": {"done": 0, "total": 2},
+    "checkpoints": [
+      {"id": "CP-1", "title": "status", "done": true, "leaf": 13},
+      {"id": "CP-2", "title": "panel", "done": false, "leaf": 13}
+    ],
+    "updated_at": "2026-11-04T09:00:00Z",
+    "url": "https://github.com/owner/repo/issues/12",
     "leaves": [{"number": 13, "title": "Leaf", "state": "agent-approved"}],
     "gate": "pass",
     "open_findings": 0, "approvals": {"agent_approved": false, "human_qa": false},

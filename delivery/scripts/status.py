@@ -37,12 +37,18 @@ KIT_MARKERS = (
     Path("delivery") / "scripts" / "doctor.sh",
 )
 DOCTOR_SCRIPT = Path("delivery") / "scripts" / "doctor.sh"
-GH_FIELDS = "number,title,state,labels,body"
+GH_FIELDS = "number,title,state,labels,body,updatedAt"
 GH_LIMIT = "500"
 GH_TIMEOUT = 30
 DOCTOR_TIMEOUT = 120
 EPIC_BLOCK = "demir-kit-epic"
 LEAF_BLOCK = "demir-kit"
+# `updated_at` yalnız ISO-8601 kabul eder; başka metin `null` olur.
+ISO_8601 = re.compile(
+    r"^\d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])"
+    r"T(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?"
+    r"(?:Z|[+-](?:[01]\d|2[0-3]):[0-5]\d)$"
+)
 # Etiket önceliği: ilk eşleşen kazanır.
 STATE_PRIORITY = (
     "epic-done",
@@ -269,9 +275,31 @@ def child_numbers(epic_block: dict) -> list[int]:
     return numbers
 
 
-def checkpoint_count(seal: dict) -> int:
+def checkpoint_items(seal: dict, leaf: int, done: bool) -> list[dict]:
+    """Seal'deki checkpoint'ler; `done` çocuğun `leaf-done` olmasından gelir.
+
+    Her öğe çocuğun numarasını `leaf` alanında taşır: panel CP satırını
+    `#<leaf> · CP-1 ✓ başlık` diye çizer.
+    """
     checkpoints = seal.get("checkpoints")
-    return len(checkpoints) if isinstance(checkpoints, list) else 0
+    if not isinstance(checkpoints, list):
+        return []
+    items: list[dict] = []
+    for item in checkpoints:
+        if not isinstance(item, dict):
+            continue
+        cp_id = item.get("id")
+        if not isinstance(cp_id, str) or not cp_id:
+            continue
+        items.append(
+            {
+                "id": cp_id,
+                "title": str(item.get("title") or ""),
+                "done": done,
+                "leaf": leaf,
+            }
+        )
+    return items
 
 
 def epic_children(epic_block: dict, number: int, seals: dict[int, dict]) -> list[int]:
@@ -311,33 +339,38 @@ def epic_leaves(epic_block: dict, issues_by_number: dict[int, dict]) -> list[dic
     return leaves
 
 
-def epic_checkpoint_total(epic_block: dict, number: int, seals: dict[int, dict]) -> int:
-    """Epic çocuklarının seal'lerindeki checkpoint toplamı."""
-    return sum(
-        checkpoint_count(seals[child]) for child in epic_children(epic_block, number, seals)
-    )
-
-
-def epic_checkpoint_done(
+def epic_checkpoint_items(
     epic_block: dict,
     number: int,
     seals: dict[int, dict],
     labels_by_number: dict[int, set[str]],
-) -> int:
-    """Yalnız leaf-done etiketli çocukların checkpoint toplamı."""
-    return sum(
-        checkpoint_count(seals[child])
-        for child in epic_children(epic_block, number, seals)
-        if "leaf-done" in labels_by_number.get(child, set())
-    )
+) -> list[dict]:
+    """Epic çocuklarının checkpoint'leri; `done` çocuk bazlıdır (leaf-done)."""
+    items: list[dict] = []
+    for child in epic_children(epic_block, number, seals):
+        items.extend(
+            checkpoint_items(
+                seals[child],
+                child,
+                "leaf-done" in labels_by_number.get(child, set()),
+            )
+        )
+    return items
+
+
+def epic_url(number: int, repo: str) -> str | None:
+    """GitHub issue bağlantısı; `tracker.repo` yoksa null."""
+    repo = repo.strip()
+    return f"https://github.com/{repo}/issues/{number}" if repo else None
 
 
 def epic_entry(
     number: int,
     title: str,
     labels: set[str],
-    checkpoint_done: int,
-    checkpoint_total: int,
+    checkpoints: list[dict],
+    updated_at: str | None,
+    url: str | None,
     issue_state: str = "",
     leaves: list[dict] | None = None,
 ) -> dict:
@@ -346,7 +379,9 @@ def epic_entry(
         "title": title,
         "state": epic_state(labels, issue_state),
         "risk": None,
-        "checkpoints": {"done": checkpoint_done, "total": checkpoint_total},
+        "checkpoints": list(checkpoints),
+        "updated_at": updated_at,
+        "url": url,
         "leaves": list(leaves or []),
         "gate": None,
         "open_findings": 0,
@@ -360,17 +395,28 @@ def epic_entry(
     }
 
 
-def collect_issues(issues: list[dict], all_epics: bool = False) -> tuple[list[dict], dict]:
+def issue_updated_at(issue: dict) -> str | None:
+    """Issue `updatedAt`; ISO-8601 değilse `null` (panel bozuk metin çizmesin)."""
+    value = issue.get("updatedAt")
+    if not isinstance(value, str):
+        return None
+    text = value.strip()
+    return text if ISO_8601.match(text) else None
+
+
+def collect_issues(
+    issues: list[dict], all_epics: bool = False, repo: str = ""
+) -> tuple[list[dict], dict]:
     """Issue listesinden epics + counts; epic/leaf bloklarına göre ayırır.
 
     `all_epics` kapalıyken `epic-done` etiketli veya kapalı issue'lar listeye
     girmez; `counts.leaves` yalnız listelenen epic'lerin `leaves[]` toplamıdır.
-    `leaves[]` seal şartı aramaz; seal yalnız checkpoint sayımını besler.
+    `leaves[]` seal şartı aramaz; seal yalnız checkpoint listesini besler.
     """
     seals: dict[int, dict] = {}
     issues_by_number: dict[int, dict] = {}
     labels_by_number: dict[int, set[str]] = {}
-    epic_rows: list[tuple[int, dict, set[str], str, str]] = []
+    epic_rows: list[tuple[int, dict, set[str], str, str, str | None]] = []
     blocked = 0
     for issue in issues:
         number = issue.get("number")
@@ -394,6 +440,7 @@ def collect_issues(issues: list[dict], all_epics: bool = False) -> tuple[list[di
                     labels,
                     str(issue.get("title") or ""),
                     str(issue.get("state") or ""),
+                    issue_updated_at(issue),
                 )
             )
     active_rows = [
@@ -406,12 +453,13 @@ def collect_issues(issues: list[dict], all_epics: bool = False) -> tuple[list[di
             number,
             title,
             labels,
-            epic_checkpoint_done(block, number, seals, labels_by_number),
-            epic_checkpoint_total(block, number, seals),
+            epic_checkpoint_items(block, number, seals, labels_by_number),
+            updated_at,
+            epic_url(number, repo),
             issue_state,
             epic_leaves(block, issues_by_number),
         )
-        for number, block, labels, title, issue_state in sorted(
+        for number, block, labels, title, issue_state, updated_at in sorted(
             active_rows, key=lambda row: row[0]
         )
     ]
@@ -503,7 +551,11 @@ def build_status(project: Path, args: argparse.Namespace) -> dict:
         if issues is None:
             stale = True
         else:
-            epics, counts = collect_issues(issues, all_epics=args.all_epics)
+            epics, counts = collect_issues(
+                issues,
+                all_epics=args.all_epics,
+                repo=str(section(config, "tracker").get("repo") or ""),
+            )
     if args.with_gate:
         if not epics:
             warnings.append("--with-gate: epic yok, doctor çağrılmadı")
@@ -539,6 +591,8 @@ EPIC_KEYS = {
     "state",
     "risk",
     "checkpoints",
+    "updated_at",
+    "url",
     "leaves",
     "gate",
     "open_findings",
@@ -547,6 +601,18 @@ EPIC_KEYS = {
     "cycle_minutes",
     "cost_delta",
 }
+
+
+def valid_checkpoint(item: object) -> bool:
+    return (
+        isinstance(item, dict)
+        and set(item) == {"id", "title", "done", "leaf"}
+        and isinstance(item.get("id"), str)
+        and isinstance(item.get("title"), str)
+        and isinstance(item.get("done"), bool)
+        and isinstance(item.get("leaf"), int)
+        and not isinstance(item.get("leaf"), bool)
+    )
 
 
 def valid_epic(item: object) -> bool:
@@ -559,12 +625,13 @@ def valid_epic(item: object) -> bool:
     if item.get("risk") is not None and not isinstance(item.get("risk"), str):
         return False
     checkpoints = item.get("checkpoints")
-    if not isinstance(checkpoints, dict) or set(checkpoints) != {"done", "total"}:
-        return False
-    if not all(
-        isinstance(checkpoints.get(key), int) and not isinstance(checkpoints.get(key), bool)
-        for key in ("done", "total")
+    if not isinstance(checkpoints, list) or not all(
+        valid_checkpoint(checkpoint) for checkpoint in checkpoints
     ):
+        return False
+    if item.get("updated_at") is not None and not isinstance(item.get("updated_at"), str):
+        return False
+    if item.get("url") is not None and not isinstance(item.get("url"), str):
         return False
     if item.get("gate") not in {None, "pass", "fail"}:
         return False
@@ -716,8 +783,9 @@ def render(data: dict) -> str:
         f"epic: {counts['epics']} · leaf: {counts['leaves']} · engel: {counts['blocked']}",
     ]
     for epic in data["epics"]:
-        checkpoints = epic.get("checkpoints") or {}
-        detail = f"cp {checkpoints.get('done', 0)}/{checkpoints.get('total', 0)}"
+        checkpoints = epic.get("checkpoints") or []
+        done = sum(1 for checkpoint in checkpoints if checkpoint.get("done"))
+        detail = f"cp {done}/{len(checkpoints)}"
         if epic.get("gate"):
             detail += f" · gate {epic['gate']}"
         lines.append(f"epic {epic.get('number', '?')}: {epic.get('state', '-')} · {detail}")
