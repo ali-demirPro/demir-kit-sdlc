@@ -90,5 +90,19 @@ class RealServerTests(unittest.TestCase):
         self.assertEqual(errors, [])
 
 
+class DocTests(unittest.TestCase):
+    def test_mcp_doc(self) -> None:
+        text = (ROOT / "delivery" / "protocol" / "mcp.md").read_text(encoding="utf-8")
+        for name in ("status", "brief", "doctor", "next_leaf_list", "guard"):
+            self.assertIn(name, text)
+        for word in ("Orca", "OpenCode", "readOnlyHint"):
+            self.assertIn(word, text)
+
+    def test_readme_link(self) -> None:
+        text = (ROOT / "README.md").read_text(encoding="utf-8")
+        self.assertIn("MCP", text)
+        self.assertIn("delivery/protocol/mcp.md", text)
+
+
 if __name__ == "__main__":
     unittest.main()
