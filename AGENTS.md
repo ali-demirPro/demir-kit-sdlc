@@ -2,7 +2,7 @@
 
 ## Repo
 
-demir-kit 2.56 — delivery-first agent system. Docs, YAML and small bash/python
+demir-kit 2.57 — delivery-first agent system. Docs, YAML and small bash/python
 scripts; Python unittest suite and CI, no app build system or package manager.
 "Correct" means the contract, registry, schemas and policies agree — `doctor.sh`
 decides.

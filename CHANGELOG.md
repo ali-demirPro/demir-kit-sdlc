@@ -1,5 +1,19 @@
 # Changelog
 
+## 2.57.0 — 2026-11-04
+
+- **MCP yüzeyi** — kit komutları (`status`, `brief`, `doctor`, `next_leaf_list`,
+  `guard`) stdio MCP sunucusundan salt-okunur açılır; araç tanımları
+  `readOnlyHint` taşır, mutasyon aracı yoktur.
+- **Orca plugin** — portföy paneli (liste + düz detay), iki durum çubuğu öğesi,
+  epic/leaf aksiyonları; kabul ve claim yalnız kit scriptleriyle yürür, panel
+  repoya yazmaz.
+- **Status sözleşmesi** — `epics[].checkpoints[]`, `epics[].leaves[]` ve
+  `project.repo_root` alanları; eski `{done,total}` biçimi çökmeden okunur.
+- **Self-update** — `self_update.py`: dry-run plan, `--apply`, `self`/`vendored`
+  mod, `--source`, `--skip-skills`; tek komutla güncelleme
+  ([runbook](delivery/runbooks/update.md)).
+
 ## 2.56.0 — 2026-11-02
 
 - **Fail-closed giriş** — `next-leaf` kaynak dosyaları kirli ve sealed leaf
