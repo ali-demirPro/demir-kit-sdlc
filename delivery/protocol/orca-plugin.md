@@ -1,14 +1,16 @@
-# Orca plugin (salt-okunur)
+# Orca plugin
 
 demir-kit'in Orca yüzeyi: sağ kenar çubuğunda portföy paneli ve iki durum
 çubuğu öğesi. Eklenti kendi kodunu Orca'nın ayrı Node sürecinde çalıştırır;
-`delivery/scripts/status.py` sözleşmesini okur, hiçbir şeyi değiştirmez.
+`delivery/scripts/status.py` sözleşmesini okur. Panelden gelen kabul ve claim
+istekleri yalnız kit scriptleriyle (`transition.sh`, `next-leaf.sh`) yürür; red
+yalnız `decision: rejected` yorumu yazar. Panel repoya dosya yazmaz.
 
 ## Ne yapar
 
 | Yüzey | Ne gösterir |
 |-------|-------------|
-| Panel `portfolio` | Her repo için tek proje kartı: repo adı + kısa yol, `epic N · leaf M`; epic ve leaf satırları; kartta canlı ajan satırı |
+| Panel `portfolio` | Liste: her repo için tek proje kartı, epic ve leaf satırları. Detay: seçilen epic tam panelde, düz özet ve aksiyonlar |
 | Durum çubuğu `epic` | Odaklı proje `ok` ve aktif epiği varsa `EP-N · CP d/t · gate g`; yoksa sağlıklı proje sayısı `N proje` |
 | Durum çubuğu `cost` | Maliyet; `status.py` henüz `null` döndüğü için `-` |
 
@@ -25,16 +27,58 @@ gönderir; `workspace.open`'ı `workspace:write` yetkisiyle yalnız işçi çağ
 `{ok}` (hata: `{ok:false,error}`) döner. Panel açılışta sorar, 30 saniyede bir
 yenilenir; "Yenile" düğmesi anında tazeler.
 
-## Detay
+## İki görünüm
 
-Epic satırına tıklama aynı panelde detayı açar/kapatır (açık epic kümesi
-`expanded` atomunda `plugin` kapsamında saklanır). Detayda `status.py`'nin
-`checkpoints[]` listesi `#<leaf> · CP-1 ✓ başlık` / `#<leaf> · CP-2 ○ başlık`
-olarak, onaylar (`agent_approved`, `human_qa`), `next_action`, `updated_at` ve
-"Issue'yu aç" düğmesi durur. Eski `status.py` biçimi (`checkpoints` dizi değil
-`{done,total}`) çökmez: CP listesi boş kalır, `CP done/total` rozeti `0/0` olur.
-Düğme `epics[].url` adresini `shell.openExternal` ile tarayıcıda açar; URL
-`status.py`'den gelir (`tracker.repo` yoksa `null`, düğme çizilmez).
+Panel tek bir `view` durumu taşır: `{kind:'list'}` ya da
+`{kind:'detail', projectId, epicNumber}`. Liste görünümünde her proje kartı
+epic ve leaf satırlarını çizer; epic satırına tıklama aynı paneli düz detaya
+çevirir, "‹ Geri" listeye döner. Görünüm `plugin` kapsamında saklanır.
+
+Detay **düzdür**, iç içe liste yoktur: başlık `#n — title`, state rozeti,
+`CP done/total`, `ajan onayı` ve `insan QA` rozetleri, `next_action`, kısa
+`updated_at` (`04.11 10:00`) ve aksiyon satırı. Detayda leaf listesi
+gösterilmez; leaf satırları yalnız liste görünümünde kalır. Detayda
+`checkpoints[]` satırları `#<leaf> · CP-1 ✓ başlık` / `#<leaf> · CP-2 ○ başlık`
+olarak CP özetiyle birlikte durur. Eski `status.py` biçimi (`checkpoints` dizi
+değil `{done,total}`) çökmez: CP listesi boş kalır, rozet `0/0` olur. "Issue'yu
+aç" düğmesi `epics[].url` adresini `shell.openExternal` ile tarayıcıda açar;
+URL `status.py`'den gelir (`tracker.repo` yoksa `null`, düğme çizilmez).
+
+## Aksiyonlar
+
+Panel aksiyonu yalnız işçiye istek olarak gider; istek `projectPath` taşır ve
+işçi projeyi son anlık görüntüdeki `path` ile eşleştirir (eşleşme yoksa
+`{ok:false}`). İşçi komutu çalıştırır ve `{ok, message, exitCode, tail, url}`
+döner. Hata fırlatılmaz: başarısız komut `ok:false`, son satırlar (`tail`) ve
+issue bağlantısı (`url`) ile panele döner; panel çalışmaya devam eder ve
+başarısız aksiyonda `tail` ile "Issue'yu aç" düğmesini gösterir.
+
+| İstek | Ne yapar |
+|-------|----------|
+| `epic.decision {projectPath, issue, decision}` | Önce `gh issue view N --json labels` ile `human-qa` etiketi aranır; yoksa hiçbir şey yazılmaz. Sonra `gh api user --jq .login` ile kullanıcı bulunur; `accepted` ise geçici dosyaya `demir-kit-accept` YAML bloğu (`epic`, `decision: accepted`, `by`) yazılıp `gh issue comment --body-file` ile yorumlanır, ardından `transition.sh --issue N --to epic-done --accept <login>` çağrılır. Geçiş düşerse az önce yazılan yorum `gh api -X DELETE repos/<repo>/issues/comments/<id>` ile silinir; `<id>` yorum URL'sindeki `#issuecomment-<id>`'den alınır. `rejected` ise yalnız `decision: rejected` yorumu yazılır, durum geçişi çağrılmaz |
+| `leaf.claim {projectPath}` | Projedeki ilk `agent-approved` leaf hedeflenir; `gh issue view N --json labels` ile `agent-approved` var ve `executing`/`leaf-done` yok denetlenir. Kapı geçerse `next-leaf.sh --claim` çağrılır |
+
+Sunucu tarafı kapı yorumdan öncedir: kabul/red için `human-qa`, claim için
+`agent-approved` ve `!(executing|leaf-done)` aranır; etiketler uygun değilse
+istek `{ok:false}` döner ve GitHub'a hiçbir şey yazılmaz. Kapı `gh issue view`
+çıktısını okuyamazsa da aksiyon durur.
+
+Komutlar projenin dizininde (`cwd`) ve kit kökündeki scriptle çalışır. Yorum
+gövdesi `fs.mkdtempSync(join(os.tmpdir(), 'demir-kit-'))` ile açılan 0700 geçici
+dizinde, 0600 izinli tek dosyada durur; iş bitince dizin silinir.
+
+Panel epic detayında `human_qa` varsa "Kabul et" / "Reddet", proje kartında
+`agent-approved` leaf varsa "Sıradaki leaf'i claim et" düğmesi gösterilir.
+Claim leaf satırında değil yalnız proje kartındadır ve istek `{projectPath}`'dir.
+Hepsi **iki adımlı onaydır**: ilk tık "Emin misin? Evet/Vazgeç" satırını açar,
+ikinci tık isteği çağırır. İşlem sonrası `status.snapshot` önbelleği atlanarak
+tazelenir ve sonuç notu panelde kalır (hata: `tail` + issue linki).
+
+Aksiyon geri alınabilir: kabulde geçiş düşerse yorum silinir; başka bir yanlış
+kabulde `epic-done` yerine `epic-reconcile`/`human-qa` etiketleri geri konur.
+Red yalnız yorum bırakır, durum değiştirmez; yanlış reddi düzeltmek için iş
+yeniden `executing`'e alınır ve yeni bir insan kararı istenir. Panelin kendisi
+etiket ya da dosya düzeltmez; düzeltme de aynı kit scriptinden geçer.
 
 ## Canlı durum
 
@@ -111,21 +155,31 @@ Manifest `execution: trusted-worker` ve beş yetenek ister:
 
 `trusted-worker` eklentinin kodunu **kullanıcı hesabının yetkileriyle**, Orca
 kum havuzunun dışında çalıştırır: yalnız kendi kodunu yükle. Aynı süreç
-`status.py`'yi `execFile` ile çağırır; kabuk kullanmaz.
+`status.py`'yi `execFile` ile çağırır; kabul ve claim aksiyonlarında kit
+scriptlerini `bash` ile çalıştırır, red yalnız yorum yazar. Kullanıcı girdisi
+kabuğa geçmez: argümanlar diziyle verilir.
 
 ## Sınırlar
 
-- Salt-okunur: issue, etiket, worktree, dosya veya git durumu yazılmaz.
+- Panel repoya yazmaz: issue, etiket, worktree, dosya veya git durumu doğrudan
+  değiştirilmez. Kabul ve claim yalnız kit scriptleriyle yürür; red yalnız
+  `decision: rejected` yorumu bırakır.
 - Satır tıklaması `plugin.request("workspace.open")` ile işçiye gider; işçi
   `orca.host.call` ile o projenin workspace'ini açar. Bu yöntem Orca'da
   `workspace:write` ister; manifest bu yetkiyi taşır, reddedilirse hata
   `{ok:false,error}` olarak panele döner ve panel çalışmaya devam eder.
-- `transition`, `claim`, `seal`, `update.py` çağrılmaz; mutasyon aracı yoktur.
-- Repoya yazma yok: `writeFile`, `mkdir`, `appendFile` kullanılmaz. Kalıcı veri
-  yalnızca Orca'nın `storage` ve `settings` API'lerinde durur.
+- `transition.sh` ve `next-leaf.sh` dışında durum mutasyonu yoktur; doğrudan
+  `git commit`, `git push` veya `gh issue close` çağrılmaz. `seal` ve
+  `update.py` panelden çalışmaz. Tek istisna kabul geçişi düşünce yazılan
+  yorumun `gh api -X DELETE` ile geri alınmasıdır.
+- Repoya yazma yok: kalıcı veri Orca'nın `storage` ve `settings` API'lerinde
+  durur. Yalnız kabul/red yorumu için `os.tmpdir()` altında 0700 geçici dizin
+  ve 0600 dosya yazılır, iş bitince dizin silinir; `mkdir`/`appendFile`
+  kullanılmaz.
 - Durum çubuğu güncellenemezse (başsız ana makine) panel yine çalışır; hata
   yalnızca eklenti günlüğüne düşer. Bu sınırları
-  `delivery/tests/test_orca_plugin.py` içindeki `ReadOnlyTests` denetler.
+  `delivery/tests/test_orca_plugin.py` içindeki `PanelTests`, `ActionTests` ve
+  `ReadOnlyTests` denetler.
 
 ## Sürüm
 

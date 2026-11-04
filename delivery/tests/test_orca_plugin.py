@@ -70,9 +70,14 @@ class ManifestTests(unittest.TestCase):
         self.assertIn("saved_at", source)
         self.assertIn("workspace.changed", source)
 
-    def test_no_mutation_calls(self) -> None:
+    def test_mutation_only_through_kit_scripts(self) -> None:
         source = WORKER.read_text(encoding="utf-8")
-        for forbidden in ("transition.sh", "seal", "claim", "git commit"):
+
+        # CP-2: mutasyon yalnız kit scriptleriyle; doğrudan git/gh yazımı yok.
+        self.assertIn("transition.sh", source)
+        self.assertIn("next-leaf.sh", source)
+        self.assertIn("'--claim'", source)
+        for forbidden in ("git commit", "git push", "gh issue close", "gh pr merge", "seal"):
             self.assertNotIn(forbidden, source)
 
 
@@ -209,6 +214,85 @@ class PanelTests(unittest.TestCase):
         self.assertIn("(epic.leaves ?? [])", list_source)
 
 
+class ActionTests(unittest.TestCase):
+    """CP-2: kabul/red/claim işçide kit scriptlerine gider; panel iki adım sorar."""
+
+    def setUp(self) -> None:
+        self.worker = WORKER.read_text(encoding="utf-8")
+        self.panel = PANEL.read_text(encoding="utf-8")
+
+    def test_accept_flow(self) -> None:
+        self.assertIn("orca.panels.handle('epic.decision'", self.worker)
+        self.assertIn("demir-kit-accept", self.worker)
+        self.assertIn("decision: accepted", self.worker)
+        self.assertIn("['api', 'user', '--jq', '.login']", self.worker)
+        self.assertIn("'--to',", self.worker)
+        self.assertIn("'epic-done',", self.worker)
+        self.assertIn("'--accept',", self.worker)
+        self.assertIn("['issue', 'comment', String(issue), '--body-file', temp.path]", self.worker)
+        # Geçici dizin 0700, dosya 0600 ve iş sonunda silinir.
+        self.assertIn("mkdtempSync(join(os.tmpdir(), 'demir-kit-'))", self.worker)
+        self.assertIn("mode: 0o600", self.worker)
+        self.assertIn("rmSync(dir, { recursive: true, force: true })", self.worker)
+        # Geçiş düşerse az önce yazılan yorum URL'deki id ile silinir.
+        self.assertIn("#issuecomment-(\\d+)", self.worker)
+        self.assertIn("'api', '-X', 'DELETE'", self.worker)
+        self.assertIn("repos/${match[1]}/issues/comments/${id}", self.worker)
+        self.assertIn("'geçiş başarısız; yorum geri alındı'", self.worker)
+        self.assertIn("'geçiş başarısız; yorum kaldı'", self.worker)
+        # Proje snapshot'taki `path` ile eşleşir; belirsizlik yok.
+        self.assertIn("function projectAt", self.worker)
+        self.assertIn("function projectPathOf", self.worker)
+        # Panel yalnız ister; işçi `{ok,message,exitCode,tail,url}` döner.
+        protocol = (PLUGIN / "src" / "protocol.ts").read_text(encoding="utf-8")
+        for field in ("ok: boolean", "message: string", "exitCode: number", "tail: string", "url: string"):
+            self.assertIn(field, protocol)
+        self.assertIn("label=\"Kabul et\"", self.panel)
+        self.assertIn("projectPath", self.panel)
+        # Hata UX: başarısız aksiyonda tail ve issue linki çizilir.
+        self.assertIn("note.tail", self.panel)
+        self.assertIn("openIssue(note.url)", self.panel)
+
+    def test_reject_flow(self) -> None:
+        self.assertIn("decision: rejected", self.worker)
+        # AC-4: red yalnız yorum yazar; `--to blocked` geçişi yok.
+        self.assertNotIn("'--reason'", self.worker)
+        self.assertNotIn("insan reddetti", self.worker)
+        # Red dalı, transition çağrısından önce döner.
+        reject_at = self.worker.index("if (decision === 'rejected')")
+        transition_at = self.worker.index("'transition.sh'")
+        self.assertLess(reject_at, transition_at)
+        self.assertIn("label=\"Reddet\"", self.panel)
+
+    def test_claim_flow(self) -> None:
+        self.assertIn("orca.panels.handle('leaf.claim'", self.worker)
+        self.assertIn("'next-leaf.sh'", self.worker)
+        self.assertIn("[script, '--claim']", self.worker)
+        # Claim proje kartında: istek yalnız `{projectPath}` taşır.
+        self.assertIn("label=\"Sıradaki leaf'i claim et\"", self.panel)
+        self.assertIn(
+            "plugin.request('leaf.claim', { projectPath: project.path })",
+            self.panel,
+        )
+        self.assertNotIn("'leaf.claim', { issue:", self.panel)
+        # İki adımlı onay: ilk tık sorar, ikinci tık çağırır.
+        self.assertIn("Emin misin?", self.panel)
+        self.assertIn("Vazgeç", self.panel)
+        self.assertIn("set(confirm, { id })", self.panel)
+
+    def test_gate_labels(self) -> None:
+        # Yorum yazmadan önce etiketler `gh issue view` ile okunur.
+        self.assertIn("['issue', 'view', String(issue), '--json', 'labels']", self.worker)
+        self.assertIn("function checkGate", self.worker)
+        self.assertIn("'human-qa'", self.worker)
+        self.assertIn("'agent-approved'", self.worker)
+        self.assertIn("'executing'", self.worker)
+        self.assertIn("'leaf-done'", self.worker)
+        # Kapı düşerse `{ok:false}` döner, yorum yazılmaz.
+        self.assertIn("if (!gate.ok)", self.worker)
+        self.assertIn("gate.reason,", self.worker)
+
+
 class LiveTests(unittest.TestCase):
     """CP-2: canlı ajan durumu ve tıklanınca açılan detay."""
 
@@ -280,7 +364,7 @@ class ReviewFixTests(unittest.TestCase):
 
 
 class ReadOnlyTests(unittest.TestCase):
-    """CP-3: eklenti salt-okunur kalır; yazma ve mutasyon aracı yoktur."""
+    """CP-2: mutasyon yalnız kit scriptleriyle; panel repoya yazmaz."""
 
     def plugin_sources(self) -> list[Path]:
         return sorted(
@@ -295,7 +379,8 @@ class ReadOnlyTests(unittest.TestCase):
 
         for path in sources:
             source = path.read_text(encoding="utf-8")
-            for forbidden in ("transition", "claim", "seal", "update.py"):
+            # Doğrudan ajan/mutasyon aracı yok: yalnız kit scriptleri çağrılır.
+            for forbidden in ("git commit", "git push", "gh issue close", "gh pr merge", "update.py"):
                 self.assertNotIn(
                     forbidden,
                     source,
@@ -303,14 +388,18 @@ class ReadOnlyTests(unittest.TestCase):
                 )
 
     def test_no_repo_writes(self) -> None:
-        for path in (WORKER, PANEL):
-            source = path.read_text(encoding="utf-8")
-            for forbidden in ("writeFile", "mkdir", "appendFile"):
-                self.assertNotIn(
-                    forbidden,
-                    source,
-                    f"{path.relative_to(ROOT)}: {forbidden} geçiyor",
-                )
+        worker = WORKER.read_text(encoding="utf-8")
+        panel = PANEL.read_text(encoding="utf-8")
+
+        # Kabul/red yorumu 0700 geçici dizin + 0600 dosyaya yazılır; repoya yazma yok.
+        self.assertIn("os.tmpdir()", worker)
+        self.assertIn("mkdtempSync(join(os.tmpdir(), 'demir-kit-'))", worker)
+        self.assertIn("writeFileSync(path, body, { encoding: 'utf8', mode: 0o600 })", worker)
+        self.assertIn("removeTempDir", worker)
+        for forbidden in ("writeFileSync(join(ref.path", "writeFileSync(join(project", "mkdir"):
+            self.assertNotIn(forbidden, worker)
+        for forbidden in ("writeFile", "mkdir", "appendFile"):
+            self.assertNotIn(forbidden, panel)
 
     def test_status_bar_calls(self) -> None:
         source = WORKER.read_text(encoding="utf-8")

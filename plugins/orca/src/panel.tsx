@@ -22,6 +22,7 @@ import {
   type PanelContext
 } from 'orca'
 import type {
+  ActionReply,
   StatusEpic,
   StatusLeaf,
   StatusProject,
@@ -40,6 +41,10 @@ const errorText = atom<string | null>(null)
 const loading = atom<boolean>(false)
 /** Liste ya da tek epic detayı; panel yeniden açılınca korunur. */
 const view = atom<PanelView>('view', { kind: 'list' }, { persist: 'plugin' })
+/** İki adımlı onay: ilk tık burada bekler, ikinci tık işlemi çağırır. */
+const confirm = atom<{ id: string } | null>(null)
+const actionNote = atom<ActionReply | null>(null)
+const acting = atom<boolean>(false)
 
 async function load(): Promise<void> {
   set(loading, true)
@@ -130,10 +135,12 @@ function agentTitles(project: StatusProject): string {
 
 /** Epic satırı detayı açar; liste görünümü tamamen detaya bırakılır. */
 function openEpic(project: StatusProject, epic: StatusEpic): void {
+  set(confirm, null)
   set(view, { kind: 'detail', projectId: project.id, epicNumber: epic.number })
 }
 
 function backToList(): void {
+  set(confirm, null)
   set(view, { kind: 'list' })
 }
 
@@ -143,6 +150,16 @@ function epicTitle(epic: StatusEpic): string {
 
 function leafTitle(leaf: StatusLeaf): string {
   return `#${leaf.number} — ${leaf.title ?? ''} · ${leaf.state ?? '-'}`
+}
+
+/** Proje kartındaki claim hedefi: ilk `agent-approved` leaf; yoksa null. */
+function claimableLeaf(project: StatusProject): number | null {
+  for (const epic of project.epics) {
+    for (const leaf of epic.leaves ?? []) {
+      if (leaf.state === 'agent-approved') return leaf.number
+    }
+  }
+  return null
 }
 
 /** Epic veya leaf satırı: o projenin workspace'ini göster.
@@ -163,8 +180,122 @@ function openIssue(url: string): void {
   })
 }
 
+/** Aksiyon sonucunu bırakır; başarısızsa komut çıktısı ve issue linki görünür. */
+async function runAction(request: () => Promise<ActionReply>): Promise<void> {
+  set(confirm, null)
+  set(acting, true)
+  set(actionNote, null)
+  try {
+    const answer = await request()
+    set(
+      actionNote,
+      answer ?? {
+        ok: false,
+        message: 'yanıt yok',
+        exitCode: 1,
+        tail: '',
+        url: ''
+      }
+    )
+  } catch (error) {
+    set(actionNote, {
+      ok: false,
+      message: error instanceof Error ? error.message : String(error),
+      exitCode: 1,
+      tail: '',
+      url: ''
+    })
+  } finally {
+    set(acting, false)
+    await load()
+  }
+}
+
+/** Panelin son aksiyonu: başarılıysa kısa not, değilse tail + issue linki. */
+function ActionNote({ note }: { note: ActionReply | null }) {
+  if (note === null) return null
+  if (note.ok) {
+    return (
+      <Text muted size="xs">
+        {note.message}
+      </Text>
+    )
+  }
+  return (
+    <Callout tone="danger" title="İşlem başarısız" icon="error">
+      <Stack gap="xs">
+        <Text tone="danger">{note.message}</Text>
+        {note.tail !== '' &&
+          note.tail.split('\n').map((line, index) => (
+            <Text key={`tail-${index}`} muted size="xs">
+              {line}
+            </Text>
+          ))}
+        {note.url !== '' && (
+          <Button
+            variant="outline"
+            size="sm"
+            icon="open-external"
+            onPress={() => openIssue(note.url)}
+          >
+            Issue'yu aç
+          </Button>
+        )}
+      </Stack>
+    </Callout>
+  )
+}
+
+/** İki adımlı onay: ilk tık `Emin misin?`, ikinci tık `run` çağırır. */
+function ConfirmButton({
+  id,
+  label,
+  run
+}: {
+  id: string
+  label: string
+  run: () => Promise<void>
+}) {
+  const pending = read(confirm)?.id === id
+  const busy = read(acting)
+  if (!pending) {
+    return (
+      <Button
+        variant="outline"
+        size="sm"
+        disabled={busy}
+        onPress={() => {
+          set(actionNote, null)
+          set(confirm, { id })
+        }}
+      >
+        {label}
+      </Button>
+    )
+  }
+  return (
+    <Row gap="xs" wrap>
+      <Text muted size="xs">
+        Emin misin?
+      </Text>
+      <Button size="sm" disabled={busy} onPress={() => void run()}>
+        Evet
+      </Button>
+      <Button variant="ghost" size="sm" onPress={() => set(confirm, null)}>
+        Vazgeç
+      </Button>
+    </Row>
+  )
+}
+
 /** Düz epic detayı: CP özeti ve aksiyonlar; iç içe leaf listesi yok. */
-function EpicDetail({ epic }: { epic: StatusEpic }) {
+function EpicDetail({
+  epic,
+  projectPath
+}: {
+  epic: StatusEpic
+  projectPath: string
+}) {
   // Eski `{done,total}` şekli dizi değildir: CP listesi boş kalır, panel çökmez.
   const checkpoints = Array.isArray(epic.checkpoints) ? epic.checkpoints : []
   const approvals = epic.approvals
@@ -204,6 +335,36 @@ function EpicDetail({ epic }: { epic: StatusEpic }) {
             Issue'yu aç
           </Button>
         )}
+        {approvals?.human_qa === true && (
+          <>
+            <ConfirmButton
+              id={`epic:${epic.number}:accepted`}
+              label="Kabul et"
+              run={() =>
+                runAction(() =>
+                  plugin.request('epic.decision', {
+                    projectPath,
+                    issue: epic.number,
+                    decision: 'accepted'
+                  })
+                )
+              }
+            />
+            <ConfirmButton
+              id={`epic:${epic.number}:rejected`}
+              label="Reddet"
+              run={() =>
+                runAction(() =>
+                  plugin.request('epic.decision', {
+                    projectPath,
+                    issue: epic.number,
+                    decision: 'rejected'
+                  })
+                )
+              }
+            />
+          </>
+        )}
       </Row>
     </Stack>
   )
@@ -216,6 +377,8 @@ function ProjectGroup({
   project: StatusProject
   focused: boolean
 }) {
+  const claimable = claimableLeaf(project)
+
   return (
     <Card title={projectTitle(project)} description={shortPath(project.path)}>
       <Stack gap="sm">
@@ -282,6 +445,18 @@ function ProjectGroup({
           </List>
         )}
 
+        {project.ok && claimable !== null && (
+          <ConfirmButton
+            id={`project:${project.id}:claim`}
+            label="Sıradaki leaf'i claim et"
+            run={() =>
+              runAction(() =>
+                plugin.request('leaf.claim', { projectPath: project.path })
+              )
+            }
+          />
+        )}
+
         {project.warnings.slice(0, 3).map((warning) => (
           <Text key={warning} muted size="xs">
             [uyarı] {warning}
@@ -296,7 +471,9 @@ export default function Panel() {
   const data = read(snapshot)
   const failure = read(errorText)
   const busy = read(loading)
+  const note = read(actionNote)
   const current = read(view)
+  const noteLine = <ActionNote note={note} />
 
   if (current.kind === 'detail') {
     const project = data?.projects.find((item) => item.id === current.projectId)
@@ -320,13 +497,15 @@ export default function Panel() {
           </Row>
         </Row>
 
+        {noteLine}
+
         {project !== undefined && epic !== undefined ? (
           <Box border={true} radius="md" padding="md">
             <Stack gap="xs">
               <Text muted size="xs">
                 {`${projectTitle(project)} · ${shortPath(project.path)}`}
               </Text>
-              <EpicDetail epic={epic} />
+              <EpicDetail epic={epic} projectPath={project.path} />
             </Stack>
           </Box>
         ) : (
@@ -368,6 +547,8 @@ export default function Panel() {
           </Stack>
         </Callout>
       )}
+
+      {noteLine}
 
       {failure === null && data === null && (
         <Stack gap="sm">

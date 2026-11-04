@@ -2,10 +2,18 @@
 // and the status bar. Orca transpiles this file when it loads: no build step, and no
 // writes to the project.
 import { execFile } from 'node:child_process'
-import { existsSync, readFileSync } from 'node:fs'
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync
+} from 'node:fs'
+import * as os from 'node:os'
 import { join } from 'node:path'
 import type { OrcaWorkerApi } from 'orca/worker'
 import type {
+  ActionReply,
   AgentState,
   StatusAgent,
   StatusCheckpoint,
@@ -21,6 +29,9 @@ import type {
 export const CACHE_MS = 30_000
 const CACHE_PREFIX = 'project:'
 const STATUS_TIMEOUT_MS = 10_000
+/** Claim ve geçiş `gh` çağırır: durum okumasından daha uzun sürebilir. */
+const ACTION_TIMEOUT_MS = 60_000
+const TAIL_LINES = 12
 const STATUS_SCRIPT = join('delivery', 'scripts', 'status.py')
 const NO_KIT = 'demir-kit yok'
 const ZERO_COUNTS: StatusCounts = { epics: 0, leaves: 0, blocked: 0 }
@@ -573,6 +584,228 @@ async function refreshAgents(
   await publish(orca, snapshot)
 }
 
+interface RunResult {
+  code: number
+  stdout: string
+  stderr: string
+}
+
+/** Komut hatası fırlatmaz: çıkış kodu ve çıktı aksiyon yanıtına gider. */
+function runCommand(
+  file: string,
+  args: string[],
+  cwd: string
+): Promise<RunResult> {
+  return new Promise((resolve) => {
+    execFile(
+      file,
+      args,
+      { cwd, timeout: ACTION_TIMEOUT_MS, maxBuffer: 1024 * 1024 },
+      (error, stdout, stderr) => {
+        let code = 0
+        if (error !== null) {
+          const raw = (error as { code?: unknown }).code
+          code = typeof raw === 'number' ? raw : 1
+        }
+        resolve({
+          code,
+          stdout: String(stdout ?? ''),
+          stderr: String(stderr ?? '')
+        })
+      }
+    )
+  })
+}
+
+/** Son birkaç satır: panel uzun `gh` çıktısını taşımaz. */
+function tailOf(result: RunResult): string {
+  const text = `${result.stdout}\n${result.stderr}`.trim()
+  if (text === '') return ''
+  const lines = text.split('\n').filter((line) => line.trim() !== '')
+  return lines.slice(-TAIL_LINES).join('\n').slice(-2000)
+}
+
+function actionReply(
+  ok: boolean,
+  message: string,
+  exitCode: number,
+  result?: RunResult,
+  url = ''
+): ActionReply {
+  return {
+    ok,
+    message,
+    exitCode,
+    tail: result === undefined ? '' : tailOf(result),
+    url
+  }
+}
+
+/** Panelin gönderdiği issue numarası; geçersizse null. */
+function issueOf(input: unknown): number | null {
+  const raw =
+    typeof input === 'object' && input !== null
+      ? (input as { issue?: unknown }).issue
+      : undefined
+  const issue = typeof raw === 'number' ? raw : Number(raw)
+  return Number.isInteger(issue) && issue > 0 ? issue : null
+}
+
+/** Panelin gönderdiği proje yolu; boş ya da eksikse null. */
+function projectPathOf(input: unknown): string | null {
+  const raw =
+    typeof input === 'object' && input !== null
+      ? (input as { projectPath?: unknown }).projectPath
+      : undefined
+  return typeof raw === 'string' && raw.trim() !== '' ? raw.trim() : null
+}
+
+/**
+ * Aksiyonun projesi: son anlık görüntüdeki kart, panelin verdiği `path` ile
+ * eşleşir. Bulunamazsa null döner, başka projede çalışılmaz.
+ */
+function projectAt(path: string): StatusProject | null {
+  const project = lastSnapshot?.projects.find((item) => item.path === path)
+  return project === undefined ? null : project
+}
+
+/** Proje kartındaki claim hedefi: ilk `agent-approved` leaf; yoksa null. */
+function nextClaimable(project: StatusProject): number | null {
+  for (const epic of project.epics) {
+    for (const leaf of epic.leaves ?? []) {
+      if (leaf.state === 'agent-approved') return leaf.number
+    }
+  }
+  return null
+}
+
+/** Issue bağlantısı `tracker.repo`'dan; repo yoksa boş kalır. */
+function issueUrl(project: StatusProject, issue: number): string {
+  const repo = (project.repo ?? '')
+    .trim()
+    .replace(/^https?:\/\/github\.com\//, '')
+    .replace(/\.git$/, '')
+  return repo === '' ? '' : `https://github.com/${repo}/issues/${issue}`
+}
+
+/** `approvals.py` biçimi: ```yaml demir-kit-accept ... ``` bloğu. */
+function decisionBody(
+  issue: number,
+  decision: 'accepted' | 'rejected',
+  login: string
+): string {
+  const decisionLine =
+    decision === 'accepted' ? 'decision: accepted' : 'decision: rejected'
+  return [
+    '```yaml demir-kit-accept',
+    `epic: ${issue}`,
+    decisionLine,
+    `by: ${login}`,
+    '```',
+    ''
+  ].join('\n')
+}
+
+/** Geçici dizin `os.tmpdir()` altında, 0700; dosya 0600; iş bitince dizin silinir. */
+interface TempBody {
+  dir: string
+  path: string
+}
+
+function writeTempBody(issue: number, body: string): TempBody {
+  const dir = mkdtempSync(join(os.tmpdir(), 'demir-kit-'))
+  const path = join(dir, `accept-${issue}.md`)
+  writeFileSync(path, body, { encoding: 'utf8', mode: 0o600 })
+  return { dir, path }
+}
+
+function removeTempDir(dir: string): void {
+  try {
+    rmSync(dir, { recursive: true, force: true })
+  } catch {
+    // Geçici dizin zaten silinmişse sorun değil.
+  }
+}
+
+/** `gh issue comment` çıktısındaki `#issuecomment-<id>` bağlantısı. */
+function commentIdOf(stdout: string): string {
+  const match = stdout.match(/#issuecomment-(\d+)/)
+  return match === null ? '' : match[1]
+}
+
+/** Başarısız kabulde az önce yazılan yorumu geri alır; en iyi çaba. */
+async function deleteComment(cwd: string, stdout: string): Promise<boolean> {
+  const id = commentIdOf(stdout)
+  const match = stdout.match(
+    /github\.com\/([^/\s]+\/[^/\s]+)\/issues\/\d+#issuecomment-\d+/
+  )
+  if (id === '' || match === null) return false
+  const result = await runCommand(
+    'gh',
+    ['api', '-X', 'DELETE', `repos/${match[1]}/issues/comments/${id}`],
+    cwd
+  )
+  return result.code === 0
+}
+
+type GateKind = 'decision' | 'claim'
+
+interface GateResult {
+  ok: boolean
+  reason: string
+  result: RunResult
+}
+
+/**
+ * Sunucu tarafı kapı: yorum yazmadan önce etiketler `gh issue view` ile
+ * doğrulanır. Karar `human-qa`, claim `agent-approved` ve başlamamış olmak ister.
+ */
+async function checkGate(
+  kind: GateKind,
+  issue: number,
+  cwd: string
+): Promise<GateResult> {
+  const result = await runCommand(
+    'gh',
+    ['issue', 'view', String(issue), '--json', 'labels'],
+    cwd
+  )
+  if (result.code !== 0) {
+    return { ok: false, reason: 'etiketler okunamadı', result }
+  }
+  let labels: string[] = []
+  try {
+    const parsed = JSON.parse(result.stdout) as {
+      labels?: Array<{ name?: unknown }>
+    }
+    labels = (parsed.labels ?? [])
+      .map((label) => (typeof label?.name === 'string' ? label.name : ''))
+      .filter((name) => name !== '')
+  } catch {
+    return { ok: false, reason: 'etiketler okunamadı', result }
+  }
+  const has = (name: string): boolean => labels.includes(name)
+  if (kind === 'decision' && !has('human-qa')) {
+    return { ok: false, reason: 'human-qa etiketi yok', result }
+  }
+  if (kind === 'claim' && !has('agent-approved')) {
+    return { ok: false, reason: 'agent-approved etiketi yok', result }
+  }
+  if (kind === 'claim' && (has('executing') || has('leaf-done'))) {
+    return { ok: false, reason: 'leaf zaten başlamış ya da bitmiş', result }
+  }
+  return { ok: true, reason: '', result }
+}
+
+/** Aksiyondan sonra önbelleği atlayıp paneli tazele; hata aksiyonu düşürmez. */
+async function refreshAfterAction(orca: OrcaWorkerApi): Promise<void> {
+  try {
+    await refresh(orca, true)
+  } catch (error) {
+    orca.log(`demir-kit: aksiyon sonrası tazeleme başarısız: ${messageOf(error)}`)
+  }
+}
+
 export default async function activate(orca: OrcaWorkerApi): Promise<void> {
   orca.panels.handle('status.snapshot', async () => refresh(orca, false))
 
@@ -590,6 +823,158 @@ export default async function activate(orca: OrcaWorkerApi): Promise<void> {
       return { ok: true }
     } catch (error) {
       return { ok: false, error: messageOf(error) }
+    }
+  })
+
+  // İnsan kararı: önce etiket kapısı, sonra yorum; kabulde `transition.sh`.
+  orca.panels.handle('epic.decision', async (input) => {
+    try {
+      const path = projectPathOf(input)
+      if (path === null) {
+        return actionReply(false, 'proje yolu yok', 1)
+      }
+      const issue = issueOf(input)
+      if (issue === null) {
+        return actionReply(false, 'issue yok', 1)
+      }
+      const rawDecision =
+        typeof input === 'object' && input !== null
+          ? (input as { decision?: unknown }).decision
+          : undefined
+      if (rawDecision !== 'accepted' && rawDecision !== 'rejected') {
+        return actionReply(false, 'karar yok', 1)
+      }
+      const decision: 'accepted' | 'rejected' = rawDecision
+      const project = projectAt(path)
+      if (project === null) {
+        return actionReply(false, 'proje bulunamadı', 1)
+      }
+      const kitRoot = kitRootFor(project.path)
+      if (kitRoot === null) {
+        return actionReply(false, NO_KIT, 1)
+      }
+      const url = issueUrl(project, issue)
+      // Kapı: karar yalnız `human-qa` etiketli issue'ya yazılır.
+      const gate = await checkGate('decision', issue, project.path)
+      if (!gate.ok) {
+        return actionReply(
+          false,
+          gate.reason,
+          gate.result.code === 0 ? 1 : gate.result.code,
+          gate.result,
+          url
+        )
+      }
+      const user = await runCommand(
+        'gh',
+        ['api', 'user', '--jq', '.login'],
+        project.path
+      )
+      const login = user.stdout.trim()
+      if (user.code !== 0 || login === '') {
+        return actionReply(
+          false,
+          'GitHub kullanıcısı okunamadı',
+          user.code,
+          user,
+          url
+        )
+      }
+
+      const temp = writeTempBody(issue, decisionBody(issue, decision, login))
+      let comment: RunResult
+      try {
+        comment = await runCommand(
+          'gh',
+          ['issue', 'comment', String(issue), '--body-file', temp.path],
+          project.path
+        )
+      } finally {
+        removeTempDir(temp.dir)
+      }
+      if (comment.code !== 0) {
+        return actionReply(false, 'yorum yazılamadı', comment.code, comment, url)
+      }
+
+      // Red yalnız yorum yazar; durum geçişi çağrılmaz (AC-4).
+      if (decision === 'rejected') {
+        await refreshAfterAction(orca)
+        return actionReply(true, 'epic reddedildi', 0, comment, url)
+      }
+
+      const script = join(kitRoot, 'delivery', 'scripts', 'transition.sh')
+      const transition = await runCommand(
+        'bash',
+        [
+          script,
+          '--issue',
+          String(issue),
+          '--to',
+          'epic-done',
+          '--accept',
+          login
+        ],
+        project.path
+      )
+      if (transition.code !== 0) {
+        // Geçiş düşerse az önce yazılan yorum GitHub'da artık kalmasın.
+        const removed = await deleteComment(project.path, comment.stdout)
+        await refreshAfterAction(orca)
+        const message = removed
+          ? 'geçiş başarısız; yorum geri alındı'
+          : 'geçiş başarısız; yorum kaldı'
+        return actionReply(false, message, transition.code, transition, url)
+      }
+      await refreshAfterAction(orca)
+      return actionReply(true, 'epic kabul edildi', 0, transition, url)
+    } catch (error) {
+      return actionReply(false, messageOf(error), 1)
+    }
+  })
+
+  // Leaf claim: proje kartından; hedef leaf sunucuda etiketle doğrulanır.
+  orca.panels.handle('leaf.claim', async (input) => {
+    try {
+      const path = projectPathOf(input)
+      if (path === null) {
+        return actionReply(false, 'proje yolu yok', 1)
+      }
+      const project = projectAt(path)
+      if (project === null) {
+        return actionReply(false, 'proje bulunamadı', 1)
+      }
+      const kitRoot = kitRootFor(project.path)
+      if (kitRoot === null) {
+        return actionReply(false, NO_KIT, 1)
+      }
+      const leaf = nextClaimable(project)
+      if (leaf === null) {
+        return actionReply(false, 'sıradaki leaf yok', 1)
+      }
+      const url = issueUrl(project, leaf)
+      // Kapı: claim yalnız `agent-approved` ve başlamamış leaf'e yazılır.
+      const gate = await checkGate('claim', leaf, project.path)
+      if (!gate.ok) {
+        return actionReply(
+          false,
+          gate.reason,
+          gate.result.code === 0 ? 1 : gate.result.code,
+          gate.result,
+          url
+        )
+      }
+      const script = join(kitRoot, 'delivery', 'scripts', 'next-leaf.sh')
+      const claim = await runCommand('bash', [script, '--claim'], project.path)
+      await refreshAfterAction(orca)
+      return actionReply(
+        claim.code === 0,
+        claim.code === 0 ? 'claim alındı' : 'claim başarısız',
+        claim.code,
+        claim,
+        url
+      )
+    } catch (error) {
+      return actionReply(false, messageOf(error), 1)
     }
   })
 

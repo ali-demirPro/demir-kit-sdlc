@@ -15,10 +15,11 @@ const epicDetail = {
   url: 'https://github.com/ali-demirPro/demir-kit-sdlc/issues/185',
   leaves: [
     { number: 184, title: 'Leaf: status + plugin', state: 'executing' },
+    { number: 183, title: 'Leaf: onay bekleyen', state: 'agent-approved' },
     { number: 182, title: 'Leaf: biten checkpoint', state: 'leaf-done' }
   ],
   gate: null,
-  approvals: { agent_approved: true, human_qa: false },
+  approvals: { agent_approved: true, human_qa: true },
   next_action: 'CP-2 panel detayı'
 }
 
@@ -35,7 +36,7 @@ const snapshot = {
       repo_root: '/Users/ali/projeler/demir-kit',
       ok: true,
       epics: [epicDetail],
-      counts: { epics: 1, leaves: 2, blocked: 0 },
+      counts: { epics: 1, leaves: 3, blocked: 0 },
       agents: [
         { terminalId: 't1', title: 'claude/main', state: 'working' },
         { terminalId: 't2', title: 'codex/review', state: 'working' },
