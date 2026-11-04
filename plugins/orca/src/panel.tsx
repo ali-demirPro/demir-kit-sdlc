@@ -122,7 +122,14 @@ export default function Panel() {
         </Stack>
       )}
 
-      {failure === null && data !== null && !data.ok && (
+      {failure === null && data !== null && data.code === 'no-kit' && (
+        <EmptyState
+          title="demir-kit bulunamadı"
+          description="Proje yolunu Ayarlar > demir-kit > Proje yolu altında ver."
+        />
+      )}
+
+      {failure === null && data !== null && !data.ok && data.code !== 'no-kit' && (
         <Callout tone="danger" title="Durum okunamadı" icon="error">
           <Stack gap="xs">
             <Text tone="danger">{data.error ?? 'bilinmeyen hata'}</Text>

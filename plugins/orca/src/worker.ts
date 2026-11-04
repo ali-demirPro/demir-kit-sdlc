@@ -1,7 +1,7 @@
 // demir-kit worker: reads `status.py --json` and feeds the panel and the status bar.
 // Orca transpiles this file when it loads: no build step, and no writes to the project.
 import { execFile } from 'node:child_process'
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { OrcaWorkerApi } from 'orca/worker'
 import type { StatusCounts, StatusEpic, StatusSnapshot } from './protocol'
@@ -30,17 +30,15 @@ function call(orca: OrcaWorkerApi): HostCall {
   return orca.host.call as HostCall
 }
 
-/** `statusBar.update` names an item from `contributes.statusBarItems`. */
-async function updateStatusBar(
-  orca: OrcaWorkerApi,
-  patch: { id: string; text?: string; tone?: 'neutral' | 'warning'; visible?: boolean }
-): Promise<void> {
-  await call(orca)('statusBar.update', patch)
-}
-
-function failed(error: string, warnings: string[], project: string | null = null): StatusSnapshot {
+function failed(
+  error: string,
+  warnings: string[],
+  project: string | null = null,
+  code: 'no-kit' | null = null
+): StatusSnapshot {
   return {
     ok: false,
+    code,
     source: 'none',
     project,
     project_name: null,
@@ -53,29 +51,71 @@ function failed(error: string, warnings: string[], project: string | null = null
   }
 }
 
-/** The configured project path, else the first workspace that holds kit.config.yaml. */
-async function resolveProject(orca: OrcaWorkerApi): Promise<string | null> {
+interface ProjectRef {
+  path: string
+  kitRoot: string
+}
+
+/** `kit.config.yaml` içindeki `kit.root`; status.py orada yoksa null. */
+function kitRootFor(project: string): string | null {
+  try {
+    const text = readFileSync(join(project, 'kit.config.yaml'), 'utf8')
+    const match = text.match(/^\s*root:\s*['"]?([^'"\n#]+)/m)
+    const rel = match ? match[1].trim() : '.'
+    if (rel.startsWith('/') || rel.split(/[\\/]/).includes('..')) {
+      return null
+    }
+    const root = rel === '.' ? project : join(project, rel)
+    return existsSync(join(root, STATUS_SCRIPT)) ? root : null
+  } catch {
+    return existsSync(join(project, STATUS_SCRIPT)) ? project : null
+  }
+}
+
+function refFor(path: string): ProjectRef | null {
+  const kitRoot = kitRootFor(path)
+  return kitRoot === null ? null : { path, kitRoot }
+}
+
+/** Ayarlardaki yol; yoksa odaklı workspace; yoksa kit'i olan ilk workspace. */
+async function resolveProject(orca: OrcaWorkerApi): Promise<ProjectRef | null> {
   const configured = await orca.settings.get('projectPath')
   if (typeof configured === 'string' && configured.trim() !== '') {
-    return configured.trim()
+    return refFor(configured.trim())
   }
   const listed = (await call(orca)('workspace.list')) as {
-    workspaces?: Array<{ path?: string }>
+    workspaces?: Array<{ path?: string; name?: string }>
   } | null
-  for (const workspace of listed?.workspaces ?? []) {
-    if (typeof workspace.path === 'string' && existsSync(join(workspace.path, 'kit.config.yaml'))) {
-      return workspace.path
+  const workspaces = (listed?.workspaces ?? []).filter(
+    (workspace): workspace is { path: string; name?: string } =>
+      typeof workspace.path === 'string'
+  )
+  const context = (await call(orca)('workspace.readContext')) as {
+    displayName?: string
+  } | null
+  const focused = context?.displayName
+  if (typeof focused === 'string') {
+    const match = workspaces.find((workspace) => workspace.name === focused)
+    const ref = match ? refFor(match.path) : null
+    if (ref !== null) {
+      return ref
+    }
+  }
+  for (const workspace of workspaces) {
+    const ref = refFor(workspace.path)
+    if (ref !== null) {
+      return ref
     }
   }
   return null
 }
 
-function runStatus(project: string): Promise<StatusJson> {
+function runStatus(ref: ProjectRef): Promise<StatusJson> {
   return new Promise((resolve, reject) => {
     execFile(
       'python3',
-      [join(project, STATUS_SCRIPT), '--json'],
-      { cwd: project, timeout: STATUS_TIMEOUT_MS, maxBuffer: 4 * 1024 * 1024 },
+      [join(ref.kitRoot, STATUS_SCRIPT), '--json'],
+      { cwd: ref.path, timeout: STATUS_TIMEOUT_MS, maxBuffer: 4 * 1024 * 1024 },
       (error, stdout) => {
         if (error !== null) {
           reject(error)
@@ -103,14 +143,16 @@ function statusText(snapshot: StatusSnapshot): string {
 }
 
 async function publish(orca: OrcaWorkerApi, snapshot: StatusSnapshot): Promise<void> {
+  const host = call(orca)
   try {
-    await updateStatusBar(orca, {
+    // Her çağrı `contributes.statusBarItems` içindeki bir öğeyi adlandırır.
+    await host('statusBar.update', {
       id: 'epic',
       text: statusText(snapshot),
       tone: snapshot.ok ? 'neutral' : 'warning'
     })
     // Maliyet alanı henüz yok: status.py cost_delta null döndürüyor.
-    await updateStatusBar(orca, { id: 'cost', text: '-' })
+    await host('statusBar.update', { id: 'cost', text: '-' })
   } catch (error) {
     // No status bar (headless host): the panel still gets the snapshot.
     orca.log(`demir-kit: status bar güncellenemedi: ${String(error)}`)
@@ -133,6 +175,9 @@ function isSnapshot(value: unknown): value is StatusSnapshot {
     value !== null &&
     'ok' in value &&
     typeof (value as { ok: unknown }).ok === 'boolean' &&
+    typeof (value as { source?: unknown }).source === 'string' &&
+    Array.isArray((value as { epics?: unknown }).epics) &&
+    Array.isArray((value as { warnings?: unknown }).warnings) &&
     'counts' in value
   )
 }
@@ -141,21 +186,27 @@ async function refresh(orca: OrcaWorkerApi, force: boolean): Promise<StatusSnaps
   const warnings: string[] = []
   let project: string | null = null
   try {
-    if (!force) {
-      const cached = await fromCache(orca)
-      if (cached !== null) {
-        return cached
-      }
-    }
-
-    project = await resolveProject(orca)
-    if (project === null) {
-      const snapshot = failed('proje yolu bulunamadı: Ayarlar > demir-kit > Proje yolu', warnings)
+    const ref = await resolveProject(orca)
+    project = ref?.path ?? null
+    if (ref === null) {
+      const snapshot = failed(
+        'demir-kit bulunamadı: Ayarlar > demir-kit > Proje yolu',
+        warnings,
+        null,
+        'no-kit'
+      )
       await publish(orca, snapshot)
       return snapshot
     }
 
-    const data = await runStatus(project)
+    if (!force) {
+      const cached = await fromCache(orca)
+      if (cached !== null && cached.project === ref.path) {
+        return cached
+      }
+    }
+
+    const data = await runStatus(ref)
     const snapshot: StatusSnapshot = {
       ok: true,
       source: data.source === 'cache' ? 'cache' : 'live',

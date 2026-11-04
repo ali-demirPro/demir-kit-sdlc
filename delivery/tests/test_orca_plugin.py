@@ -1,4 +1,4 @@
-"""Orca eklenti manifesti ve işçi sözleşmesi testleri (issue #180, CP-1)."""
+"""Orca eklenti manifesti, işçi sözleşmesi ve salt-okunur kanıtı (issue #180)."""
 
 from __future__ import annotations
 
@@ -10,6 +10,8 @@ ROOT = Path(__file__).resolve().parents[2]
 PLUGIN = ROOT / "plugins" / "orca"
 MANIFEST = PLUGIN / "orca-plugin.json"
 WORKER = PLUGIN / "src" / "worker.ts"
+PANEL = PLUGIN / "src" / "panel.tsx"
+SOURCE_SUFFIXES = {".ts", ".tsx", ".json"}
 
 
 class ManifestTests(unittest.TestCase):
@@ -66,6 +68,58 @@ class ManifestTests(unittest.TestCase):
         source = WORKER.read_text(encoding="utf-8")
         for forbidden in ("transition.sh", "seal", "claim", "git commit"):
             self.assertNotIn(forbidden, source)
+
+
+class WorkerBehaviorTests(unittest.TestCase):
+    def test_cache_is_project_keyed(self) -> None:
+        source = (PLUGIN / "src" / "worker.ts").read_text(encoding="utf-8")
+        self.assertIn("cached.project === ref.path", source)
+        self.assertIn("no-kit", source)
+
+    def test_kit_root_is_confined(self) -> None:
+        source = (PLUGIN / "src" / "worker.ts").read_text(encoding="utf-8")
+        self.assertIn("includes('..')", source)
+
+
+class ReadOnlyTests(unittest.TestCase):
+    """CP-3: eklenti salt-okunur kalır; yazma ve mutasyon aracı yoktur."""
+
+    def plugin_sources(self) -> list[Path]:
+        return sorted(
+            path
+            for path in PLUGIN.rglob("*")
+            if path.is_file() and path.suffix in SOURCE_SUFFIXES
+        )
+
+    def test_no_mutation_tools(self) -> None:
+        sources = self.plugin_sources()
+        self.assertGreaterEqual(len(sources), 5)
+
+        for path in sources:
+            source = path.read_text(encoding="utf-8")
+            for forbidden in ("transition", "claim", "seal", "update.py"):
+                self.assertNotIn(
+                    forbidden,
+                    source,
+                    f"{path.relative_to(ROOT)}: {forbidden} geçiyor",
+                )
+
+    def test_no_repo_writes(self) -> None:
+        for path in (WORKER, PANEL):
+            source = path.read_text(encoding="utf-8")
+            for forbidden in ("writeFile", "mkdir", "appendFile"):
+                self.assertNotIn(
+                    forbidden,
+                    source,
+                    f"{path.relative_to(ROOT)}: {forbidden} geçiyor",
+                )
+
+    def test_status_bar_calls(self) -> None:
+        source = WORKER.read_text(encoding="utf-8")
+
+        self.assertEqual(source.count("statusBar.update"), 2)
+        self.assertIn("id: 'epic'", source)
+        self.assertIn("id: 'cost'", source)
 
 
 if __name__ == "__main__":

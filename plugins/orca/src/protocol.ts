@@ -35,6 +35,8 @@ export interface StatusSnapshot {
   generated_at: string | null
   warnings: string[]
   error?: string
+  /** `no-kit`: proje/kit bulunamadı; panel boş durum çizer. */
+  code?: 'no-kit' | null
 }
 
 declare module 'orca' {
