@@ -43,3 +43,9 @@ Closure metrikleri: `delivery/metrics/README.md`.
 ./install.sh --with-platform   # Orca skill'leri + v2 skills/
 ./install.sh --legacy          # geçiş: v1 arşivinden kur
 ```
+
+## MCP (salt-okunur)
+
+Kit komutlarını MCP üzerinden ajanlara açar: `status`, `brief`, `doctor`,
+`next_leaf_list`, `guard`. Sunucu yazmaz; mutasyon aracı yoktur.
+Ayrıntı ve kayıt (Orca / OpenCode): [delivery/protocol/mcp.md](delivery/protocol/mcp.md).
