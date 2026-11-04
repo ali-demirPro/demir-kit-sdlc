@@ -31,6 +31,14 @@ def snapshot(root: Path) -> set[str]:
 class ServerTestCase(unittest.TestCase):
     proc: subprocess.Popen[str] | None = None
 
+    def make_project(self, tmp: str) -> Path:
+        """Kit kökünü işaret eden geçici proje (kit.config.yaml)."""
+        project = Path(tmp)
+        (project / "kit.config.yaml").write_text(
+            f"kit:\n  root: {ROOT}\n  version: 2.56.0\n", encoding="utf-8"
+        )
+        return project
+
     def setUp(self) -> None:
         self.proc = None
 
@@ -145,7 +153,11 @@ class ProtocolTests(ServerTestCase):
 
         broken = self.send('{"jsonrpc": "2.0", "id": 4, "method": ')
         assert broken is not None
-        self.assertEqual(broken["error"]["code"], -32602)
+        self.assertEqual(broken["error"]["code"], -32700)
+
+        not_object = self.send([1, 2, 3])
+        assert not_object is not None
+        self.assertEqual(not_object["error"]["code"], -32600)
 
         # Süreç yaşıyor: sonraki istek hâlâ yanıtlanır.
         alive = self.send({"jsonrpc": "2.0", "id": 5, "method": "ping"})
@@ -173,8 +185,8 @@ class ToolTests(ServerTestCase):
         data = json.loads(text)
         self.assertIn("contract_version", data)
 
-    def test_bad_arguments(self) -> None:
-        """Eksik/yanlış argüman JSON-RPC -32602 döner; süreç yaşar."""
+    def test_errors(self) -> None:
+        """Eksik/yanlış argüman ve bilinmeyen araç -32602; süreç yaşar."""
         self.start("--project", str(ROOT))
         missing = self.call_tool("brief", {}, msg_id=11)
         self.assertEqual(missing["error"]["code"], -32602)
@@ -189,25 +201,59 @@ class ToolTests(ServerTestCase):
         missing_argument = self.call_tool("guard", None, msg_id=14)
         self.assertEqual(missing_argument["error"]["code"], -32602)
 
-        alive = self.send({"jsonrpc": "2.0", "id": 15, "method": "ping"})
-        assert alive is not None
-        self.assertEqual(alive["result"], {})
-        assert self.proc is not None
-        self.assertIsNone(self.proc.poll(), "sunucu süreci yaşamalı")
-
-    def test_unknown_tool(self) -> None:
-        """Bilinmeyen araç isError döner; süreç düşmez."""
-        self.start("--project", str(ROOT))
-        reply = self.call_tool("transition", {"issue": 1}, msg_id=16)
-        result = reply["result"]
-        self.assertTrue(result["isError"])
-        self.assertIn("bilinmeyen araç", result["content"][0]["text"])
+        unknown_tool = self.call_tool("transition", {"issue": 1}, msg_id=16)
+        self.assertEqual(unknown_tool["error"]["code"], -32602)
+        self.assertIn("bilinmeyen araç", unknown_tool["error"]["message"])
 
         alive = self.send({"jsonrpc": "2.0", "id": 17, "method": "ping"})
         assert alive is not None
         self.assertEqual(alive["result"], {})
         assert self.proc is not None
         self.assertIsNone(self.proc.poll(), "sunucu süreci yaşamalı")
+
+
+class ToolReadOnlyAlias:
+    """T-5 kimliği ToolTests altında; gövde ReadOnlyTests ile aynı."""
+
+
+class ReadOnlyTests(ServerTestCase):
+    def test_read_only_tools(self) -> None:
+        """Yasak mutasyon araçları yok, hepsi salt-okunur; status dosya yazmaz."""
+        with tempfile.TemporaryDirectory(prefix="mcp-ro-") as tmp:
+            project = self.make_project(tmp)
+            self.start("--project", str(project))
+            listed = self.send({"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
+            assert listed is not None
+            tools = listed["result"]["tools"]
+            names = {item["name"] for item in tools}
+            self.assertEqual(names, TOOL_NAMES)
+            self.assertFalse(names & FORBIDDEN, f"mutasyon aracı listelendi: {names & FORBIDDEN}")
+            for item in tools:
+                self.assertIs(item["annotations"].get("readOnlyHint"), True)
+                self.assertNotIn(item["name"], FORBIDDEN)
+
+            before = snapshot(project)
+            reply = self.call_tool("status", {"offline": True}, msg_id=2)
+            self.assertFalse(reply["result"]["isError"])
+            self.assertIn("contract_version", reply["result"]["content"][0]["text"])
+            self.assertEqual(snapshot(project), before, "status yeni dosya yazmamalı")
+
+    def test_status_is_read_only(self) -> None:
+        """status öncesi/sonrası dosya listesi aynı; önbellek yazılmıyor."""
+        with tempfile.TemporaryDirectory(prefix="mcp-status-") as tmp:
+            project = self.make_project(tmp)
+            before = snapshot(project)
+            self.start("--project", str(project))
+            reply = self.call_tool("status", {"offline": True}, msg_id=3)
+            self.assertFalse(reply["result"]["isError"])
+            self.assertEqual(snapshot(project), before)
+            self.assertFalse(
+                (project / ".orchestration" / "status-cache.json").exists(),
+                "--cache-ttl verilmediği için önbellek yazılmamalı",
+            )
+
+
+ToolTests.test_read_only_tools = ReadOnlyTests.test_read_only_tools
 
 
 class ProtocolVersionTests(unittest.TestCase):

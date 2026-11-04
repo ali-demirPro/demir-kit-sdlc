@@ -8,7 +8,7 @@ Protokol:
 
 `tools/call` mevcut kit komutlarını alt süreç olarak koşar (cwd = proje,
 120 sn zaman aşımı, stdout+stderr birleşik); hiçbir araç yazma yapmaz.
-Eksik/yanlış argüman `-32602`, bilinmeyen araç `isError: true` döner.
+Eksik/yanlış argüman ve bilinmeyen araç `-32602` döner.
 Çıktı 20.000 karakterde kırpılır ve not düşülür.
 
 Proje çözümü: `--project PATH` ya da cwd'de `kit.config.yaml`. Kit kökü
@@ -35,11 +35,13 @@ DEFAULT_PROTOCOL = "2024-11-05"
 
 # JSON-RPC 2.0 hata kodları.
 PARSE_ERROR = -32700
+INVALID_REQUEST = -32600
 METHOD_NOT_FOUND = -32601
 INVALID_PARAMS = -32602
 INTERNAL_ERROR = -32603
 
 MAX_TEXT = 20_000
+MAX_LINE = 1_048_576
 TRUNCATED_NOTE = "… (kırpıldı)"
 TOOL_TIMEOUT = 120
 
@@ -337,7 +339,7 @@ class McpServer:
         }
 
     def call_tool(self, params: object) -> dict:
-        """Araç çağrısı: bilinmeyen ad isError, bozuk argüman JSON-RPC hatası."""
+        """Araç çağrısı: bilinmeyen ad ve bozuk argüman JSON-RPC hatası."""
         if not isinstance(params, dict):
             raise ValueError("params bir nesne olmalı")
         name = params.get("name")
@@ -345,10 +347,7 @@ class McpServer:
             raise ValueError("name zorunlu")
         spec = TOOL_BY_NAME.get(name)
         if spec is None:
-            return {
-                "content": [{"type": "text", "text": f"bilinmeyen araç: {name}"}],
-                "isError": True,
-            }
+            raise LookupError(f"bilinmeyen araç: {name}")
         arguments = validate_arguments(spec["inputSchema"], params.get("arguments"))
         return self.run_tool(name, arguments)
 
@@ -441,15 +440,17 @@ class McpServer:
     def handle(self, message: object) -> dict | None:
         """Bir mesajı işler; yanıt yoksa None (bildirimler)."""
         if not isinstance(message, dict):
-            return rpc_error(None, INVALID_PARAMS, "geçersiz istek: JSON nesnesi bekleniyor")
+            return rpc_error(None, INVALID_REQUEST, "geçersiz istek: JSON nesnesi bekleniyor")
         is_notification = "id" not in message
         msg_id = message.get("id")
         method = message.get("method")
         if not isinstance(method, str) or not method:
             if is_notification:
                 return None
-            return rpc_error(msg_id, INVALID_PARAMS, "geçersiz istek: method yok")
+            return rpc_error(msg_id, INVALID_REQUEST, "geçersiz istek: method yok")
         if method == "notifications/initialized":
+            return None
+        if method == "tools/call" and is_notification:
             return None
         params = message.get("params", {})
         try:
@@ -484,12 +485,21 @@ class McpServer:
         try:
             message = json.loads(line)
         except json.JSONDecodeError as exc:
-            return rpc_error(None, INVALID_PARAMS, f"bozuk JSON: {exc.msg}")
+            return rpc_error(None, PARSE_ERROR, f"bozuk JSON: {exc.msg}")
         return self.handle(message)
 
     def serve(self, stream_in, stream_out) -> None:
-        for line in stream_in:
-            response = self.handle_line(line)
+        for raw in stream_in:
+            if isinstance(raw, bytes):
+                line = raw.decode("utf-8", errors="replace")
+            else:
+                line = raw
+            if len(line) > MAX_LINE:
+                response = rpc_error(
+                    None, INVALID_REQUEST, f"satır çok uzun (> {MAX_LINE} bayt)"
+                )
+            else:
+                response = self.handle_line(line)
             if response is None:
                 continue
             try:
@@ -520,7 +530,7 @@ def main() -> int:
             file=sys.stderr,
         )
     server = McpServer(project, kit_root, config)
-    server.serve(sys.stdin, sys.stdout)
+    server.serve(sys.stdin.buffer, sys.stdout)
     return 0
 
 
