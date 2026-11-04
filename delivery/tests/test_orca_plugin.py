@@ -43,7 +43,10 @@ class ManifestTests(unittest.TestCase):
         self.assertEqual(commands[0]["id"], "demir-kit.refresh")
         self.assertEqual(commands[0]["when"], "global")
 
-        self.assertEqual([event["on"] for event in contributes["events"]], ["workspace.changed"])
+        self.assertEqual(
+            [event["on"] for event in contributes["events"]],
+            ["workspace.changed", "agent.status.changed"],
+        )
 
         settings = contributes["settings"]
         self.assertEqual(len(settings), 1)
@@ -52,7 +55,8 @@ class ManifestTests(unittest.TestCase):
 
         kinds = {capability["kind"] for capability in manifest["capabilities"]}
         self.assertEqual(
-            kinds, {"workspace:read", "workspace:write", "storage:own", "settings:own"}
+            kinds,
+            {"workspace:read", "workspace:write", "agent:read", "storage:own", "settings:own"},
         )
 
     def test_worker_contract(self) -> None:
@@ -173,6 +177,76 @@ class ActiveWorkTests(unittest.TestCase):
         self.assertIn(
             "`#${leaf.number} — ${leaf.title ?? ''} · ${leaf.state ?? '-'}`", source
         )
+
+
+class LiveTests(unittest.TestCase):
+    """CP-2: canlı ajan durumu ve tıklanınca açılan detay."""
+
+    def test_agents_event(self) -> None:
+        source = WORKER.read_text(encoding="utf-8")
+        self.assertIn("agent.status.changed", source)
+        self.assertIn("agents.list", source)
+        self.assertIn("live", source)
+
+        manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
+        self.assertIn(
+            "agent:read", {item["kind"] for item in manifest["capabilities"]}
+        )
+
+    def test_detail_renders(self) -> None:
+        source = PANEL.read_text(encoding="utf-8")
+        self.assertIn("checkpoints", source)
+        self.assertIn("openExternal", source)
+        self.assertIn("Issue'yu aç", source)
+
+
+class ReviewFixTests(unittest.TestCase):
+    """#187 review: eski şekil çökmez, ajan atfı odaklı, CP satırı leaf taşır."""
+
+    def test_old_checkpoint_shape_does_not_crash(self) -> None:
+        panel = PANEL.read_text(encoding="utf-8")
+        worker = WORKER.read_text(encoding="utf-8")
+
+        # Dizi olmayan `{done,total}` boş liste sayılır; iki dosyada da.
+        self.assertGreaterEqual(
+            panel.count("Array.isArray(epic.checkpoints) ? epic.checkpoints : []"), 2
+        )
+        self.assertIn("Array.isArray(epic.checkpoints) ? epic.checkpoints : []", worker)
+        # Önbellek doğrulaması eski şekli reddetmez (crash yok).
+        self.assertIn("function isCheckpoints", worker)
+        self.assertIn("function isEpic", worker)
+        self.assertIn("total", worker)
+        # `orca plugin check` eski şekilli sahte snapshot'ı da çizer.
+        check = (PLUGIN / "src" / "panel.check.ts").read_text(encoding="utf-8")
+        self.assertIn("legacy:", check)
+        self.assertIn("checkpoints: { done: 1, total: 2 }", check)
+
+    def test_agents_only_for_focused_project(self) -> None:
+        worker = WORKER.read_text(encoding="utf-8")
+
+        # Odaklı workspace kit taşımıyorsa hiçbir karta ajan yazılmaz.
+        self.assertIn("const agentTarget =", worker)
+        self.assertIn("deduped.some((project) => project.id === focused)", worker)
+        self.assertIn("if (agentTarget !== null)", worker)
+        # Olayın workspaceId'si varsa yalnız o kart tazelenir.
+        self.assertIn("function workspaceIdOf", worker)
+        self.assertIn("function refreshAgents", worker)
+        self.assertIn("if (target !== lastAgentWorkspace) return", worker)
+
+    def test_checkpoint_carries_leaf(self) -> None:
+        panel = PANEL.read_text(encoding="utf-8")
+        status = (ROOT / "delivery" / "scripts" / "status.py").read_text(encoding="utf-8")
+
+        self.assertIn('"leaf": leaf', status)
+        self.assertIn("#${checkpoint.leaf} · ${checkpoint.id}", panel)
+
+    def test_idle_agent_counted(self) -> None:
+        panel = PANEL.read_text(encoding="utf-8")
+        worker = WORKER.read_text(encoding="utf-8")
+
+        self.assertIn("'idle'", worker)
+        self.assertIn("idle: 0", worker)
+        self.assertIn("boşta", panel)
 
 
 class ReadOnlyTests(unittest.TestCase):

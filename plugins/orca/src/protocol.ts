@@ -6,16 +6,56 @@ export interface StatusLeaf {
   state?: string
 }
 
+/** One checkpoint of a child leaf: its entry plus that child's done state. */
+export interface StatusCheckpoint {
+  id: string
+  title: string
+  done: boolean
+  /** Checkpoint'i taşıyan çocuk issue numarası; panel `#13 · CP-1` çizer. */
+  leaf: number
+}
+
+/** Eski `status.py` biçimi: dizi değil `{done,total}`; panel onu boş sayar. */
+export interface StatusCheckpointSummary {
+  done: number
+  total: number
+}
+
+export type AgentState = 'working' | 'blocked' | 'waiting' | 'idle' | 'done'
+
+/** One agent Orca reports for the focused workspace. */
+export interface StatusAgent {
+  terminalId?: string | null
+  title?: string | null
+  state: AgentState
+}
+
+/** Live agent counts: `status.py` never supplies them, `agents.list` does. */
+export interface StatusLive {
+  working: number
+  blocked: number
+  waiting: number
+  /** Boşta ajan; sessizce atılmaz, `boşta` diye sayılır. */
+  idle: number
+  done: number
+}
+
 export interface StatusEpic {
   number: number
   title?: string
   state?: string
   risk?: string | null
-  checkpoints?: { done: number; total: number }
+  /** Child checkpoint entries in child order; `done` is per child (`leaf-done`). */
+  checkpoints?: StatusCheckpoint[] | StatusCheckpointSummary
+  /** Issue `updatedAt`, or null when `gh` did not send it. */
+  updated_at?: string | null
+  /** GitHub issue link from `tracker.repo`, or null. */
+  url?: string | null
   /** Epic `children` içinden issue listesinde ve demir-kit bloğu olanlar. */
   leaves?: StatusLeaf[]
   gate?: 'pass' | 'fail' | null
   open_findings?: number
+  approvals?: { agent_approved: boolean; human_qa: boolean }
   next_action?: string | null
 }
 
@@ -40,6 +80,9 @@ export interface StatusProject {
   error?: string
   epics: StatusEpic[]
   counts: StatusCounts
+  /** Live agents of the focused workspace; empty for other projects. */
+  agents?: StatusAgent[]
+  live?: StatusLive
   warnings: string[]
   stale: boolean
 }

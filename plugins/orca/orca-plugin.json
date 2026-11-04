@@ -30,6 +30,9 @@
     "events": [
       {
         "on": "workspace.changed"
+      },
+      {
+        "on": "agent.status.changed"
       }
     ],
     "statusBarItems": [
@@ -64,6 +67,9 @@
     },
     {
       "kind": "workspace:write"
+    },
+    {
+      "kind": "agent:read"
     },
     {
       "kind": "storage:own"
