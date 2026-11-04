@@ -17,6 +17,8 @@ const NO_KIT = 'demir-kit yok'
 interface StatusJson {
   generated_at?: string
   stale?: boolean
+  source?: string
+  project?: { name?: string }
   epics?: StatusEpic[]
   counts?: StatusCounts
   warnings?: string[]
@@ -39,7 +41,9 @@ async function updateStatusBar(
 function failed(error: string, warnings: string[], project: string | null = null): StatusSnapshot {
   return {
     ok: false,
+    source: 'none',
     project,
+    project_name: null,
     epics: [],
     counts: { epics: 0, leaves: 0, blocked: 0 },
     stale: true,
@@ -119,7 +123,8 @@ async function fromCache(orca: OrcaWorkerApi): Promise<StatusSnapshot | null> {
     return null
   }
   const snapshot = await orca.storage.get(SNAPSHOT_KEY)
-  return isSnapshot(snapshot) ? snapshot : null
+  // Önbellekten gelen yanıt canlı değil: panel bunu `source` ile görür.
+  return isSnapshot(snapshot) ? { ...snapshot, source: 'cache' } : null
 }
 
 function isSnapshot(value: unknown): value is StatusSnapshot {
@@ -153,7 +158,9 @@ async function refresh(orca: OrcaWorkerApi, force: boolean): Promise<StatusSnaps
     const data = await runStatus(project)
     const snapshot: StatusSnapshot = {
       ok: true,
+      source: data.source === 'cache' ? 'cache' : 'live',
       project,
+      project_name: typeof data.project?.name === 'string' ? data.project.name : null,
       epics: Array.isArray(data.epics) ? data.epics : [],
       counts: data.counts ?? { epics: 0, leaves: 0, blocked: 0 },
       stale: data.stale === true,

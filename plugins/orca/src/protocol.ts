@@ -17,10 +17,18 @@ export interface StatusCounts {
   blocked: number
 }
 
+/** status.py's own `source`, or `none` when the snapshot is a readable error. */
+export type StatusSource = 'live' | 'cache' | 'none'
+
 /** What `status.snapshot` answers: a demir-kit status.py snapshot, or a readable error. */
 export interface StatusSnapshot {
   ok: boolean
+  /** Where the data was read from: live, the script's cache, or nothing. */
+  source: StatusSource
+  /** Project directory the worker read. */
   project: string | null
+  /** `project.name` from status.py, shown as the panel heading. */
+  project_name: string | null
   epics: StatusEpic[]
   counts: StatusCounts
   stale: boolean
