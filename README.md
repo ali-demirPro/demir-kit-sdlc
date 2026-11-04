@@ -1,6 +1,6 @@
 # demir-kit
 
-**2.56.0** — Delivery-first agent system. Runtime `delivery/`; v1 arşivi `archive/v1.7/`.
+**2.57.0** — Delivery-first agent system. Runtime `delivery/`; v1 arşivi `archive/v1.7/`.
 
 ## Yapı
 
@@ -43,6 +43,17 @@ Closure metrikleri: `delivery/metrics/README.md`.
 ./install.sh --with-platform   # Orca skill'leri + v2 skills/
 ./install.sh --legacy          # geçiş: v1 arşivinden kur
 ```
+
+## Güncelleme
+
+```bash
+./delivery/scripts/self_update.py --project . --json    # plan (yazmaz)
+./delivery/scripts/self_update.py --project . --apply   # uygula
+```
+
+Kit kökü projenin kendisiyse `git pull --ff-only` + `doctor`; vendored ise
+önbellekten `vendor_sync` + skill kurulumu + `doctor --product`. Ayrıntı, çıktı
+örneği ve geri dönüş: [delivery/runbooks/update.md](delivery/runbooks/update.md).
 
 ## MCP (salt-okunur)
 

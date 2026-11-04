@@ -46,7 +46,7 @@ const confirm = atom<{ id: string } | null>(null)
 const actionNote = atom<ActionReply | null>(null)
 const acting = atom<boolean>(false)
 
-async function load(): Promise<void> {
+async function refresh(): Promise<void> {
   set(loading, true)
   try {
     const answer = await plugin.request('status.snapshot')
@@ -61,8 +61,8 @@ async function load(): Promise<void> {
 
 /** Runs once before the first render; the request starts the worker if needed. */
 export function setup(ctx: PanelContext): void {
-  void load()
-  const timer = setInterval(() => void load(), REFRESH_MS)
+  void refresh()
+  const timer = setInterval(() => void refresh(), REFRESH_MS)
   ctx.signal.addEventListener('abort', () => clearInterval(timer), { once: true })
 }
 
@@ -180,23 +180,28 @@ function openIssue(url: string): void {
   })
 }
 
-/** Aksiyon sonucunu bırakır; başarısızsa komut çıktısı ve issue linki görünür. */
+/** Aksiyon sonucunu bırakır; başarısızsa komut çıktısı ve issue linki görünür.
+ * Başarılı aksiyon detayı kapatır: liste görünümüne dönülür ve snapshot tazelenir.
+ * Başarısız aksiyon detayda kalır; seçim korunur.
+ */
 async function runAction(request: () => Promise<ActionReply>): Promise<void> {
   set(confirm, null)
   set(acting, true)
   set(actionNote, null)
   try {
     const answer = await request()
-    set(
-      actionNote,
-      answer ?? {
-        ok: false,
-        message: 'yanıt yok',
-        exitCode: 1,
-        tail: '',
-        url: ''
-      }
-    )
+    const reply = answer ?? {
+      ok: false,
+      message: 'yanıt yok',
+      exitCode: 1,
+      tail: '',
+      url: ''
+    }
+    set(actionNote, reply)
+    if (reply.ok) {
+      // Seçim temizlenir: detay kapanır, liste tazelenmiş haliyle görünür.
+      set(view, { kind: 'list' })
+    }
   } catch (error) {
     set(actionNote, {
       ok: false,
@@ -207,18 +212,26 @@ async function runAction(request: () => Promise<ActionReply>): Promise<void> {
     })
   } finally {
     set(acting, false)
-    await load()
+    await refresh()
   }
 }
 
-/** Panelin son aksiyonu: başarılıysa kısa not, değilse tail + issue linki. */
+/** Başarılı aksiyonda kısa not, kapatma gibi kısmi hatada uyarı kutusu. */
 function ActionNote({ note }: { note: ActionReply | null }) {
   if (note === null) return null
   if (note.ok) {
+    const warning = (note.warning ?? '').trim()
     return (
-      <Text muted size="xs">
-        {note.message}
-      </Text>
+      <Stack gap="xs">
+        <Text muted size="xs">
+          {note.message}
+        </Text>
+        {warning !== '' && (
+          <Callout tone="warning" title="Uyarı" icon="warning">
+            <Text size="xs">{warning}</Text>
+          </Callout>
+        )}
+      </Stack>
     )
   }
   return (
@@ -487,7 +500,7 @@ export default function Panel() {
               variant="ghost"
               icon="refresh"
               disabled={busy}
-              onPress={() => void load()}
+              onPress={() => void refresh()}
             >
               Yenile
             </Button>
@@ -534,7 +547,7 @@ export default function Panel() {
           variant="ghost"
           icon="refresh"
           disabled={busy}
-          onPress={() => void load()}
+          onPress={() => void refresh()}
         >
           Yenile
         </Button>

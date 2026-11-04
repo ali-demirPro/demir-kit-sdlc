@@ -109,6 +109,8 @@ export interface ActionReply {
   tail: string
   /** Aksiyonun issue bağlantısı; yoksa boş. */
   url: string
+  /** Kısmi başarı: iş tamam, yan adım (issue kapatma) düştü; panel uyarı çizer. */
+  warning?: string
 }
 
 declare module 'orca' {

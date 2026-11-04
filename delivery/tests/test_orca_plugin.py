@@ -253,6 +253,43 @@ class ActionTests(unittest.TestCase):
         self.assertIn("note.tail", self.panel)
         self.assertIn("openIssue(note.url)", self.panel)
 
+    def test_success_returns_to_list(self) -> None:
+        # Başarılı aksiyon detayı bırakır: liste görünümü + tazelenmiş snapshot.
+        start = self.panel.index("async function runAction")
+        run = self.panel[start:].split("function ActionNote", 1)[0]
+        self.assertIn("if (reply.ok)", run)
+        self.assertIn("set(view, { kind: 'list' })", run)
+        self.assertIn("await refresh()", run)
+        # Başarısız aksiyon detayda kalır: not, tail ve issue linki durur.
+        self.assertIn("set(actionNote, reply)", run)
+        self.assertNotIn("kind: 'detail'", run)
+        self.assertIn("note.tail", self.panel)
+        self.assertIn("openIssue(note.url)", self.panel)
+        # Panelin kendi tazeleme yolu tek yerde: açılış, zamanlayıcı, düğme.
+        self.assertIn("async function refresh", self.panel)
+        self.assertIn("void refresh()", self.panel)
+
+    def test_close_issue(self) -> None:
+        # Kabul geçişinden sonra issue kapatılır; kapatma düşerse geçiş korunur.
+        self.assertIn(
+            "['issue', 'close', String(issue), '--reason=completed']", self.worker
+        )
+        self.assertIn("`issue kapatılamadı: ${reason}`", self.worker)
+        self.assertRegex(
+            self.worker,
+            r"return actionReply\(\s*true,\s*'epic kabul edildi',\s*0,\s*transition,\s*url,\s*`issue kapatılamadı",
+        )
+        # Yan adım geçişin arkasındadır; red dalı kapatmaz.
+        transition_at = self.worker.index("'--to',")
+        close_at = self.worker.index("['issue', 'close'")
+        reject_at = self.worker.index("if (decision === 'rejected')")
+        self.assertLess(reject_at, transition_at)
+        self.assertLess(transition_at, close_at)
+        # `warning` isteğe bağlı alan; panel onu uyarı kutusunda gösterir.
+        protocol = (PLUGIN / "src" / "protocol.ts").read_text(encoding="utf-8")
+        self.assertIn("warning?: string", protocol)
+        self.assertIn("note.warning", self.panel)
+
     def test_reject_flow(self) -> None:
         self.assertIn("decision: rejected", self.worker)
         # AC-4: red yalnız yorum yazar; `--to blocked` geçişi yok.
