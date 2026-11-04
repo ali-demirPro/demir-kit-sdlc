@@ -138,14 +138,22 @@ export default defineCheck({
   },
   detail: {
     ...quietWorker,
-    // Açık detay: atomun kalıcı değeri epic satırını açık başlatır.
-    persisted: { plugin: { expanded: ['ws-demir-kit:185'] } },
+    // Düz detay: kalıcı görünüm doğrudan epic detayını başlatır.
+    persisted: {
+      plugin: {
+        view: { kind: 'detail', projectId: 'ws-demir-kit', epicNumber: 185 }
+      }
+    },
     requests: { 'status.snapshot': snapshot }
   },
   legacy: {
     ...quietWorker,
     // Eski şekilli checkpoint'ler detayda da açık: CP listesi boş kalır.
-    persisted: { plugin: { expanded: ['ws-demir-kit:188'] } },
+    persisted: {
+      plugin: {
+        view: { kind: 'detail', projectId: 'ws-demir-kit', epicNumber: 188 }
+      }
+    },
     requests: { 'status.snapshot': legacySnapshot }
   },
   empty: {

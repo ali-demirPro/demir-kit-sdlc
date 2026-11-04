@@ -1,5 +1,5 @@
 // No build step: Orca strips the types and compiles the JSX when the panel loads.
-// CP-2: çok projeli portföy, epic/leaf başlıkları, tıklayınca workspace açma.
+// CP-1: liste ve düz epic detayı; epic satırına tıklama aynı panelde detayı açar.
 import {
   atom,
   Badge,
@@ -31,11 +31,15 @@ import type {
 /** Dashboard ile aynı pencere: 30 saniyede bir tazele. */
 const REFRESH_MS = 30_000
 
+type PanelView =
+  | { kind: 'list' }
+  | { kind: 'detail'; projectId: string; epicNumber: number }
+
 const snapshot = atom<StatusSnapshot | null>(null)
 const errorText = atom<string | null>(null)
 const loading = atom<boolean>(false)
-/** Açık epic detayları: `${project.id}:${epic.number}`; panel yeniden açılınca korunur. */
-const expanded = atom<string[]>('expanded', [], { persist: 'plugin' })
+/** Liste ya da tek epic detayı; panel yeniden açılınca korunur. */
+const view = atom<PanelView>('view', { kind: 'list' }, { persist: 'plugin' })
 
 async function load(): Promise<void> {
   set(loading, true)
@@ -84,6 +88,15 @@ function cpText(epic: StatusEpic): string {
   return `${done}/${checkpoints.length}`
 }
 
+/** `updated_at` kısa biçim: `04.11 10:00`; çözülemeyen değer olduğu gibi kalır. */
+function shortTime(value?: string | null): string {
+  const text = (value ?? '').trim()
+  if (text === '') return '-'
+  const match = text.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/)
+  if (match !== null) return `${match[3]}.${match[2]} ${match[4]}:${match[5]}`
+  return text.length > 16 ? `${text.slice(0, 16)}…` : text
+}
+
 function gateTone(gate: StatusEpic['gate']): 'success' | 'danger' | 'neutral' {
   if (gate === 'pass') return 'success'
   if (gate === 'fail') return 'danger'
@@ -115,17 +128,13 @@ function agentTitles(project: StatusProject): string {
     .join(' · ')
 }
 
-function epicKey(project: StatusProject, epic: StatusEpic): string {
-  return `${project.id}:${epic.number}`
+/** Epic satırı detayı açar; liste görünümü tamamen detaya bırakılır. */
+function openEpic(project: StatusProject, epic: StatusEpic): void {
+  set(view, { kind: 'detail', projectId: project.id, epicNumber: epic.number })
 }
 
-/** Epic satırı detayı açar/kapatır; aynı panelde kalır. */
-function toggleEpic(key: string): void {
-  const open = read(expanded)
-  set(
-    expanded,
-    open.includes(key) ? open.filter((item) => item !== key) : [...open, key]
-  )
+function backToList(): void {
+  set(view, { kind: 'list' })
 }
 
 function epicTitle(epic: StatusEpic): string {
@@ -154,7 +163,7 @@ function openIssue(url: string): void {
   })
 }
 
-/** Epic detayı: CP listesi, onaylar, sıradaki iş, güncelleme zamanı, issue linki. */
+/** Düz epic detayı: CP özeti ve aksiyonlar; iç içe leaf listesi yok. */
 function EpicDetail({ epic }: { epic: StatusEpic }) {
   // Eski `{done,total}` şekli dizi değildir: CP listesi boş kalır, panel çökmez.
   const checkpoints = Array.isArray(epic.checkpoints) ? epic.checkpoints : []
@@ -162,41 +171,41 @@ function EpicDetail({ epic }: { epic: StatusEpic }) {
   const url = epic.url ?? ''
 
   return (
-    <Box border={true} radius="md" padding="sm" background="muted">
-      <Stack gap="xs">
-        <Text weight="semibold" size="xs">
-          {epicTitle(epic)}
+    <Stack gap="xs">
+      <Text weight="semibold">{epicTitle(epic)}</Text>
+      <Row gap="xs" wrap>
+        <Badge tone={stateTone(epic.state)}>{epic.state ?? '-'}</Badge>
+        <Badge tone="neutral">{`CP ${cpText(epic)}`}</Badge>
+        <Badge tone={approvals?.agent_approved ? 'success' : 'neutral'}>
+          {`ajan onayı ${approvals?.agent_approved ? 'var' : 'yok'}`}
+        </Badge>
+        <Badge tone={approvals?.human_qa ? 'success' : 'neutral'}>
+          {`insan QA ${approvals?.human_qa ? 'var' : 'yok'}`}
+        </Badge>
+        <Text muted size="xs">{`güncelleme ${shortTime(epic.updated_at)}`}</Text>
+      </Row>
+
+      <Text muted size="xs">{`sıradaki iş: ${epic.next_action ?? '-'}`}</Text>
+
+      {checkpoints.length === 0 && (
+        <Text muted size="xs">
+          checkpoint yok
         </Text>
-        <Row gap="xs" wrap>
-          <Badge tone={approvals?.agent_approved ? 'success' : 'neutral'}>
-            {`ajan onayı ${approvals?.agent_approved ? 'var' : 'yok'}`}
-          </Badge>
-          <Badge tone={approvals?.human_qa ? 'success' : 'neutral'}>
-            {`insan QA ${approvals?.human_qa ? 'var' : 'yok'}`}
-          </Badge>
-          <Text muted size="xs">{`güncelleme ${epic.updated_at ?? '-'}`}</Text>
-        </Row>
+      )}
+      {checkpoints.map((checkpoint) => (
+        <Text key={`${epic.number}-${checkpoint.leaf}-${checkpoint.id}`} size="xs">
+          {`#${checkpoint.leaf} · ${checkpoint.id} ${checkpoint.done ? '✓' : '○'} ${checkpoint.title}`}
+        </Text>
+      ))}
 
-        {checkpoints.length === 0 && (
-          <Text muted size="xs">
-            checkpoint yok
-          </Text>
-        )}
-        {checkpoints.map((checkpoint) => (
-          <Text key={`${epic.number}-${checkpoint.leaf}-${checkpoint.id}`} size="xs">
-            {`#${checkpoint.leaf} · ${checkpoint.id} ${checkpoint.done ? '✓' : '○'} ${checkpoint.title}`}
-          </Text>
-        ))}
-
-        <Text muted size="xs">{`sıradaki iş: ${epic.next_action ?? '-'}`}</Text>
-
+      <Row gap="xs" wrap>
         {url !== '' && (
           <Button variant="outline" size="sm" icon="open-external" onPress={() => openIssue(url)}>
             Issue'yu aç
           </Button>
         )}
-      </Stack>
-    </Box>
+      </Row>
+    </Stack>
   )
 }
 
@@ -246,38 +255,31 @@ function ProjectGroup({
         )}
 
         {project.epics.length > 0 && (
-          <Stack gap="sm">
-            <List label={`${project.name} epicleri`}>
-              {project.epics.flatMap((epic) => [
+          <List label={`${project.name} epicleri`}>
+            {project.epics.flatMap((epic) => [
+              <ListItem
+                key={`epic-${project.id}-${epic.number}`}
+                title={epicTitle(epic)}
+                onPress={() => openEpic(project, epic)}
+              >
+                <Row gap="xs" wrap>
+                  <Badge tone={stateTone(epic.state)}>
+                    {epic.state ?? '-'}
+                  </Badge>
+                  <Badge tone="neutral">{`CP ${cpText(epic)}`}</Badge>
+                  <Badge tone={gateTone(epic.gate)}>{`gate ${epic.gate ?? '-'}`}</Badge>
+                  <Badge tone="neutral">{`risk ${epic.risk ?? '-'}`}</Badge>
+                </Row>
+              </ListItem>,
+              ...(epic.leaves ?? []).map((leaf) => (
                 <ListItem
-                  key={`epic-${project.id}-${epic.number}`}
-                  title={epicTitle(epic)}
-                  onPress={() => toggleEpic(epicKey(project, epic))}
-                >
-                  <Row gap="xs" wrap>
-                    <Badge tone={stateTone(epic.state)}>
-                      {epic.state ?? '-'}
-                    </Badge>
-                    <Badge tone="neutral">{`CP ${cpText(epic)}`}</Badge>
-                    <Badge tone={gateTone(epic.gate)}>{`gate ${epic.gate ?? '-'}`}</Badge>
-                    <Badge tone="neutral">{`risk ${epic.risk ?? '-'}`}</Badge>
-                  </Row>
-                </ListItem>,
-                ...(epic.leaves ?? []).map((leaf) => (
-                  <ListItem
-                    key={`leaf-${project.id}-${leaf.number}`}
-                    title={leafTitle(leaf)}
-                    onPress={() => openWorkspace(project)}
-                  />
-                ))
-              ])}
-            </List>
-            {project.epics
-              .filter((epic) => read(expanded).includes(epicKey(project, epic)))
-              .map((epic) => (
-                <EpicDetail key={`detail-${project.id}-${epic.number}`} epic={epic} />
-              ))}
-          </Stack>
+                  key={`leaf-${project.id}-${leaf.number}`}
+                  title={leafTitle(leaf)}
+                  onPress={() => openWorkspace(project)}
+                />
+              ))
+            ])}
+          </List>
         )}
 
         {project.warnings.slice(0, 3).map((warning) => (
@@ -294,6 +296,47 @@ export default function Panel() {
   const data = read(snapshot)
   const failure = read(errorText)
   const busy = read(loading)
+  const current = read(view)
+
+  if (current.kind === 'detail') {
+    const project = data?.projects.find((item) => item.id === current.projectId)
+    const epic = project?.epics.find((item) => item.number === current.epicNumber)
+    return (
+      <Stack gap="md">
+        <Row justify="between" align="start">
+          <Heading>demir-kit</Heading>
+          <Row gap="xs">
+            <Button
+              variant="ghost"
+              icon="refresh"
+              disabled={busy}
+              onPress={() => void load()}
+            >
+              Yenile
+            </Button>
+            <Button variant="outline" size="sm" onPress={backToList}>
+              ‹ Geri
+            </Button>
+          </Row>
+        </Row>
+
+        {project !== undefined && epic !== undefined ? (
+          <Box border={true} radius="md" padding="md">
+            <Stack gap="xs">
+              <Text muted size="xs">
+                {`${projectTitle(project)} · ${shortPath(project.path)}`}
+              </Text>
+              <EpicDetail epic={epic} />
+            </Stack>
+          </Box>
+        ) : (
+          <Text muted size="xs">
+            Epic listede yok; geri dönüp listeyi yenile.
+          </Text>
+        )}
+      </Stack>
+    )
+  }
 
   return (
     <Stack gap="md">

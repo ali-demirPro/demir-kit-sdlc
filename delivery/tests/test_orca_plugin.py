@@ -179,6 +179,36 @@ class ActiveWorkTests(unittest.TestCase):
         )
 
 
+class PanelTests(unittest.TestCase):
+    """CP-1: liste ve düz detay iki ayrı görünüm; detayda leaf listesi yok."""
+
+    def detail_source(self) -> str:
+        source = PANEL.read_text(encoding="utf-8")
+        self.assertIn("function EpicDetail", source)
+        return source.split("function EpicDetail", 1)[1].split("function ProjectGroup", 1)[0]
+
+    def test_detail_is_flat(self) -> None:
+        source = PANEL.read_text(encoding="utf-8")
+        detail = self.detail_source()
+
+        # Görünüm durumu: liste ya da proje+epic taşıyan detay.
+        self.assertIn("const view = atom<PanelView>", source)
+        self.assertIn("{ kind: 'detail'; projectId: string; epicNumber: number }", source)
+        self.assertIn("{ kind: 'detail', projectId: project.id, epicNumber: epic.number }", source)
+        # Detay tam panelde açılır ve geri düğmesi listeye döner.
+        self.assertIn("‹ Geri", source)
+        self.assertIn("set(view, { kind: 'list' })", source)
+        # Düz detay: başlık, state/CP/onay rozetleri, next_action, kısa zaman.
+        self.assertIn("epicTitle(epic)", detail)
+        self.assertIn("cpText(epic)", detail)
+        self.assertIn("next_action", detail)
+        self.assertIn("shortTime", detail)
+        # Detayda leaf listesi yok; leaf satırları yalnız liste görünümünde.
+        self.assertNotIn("leaves", detail)
+        list_source = source.split("function ProjectGroup", 1)[1].split("export default function Panel", 1)[0]
+        self.assertIn("(epic.leaves ?? [])", list_source)
+
+
 class LiveTests(unittest.TestCase):
     """CP-2: canlı ajan durumu ve tıklanınca açılan detay."""
 
