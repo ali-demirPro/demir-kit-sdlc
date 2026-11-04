@@ -1,5 +1,24 @@
 # Changelog
 
+## 2.58.0 — 2026-11-04
+
+- **Submodule modu** — `self_update.py` artık üç modu ayırır (`self` →
+  `submodule` → `vendored`); `.gitmodules` içinde tanımlı ama başlatılmamış
+  submodule de `submodule` sayılır, `vendored`'a düşmez. Plan
+  `git submodule update --init`, `kit.config.yaml` sürümü ve
+  `doctor --product` üretir, commit atmaz
+  (`pointer değişti; ürün reposunda commit'le`).
+- **Ref güvenliği** — `--ref` boş, boşluk içeren, `-` ile başlayan, `..`
+  içeren ya da refspec meta karakteri (`:`, `*`, `^`, `~`, `@`, ters bölü)
+  içeren değerleri plan hatası (`ok:false`) olarak reddeder; submodule'de
+  `--remote` olmadan init + `fetch --depth 1` + `checkout --detach` ile o
+  commit'e sabitlenir.
+- **Config** — `kit.config.yaml` yeniden yazılmaz; yalnız `kit.version` satırı
+  güncellenir, yoksa eklenir (yorumlar ve CRLF korunur).
+- **Runbook** — [güncelleme runbook](delivery/runbooks/update.md) üç modu,
+  submodule örneğini ve `git submodule update --init` tabanlı geri dönüşü
+  anlatır.
+
 ## 2.57.0 — 2026-11-04
 
 - **MCP yüzeyi** — kit komutları (`status`, `brief`, `doctor`, `next_leaf_list`,
