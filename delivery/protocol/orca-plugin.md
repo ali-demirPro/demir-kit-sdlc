@@ -4,7 +4,8 @@ demir-kit'in Orca yüzeyi: sağ kenar çubuğunda portföy paneli ve iki durum
 çubuğu öğesi. Eklenti kendi kodunu Orca'nın ayrı Node sürecinde çalıştırır;
 `delivery/scripts/status.py` sözleşmesini okur. Panelden gelen kabul ve claim
 istekleri yalnız kit scriptleriyle (`transition.sh`, `next-leaf.sh`) yürür; red
-yalnız `decision: rejected` yorumu yazar. Panel repoya dosya yazmaz.
+yalnız `decision: rejected` yorumu yazar. Başarılı kabul geçişinden sonra issue
+`gh issue close N --reason completed` ile kapanır. Panel repoya dosya yazmaz.
 
 ## Ne yapar
 
@@ -55,7 +56,7 @@ başarısız aksiyonda `tail` ile "Issue'yu aç" düğmesini gösterir.
 
 | İstek | Ne yapar |
 |-------|----------|
-| `epic.decision {projectPath, issue, decision}` | Önce `gh issue view N --json labels` ile `human-qa` etiketi aranır; yoksa hiçbir şey yazılmaz. Sonra `gh api user --jq .login` ile kullanıcı bulunur; `accepted` ise geçici dosyaya `demir-kit-accept` YAML bloğu (`epic`, `decision: accepted`, `by`) yazılıp `gh issue comment --body-file` ile yorumlanır, ardından `transition.sh --issue N --to epic-done --accept <login>` çağrılır. Geçiş düşerse az önce yazılan yorum `gh api -X DELETE repos/<repo>/issues/comments/<id>` ile silinir; `<id>` yorum URL'sindeki `#issuecomment-<id>`'den alınır. `rejected` ise yalnız `decision: rejected` yorumu yazılır, durum geçişi çağrılmaz |
+| `epic.decision {projectPath, issue, decision}` | Önce `gh issue view N --json labels` ile `human-qa` etiketi aranır; yoksa hiçbir şey yazılmaz. Sonra `gh api user --jq .login` ile kullanıcı bulunur; `accepted` ise geçici dosyaya `demir-kit-accept` YAML bloğu (`epic`, `decision: accepted`, `by`) yazılıp `gh issue comment --body-file` ile yorumlanır, ardından `transition.sh --issue N --to epic-done --accept <login>` çağrılır. Geçiş düşerse az önce yazılan yorum `gh api -X DELETE repos/<repo>/issues/comments/<id>` ile silinir; `<id>` yorum URL'sindeki `#issuecomment-<id>`'den alınır. Geçiş başarılıysa issue `gh issue close N --reason completed` ile kapatılır: kapatma düşerse geçiş **korunur**, yanıt `{ok:true, warning}` olur ve panel uyarı gösterir. `rejected` ise yalnız `decision: rejected` yorumu yazılır, durum geçişi ve kapatma çağrılmaz |
 | `leaf.claim {projectPath}` | Projedeki ilk `agent-approved` leaf hedeflenir; `gh issue view N --json labels` ile `agent-approved` var ve `executing`/`leaf-done` yok denetlenir. Kapı geçerse `next-leaf.sh --claim` çağrılır |
 
 Sunucu tarafı kapı yorumdan öncedir: kabul/red için `human-qa`, claim için
@@ -71,8 +72,10 @@ Panel epic detayında `human_qa` varsa "Kabul et" / "Reddet", proje kartında
 `agent-approved` leaf varsa "Sıradaki leaf'i claim et" düğmesi gösterilir.
 Claim leaf satırında değil yalnız proje kartındadır ve istek `{projectPath}`'dir.
 Hepsi **iki adımlı onaydır**: ilk tık "Emin misin? Evet/Vazgeç" satırını açar,
-ikinci tık isteği çağırır. İşlem sonrası `status.snapshot` önbelleği atlanarak
-tazelenir ve sonuç notu panelde kalır (hata: `tail` + issue linki).
+ikinci tık isteği çağırır. Başarılı aksiyondan sonra panel liste görünümüne
+döner, seçimi temizler ve `status.snapshot`'ı yeniler; başarısız aksiyonda
+detay açık kalır, sonuç notu `tail` + issue linkiyle görünür. Başarılı kabulde
+issue kapanmazsa not `warning` taşır ve panel uyarı kutusu çizer.
 
 Aksiyon geri alınabilir: kabulde geçiş düşerse yorum silinir; başka bir yanlış
 kabulde `epic-done` yerine `epic-reconcile`/`human-qa` etiketleri geri konur.
@@ -169,9 +172,10 @@ kabuğa geçmez: argümanlar diziyle verilir.
   `workspace:write` ister; manifest bu yetkiyi taşır, reddedilirse hata
   `{ok:false,error}` olarak panele döner ve panel çalışmaya devam eder.
 - `transition.sh` ve `next-leaf.sh` dışında durum mutasyonu yoktur; doğrudan
-  `git commit`, `git push` veya `gh issue close` çağrılmaz. `seal` ve
-  `update.py` panelden çalışmaz. Tek istisna kabul geçişi düşünce yazılan
-  yorumun `gh api -X DELETE` ile geri alınmasıdır.
+  `git commit`, `git push` veya `gh pr merge` çağrılmaz. `seal` ve `update.py`
+  panelden çalışmaz. İki yazma istisnası vardır: kabul geçişinden sonra issue
+  kapanışı (`gh issue close`), ve kabul geçişi düşünce yazılan yorumun
+  `gh api -X DELETE` ile geri alınması.
 - Repoya yazma yok: kalıcı veri Orca'nın `storage` ve `settings` API'lerinde
   durur. Yalnız kabul/red yorumu için `os.tmpdir()` altında 0700 geçici dizin
   ve 0600 dosya yazılır, iş bitince dizin silinir; `mkdir`/`appendFile`

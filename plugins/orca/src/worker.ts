@@ -630,15 +630,18 @@ function actionReply(
   message: string,
   exitCode: number,
   result?: RunResult,
-  url = ''
+  url = '',
+  warning = ''
 ): ActionReply {
-  return {
+  const reply: ActionReply = {
     ok,
     message,
     exitCode,
     tail: result === undefined ? '' : tailOf(result),
     url
   }
+  if (warning !== '') reply.warning = warning
+  return reply
 }
 
 /** Panelin gönderdiği issue numarası; geçersizse null. */
@@ -925,7 +928,24 @@ export default async function activate(orca: OrcaWorkerApi): Promise<void> {
           : 'geçiş başarısız; yorum kaldı'
         return actionReply(false, message, transition.code, transition, url)
       }
+      // Geçiş korunur: issue kapanışı ayrı adımdır, hatası geçişi geri almaz.
+      const closed = await runCommand(
+        'gh',
+        ['issue', 'close', String(issue), '--reason=completed'],
+        project.path
+      )
       await refreshAfterAction(orca)
+      if (closed.code !== 0) {
+        const reason = tailOf(closed).split('\n')[0] || 'gh hata verdi'
+        return actionReply(
+          true,
+          'epic kabul edildi',
+          0,
+          transition,
+          url,
+          `issue kapatılamadı: ${reason}`
+        )
+      }
       return actionReply(true, 'epic kabul edildi', 0, transition, url)
     } catch (error) {
       return actionReply(false, messageOf(error), 1)
