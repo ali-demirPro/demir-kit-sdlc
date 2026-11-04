@@ -100,11 +100,34 @@ export interface StatusSnapshot {
   code?: 'no-kit' | null
 }
 
+/** Panelden gelen aksiyonun yanıtı: hata fırlatılmaz, kısa sonuç döner. */
+export interface ActionReply {
+  ok: boolean
+  message: string
+  exitCode: number
+  /** Komutun son satırları; panel uzun çıktıyı göstermez. */
+  tail: string
+  /** Aksiyonun issue bağlantısı; yoksa boş. */
+  url: string
+}
+
 declare module 'orca' {
   interface PluginRequests {
     /** Every demir-kit workspace, from status.py or the 30 s per-project cache. */
     'status.snapshot': { output: StatusSnapshot }
     /** Panel asks the worker; the worker alone calls `workspace.open` on the host. */
     'workspace.open': { input: { id: string }; output: { ok: boolean; error?: string } }
+    /** İnsan kabul/red yorumu + `transition.sh`; worker çağırır. */
+    'epic.decision': {
+      input: {
+        /** Panelin gördüğü proje kartının `path` değeri. */
+        projectPath: string
+        issue: number
+        decision: 'accepted' | 'rejected'
+      }
+      output: ActionReply
+    }
+    /** Sıradaki leaf claim: `next-leaf.sh --claim`; worker çağırır. */
+    'leaf.claim': { input: { projectPath: string }; output: ActionReply }
   }
 }

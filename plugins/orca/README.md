@@ -8,8 +8,9 @@ tarafın sözleşmesini tanımlar. Orca iki dosyayı da yüklerken derler: derle
 adımı yok.
 
 Proje yolu `Ayarlar > demir-kit > Proje yolu` ile verilir; boşsa `kit.config.yaml`
-içeren ilk workspace kullanılır. Bu sürüm yalnız okur: claim, transition veya
-seal çağırmaz ve repoya yazmaz.
+içeren ilk workspace kullanılır. Panel liste ve düz epic detayı arasında geçer;
+kabul, red ve claim yalnız kit scriptleriyle, iki adımlı onaydan sonra çalışır.
+Panel repoya dosya yazmaz; geçici yorum dosyası `os.tmpdir()` altındadır.
 
 ```sh
 orca plugin validate .
