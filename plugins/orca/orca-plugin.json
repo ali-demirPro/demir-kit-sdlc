@@ -1,0 +1,72 @@
+{
+  "manifestVersion": 2,
+  "id": "demir-kit",
+  "name": "demir-kit",
+  "version": "0.1.0",
+  "description": "demir-kit epic ve checkpoint durumunu Orca kenar çubuğunda gösterir.",
+  "engines": {
+    "orca": ">=1.4.248"
+  },
+  "execution": "trusted-worker",
+  "pluginApi": 1,
+  "main": "src/worker.ts",
+  "contributes": {
+    "panels": [
+      {
+        "id": "portfolio",
+        "title": "demir-kit",
+        "icon": "layers",
+        "entry": "src/panel.tsx",
+        "ui": "components"
+      }
+    ],
+    "commands": [
+      {
+        "id": "demir-kit.refresh",
+        "title": "demir-kit: yenile",
+        "when": "global"
+      }
+    ],
+    "events": [
+      {
+        "on": "workspace.changed"
+      }
+    ],
+    "statusBarItems": [
+      {
+        "id": "epic",
+        "icon": "check",
+        "text": "demir-kit",
+        "tone": "neutral",
+        "tooltip": "Epic / checkpoint"
+      },
+      {
+        "id": "cost",
+        "icon": "gauge",
+        "text": "-",
+        "tone": "neutral",
+        "tooltip": "Maliyet"
+      }
+    ],
+    "settings": [
+      {
+        "key": "projectPath",
+        "title": "Proje yolu",
+        "type": "string",
+        "default": "",
+        "placeholder": "/Users/.../proje"
+      }
+    ]
+  },
+  "capabilities": [
+    {
+      "kind": "workspace:read"
+    },
+    {
+      "kind": "storage:own"
+    },
+    {
+      "kind": "settings:own"
+    }
+  ]
+}
