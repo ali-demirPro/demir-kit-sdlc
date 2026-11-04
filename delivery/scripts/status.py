@@ -411,7 +411,7 @@ def build_status(project: Path, args: argparse.Namespace) -> dict:
             for epic in epics:
                 epic["gate"] = gate_state(project, kit_root, epic["number"], warnings)
     if args.with_cost:
-        warnings.append("maliyet CP-3: maliyet verisi henüz toplanmıyor")
+        warnings.append("maliyet henüz toplanmıyor")
     return {
         "contract_version": CONTRACT_VERSION,
         "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds").replace(

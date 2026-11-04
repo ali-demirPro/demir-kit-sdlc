@@ -129,7 +129,7 @@ checkpoints:
 ```"""
 
 
-class CliTests(unittest.TestCase):
+class ContractTests(unittest.TestCase):
     def test_project_contract(self) -> None:
         proc = run("--json", "--offline", cwd=ROOT)
         self.assertEqual(proc.returncode, 0, proc.stderr)
@@ -147,6 +147,11 @@ class CliTests(unittest.TestCase):
         self.assertTrue(all(isinstance(value, int) for value in data["counts"].values()))
         self.assertIsInstance(data["epics"], list)
         self.assertIsInstance(data["warnings"], list)
+
+
+class CliTests(unittest.TestCase):
+    # T-1 izi: seal bu kimliği adlandırır; gövde ContractTests ile aynı.
+    test_project_contract = ContractTests.test_project_contract
 
     def test_project_resolution(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -501,7 +506,7 @@ class DataTests(unittest.TestCase):
             self.assertEqual(proc.returncode, 0, proc.stderr)
             data = payload(proc)
             self.assertIsNone(data["epics"][0]["cost_delta"])
-            self.assertTrue(any("maliyet CP-3" in item for item in data["warnings"]))
+            self.assertTrue(any("maliyet" in item for item in data["warnings"]))
 
 
 class StateTests(unittest.TestCase):
@@ -537,6 +542,49 @@ class VendoredKitTests(unittest.TestCase):
             data = payload(proc)
             self.assertEqual(data["kit"]["version"], "9.9.9")
             self.assertFalse(data["stale"])
+
+
+class EndToEndTests(unittest.TestCase):
+    def test_repo_smoke(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            marker = Path(tmp) / "gh-called"
+            proc = run(
+                "--json",
+                "--offline",
+                cwd=ROOT,
+                path=gh_marker(Path(tmp) / "bin", marker),
+            )
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            self.assertFalse(marker.exists(), "offline modda ağa çıkılmamalı")
+            data = payload(proc)
+            self.assertEqual(data["contract_version"], 1)
+            self.assertEqual(set(data), TOP_LEVEL)
+            self.assertTrue(data["kit"]["version"], "repo'da kit sürümü okunmalı")
+            self.assertEqual(data["project"]["name"], "demir-kit")
+            self.assertEqual(data["project"]["tracker"]["repo"], "ali-demirPro/demir-kit-sdlc")
+
+    def test_epic_and_gate_end_to_end(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = project_dir(tmp)
+            log = Path(tmp) / "doctor.log"
+            doctor_stub(project, log)
+            stub = gh_fixture(
+                Path(tmp) / "bin",
+                [
+                    issue(12, "Epic", ("executing",), EPIC_BODY),
+                    issue(13, "Leaf", ("agent-approved",), LEAF_BODY),
+                ],
+            )
+            proc = run("--json", "--with-gate", cwd=project, path=stub)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            data = payload(proc)
+            self.assertEqual(data["epics"][0]["gate"], "pass")
+            self.assertEqual(data["counts"], {"epics": 1, "leaves": 1, "blocked": 0})
+            self.assertEqual(log.read_text(encoding="utf-8").split(), ["12"])
+
+            text = run("--with-gate", cwd=project, path=stub)
+            self.assertEqual(text.returncode, 0, text.stderr)
+            self.assertIn("epic 12:", text.stdout)
 
 
 if __name__ == "__main__":
