@@ -4,7 +4,7 @@
 Protokol:
 - stdio; her satır bir JSON-RPC 2.0 mesajı, her yanıt tek satır JSON.
 - `initialize`, `notifications/initialized`, `ping`, `tools/list`, `tools/call`.
-- Bozuk JSON ve bozuk params `-32602`, bilinmeyen metot `-32601` döner; süreç düşmez.
+- Bozuk JSON `-32700`, bozuk params `-32602`, bilinmeyen metot `-32601` döner; süreç düşmez.
 
 `tools/call` mevcut kit komutlarını alt süreç olarak koşar (cwd = proje,
 120 sn zaman aşımı, stdout+stderr birleşik); hiçbir araç yazma yapmaz.

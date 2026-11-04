@@ -271,3 +271,19 @@ def lint_skill(path: Path, text: str) -> tuple[list[str], list[str]]:
         warnings.append("TODO/TBD içeriyor")
 
     return errors, warnings
+
+
+def lint_runtime_skills(root: Path, check, error, warn, rel) -> None:
+    """Lint every runtime skill under root and record doctor results."""
+    check("skill writing")
+    if not root.is_dir():
+        return
+    for path in sorted(root.glob("*/SKILL.md")):
+        text = path.read_text(encoding="utf-8")
+        lint_errors, lint_warnings = lint_skill(path, text)
+        for message in lint_errors:
+            error(f"{rel(path)}: {message}")
+        for message in lint_warnings:
+            warn(f"{rel(path)}: {message}")
+
+

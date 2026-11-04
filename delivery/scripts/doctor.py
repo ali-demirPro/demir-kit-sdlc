@@ -11,6 +11,7 @@ Checks:
   7. ecosystem.yaml and kit.config.yaml (self-host wiring)
   8. SKILL.md name uniqueness
   9. seed issue validation (--issue N or --body FILE)
+ 10. MCP self-check (tools/list salt-okunur araçlar)
 """
 
 from __future__ import annotations
@@ -29,6 +30,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import approvals as approvals_lib  # noqa: E402
 import capabilities as capabilities_lib  # noqa: E402
 import delivery_block  # noqa: E402
+import doctor_mcp  # noqa: E402
+import doctor_skills  # noqa: E402
 import epic_worktree  # noqa: E402
 import evidence as evidence_lib  # noqa: E402
 from schema_lite import validate_schema  # noqa: E402, F401
@@ -722,7 +725,7 @@ def check_skills() -> None:
                     f"registry.skills.scoped: '{name}' hem runtime hem scoped"
                 )
 
-    lint_runtime_skills(skills_root)
+    doctor_skills.lint_runtime_skills(skills_root, check, error, warn, rel)
 
 
 def run(command: list[str]) -> str:
@@ -735,20 +738,14 @@ def run(command: list[str]) -> str:
     return result.stdout
 
 
+def check_mcp(root: Path = ROOT) -> None:
+    check("mcp")
+    for message in doctor_mcp.check_mcp_self(root):
+        error(message)
+
+
 def lint_runtime_skills(root: Path) -> None:
-    """Lint every runtime skill under root and record doctor results."""
-    check("skill writing")
-    if not root.is_dir():
-        return
-    for path in sorted(root.glob("*/SKILL.md")):
-        text = path.read_text(encoding="utf-8")
-        lint_errors, lint_warnings = lint_skill(path, text)
-        for message in lint_errors:
-            error(f"{rel(path)}: {message}")
-        for message in lint_warnings:
-            warn(f"{rel(path)}: {message}")
-
-
+    doctor_skills.lint_runtime_skills(root, check, error, warn, rel)
 
 
 def check_role_contracts() -> None:
@@ -1762,6 +1759,7 @@ def main() -> int:
         check_fleet()
         check_skills()
         check_role_contracts()
+        check_mcp()
 
     if args.checkpoint and args.checkpoint != "CP-HEALTH" and not re.match(
         r"^CP-[0-9]+$", args.checkpoint
