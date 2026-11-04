@@ -63,6 +63,9 @@
       "kind": "workspace:read"
     },
     {
+      "kind": "workspace:write"
+    },
+    {
       "kind": "storage:own"
     },
     {

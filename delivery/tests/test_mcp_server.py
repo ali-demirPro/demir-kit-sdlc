@@ -185,6 +185,14 @@ class ToolTests(ServerTestCase):
         data = json.loads(text)
         self.assertIn("contract_version", data)
 
+    def test_status_all_epics_argument(self) -> None:
+        """`all_epics` araç şemasında kabul edilir; çevrimdışı çağrı düşmez."""
+        self.start("--project", str(ROOT))
+        reply = self.call_tool("status", {"offline": True, "all_epics": True})
+        self.assertFalse(reply["result"]["isError"])
+        data = json.loads(reply["result"]["content"][0]["text"])
+        self.assertIn("epics", data)
+
     def test_errors(self) -> None:
         """Eksik/yanlış argüman ve bilinmeyen araç -32602; süreç yaşar."""
         self.start("--project", str(ROOT))

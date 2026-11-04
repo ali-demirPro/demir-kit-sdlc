@@ -10,6 +10,11 @@ CP-2 kapsamı: `epics` ve `counts` GitHub issue'larından toplanır
 (`gh issue list`). `--offline` ağa çıkmaz ve yalnızca önbellekten döner;
 `--with-gate` epic başına `doctor.sh --issue N` koşar; `--with-cost` kabul
 edilir ama maliyet CP-3'te toplanır.
+
+Varsayılan olarak yalnız aktif epic'ler listelenir: `epic-done` etiketli ya da
+kapalı issue'lar `epics[]` dışında kalır. `--all-epics` hepsini gösterir.
+`counts.epics` listelenen epic sayısı, `counts.leaves` bu epic'lerin `leaves[]`
+toplamıdır; `counts.blocked` tüm issue'ları saymaya devam eder.
 """
 
 from __future__ import annotations
@@ -33,7 +38,7 @@ KIT_MARKERS = (
 )
 DOCTOR_SCRIPT = Path("delivery") / "scripts" / "doctor.sh"
 GH_FIELDS = "number,title,state,labels,body"
-GH_LIMIT = "200"
+GH_LIMIT = "500"
 GH_TIMEOUT = 30
 DOCTOR_TIMEOUT = 120
 EPIC_BLOCK = "demir-kit-epic"
@@ -45,6 +50,16 @@ STATE_PRIORITY = (
     "blocked",
     "executing",
     "scope-confirmed",
+)
+# Leaf listesi için ayrı öncelik: leaf-done > blocked > deferred > executing >
+# agent-approved > intake. Engel ve erteleme, ilerlemeden önce anlatılır.
+LEAF_STATE_PRIORITY = (
+    "leaf-done",
+    "blocked",
+    "deferred",
+    "executing",
+    "agent-approved",
+    "intake",
 )
 CONTRACT_KEYS = {
     "contract_version",
@@ -90,6 +105,18 @@ def git(root: Path, *args: str) -> str | None:
     if proc.returncode != 0:
         return None
     return proc.stdout.strip()
+
+
+def repo_root(project: Path) -> str | None:
+    """Ortak git dizininin üst dizini; git yoksa ya da depo değilse None.
+
+    Worktree'de ortak dizin ana checkout'un `.git`'idir, yani üst dizin ana
+    checkout köküdür: aynı repo tek proje sayılabilir.
+    """
+    common = git(project, "rev-parse", "--path-format=absolute", "--git-common-dir")
+    if not common:
+        return None
+    return str(Path(common).resolve().parent)
 
 
 def find_kit_root(start: Path, config: dict | None = None) -> Path | None:
@@ -178,6 +205,7 @@ def project_state(project: Path, config: dict) -> dict:
     return {
         "name": name,
         "profile": profile,
+        "repo_root": repo_root(project),
         "tracker": {
             "provider": str(tracker.get("provider") or ""),
             "repo": str(tracker.get("repo") or ""),
@@ -212,11 +240,20 @@ def labels_of(issue: dict) -> set[str]:
     return names
 
 
-def epic_state(labels: set[str], issue_state: str = "") -> str:
-    for name in STATE_PRIORITY:
+def epic_state(
+    labels: set[str],
+    issue_state: str = "",
+    priority: tuple[str, ...] = STATE_PRIORITY,
+) -> str:
+    for name in priority:
         if name in labels:
             return name
     return "closed" if str(issue_state).upper() == "CLOSED" else "open"
+
+
+def epic_is_done(labels: set[str], issue_state: str = "") -> bool:
+    """Kapanmış epic: `epic-done` etiketi ya da kapalı issue."""
+    return "epic-done" in labels or str(issue_state).upper() == "CLOSED"
 
 
 def child_numbers(epic_block: dict) -> list[int]:
@@ -249,6 +286,31 @@ def epic_children(epic_block: dict, number: int, seals: dict[int, dict]) -> list
     ]
 
 
+def epic_leaves(epic_block: dict, issues_by_number: dict[int, dict]) -> list[dict]:
+    """`children` numaralarından issue listesinde bulunanlar; seal şartı yok.
+
+    Seal yalnız checkpoint sayımında (`epic_children`) gerekir; seal'i olmayan
+    çocuk da başlığı ve durumuyla listede görünür.
+    """
+    leaves: list[dict] = []
+    for child in child_numbers(epic_block):
+        issue = issues_by_number.get(child)
+        if issue is None:
+            continue
+        leaves.append(
+            {
+                "number": child,
+                "title": str(issue.get("title") or ""),
+                "state": epic_state(
+                    labels_of(issue),
+                    str(issue.get("state") or ""),
+                    LEAF_STATE_PRIORITY,
+                ),
+            }
+        )
+    return leaves
+
+
 def epic_checkpoint_total(epic_block: dict, number: int, seals: dict[int, dict]) -> int:
     """Epic çocuklarının seal'lerindeki checkpoint toplamı."""
     return sum(
@@ -277,6 +339,7 @@ def epic_entry(
     checkpoint_done: int,
     checkpoint_total: int,
     issue_state: str = "",
+    leaves: list[dict] | None = None,
 ) -> dict:
     return {
         "number": number,
@@ -284,6 +347,7 @@ def epic_entry(
         "state": epic_state(labels, issue_state),
         "risk": None,
         "checkpoints": {"done": checkpoint_done, "total": checkpoint_total},
+        "leaves": list(leaves or []),
         "gate": None,
         "open_findings": 0,
         "approvals": {
@@ -296,12 +360,17 @@ def epic_entry(
     }
 
 
-def collect_issues(issues: list[dict]) -> tuple[list[dict], dict]:
-    """Issue listesinden epics + counts; epic/leaf bloklarına göre ayırır."""
+def collect_issues(issues: list[dict], all_epics: bool = False) -> tuple[list[dict], dict]:
+    """Issue listesinden epics + counts; epic/leaf bloklarına göre ayırır.
+
+    `all_epics` kapalıyken `epic-done` etiketli veya kapalı issue'lar listeye
+    girmez; `counts.leaves` yalnız listelenen epic'lerin `leaves[]` toplamıdır.
+    `leaves[]` seal şartı aramaz; seal yalnız checkpoint sayımını besler.
+    """
     seals: dict[int, dict] = {}
+    issues_by_number: dict[int, dict] = {}
     labels_by_number: dict[int, set[str]] = {}
-    epic_rows: list[tuple[int, dict, set[str], str]] = []
-    leaves = 0
+    epic_rows: list[tuple[int, dict, set[str], str, str]] = []
     blocked = 0
     for issue in issues:
         number = issue.get("number")
@@ -309,13 +378,13 @@ def collect_issues(issues: list[dict]) -> tuple[list[dict], dict]:
             continue
         labels = labels_of(issue)
         labels_by_number[number] = labels
+        issues_by_number[number] = issue
         if "blocked" in labels:
             blocked += 1
         body = issue.get("body")
         seal = yaml_block(body, LEAF_BLOCK)
         if seal:
             seals[number] = seal
-            leaves += 1
         epic_block = yaml_block(body, EPIC_BLOCK)
         if epic_block:
             epic_rows.append(
@@ -327,6 +396,11 @@ def collect_issues(issues: list[dict]) -> tuple[list[dict], dict]:
                     str(issue.get("state") or ""),
                 )
             )
+    active_rows = [
+        row
+        for row in epic_rows
+        if all_epics or not epic_is_done(row[2], row[4])
+    ]
     epics = [
         epic_entry(
             number,
@@ -335,12 +409,17 @@ def collect_issues(issues: list[dict]) -> tuple[list[dict], dict]:
             epic_checkpoint_done(block, number, seals, labels_by_number),
             epic_checkpoint_total(block, number, seals),
             issue_state,
+            epic_leaves(block, issues_by_number),
         )
         for number, block, labels, title, issue_state in sorted(
-            epic_rows, key=lambda row: row[0]
+            active_rows, key=lambda row: row[0]
         )
     ]
-    counts = {"epics": len(epics), "leaves": leaves, "blocked": blocked}
+    counts = {
+        "epics": len(epics),
+        "leaves": sum(len(epic["leaves"]) for epic in epics),
+        "blocked": blocked,
+    }
     return epics, counts
 
 
@@ -348,7 +427,7 @@ def fetch_issues(project: Path, warnings: list[str]) -> list[dict] | None:
     """`gh issue list`; gh yoksa/başarısızsa None + uyarı (hata değil)."""
     try:
         proc = subprocess.run(
-            ["gh", "issue", "list", "--json", GH_FIELDS, "--limit", GH_LIMIT],
+            ["gh", "issue", "list", "--json", GH_FIELDS, "--limit", GH_LIMIT, "--state", "all"],
             cwd=str(project),
             capture_output=True,
             text=True,
@@ -424,7 +503,7 @@ def build_status(project: Path, args: argparse.Namespace) -> dict:
         if issues is None:
             stale = True
         else:
-            epics, counts = collect_issues(issues)
+            epics, counts = collect_issues(issues, all_epics=args.all_epics)
     if args.with_gate:
         if not epics:
             warnings.append("--with-gate: epic yok, doctor çağrılmadı")
@@ -460,6 +539,7 @@ EPIC_KEYS = {
     "state",
     "risk",
     "checkpoints",
+    "leaves",
     "gate",
     "open_findings",
     "approvals",
@@ -487,6 +567,11 @@ def valid_epic(item: object) -> bool:
     ):
         return False
     if item.get("gate") not in {None, "pass", "fail"}:
+        return False
+    leaves = item.get("leaves")
+    if not isinstance(leaves, list) or not all(
+        isinstance(leaf, dict) for leaf in leaves
+    ):
         return False
     if not isinstance(item.get("open_findings"), int) or isinstance(
         item.get("open_findings"), bool
@@ -524,9 +609,18 @@ def valid_contract(data: object) -> bool:
     if not isinstance(kit.get("dirty"), (bool, type(None))):
         return False
     project = data.get("project")
-    if not isinstance(project, dict) or set(project) != {"name", "profile", "tracker"}:
+    if not isinstance(project, dict) or set(project) != {
+        "name",
+        "profile",
+        "repo_root",
+        "tracker",
+    }:
         return False
     if not all(isinstance(project.get(key), str) for key in ("name", "profile")):
+        return False
+    if project.get("repo_root") is not None and not isinstance(
+        project.get("repo_root"), str
+    ):
         return False
     tracker = project.get("tracker")
     if not isinstance(tracker, dict) or set(tracker) != {"provider", "repo"}:
@@ -551,6 +645,7 @@ def args_fingerprint(args: argparse.Namespace) -> dict:
         "with_gate": bool(args.with_gate),
         "with_cost": bool(args.with_cost),
         "full": bool(args.full),
+        "all_epics": bool(args.all_epics),
     }
 
 
@@ -642,6 +737,11 @@ def main() -> int:
     parser.add_argument("--with-cost", action="store_true", help="maliyet (CP-3)")
     parser.add_argument("--cache-ttl", type=int, default=0, metavar="N")
     parser.add_argument("--full", action="store_true", help="rezerve (CP-3)")
+    parser.add_argument(
+        "--all-epics",
+        action="store_true",
+        help="kapanmış (epic-done/kapalı) epic'leri de listele",
+    )
     args = parser.parse_args()
     if args.cache_ttl < 0:
         print("status: --cache-ttl negatif; 0 kullanıldı", file=sys.stderr)

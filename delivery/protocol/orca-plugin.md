@@ -8,16 +8,43 @@ demir-kit'in Orca yüzeyi: sağ kenar çubuğunda portföy paneli ve iki durum
 
 | Yüzey | Ne gösterir |
 |-------|-------------|
-| Panel `portfolio` | Proje adı, `source` (`live`/`cache`), `stale`; epic tablosu |
-| Durum çubuğu `epic` | İlk epic, checkpoint ilerlemesi, gate sonucu |
+| Panel `portfolio` | Her repo için tek proje kartı: repo adı + kısa yol, `epic N · leaf M`; epic ve leaf satırları |
+| Durum çubuğu `epic` | Odaklı proje `ok` ve aktif epiği varsa `EP-N · CP d/t · gate g`; yoksa sağlıklı proje sayısı `N proje` |
 | Durum çubuğu `cost` | Maliyet; `status.py` henüz `null` döndüğü için `-` |
 
-Her satır bir epic: `#number`, `durum`, `CP done/total`, `gate`
-(`-`/`pass`/`fail`), `risk` (`-` ya da seviye). Panel açılışta sorar, 30
-saniyede bir yenilenir; "Yenile" düğmesi anında tazeler.
+Her proje kartı repo adını (`project.tracker.repo`, yoksa proje adı) başlık yapar;
+yanında kısa yol ve aktif iş sayısı `epic N · leaf M` rozeti durur. Sayılar
+`status.py`'den geldiği gibidir: kapalı epic'ler sayılmaz. Hiç aktif epiği
+olmayan proje kartı gizlenmez, "açık iş yok" satırı gösterir. Her kart bir epic
+listesi çizer: satır `#number — başlık`, altında o epic'in leaf satırları
+`#number — başlık · durum` (`leaf-done`, `executing`, `agent-approved`, `intake`,
+`open`/`closed`). Epic satırında `CP done/total`, `gate` (`-`/`pass`/`fail`) ve
+`risk` rozetleri vardır. Bir epic veya leaf satırına tıklama, panele değil işçiye
+`plugin.request("workspace.open", {id})` gönderir; `workspace.open`'ı
+`workspace:write` yetkisiyle yalnız işçi çağırır ve `{ok}` (hata: `{ok:false,error}`)
+döner. Panel açılışta sorar, 30 saniyede bir yenilenir; "Yenile" düğmesi anında
+tazeler.
 
-Veri `python3 <proje>/delivery/scripts/status.py --json` çıktısıdır; işçi
-(`src/worker.ts`) sonucu 30 saniye `orca.storage` içinde tutar. Sözleşme
+## Çok proje
+
+İşçi `workspace.list` ile bütün workspace'leri gezer, her biri için `kit.config.yaml`
+üzerinden kit kökünü çözer ve `status.py --json` koşar. Aynı repo tek kartta
+toplanır: anahtar sırası `status.project.repo_root`, `project.tracker.repo`, son
+çare olarak epic worktree son eki (`/epic-<N>`) atılmış normalize yoldur.
+`repo_root` git ortak dizininin üst dizinidir; böylece ana checkout ile epic
+worktree'si iki ayrı proje gibi görünmez. Aynı anahtar için odaklı workspace,
+yoksa worktree olmayan yol (yolunda `/epic-` geçmeyen ana checkout) kalır.
+Kartlar odaklı proje önce, sonra ada göre sıralanır; ayarlardaki `projectPath`
+odaklıdan sonra gelir. Kit'i olmayan workspace grubu hiç görünmez.
+
+Bir projede `gh`, python ya da `status.py` hatası olursa yalnız o proje `ok: false`
+ve `error` ile döner; diğer projeler `ok: true` kalır. Üst düzey `code: "no-kit"`
+yalnız hiçbir workspace'te kit yoksa gelir; panel o zaman boş durum çizer.
+
+Önbellek proje başına 30 saniyedir: `orca.storage` anahtarı `project:<yol>`, değeri
+`{saved_at, project}`. "Yenile" ve `workspace.changed` bu önbelleği atlar.
+
+Veri `python3 <proje>/delivery/scripts/status.py --json` çıktısıdır. Sözleşme
 alanları [status.md](status.md), panel-işçi tipleri
 `plugins/orca/src/protocol.ts`. Yüklemede derleme yoktur: Orca `.ts`/`.tsx`
 dosyalarını kendisi çevirir.
@@ -47,11 +74,12 @@ python3 -m unittest delivery.tests.test_orca_plugin
 
 ## İzinler
 
-Manifest `execution: trusted-worker` ve üç yetenek ister:
+Manifest `execution: trusted-worker` ve dört yetenek ister:
 
 | Yetenek | Neden |
 |---------|-------|
-| `workspace:read` | `workspace.list` ile proje kökünü bulmak |
+| `workspace:read` | `workspace.list` ile proje köklerini bulmak |
+| `workspace:write` | Tıklamada `workspace.open` çağırmak (yalnız işçi) |
 | `storage:own` | 30 saniyelik durum önbelleği |
 | `settings:own` | `projectPath` ayarını okumak |
 
@@ -62,6 +90,10 @@ kum havuzunun dışında çalıştırır: yalnız kendi kodunu yükle. Aynı sü
 ## Sınırlar
 
 - Salt-okunur: issue, etiket, worktree, dosya veya git durumu yazılmaz.
+- Satır tıklaması `plugin.request("workspace.open")` ile işçiye gider; işçi
+  `orca.host.call` ile o projenin workspace'ini açar. Bu yöntem Orca'da
+  `workspace:write` ister; manifest bu yetkiyi taşır, reddedilirse hata
+  `{ok:false,error}` olarak panele döner ve panel çalışmaya devam eder.
 - `transition`, `claim`, `seal`, `update.py` çağrılmaz; mutasyon aracı yoktur.
 - Repoya yazma yok: `writeFile`, `mkdir`, `appendFile` kullanılmaz. Kalıcı veri
   yalnızca Orca'nın `storage` ve `settings` API'lerinde durur.

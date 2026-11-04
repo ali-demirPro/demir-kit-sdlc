@@ -141,7 +141,9 @@ class ContractTests(unittest.TestCase):
         self.assertRegex(data["generated_at"], r"^\d{4}-\d{2}-\d{2}T.*Z$")
         self.assertEqual(set(data["kit"]), {"version", "pin", "dirty"})
         self.assertIsInstance(data["kit"]["dirty"], (bool, type(None)))
-        self.assertEqual(set(data["project"]), {"name", "profile", "tracker"})
+        self.assertEqual(set(data["project"]), {"name", "profile", "repo_root", "tracker"})
+        repo_root = data["project"]["repo_root"]
+        self.assertTrue(repo_root is None or Path(repo_root).is_absolute())
         self.assertEqual(set(data["project"]["tracker"]), {"provider", "repo"})
         self.assertEqual(set(data["counts"]), {"epics", "leaves", "blocked"})
         self.assertTrue(all(isinstance(value, int) for value in data["counts"].values()))
@@ -485,7 +487,7 @@ class DataTests(unittest.TestCase):
             self.assertEqual(proc.returncode, 0, proc.stderr)
             data = payload(proc)
             self.assertEqual(data["epics"][0]["state"], "epic-reconcile")
-            self.assertEqual(data["counts"], {"epics": 1, "leaves": 1, "blocked": 2})
+            self.assertEqual(data["counts"], {"epics": 1, "leaves": 2, "blocked": 2})
             self.assertEqual(
                 data["epics"][0]["approvals"],
                 {"agent_approved": True, "human_qa": True},
@@ -555,6 +557,7 @@ class StateTests(unittest.TestCase):
             project = project_dir(tmp)
             proc = run(
                 "--json",
+                "--all-epics",
                 cwd=project,
                 path=gh_fixture(
                     Path(tmp) / "bin",
@@ -563,6 +566,177 @@ class StateTests(unittest.TestCase):
             )
             self.assertEqual(proc.returncode, 0, proc.stderr)
             self.assertEqual(payload(proc)["epics"][0]["state"], "closed")
+
+
+class ActiveEpicTests(unittest.TestCase):
+    """CP-1: varsayılan yalnız aktif epic'ler; kapanmışlar gürültü yapmaz."""
+
+    def test_done_epic_hidden(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = project_dir(tmp)
+            done = '```yaml demir-kit-epic\ndemir_kit_version: "2"\nchildren: [13]\n```\n'
+            proc = run(
+                "--json",
+                cwd=project,
+                path=gh_fixture(
+                    Path(tmp) / "bin",
+                    [
+                        issue(12, "Aktif epic", ("executing",), EPIC_BODY),
+                        issue(13, "Biten leaf", ("leaf-done",), LEAF_BODY),
+                        issue(14, "Açık leaf", ("agent-approved",), LEAF_BODY),
+                        issue(15, "Bitti epic", ("epic-done",), done),
+                        issue(16, "Kapalı epic", (), done, state="CLOSED"),
+                    ],
+                ),
+            )
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            data = payload(proc)
+            self.assertEqual([epic["number"] for epic in data["epics"]], [12])
+            self.assertEqual(data["counts"], {"epics": 1, "leaves": 2, "blocked": 0})
+            # Kapalı epic'in çocuğu seal taşısa da listeye ve sayıma girmez.
+            self.assertEqual(
+                [leaf["number"] for leaf in data["epics"][0]["leaves"]], [13, 14]
+            )
+
+    def test_all_epics_flag(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = project_dir(tmp)
+            done = '```yaml demir-kit-epic\ndemir_kit_version: "2"\nchildren: [13]\n```\n'
+            stub = gh_fixture(
+                Path(tmp) / "bin",
+                [
+                    issue(12, "Aktif epic", ("executing", "blocked"), EPIC_BODY),
+                    issue(13, "Biten leaf", ("leaf-done",), LEAF_BODY),
+                    issue(14, "Açık leaf", ("agent-approved", "blocked"), LEAF_BODY),
+                    issue(15, "Bitti epic", ("epic-done",), done),
+                    issue(16, "Kapalı epic", (), done, state="CLOSED"),
+                ],
+            )
+
+            plain = run("--json", cwd=project, path=stub)
+            self.assertEqual(plain.returncode, 0, plain.stderr)
+            # `blocked` kapanmış epic'lerin çocuklarını da saymaya devam eder.
+            self.assertEqual(
+                payload(plain)["counts"], {"epics": 1, "leaves": 2, "blocked": 2}
+            )
+
+            every = run("--json", "--all-epics", cwd=project, path=stub)
+            self.assertEqual(every.returncode, 0, every.stderr)
+            data = payload(every)
+            self.assertEqual([epic["number"] for epic in data["epics"]], [12, 15, 16])
+            self.assertEqual(data["counts"], {"epics": 3, "leaves": 4, "blocked": 2})
+            self.assertEqual(data["epics"][1]["state"], "epic-done")
+            self.assertEqual(data["epics"][2]["state"], "closed")
+
+
+class LeafListTests(unittest.TestCase):
+    def test_blocked_and_unsealed(self) -> None:
+        """`blocked`/`deferred` öne geçer; seal'siz çocuk da listede görünür."""
+        with tempfile.TemporaryDirectory() as tmp:
+            project = project_dir(tmp)
+            proc = run(
+                "--json",
+                cwd=project,
+                path=gh_fixture(
+                    Path(tmp) / "bin",
+                    [
+                        issue(12, "Epic", ("executing",), EPIC_BODY),
+                        issue(13, "Engelli leaf", ("blocked", "executing"), LEAF_BODY),
+                        issue(14, "Ertelenen leaf", ("deferred", "executing")),
+                    ],
+                ),
+            )
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            leaves = payload(proc)["epics"][0]["leaves"]
+            self.assertEqual(
+                leaves,
+                [
+                    {"number": 13, "title": "Engelli leaf", "state": "blocked"},
+                    {"number": 14, "title": "Ertelenen leaf", "state": "deferred"},
+                ],
+            )
+
+    def test_epic_leaves(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = project_dir(tmp)
+            proc = run(
+                "--json",
+                cwd=project,
+                path=gh_fixture(
+                    Path(tmp) / "bin",
+                    [
+                        issue(12, "Epic başlık", ("executing",), EPIC_BODY),
+                        issue(13, "Biten leaf", ("leaf-done",), LEAF_BODY),
+                        issue(14, "Açık leaf", ("agent-approved",), LEAF_BODY),
+                    ],
+                ),
+            )
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            leaves = payload(proc)["epics"][0]["leaves"]
+            self.assertEqual(
+                leaves,
+                [
+                    {"number": 13, "title": "Biten leaf", "state": "leaf-done"},
+                    {"number": 14, "title": "Açık leaf", "state": "agent-approved"},
+                ],
+            )
+
+    def test_closed_issues_included(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = project_dir(tmp)
+            proc = run(
+                "--json",
+                cwd=project,
+                path=gh_fixture(
+                    Path(tmp) / "bin",
+                    [
+                        issue(12, "Epic", ("executing",), EPIC_BODY),
+                        issue(13, "Kapalı leaf", ("leaf-done",), LEAF_BODY, state="CLOSED"),
+                        issue(14, "Açık leaf", (), LEAF_BODY),
+                    ],
+                ),
+            )
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            data = payload(proc)
+            self.assertEqual(data["counts"]["leaves"], 2)
+            self.assertEqual(
+                [leaf["number"] for leaf in data["epics"][0]["leaves"]], [13, 14]
+            )
+
+
+class RepoRootTests(unittest.TestCase):
+    def test_repo_root(self) -> None:
+        """Git deposunda ortak dizinin üstü; git yoksa `null`."""
+        try:
+            subprocess.run(
+                ["git", "--version"],
+                capture_output=True,
+                check=True,
+                timeout=10,
+            )
+        except (OSError, subprocess.SubprocessError):
+            self.skipTest("git yok")
+        with tempfile.TemporaryDirectory() as tmp:
+            project = project_dir(tmp)
+            init = subprocess.run(
+                ["git", "init", "-q", str(project)],
+                capture_output=True,
+                text=True,
+                timeout=30,
+                check=False,
+            )
+            self.assertEqual(init.returncode, 0, init.stderr)
+            proc = run("--json", cwd=project)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            self.assertEqual(
+                payload(proc)["project"]["repo_root"], str(project.resolve())
+            )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            project = project_dir(tmp)
+            proc = run("--json", cwd=project)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            self.assertIsNone(payload(proc)["project"]["repo_root"])
 
 
 class VendoredKitTests(unittest.TestCase):

@@ -99,6 +99,10 @@ TOOLS = [
                     "type": "boolean",
                     "description": "Maliyet özetini de ekler.",
                 },
+                "all_epics": {
+                    "type": "boolean",
+                    "description": "Kapanmış (epic-done/kapalı) epic'leri de listeler.",
+                },
             }
         ),
     ),
@@ -380,6 +384,8 @@ class McpServer:
                 command.append("--with-gate")
             if arguments.get("with_cost"):
                 command.append("--with-cost")
+            if arguments.get("all_epics"):
+                command.append("--all-epics")
             command += ["--project", str(self.status_project(arguments))]
             return command
         if name == "brief":
