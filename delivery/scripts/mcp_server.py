@@ -6,8 +6,10 @@ Protokol:
 - `initialize`, `notifications/initialized`, `ping`, `tools/list`, `tools/call`.
 - Bozuk JSON ve bozuk params `-32602`, bilinmeyen metot `-32601` döner; süreç düşmez.
 
-CP-1 kapsamı: yalnız çerçeve ve araç listesi. `tools/call` henüz çalışmaz,
-`isError: true` ve "CP-2" metni döner; gerçek çağrılar CP-2'de gelir.
+`tools/call` mevcut kit komutlarını alt süreç olarak koşar (cwd = proje,
+120 sn zaman aşımı, stdout+stderr birleşik); hiçbir araç yazma yapmaz.
+Eksik/yanlış argüman `-32602`, bilinmeyen araç `isError: true` döner.
+Çıktı 20.000 karakterde kırpılır ve not düşülür.
 
 Proje çözümü: `--project PATH` ya da cwd'de `kit.config.yaml`. Kit kökü
 `kit.config.yaml: kit.root`, yoksa yukarı doğru `delivery/scripts/doctor.py|doctor.sh`.
@@ -18,6 +20,7 @@ from __future__ import annotations
 import argparse
 import json
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -37,7 +40,8 @@ INVALID_PARAMS = -32602
 INTERNAL_ERROR = -32603
 
 MAX_TEXT = 20_000
-CP_PENDING = "araç çağrıları CP-2'de gelir; CP-1 yalnız çerçeveyi ve araç listesini sunar."
+TRUNCATED_NOTE = "… (kırpıldı)"
+TOOL_TIMEOUT = 120
 
 
 def tool(name: str, title: str, description: str, schema: dict) -> dict:
@@ -77,10 +81,22 @@ TOOLS = [
         "Proje ve epic durumunu salt-okunur özetler; fleet genel bakışı verir.",
         object_schema(
             {
+                "project": {
+                    "type": "string",
+                    "description": "Durumu okunacak proje dizini (varsayılan: sunucu projesi).",
+                },
                 "offline": {
                     "type": "boolean",
                     "description": "Ağa çıkmadan önbellekten döner.",
-                }
+                },
+                "with_gate": {
+                    "type": "boolean",
+                    "description": "Epic başına doctor gate'ini de koşar.",
+                },
+                "with_cost": {
+                    "type": "boolean",
+                    "description": "Maliyet özetini de ekler.",
+                },
             }
         ),
     ),
@@ -88,7 +104,20 @@ TOOLS = [
         "brief",
         "Leaf brief",
         "Bir leaf issue için ajan brief'ini döner; rol, kapsam ve kabul kriterleri.",
-        ISSUE_SCHEMA,
+        object_schema(
+            {
+                "issue": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": "GitHub issue (leaf) numarası.",
+                },
+                "cp": {
+                    "type": "string",
+                    "description": "Yalnız bu checkpoint için kompakt brief, örn. CP-1.",
+                },
+            },
+            ["issue"],
+        ),
     ),
     tool(
         "doctor",
@@ -105,6 +134,10 @@ TOOLS = [
                     "type": "string",
                     "description": "Checkpoint id, örn. CP-1.",
                 },
+                "strict": {
+                    "type": "boolean",
+                    "description": "Uyarıları da hata say.",
+                },
             }
         ),
     ),
@@ -112,15 +145,7 @@ TOOLS = [
         "next_leaf_list",
         "Sıradaki leaf'ler",
         "Bağımlılık sırasına göre hazır leaf kuyruğunu listeler; claim yapmaz.",
-        object_schema(
-            {
-                "limit": {
-                    "type": "integer",
-                    "minimum": 1,
-                    "description": "Döndürülecek en fazla leaf sayısı.",
-                }
-            }
-        ),
+        object_schema(),
     ),
     tool(
         "guard",
@@ -129,6 +154,8 @@ TOOLS = [
         ISSUE_SCHEMA,
     ),
 ]
+
+TOOL_BY_NAME = {item["name"]: item for item in TOOLS}
 
 
 class ServerError(Exception):
@@ -241,6 +268,51 @@ def rpc_error(msg_id: object, code: int, message: str) -> dict:
     return {"jsonrpc": "2.0", "id": msg_id, "error": {"code": code, "message": message}}
 
 
+def truncate_output(text: str) -> str:
+    if len(text) <= MAX_TEXT:
+        return text
+    return text[:MAX_TEXT] + "\n" + TRUNCATED_NOTE
+
+
+JSON_TYPES = {
+    "string": str,
+    "boolean": bool,
+    "integer": int,
+    "number": (int, float),
+    "object": dict,
+    "array": list,
+}
+
+
+def validate_arguments(schema: dict, arguments: object) -> dict:
+    """Küçük JSON Schema denetimi: tip, zorunlu alan, minimum, fazladan anahtar."""
+    if arguments is None:
+        arguments = {}
+    if not isinstance(arguments, dict):
+        raise ValueError("arguments bir nesne olmalı")
+    properties = schema.get("properties") or {}
+    for key in arguments:
+        if key not in properties:
+            raise ValueError(f"bilinmeyen argüman: {key}")
+    for key in schema.get("required") or []:
+        if key not in arguments:
+            raise ValueError(f"{key} zorunlu")
+    for key, value in arguments.items():
+        spec = properties[key] if isinstance(properties[key], dict) else {}
+        expected = spec.get("type")
+        python_type = JSON_TYPES.get(expected)
+        if python_type is not None:
+            if isinstance(value, bool) and expected != "boolean":
+                raise ValueError(f"{key} {expected} olmalı")
+            if not isinstance(value, python_type):
+                raise ValueError(f"{key} {expected} olmalı")
+        minimum = spec.get("minimum")
+        if isinstance(minimum, int) and isinstance(value, int) and not isinstance(value, bool):
+            if value < minimum:
+                raise ValueError(f"{key} en az {minimum} olmalı")
+    return arguments
+
+
 class McpServer:
     """stdio JSON-RPC çekirdeği; süreç hiçbir mesajda düşmez."""
 
@@ -265,17 +337,105 @@ class McpServer:
         }
 
     def call_tool(self, params: object) -> dict:
-        """CP-1: çağrı yok; bilinen araç için isError, bilinmeyen için JSON-RPC hatası."""
+        """Araç çağrısı: bilinmeyen ad isError, bozuk argüman JSON-RPC hatası."""
         if not isinstance(params, dict):
             raise ValueError("params bir nesne olmalı")
         name = params.get("name")
         if not isinstance(name, str) or not name:
             raise ValueError("name zorunlu")
-        if name not in {item["name"] for item in TOOLS}:
-            raise LookupError(f"bilinmeyen araç: {name}")
+        spec = TOOL_BY_NAME.get(name)
+        if spec is None:
+            return {
+                "content": [{"type": "text", "text": f"bilinmeyen araç: {name}"}],
+                "isError": True,
+            }
+        arguments = validate_arguments(spec["inputSchema"], params.get("arguments"))
+        return self.run_tool(name, arguments)
+
+    def scripts_dir(self) -> Path:
+        """Kit scriptleri: kit kökü, yoksa bu dosyanın yanı."""
+        if self.kit_root is not None:
+            return self.kit_root / "delivery" / "scripts"
+        return Path(__file__).resolve().parent
+
+    def status_project(self, arguments: dict) -> Path:
+        """`status.project` verilmişse projeye göre çöz, yoksa sunucu projesi."""
+        raw = arguments.get("project")
+        if not raw:
+            return self.project
+        candidate = Path(str(raw)).expanduser()
+        if not candidate.is_absolute():
+            candidate = self.project / candidate
+        return candidate
+
+    def build_command(self, name: str, arguments: dict) -> list[str]:
+        """Araç adını salt-okunur kit komutuna çevirir."""
+        scripts = self.scripts_dir()
+        python = self.runtime["python"]
+        bash = self.runtime["bash"]
+        if name == "status":
+            command = [python, str(scripts / "status.py"), "--json"]
+            if arguments.get("offline"):
+                command.append("--offline")
+            if arguments.get("with_gate"):
+                command.append("--with-gate")
+            if arguments.get("with_cost"):
+                command.append("--with-cost")
+            command += ["--project", str(self.status_project(arguments))]
+            return command
+        if name == "brief":
+            command = [python, str(scripts / "brief.py"), str(arguments["issue"]), "--json"]
+            if arguments.get("cp"):
+                command += ["--cp", str(arguments["cp"])]
+            return command
+        if name == "doctor":
+            command = [bash, str(scripts / "doctor.sh")]
+            if arguments.get("issue") is not None:
+                command += ["--issue", str(arguments["issue"])]
+            if arguments.get("checkpoint"):
+                command += ["--checkpoint", str(arguments["checkpoint"])]
+            if arguments.get("strict"):
+                command.append("--strict")
+            return command
+        if name == "next_leaf_list":
+            return [python, str(scripts / "next-leaf.py"), "--list", "--json"]
+        if name == "guard":
+            return [bash, str(scripts / "guard.sh"), "--issue", str(arguments["issue"])]
+        raise ValueError(f"bilinmeyen araç: {name}")
+
+    def run_tool(self, name: str, arguments: dict) -> dict:
+        """Alt süreç: cwd = proje, 120 sn, stdout+stderr birleşik."""
+        command = self.build_command(name, arguments)
+        try:
+            proc = subprocess.run(
+                command,
+                cwd=str(self.project),
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=TOOL_TIMEOUT,
+            )
+        except subprocess.TimeoutExpired:
+            return {
+                "content": [
+                    {"type": "text", "text": f"{name}: {TOOL_TIMEOUT} sn zaman aşımı"}
+                ],
+                "isError": True,
+            }
+        except OSError as exc:
+            return {
+                "content": [{"type": "text", "text": f"{name}: çalıştırılamadı — {exc}"}],
+                "isError": True,
+            }
+        text = truncate_output(proc.stdout or "")
+        if not text.strip():
+            text = f"{name}: çıktı yok (exit {proc.returncode})"
         return {
-            "content": [{"type": "text", "text": CP_PENDING}],
-            "isError": True,
+            "content": [{"type": "text", "text": text}],
+            "isError": proc.returncode != 0,
         }
 
     def handle(self, message: object) -> dict | None:

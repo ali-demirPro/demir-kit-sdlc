@@ -1,4 +1,4 @@
-"""Tests for the read-only stdio MCP server (JSON-RPC core, CP-1)."""
+"""Tests for the read-only stdio MCP server (JSON-RPC core, tools, read-only)."""
 
 from __future__ import annotations
 
@@ -12,11 +12,27 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "delivery" / "scripts" / "mcp_server.py"
 TOOL_NAMES = {"status", "brief", "doctor", "next_leaf_list", "guard"}
+FORBIDDEN = {"transition", "claim", "update", "seal"}
 
 
-class ProtocolTests(unittest.TestCase):
+def snapshot(root: Path) -> set[str]:
+    """Proje dosyaları; `.orchestration/` dışarıda (önbellek alanı)."""
+    found: set[str] = set()
+    for path in root.rglob("*"):
+        if not path.is_file():
+            continue
+        relative = path.relative_to(root)
+        if relative.parts and relative.parts[0] == ".orchestration":
+            continue
+        found.add(str(relative))
+    return found
+
+
+class ServerTestCase(unittest.TestCase):
+    proc: subprocess.Popen[str] | None = None
+
     def setUp(self) -> None:
-        self.proc: subprocess.Popen[str] | None = None
+        self.proc = None
 
     def tearDown(self) -> None:
         if self.proc is None:
@@ -57,6 +73,17 @@ class ProtocolTests(unittest.TestCase):
             return None
         return json.loads(reply)
 
+    def call_tool(self, name: str, arguments: object = None, msg_id: int = 10) -> dict:
+        """tools/call yazar; yanıt zarfını döner."""
+        params: dict = {"name": name}
+        if arguments is not None:
+            params["arguments"] = arguments
+        reply = self.send({"jsonrpc": "2.0", "id": msg_id, "method": "tools/call", "params": params})
+        assert reply is not None
+        return reply
+
+
+class ProtocolTests(ServerTestCase):
     def test_initialize_and_tools_list(self) -> None:
         self.start("--project", str(ROOT))
         init = self.send(
@@ -130,6 +157,57 @@ class ProtocolTests(unittest.TestCase):
         tolerated = self.send({"jsonrpc": "2.0", "id": 6, "method": "initialize", "params": "x"})
         assert tolerated is not None
         self.assertEqual(tolerated["error"]["code"], -32602)
+
+
+class ToolTests(ServerTestCase):
+    def test_status_call(self) -> None:
+        """Çevrimdışı status geçerli JSON metni ve contract_version döner."""
+        self.start("--project", str(ROOT))
+        reply = self.call_tool("status", {"offline": True})
+        result = reply["result"]
+        self.assertFalse(result["isError"])
+        self.assertEqual(len(result["content"]), 1)
+        self.assertEqual(result["content"][0]["type"], "text")
+        text = result["content"][0]["text"]
+        self.assertIn("contract_version", text)
+        data = json.loads(text)
+        self.assertIn("contract_version", data)
+
+    def test_bad_arguments(self) -> None:
+        """Eksik/yanlış argüman JSON-RPC -32602 döner; süreç yaşar."""
+        self.start("--project", str(ROOT))
+        missing = self.call_tool("brief", {}, msg_id=11)
+        self.assertEqual(missing["error"]["code"], -32602)
+        self.assertIn("issue", missing["error"]["message"])
+
+        wrong_type = self.call_tool("brief", {"issue": "on"}, msg_id=12)
+        self.assertEqual(wrong_type["error"]["code"], -32602)
+
+        unknown_argument = self.call_tool("status", {"nope": True}, msg_id=13)
+        self.assertEqual(unknown_argument["error"]["code"], -32602)
+
+        missing_argument = self.call_tool("guard", None, msg_id=14)
+        self.assertEqual(missing_argument["error"]["code"], -32602)
+
+        alive = self.send({"jsonrpc": "2.0", "id": 15, "method": "ping"})
+        assert alive is not None
+        self.assertEqual(alive["result"], {})
+        assert self.proc is not None
+        self.assertIsNone(self.proc.poll(), "sunucu süreci yaşamalı")
+
+    def test_unknown_tool(self) -> None:
+        """Bilinmeyen araç isError döner; süreç düşmez."""
+        self.start("--project", str(ROOT))
+        reply = self.call_tool("transition", {"issue": 1}, msg_id=16)
+        result = reply["result"]
+        self.assertTrue(result["isError"])
+        self.assertIn("bilinmeyen araç", result["content"][0]["text"])
+
+        alive = self.send({"jsonrpc": "2.0", "id": 17, "method": "ping"})
+        assert alive is not None
+        self.assertEqual(alive["result"], {})
+        assert self.proc is not None
+        self.assertIsNone(self.proc.poll(), "sunucu süreci yaşamalı")
 
 
 class ProtocolVersionTests(unittest.TestCase):
