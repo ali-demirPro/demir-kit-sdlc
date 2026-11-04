@@ -4,30 +4,67 @@ import { defineCheck } from 'orca/testing'
 
 const snapshot = {
   ok: true,
-  source: 'live',
-  project: '/Users/ali/projeler/demir-kit',
-  project_name: 'demir-kit',
-  epics: [
+  generated_at: '2026-11-04T10:00:00Z',
+  focused: 'ws-demir-kit',
+  projects: [
     {
-      number: 181,
-      title: 'Epic: MCP yüzeyi + ince Orca plugin',
-      state: 'executing',
-      risk: 'low',
-      checkpoints: { done: 2, total: 11 },
-      gate: null
+      id: 'ws-demir-kit',
+      path: '/Users/ali/projeler/demir-kit',
+      name: 'demir-kit',
+      repo: 'ali-demirPro/demir-kit-sdlc',
+      repo_root: '/Users/ali/projeler/demir-kit',
+      ok: true,
+      epics: [
+        {
+          number: 185,
+          title: 'Epic: çok projeli panel',
+          state: 'executing',
+          risk: 'low',
+          checkpoints: { done: 1, total: 2 },
+          leaves: [
+            { number: 184, title: 'Leaf: status + plugin', state: 'executing' },
+            { number: 182, title: 'Leaf: biten checkpoint', state: 'leaf-done' }
+          ],
+          gate: null
+        }
+      ],
+      counts: { epics: 1, leaves: 2, blocked: 0 },
+      warnings: [],
+      stale: false
     },
     {
-      number: 179,
-      title: 'Epic: MCP kayıt ve güvenlik sınırı',
-      state: 'epic-done',
-      risk: null,
-      checkpoints: { done: 3, total: 3 },
-      gate: 'pass'
+      id: 'ws-urun',
+      path: '/Users/ali/projeler/urun',
+      name: 'urun',
+      repo: 'ali-demirPro/urun',
+      ok: true,
+      epics: [
+        {
+          number: 24,
+          title: 'Epic: ilk sürüm',
+          state: 'intake',
+          risk: 'medium',
+          checkpoints: { done: 0, total: 4 },
+          leaves: [{ number: 25, title: 'Leaf: iskele', state: 'intake' }],
+          gate: null
+        }
+      ],
+      counts: { epics: 1, leaves: 1, blocked: 0 },
+      warnings: [],
+      stale: false
+    },
+    {
+      id: 'ws-bos',
+      path: '/Users/ali/projeler/bos',
+      name: 'bos',
+      repo: 'ali-demirPro/bos',
+      ok: true,
+      epics: [],
+      counts: { epics: 0, leaves: 0, blocked: 0 },
+      warnings: [],
+      stale: false
     }
   ],
-  counts: { epics: 2, leaves: 5, blocked: 0 },
-  stale: false,
-  generated_at: '2026-11-04T10:00:00Z',
   warnings: []
 }
 
@@ -43,10 +80,13 @@ export default defineCheck({
     ...quietWorker,
     requests: {
       'status.snapshot': {
-        ...snapshot,
-        source: 'cache',
-        epics: [],
-        counts: { epics: 0, leaves: 0, blocked: 0 }
+        ok: false,
+        code: 'no-kit',
+        generated_at: '2026-11-04T10:00:00Z',
+        focused: null,
+        projects: [],
+        warnings: ['demir-kit bulunamadı'],
+        error: 'demir-kit bulunamadı'
       }
     }
   }

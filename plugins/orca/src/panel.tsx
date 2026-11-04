@@ -1,23 +1,30 @@
 // No build step: Orca strips the types and compiles the JSX when the panel loads.
-// CP-2: portföy tablosu, 30 sn otomatik yenileme, boş ve hata durumları.
+// CP-2: çok projeli portföy, epic/leaf başlıkları, tıklayınca workspace açma.
 import {
   atom,
   Badge,
   Button,
   Callout,
+  Card,
   EmptyState,
   Heading,
+  List,
+  ListItem,
   plugin,
   read,
   Row,
   set,
   Spinner,
   Stack,
-  Table,
   Text,
   type PanelContext
 } from 'orca'
-import type { StatusEpic, StatusSnapshot } from './protocol'
+import type {
+  StatusEpic,
+  StatusLeaf,
+  StatusProject,
+  StatusSnapshot
+} from './protocol'
 
 /** Dashboard ile aynı pencere: 30 saniyede bir tazele. */
 const REFRESH_MS = 30_000
@@ -46,10 +53,24 @@ export function setup(ctx: PanelContext): void {
   ctx.signal.addEventListener('abort', () => clearInterval(timer), { once: true })
 }
 
-function sourceTone(source: string): 'success' | 'warning' | 'neutral' {
-  if (source === 'live') return 'success'
-  if (source === 'cache') return 'warning'
-  return 'neutral'
+/** Yolun son iki parçası; uzunsa başı `…` ile kısalır. */
+function shortPath(path: string): string {
+  const parts = path.split('/').filter(Boolean)
+  if (parts.length <= 3) return path
+  return `…/${parts.slice(-2).join('/')}`
+}
+
+/** Kart başlığı: `owner/repo`, yoksa proje adı. */
+function projectTitle(project: StatusProject): string {
+  const repo = (project.repo ?? '').trim()
+  return repo !== '' ? repo : project.name
+}
+
+/** Panelde yalnız aktif iş sayılır: status.py kapanmış epic'leri zaten atlar. */
+function countsText(project: StatusProject): string {
+  const epics = project.counts?.epics ?? 0
+  const leaves = project.counts?.leaves ?? 0
+  return `epic ${epics} · leaf ${leaves}`
 }
 
 function cpText(epic: StatusEpic): string {
@@ -59,28 +80,99 @@ function cpText(epic: StatusEpic): string {
   return `${done}/${total}`
 }
 
-function rowsOf(epics: readonly StatusEpic[]) {
-  return epics
-    .filter((epic) => typeof epic.number === 'number')
-    .map((epic) => ({
-      key: String(epic.number),
-      cells: {
-        epic: `#${epic.number}`,
-        state: epic.state ?? '-',
-        checkpoints: cpText(epic),
-        gate: epic.gate ?? '-',
-        risk: epic.risk ?? '-'
-      }
-    }))
+function gateTone(gate: StatusEpic['gate']): 'success' | 'danger' | 'neutral' {
+  if (gate === 'pass') return 'success'
+  if (gate === 'fail') return 'danger'
+  return 'neutral'
 }
 
-const COLUMNS = [
-  { key: 'epic', label: '#', width: 'xs' as const },
-  { key: 'state', label: 'durum' },
-  { key: 'checkpoints', label: 'CP', width: 'xs' as const },
-  { key: 'gate', label: 'gate', width: 'xs' as const },
-  { key: 'risk', label: 'risk', width: 'xs' as const }
-]
+function epicTitle(epic: StatusEpic): string {
+  return `#${epic.number} — ${epic.title ?? ''}`
+}
+
+function leafTitle(leaf: StatusLeaf): string {
+  return `#${leaf.number} — ${leaf.title ?? ''} · ${leaf.state ?? '-'}`
+}
+
+/** Epic veya leaf satırı: o projenin workspace'ini göster.
+ * Panel host'a doğrudan gitmez: istek işçiye gider, `workspace.open`'ı işçi çağırır.
+ */
+function openWorkspace(project: StatusProject): void {
+  void plugin
+    .request('workspace.open', { id: project.id })
+    .catch((error: unknown) => {
+      console.error(`demir-kit: workspace.open başarısız: ${String(error)}`)
+    })
+}
+
+function ProjectGroup({
+  project,
+  focused
+}: {
+  project: StatusProject
+  focused: boolean
+}) {
+  return (
+    <Card title={projectTitle(project)} description={shortPath(project.path)}>
+      <Stack gap="sm">
+        <Row gap="xs" wrap>
+          {focused && <Badge tone="accent">odak</Badge>}
+          <Badge tone={project.ok ? 'neutral' : 'danger'}>
+            {project.ok ? 'ok' : 'hata'}
+          </Badge>
+          {project.stale === true && <Badge tone="warning">eski veri</Badge>}
+          <Badge tone="neutral">{countsText(project)}</Badge>
+          {project.counts?.blocked ? (
+            <Badge tone="warning">{project.counts.blocked} engel</Badge>
+          ) : null}
+        </Row>
+
+        {project.ok === false && (
+          <Callout tone="danger" title="Durum okunamadı" icon="error">
+            <Text tone="danger">{project.error ?? 'bilinmeyen hata'}</Text>
+          </Callout>
+        )}
+
+        {project.ok && project.epics.length === 0 && (
+          <Text muted size="xs">
+            açık iş yok
+          </Text>
+        )}
+
+        {project.epics.length > 0 && (
+          <List label={`${project.name} epicleri`}>
+            {project.epics.flatMap((epic) => [
+              <ListItem
+                key={`epic-${project.id}-${epic.number}`}
+                title={epicTitle(epic)}
+                onPress={() => openWorkspace(project)}
+              >
+                <Row gap="xs" wrap>
+                  <Badge tone="neutral">{`CP ${cpText(epic)}`}</Badge>
+                  <Badge tone={gateTone(epic.gate)}>{`gate ${epic.gate ?? '-'}`}</Badge>
+                  <Badge tone="neutral">{`risk ${epic.risk ?? '-'}`}</Badge>
+                </Row>
+              </ListItem>,
+              ...(epic.leaves ?? []).map((leaf) => (
+                <ListItem
+                  key={`leaf-${project.id}-${leaf.number}`}
+                  title={leafTitle(leaf)}
+                  onPress={() => openWorkspace(project)}
+                />
+              ))
+            ])}
+          </List>
+        )}
+
+        {project.warnings.slice(0, 3).map((warning) => (
+          <Text key={warning} muted size="xs">
+            [uyarı] {warning}
+          </Text>
+        ))}
+      </Stack>
+    </Card>
+  )
+}
 
 export default function Panel() {
   const data = read(snapshot)
@@ -91,18 +183,21 @@ export default function Panel() {
     <Stack gap="md">
       <Row justify="between" align="start">
         <Stack gap="xs">
-          <Heading>{data?.project_name ?? 'demir-kit'}</Heading>
+          <Heading>demir-kit</Heading>
           <Row gap="xs" wrap>
-            {data !== null && <Badge tone={sourceTone(data.source)}>{data.source}</Badge>}
-            {data?.stale === true && <Badge tone="warning">eski veri</Badge>}
+            {data !== null && (
+              <Badge tone={data.ok ? 'success' : 'warning'}>
+                {data.projects.length} proje
+              </Badge>
+            )}
           </Row>
-          {data?.project != null && (
-            <Text muted size="xs" truncate>
-              {data.project}
-            </Text>
-          )}
         </Stack>
-        <Button variant="ghost" icon="refresh" disabled={busy} onPress={() => void load()}>
+        <Button
+          variant="ghost"
+          icon="refresh"
+          disabled={busy}
+          onPress={() => void load()}
+        >
           Yenile
         </Button>
       </Row>
@@ -125,43 +220,34 @@ export default function Panel() {
       {failure === null && data !== null && data.code === 'no-kit' && (
         <EmptyState
           title="demir-kit bulunamadı"
-          description="Proje yolunu Ayarlar > demir-kit > Proje yolu altında ver."
+          description="Kit kökü (delivery/scripts/status.py) olan bir workspace aç ya da Ayarlar > demir-kit > Proje yolu ver."
         />
       )}
 
-      {failure === null && data !== null && !data.ok && data.code !== 'no-kit' && (
-        <Callout tone="danger" title="Durum okunamadı" icon="error">
-          <Stack gap="xs">
+      {failure === null &&
+        data !== null &&
+        data.code !== 'no-kit' &&
+        !data.ok &&
+        data.projects.length === 0 && (
+          <Callout tone="danger" title="Durum okunamadı" icon="error">
             <Text tone="danger">{data.error ?? 'bilinmeyen hata'}</Text>
-            {data.warnings.slice(0, 3).map((warning) => (
-              <Text key={warning} muted size="xs">
-                {warning}
-              </Text>
-            ))}
-          </Stack>
-        </Callout>
-      )}
+          </Callout>
+        )}
 
-      {failure === null && data !== null && data.ok && data.epics.length === 0 && (
-        <EmptyState
-          title="demir-kit bulunamadı"
-          description="Ayarlar › demir-kit › Proje yolu (projectPath) alanına kit kökünü yaz."
-          icon="puzzle"
-        />
-      )}
+      {failure === null &&
+        data !== null &&
+        data.projects.map((project) => (
+          <ProjectGroup
+            key={project.id}
+            project={project}
+            focused={project.id === data.focused}
+          />
+        ))}
 
-      {failure === null && data !== null && data.ok && data.epics.length > 0 && (
-        <Stack gap="sm">
-          <Row gap="xs" wrap>
-            <Badge tone="accent">epic {data.counts?.epics ?? data.epics.length}</Badge>
-            <Badge tone="neutral">leaf {data.counts?.leaves ?? 0}</Badge>
-            <Badge tone={data.counts?.blocked ? 'warning' : 'neutral'}>{data.counts?.blocked ?? 0} engel</Badge>
-          </Row>
-          <Table label="Epic listesi" columns={COLUMNS} rows={rowsOf(data.epics)} selectionMode="none" />
-          <Text muted size="xs">
-            {data.generated_at ?? ''}
-          </Text>
-        </Stack>
+      {failure === null && data !== null && data.projects.length > 0 && (
+        <Text muted size="xs">
+          {data.generated_at ?? ''}
+        </Text>
       )}
     </Stack>
   )
