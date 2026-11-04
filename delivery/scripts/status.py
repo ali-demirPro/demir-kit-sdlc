@@ -237,24 +237,44 @@ def checkpoint_count(seal: dict) -> int:
     return len(checkpoints) if isinstance(checkpoints, list) else 0
 
 
-def epic_checkpoint_total(epic_block: dict, number: int, seals: dict[int, dict]) -> int:
-    """Epic çocuklarının seal'lerindeki checkpoint toplamı."""
+def epic_children(epic_block: dict, number: int, seals: dict[int, dict]) -> list[int]:
+    """Seal'i olan epic çocukları; children yoksa seal'deki epic alanına düşer."""
     children = child_numbers(epic_block)
     if children:
-        selected = [seals[child] for child in children if child in seals]
-    else:
-        selected = [
-            seal
-            for child, seal in seals.items()
-            if str(seal.get("epic")) == str(number)
-        ]
-    return sum(checkpoint_count(seal) for seal in selected)
+        return [child for child in children if child in seals]
+    return [
+        child
+        for child, seal in seals.items()
+        if str(seal.get("epic")) == str(number)
+    ]
+
+
+def epic_checkpoint_total(epic_block: dict, number: int, seals: dict[int, dict]) -> int:
+    """Epic çocuklarının seal'lerindeki checkpoint toplamı."""
+    return sum(
+        checkpoint_count(seals[child]) for child in epic_children(epic_block, number, seals)
+    )
+
+
+def epic_checkpoint_done(
+    epic_block: dict,
+    number: int,
+    seals: dict[int, dict],
+    labels_by_number: dict[int, set[str]],
+) -> int:
+    """Yalnız leaf-done etiketli çocukların checkpoint toplamı."""
+    return sum(
+        checkpoint_count(seals[child])
+        for child in epic_children(epic_block, number, seals)
+        if "leaf-done" in labels_by_number.get(child, set())
+    )
 
 
 def epic_entry(
     number: int,
     title: str,
     labels: set[str],
+    checkpoint_done: int,
     checkpoint_total: int,
     issue_state: str = "",
 ) -> dict:
@@ -263,7 +283,7 @@ def epic_entry(
         "title": title,
         "state": epic_state(labels, issue_state),
         "risk": None,
-        "checkpoints": {"done": 0, "total": checkpoint_total},
+        "checkpoints": {"done": checkpoint_done, "total": checkpoint_total},
         "gate": None,
         "open_findings": 0,
         "approvals": {
@@ -279,6 +299,7 @@ def epic_entry(
 def collect_issues(issues: list[dict]) -> tuple[list[dict], dict]:
     """Issue listesinden epics + counts; epic/leaf bloklarına göre ayırır."""
     seals: dict[int, dict] = {}
+    labels_by_number: dict[int, set[str]] = {}
     epic_rows: list[tuple[int, dict, set[str], str]] = []
     leaves = 0
     blocked = 0
@@ -287,6 +308,7 @@ def collect_issues(issues: list[dict]) -> tuple[list[dict], dict]:
         if not isinstance(number, int) or isinstance(number, bool):
             continue
         labels = labels_of(issue)
+        labels_by_number[number] = labels
         if "blocked" in labels:
             blocked += 1
         body = issue.get("body")
@@ -310,6 +332,7 @@ def collect_issues(issues: list[dict]) -> tuple[list[dict], dict]:
             number,
             title,
             labels,
+            epic_checkpoint_done(block, number, seals, labels_by_number),
             epic_checkpoint_total(block, number, seals),
             issue_state,
         )

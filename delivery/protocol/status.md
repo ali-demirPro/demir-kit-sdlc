@@ -23,7 +23,7 @@ Komut `python3 delivery/scripts/status.py`; durum dosyası yazmaz (yalnız önbe
 | `stale`, `source` | Durum eksik mi; `live` taze, `cache` önbellek |
 | `kit` | `version`, `pin` (kısa SHA), `dirty` |
 | `project` | `name`, `profile`, `tracker.provider`, `tracker.repo` |
-| `epics[]` | `number`, `title`, `state`, `risk`, `checkpoints.done/total`, `gate`, `open_findings`, `approvals`, `next_action`, `cycle_minutes`, `cost_delta` |
+| `epics[]` | `number`, `title`, `state`, `risk`, `checkpoints.done/total` (`done` = `leaf-done` çocukların CP toplamı), `gate`, `open_findings`, `approvals`, `next_action`, `cycle_minutes`, `cost_delta` |
 | `counts` | `epics`, `leaves`, `blocked` |
 | `warnings` | Kısa Türkçe uyarı metinleri |
 

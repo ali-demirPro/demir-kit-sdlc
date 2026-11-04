@@ -509,6 +509,46 @@ class DataTests(unittest.TestCase):
             self.assertTrue(any("maliyet" in item for item in data["warnings"]))
 
 
+class ProgressTests(unittest.TestCase):
+    def test_done_counts_leaf_done(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = project_dir(tmp)
+            proc = run(
+                "--json",
+                cwd=project,
+                path=gh_fixture(
+                    Path(tmp) / "bin",
+                    [
+                        issue(12, "Epic", ("executing",), EPIC_BODY),
+                        issue(13, "Biten leaf", ("leaf-done",), LEAF_BODY),
+                        issue(14, "Açık leaf", ("agent-approved",), LEAF_BODY),
+                    ],
+                ),
+            )
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            epic = payload(proc)["epics"][0]
+            self.assertEqual(epic["checkpoints"], {"done": 2, "total": 4})
+
+    def test_unfinished_children_contribute_zero(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = project_dir(tmp)
+            proc = run(
+                "--json",
+                cwd=project,
+                path=gh_fixture(
+                    Path(tmp) / "bin",
+                    [
+                        issue(12, "Epic", ("executing",), EPIC_BODY),
+                        issue(13, "Açık leaf", ("agent-approved",), LEAF_BODY),
+                        issue(14, "Açık leaf", ("agent-approved",), LEAF_BODY),
+                    ],
+                ),
+            )
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            epic = payload(proc)["epics"][0]
+            self.assertEqual(epic["checkpoints"], {"done": 0, "total": 4})
+
+
 class StateTests(unittest.TestCase):
     def test_closed_issue_without_labels_is_closed(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
