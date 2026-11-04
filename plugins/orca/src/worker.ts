@@ -6,8 +6,13 @@ import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { OrcaWorkerApi } from 'orca/worker'
 import type {
+  AgentState,
+  StatusAgent,
+  StatusCheckpoint,
+  StatusCheckpointSummary,
   StatusCounts,
   StatusEpic,
+  StatusLive,
   StatusProject,
   StatusSnapshot
 } from './protocol'
@@ -19,6 +24,13 @@ const STATUS_TIMEOUT_MS = 10_000
 const STATUS_SCRIPT = join('delivery', 'scripts', 'status.py')
 const NO_KIT = 'demir-kit yok'
 const ZERO_COUNTS: StatusCounts = { epics: 0, leaves: 0, blocked: 0 }
+const AGENT_STATES: readonly AgentState[] = [
+  'working',
+  'blocked',
+  'waiting',
+  'idle',
+  'done'
+]
 
 interface StatusJson {
   stale?: boolean
@@ -249,9 +261,83 @@ function failedProject(ref: ProjectRef, message: string): StatusProject {
     error: message,
     epics: [],
     counts: { ...ZERO_COUNTS },
+    agents: [],
+    live: zeroLive(),
     warnings: [],
     stale: true
   }
+}
+
+function zeroLive(): StatusLive {
+  return { working: 0, blocked: 0, waiting: 0, idle: 0, done: 0 }
+}
+
+function liveOf(agents: StatusAgent[]): StatusLive {
+  const live = zeroLive()
+  for (const agent of agents) {
+    live[agent.state] += 1
+  }
+  return live
+}
+
+interface AgentListing {
+  agents: StatusAgent[]
+  live: StatusLive
+  warning: string | null
+}
+
+/**
+ * `agents.list` yalnız odaklı workspace'in ajanlarını verir; hata projeyi
+ * düşürmez: `agents: []` ve bir uyarı kalır.
+ */
+async function readAgents(orca: OrcaWorkerApi): Promise<AgentListing> {
+  try {
+    const listed = (await call(orca)('agents.list')) as {
+      agents?: Array<{
+        terminalId?: string | null
+        title?: string | null
+        state?: string
+      }>
+    } | null
+    const agents: StatusAgent[] = (listed?.agents ?? [])
+      .filter(
+        (item): item is { terminalId?: string | null; title?: string | null; state: AgentState } =>
+          typeof item?.state === 'string' &&
+          AGENT_STATES.includes(item.state as AgentState)
+      )
+      .map((item) => ({
+        terminalId: typeof item.terminalId === 'string' ? item.terminalId : null,
+        title: typeof item.title === 'string' ? item.title : null,
+        state: item.state
+      }))
+    return { agents, live: liveOf(agents), warning: null }
+  } catch (error) {
+    return {
+      agents: [],
+      live: zeroLive(),
+      warning: `ajan durumu okunamadı: ${messageOf(error)}`
+    }
+  }
+}
+
+/** Yeni dizi ya da eski `{done,total}`: ikisi de geçerli, panel çökmez. */
+function isCheckpoints(value: StatusCheckpoint[] | StatusCheckpointSummary | undefined): boolean {
+  if (value === undefined || Array.isArray(value)) return true
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    typeof (value as StatusCheckpointSummary).done === 'number' &&
+    typeof (value as StatusCheckpointSummary).total === 'number'
+  )
+}
+
+function isEpic(value: unknown): boolean {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    typeof (value as StatusEpic).number === 'number' &&
+    isCheckpoints((value as StatusEpic).checkpoints)
+  )
 }
 
 function isProject(value: unknown): value is StatusProject {
@@ -262,6 +348,7 @@ function isProject(value: unknown): value is StatusProject {
     typeof (value as StatusProject).path === 'string' &&
     typeof (value as StatusProject).ok === 'boolean' &&
     Array.isArray((value as StatusProject).epics) &&
+    (value as StatusProject).epics.every(isEpic) &&
     typeof (value as StatusProject).counts === 'object' &&
     Array.isArray((value as StatusProject).warnings)
   )
@@ -330,8 +417,10 @@ export function statusText(snapshot: StatusSnapshot): string {
   const focused = snapshot.projects.find((item) => item.id === snapshot.focused)
   const epic = focused?.ok === true ? focused.epics?.[0] : undefined
   if (epic !== undefined && typeof epic.number === 'number') {
-    const done = epic.checkpoints?.done ?? 0
-    const total = epic.checkpoints?.total ?? 0
+    // Eski `{done,total}` şekli dizi değildir: çökme yok, CP 0/0 görünür.
+    const checkpoints = Array.isArray(epic.checkpoints) ? epic.checkpoints : []
+    const done = checkpoints.filter((checkpoint) => checkpoint.done === true).length
+    const total = checkpoints.length
     const gate = epic.gate ?? 'yok'
     return `EP-${epic.number} · CP ${done}/${total} · gate ${gate}`.slice(0, 64)
   }
@@ -371,6 +460,11 @@ async function publish(
   }
 }
 
+/** Son yayımlanan anlık görüntü: ajan olayı yalnız tek kartı tazeler. */
+let lastSnapshot: StatusSnapshot | null = null
+/** Ajanların gerçekten okunduğu odaklı workspace; kit taşımıyorsa null. */
+let lastAgentWorkspace: string | null = null
+
 async function refresh(
   orca: OrcaWorkerApi,
   force: boolean
@@ -384,6 +478,8 @@ async function refresh(
     focused = resolved.focused
   } catch (error) {
     const snapshot = failedSnapshot(messageOf(error), warnings)
+    lastSnapshot = snapshot
+    lastAgentWorkspace = null
     await publish(orca, snapshot)
     return snapshot
   }
@@ -393,6 +489,8 @@ async function refresh(
       'demir-kit bulunamadı: Ayarlar > demir-kit > Proje yolu',
       warnings
     )
+    lastSnapshot = snapshot
+    lastAgentWorkspace = null
     await publish(orca, snapshot)
     return snapshot
   }
@@ -402,11 +500,28 @@ async function refresh(
     refs.map((ref) => projectSnapshot(orca, ref, force))
   )
   // Aynı repo (ana checkout + epic worktree) tek kartta; odaklı önce gelir.
-  const projects = dedupeProjects(snapshots, focused)
-  const focusedId =
-    focused !== null && projects.some((project) => project.id === focused)
+  const deduped = dedupeProjects(snapshots, focused)
+  // Odaklı workspace kit taşımıyorsa hiçbir karta ajan yazılmaz.
+  const agentTarget =
+    focused !== null && deduped.some((project) => project.id === focused)
       ? focused
-      : (projects[0]?.id ?? null)
+      : null
+  const focusedId = agentTarget ?? deduped[0]?.id ?? null
+  // Canlı ajanlar yalnız odaklı workspace'ten gelir; diğer kartlar sıfır taşır.
+  let agentListing: AgentListing = {
+    agents: [],
+    live: zeroLive(),
+    warning: null
+  }
+  if (agentTarget !== null) {
+    agentListing = await readAgents(orca)
+    if (agentListing.warning !== null) warnings.push(agentListing.warning)
+  }
+  const projects = deduped.map((project) =>
+    project.id === agentTarget
+      ? { ...project, agents: agentListing.agents, live: agentListing.live }
+      : { ...project, agents: [], live: zeroLive() }
+  )
   const snapshot: StatusSnapshot = {
     ok: projects.some((project) => project.ok),
     generated_at: new Date().toISOString(),
@@ -414,8 +529,48 @@ async function refresh(
     projects,
     warnings
   }
+  lastSnapshot = snapshot
+  lastAgentWorkspace = agentTarget
   await publish(orca, snapshot)
   return snapshot
+}
+
+/** Olayın `workspaceId` alanı; yoksa null (olay workspace'e bağlanamadı). */
+function workspaceIdOf(event: unknown): string | null {
+  if (typeof event !== 'object' || event === null) return null
+  const id = (event as { workspaceId?: unknown }).workspaceId
+  return typeof id === 'string' && id !== '' ? id : null
+}
+
+/**
+ * `agent.status.changed`: olayın workspace'i odaklıysa yalnız o kartın ajanları
+ * tazelenir. Odaklı olmayan ya da kit'i olmayan workspace hiçbir karta yazmaz.
+ */
+async function refreshAgents(
+  orca: OrcaWorkerApi,
+  workspaceId: string | null
+): Promise<void> {
+  const current = lastSnapshot
+  const target = workspaceId ?? lastAgentWorkspace
+  if (current === null || target === null) {
+    await refresh(orca, false)
+    return
+  }
+  // Yalnız ajanları okunabilen (odaklı) workspace'in kartı güncellenir.
+  if (target !== lastAgentWorkspace) return
+  if (!current.projects.some((project) => project.id === target)) return
+  const listing = await readAgents(orca)
+  if (listing.warning !== null) orca.log(`demir-kit: ${listing.warning}`)
+  const snapshot: StatusSnapshot = {
+    ...current,
+    projects: current.projects.map((project) =>
+      project.id === target
+        ? { ...project, agents: listing.agents, live: listing.live }
+        : project
+    )
+  }
+  lastSnapshot = snapshot
+  await publish(orca, snapshot)
 }
 
 export default async function activate(orca: OrcaWorkerApi): Promise<void> {
@@ -444,6 +599,11 @@ export default async function activate(orca: OrcaWorkerApi): Promise<void> {
 
   orca.events.on('workspace.changed', () => {
     void refresh(orca, true)
+  })
+
+  // Ajan durumu değişince yalnız olayın workspace'inin kartı tazelenir.
+  orca.events.on('agent.status.changed', (event) => {
+    void refreshAgents(orca, workspaceIdOf(event))
   })
 
   orca.settings.onDidChange(() => {

@@ -8,7 +8,7 @@ demir-kit'in Orca yüzeyi: sağ kenar çubuğunda portföy paneli ve iki durum
 
 | Yüzey | Ne gösterir |
 |-------|-------------|
-| Panel `portfolio` | Her repo için tek proje kartı: repo adı + kısa yol, `epic N · leaf M`; epic ve leaf satırları |
+| Panel `portfolio` | Her repo için tek proje kartı: repo adı + kısa yol, `epic N · leaf M`; epic ve leaf satırları; kartta canlı ajan satırı |
 | Durum çubuğu `epic` | Odaklı proje `ok` ve aktif epiği varsa `EP-N · CP d/t · gate g`; yoksa sağlıklı proje sayısı `N proje` |
 | Durum çubuğu `cost` | Maliyet; `status.py` henüz `null` döndüğü için `-` |
 
@@ -18,12 +18,37 @@ yanında kısa yol ve aktif iş sayısı `epic N · leaf M` rozeti durur. Sayıl
 olmayan proje kartı gizlenmez, "açık iş yok" satırı gösterir. Her kart bir epic
 listesi çizer: satır `#number — başlık`, altında o epic'in leaf satırları
 `#number — başlık · durum` (`leaf-done`, `executing`, `agent-approved`, `intake`,
-`open`/`closed`). Epic satırında `CP done/total`, `gate` (`-`/`pass`/`fail`) ve
-`risk` rozetleri vardır. Bir epic veya leaf satırına tıklama, panele değil işçiye
-`plugin.request("workspace.open", {id})` gönderir; `workspace.open`'ı
-`workspace:write` yetkisiyle yalnız işçi çağırır ve `{ok}` (hata: `{ok:false,error}`)
-döner. Panel açılışta sorar, 30 saniyede bir yenilenir; "Yenile" düğmesi anında
-tazeler.
+`open`/`closed`). Epic satırında durum (`executing`, `blocked`, `leaf-done` …),
+`CP done/total`, `gate` (`-`/`pass`/`fail`) ve `risk` rozetleri vardır. Bir leaf
+satırına tıklama, panele değil işçiye `plugin.request("workspace.open", {id})`
+gönderir; `workspace.open`'ı `workspace:write` yetkisiyle yalnız işçi çağırır ve
+`{ok}` (hata: `{ok:false,error}`) döner. Panel açılışta sorar, 30 saniyede bir
+yenilenir; "Yenile" düğmesi anında tazeler.
+
+## Detay
+
+Epic satırına tıklama aynı panelde detayı açar/kapatır (açık epic kümesi
+`expanded` atomunda `plugin` kapsamında saklanır). Detayda `status.py`'nin
+`checkpoints[]` listesi `#<leaf> · CP-1 ✓ başlık` / `#<leaf> · CP-2 ○ başlık`
+olarak, onaylar (`agent_approved`, `human_qa`), `next_action`, `updated_at` ve
+"Issue'yu aç" düğmesi durur. Eski `status.py` biçimi (`checkpoints` dizi değil
+`{done,total}`) çökmez: CP listesi boş kalır, `CP done/total` rozeti `0/0` olur.
+Düğme `epics[].url` adresini `shell.openExternal` ile tarayıcıda açar; URL
+`status.py`'den gelir (`tracker.repo` yoksa `null`, düğme çizilmez).
+
+## Canlı durum
+
+İşçi `agents.list` (yetenek `agent:read`) ile odaklı workspace'in ajanlarını
+okur ve `status.snapshot` içinde proje kartına `agents: [{terminalId,title,state}]`
+ve `live: {working,blocked,waiting,idle,done}` ekler. Ajanlar yalnız odaklı
+workspace'in kartına yazılır; odaklı workspace kit taşımıyorsa hiçbir karta ajan
+yazılmaz (`agents: []`, sıfır sayaçlar). Diğer kartlar da boş liste ve sıfır
+sayaç taşır; API yalnız odaklı workspace'i verir. `agent.status.changed` olayı
+`workspaceId` taşıyorsa yalnız o workspace'in kartı tazelenir; olay başka bir
+workspace'e aitse hiçbir kart değişmez. `idle` durumu da sayılır (`boşta`),
+sessizce atılmaz. Ajan okuması hata verirse proje düşmez: `agents: []`, sıfır
+sayaçlar ve kısa bir uyarı kalır. Panel kartta `● 2 çalışıyor · 1 boşta · 1
+engelli` satırını ve ilk üç ajanın başlığını gösterir.
 
 ## Çok proje
 
@@ -67,19 +92,20 @@ workspace kullanılır ve yol değişince durum anında yenilenir.
 Doğrula:
 
 ```bash
-orca plugin check plugins/orca     # iki senaryo: fresh, empty
+orca plugin check plugins/orca     # dört senaryo: fresh, detail, legacy, empty
 orca plugin inspect plugins/orca   # katkılar, izinler, içerik özeti
 python3 -m unittest delivery.tests.test_orca_plugin
 ```
 
 ## İzinler
 
-Manifest `execution: trusted-worker` ve dört yetenek ister:
+Manifest `execution: trusted-worker` ve beş yetenek ister:
 
 | Yetenek | Neden |
 |---------|-------|
 | `workspace:read` | `workspace.list` ile proje köklerini bulmak |
 | `workspace:write` | Tıklamada `workspace.open` çağırmak (yalnız işçi) |
+| `agent:read` | `agents.list` ve `agent.status.changed` ile canlı ajan durumu |
 | `storage:own` | 30 saniyelik durum önbelleği |
 | `settings:own` | `projectPath` ayarını okumak |
 

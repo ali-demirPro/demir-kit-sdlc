@@ -109,14 +109,18 @@ def issue(
     labels: tuple[str, ...] = (),
     body: str = "",
     state: str = "OPEN",
+    updated_at: str | None = None,
 ) -> dict:
-    return {
+    data = {
         "number": number,
         "title": title,
         "state": state,
         "labels": [{"name": name} for name in labels],
         "body": body,
     }
+    if updated_at is not None:
+        data["updatedAt"] = updated_at
+    return data
 
 
 EPIC_BODY = '```yaml demir-kit-epic\ndemir_kit_version: "2"\nchildren: [13, 14]\n```\n'
@@ -454,7 +458,15 @@ class DataTests(unittest.TestCase):
             self.assertEqual(epic["title"], "Epic başlık")
             self.assertEqual(epic["state"], "executing")
             self.assertIsNone(epic["risk"])
-            self.assertEqual(epic["checkpoints"], {"done": 0, "total": 2})
+            self.assertEqual(
+                epic["checkpoints"],
+                [
+                    {"id": "CP-1", "title": "bir", "done": False, "leaf": 13},
+                    {"id": "CP-2", "title": "iki", "done": False, "leaf": 13},
+                ],
+            )
+            self.assertIsNone(epic["updated_at"])
+            self.assertIsNone(epic["url"])
             self.assertIsNone(epic["gate"])
             self.assertEqual(epic["open_findings"], 0)
             self.assertEqual(
@@ -529,7 +541,9 @@ class ProgressTests(unittest.TestCase):
             )
             self.assertEqual(proc.returncode, 0, proc.stderr)
             epic = payload(proc)["epics"][0]
-            self.assertEqual(epic["checkpoints"], {"done": 2, "total": 4})
+            self.assertEqual([cp["done"] for cp in epic["checkpoints"]], [True, True, False, False])
+            # Her checkpoint kendi çocuğunu taşır: panel satırı `#13 · CP-1 ✓`.
+            self.assertEqual([cp["leaf"] for cp in epic["checkpoints"]], [13, 13, 14, 14])
 
     def test_unfinished_children_contribute_zero(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -548,7 +562,123 @@ class ProgressTests(unittest.TestCase):
             )
             self.assertEqual(proc.returncode, 0, proc.stderr)
             epic = payload(proc)["epics"][0]
-            self.assertEqual(epic["checkpoints"], {"done": 0, "total": 4})
+            self.assertEqual([cp["done"] for cp in epic["checkpoints"]], [False, False, False, False])
+
+
+class DetailTests(unittest.TestCase):
+    """CP-1: epic detayı için checkpoint listesi ve güncelleme zamanı."""
+
+    def test_checkpoints_and_updated(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = project_dir(tmp)
+            (project / "kit.config.yaml").write_text(
+                'kit:\n  version: "0.0.0"\n'
+                "tracker:\n  provider: github\n  repo: ali-demirPro/demir-kit-sdlc\n",
+                encoding="utf-8",
+            )
+            proc = run(
+                "--json",
+                cwd=project,
+                path=gh_fixture(
+                    Path(tmp) / "bin",
+                    [
+                        issue(
+                            12,
+                            "Epic",
+                            ("executing",),
+                            EPIC_BODY,
+                            updated_at="2026-11-04T09:00:00Z",
+                        ),
+                        issue(
+                            13,
+                            "Biten leaf",
+                            ("leaf-done",),
+                            LEAF_BODY,
+                            updated_at="2026-11-04T10:00:00Z",
+                        ),
+                    ],
+                ),
+            )
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            epic = payload(proc)["epics"][0]
+            self.assertEqual(
+                epic["checkpoints"],
+                [
+                    {"id": "CP-1", "title": "bir", "done": True, "leaf": 13},
+                    {"id": "CP-2", "title": "iki", "done": True, "leaf": 13},
+                ],
+            )
+            self.assertEqual(epic["updated_at"], "2026-11-04T09:00:00Z")
+            self.assertEqual(
+                epic["url"], "https://github.com/ali-demirPro/demir-kit-sdlc/issues/12"
+            )
+
+    def test_invalid_updated_at(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = project_dir(tmp)
+            proc = run(
+                "--json",
+                cwd=project,
+                path=gh_fixture(
+                    Path(tmp) / "bin",
+                    [
+                        issue(12, "Epic", ("executing",), EPIC_BODY),
+                        issue(13, "Leaf", ("leaf-done",), LEAF_BODY),
+                    ],
+                ),
+            )
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            self.assertIsNone(payload(proc)["epics"][0]["updated_at"])
+
+    def test_non_iso_updated_at_is_null(self) -> None:
+        """ISO-8601 olmayan `updatedAt` panelde ham metin olarak çizilmez."""
+        with tempfile.TemporaryDirectory() as tmp:
+            project = project_dir(tmp)
+            for broken in ("dün", "2026-11-04", "04.11.2026 09:00", "2026-13-99T99:99:99Z"):
+                proc = run(
+                    "--json",
+                    cwd=project,
+                    path=gh_fixture(
+                        Path(tmp) / "bin",
+                        [
+                            issue(
+                                12,
+                                "Epic",
+                                ("executing",),
+                                EPIC_BODY,
+                                updated_at=broken,
+                            )
+                        ],
+                    ),
+                )
+                self.assertEqual(proc.returncode, 0, proc.stderr)
+                self.assertIsNone(
+                    payload(proc)["epics"][0]["updated_at"], f"{broken!r} null olmalı"
+                )
+
+    def test_offset_updated_at_is_kept(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = project_dir(tmp)
+            proc = run(
+                "--json",
+                cwd=project,
+                path=gh_fixture(
+                    Path(tmp) / "bin",
+                    [
+                        issue(
+                            12,
+                            "Epic",
+                            ("executing",),
+                            EPIC_BODY,
+                            updated_at="2026-11-04T12:00:00+03:00",
+                        )
+                    ],
+                ),
+            )
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            self.assertEqual(
+                payload(proc)["epics"][0]["updated_at"], "2026-11-04T12:00:00+03:00"
+            )
 
 
 class StateTests(unittest.TestCase):
