@@ -8,7 +8,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-MCP_TOOLS = ("status", "brief", "doctor", "next_leaf_list", "guard")
+MCP_TOOLS = ("status", "brief", "doctor", "next_leaf_list", "guard", "explain")
 
 
 def check_mcp_self(root: Path, script: Path | None = None) -> list[str]:
@@ -78,17 +78,21 @@ def check_mcp_self(root: Path, script: Path | None = None) -> list[str]:
         suffix = f" — {tail}" if tail else ""
         return errors + [f"mcp: tools/list yanıtı yok{suffix}"]
 
-    names = {
+    names = [
         str(tool.get("name"))
         for tool in tools
         if isinstance(tool, dict) and tool.get("name")
-    }
+    ]
     errors += [
         f"mcp: eksik araç — {name}" for name in MCP_TOOLS if name not in names
     ]
     errors += [
-        f"mcp: beklenmeyen araç — {name}" for name in sorted(names - set(MCP_TOOLS))
+        f"mcp: beklenmeyen araç — {name}" for name in sorted(set(names) - set(MCP_TOOLS))
     ]
+    if len(names) != len(MCP_TOOLS):
+        errors.append(f"mcp: araç sayısı {len(names)} ≠ {len(MCP_TOOLS)}")
+    if len(set(names)) != len(names):
+        errors.append("mcp: araç adları tekrarlı")
     for tool in tools:
         if not isinstance(tool, dict) or tool.get("name") not in MCP_TOOLS:
             continue

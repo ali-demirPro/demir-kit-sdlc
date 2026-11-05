@@ -241,6 +241,22 @@ class ResolveTests(unittest.TestCase):
         )
         self.assert_line_content(ROOT, gates["architect"], "architect")
 
+    def test_project_config_source_is_relative(self) -> None:
+        """Proje kökü kit dışında olsa da kaynak `kit.config.yaml:<satır>` olur."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = project(Path(directory), config(["web-app"], "web-app"))
+            data = profiles.resolve(root)
+        source = data["profile"]["source"]
+        self.assertEqual(source, "kit.config.yaml:6")
+        self.assertFalse(Path(source.rpartition(":")[0]).is_absolute(), source)
+        self.assertNotIn(str(root), json.dumps(data, ensure_ascii=False))
+
+    def test_in_repo_config_source_is_relative(self) -> None:
+        data = profiles.resolve(ROOT)
+        source = data["profile"]["source"]
+        self.assertRegex(str(source), r"^kit\.config\.yaml:\d+$")
+        self.assertFalse(Path(str(source).rpartition(":")[0]).is_absolute(), source)
+
     def test_risk_excluded_paths(self) -> None:
         data = profiles.resolve(ROOT, ["delivery/tests/auth_test.py"])
         self.assertEqual(data["risk"]["level"], "none")

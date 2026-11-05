@@ -6,12 +6,12 @@ istek/yanıt. Sunucu `delivery/scripts/mcp_server.py`; protokol çekirdeği
 
 ## Amaç ve sınır
 
-Ajanın sözleşmeyi okuması ve kapıları denetlemesi için beş araç sunulur.
+Ajanın sözleşmeyi okuması ve kapıları denetlemesi için altı araç sunulur.
 Hepsi salt-okunur: proje dosyası, issue, etiket veya worktree yazmaz.
 
 | Var | Yok |
 |-----|-----|
-| `status`, `brief`, `doctor`, `next_leaf_list`, `guard` | `seal`, `transition`, `claim`, `update`, `review`, `report` |
+| `status`, `brief`, `doctor`, `next_leaf_list`, `guard`, `explain` | `seal`, `transition`, `claim`, `update`, `review`, `report` |
 | Okuma ve denetim | Mutasyon, onay, etiket değişimi, commit, merge |
 
 Yazma yetkisi ajanın kendi oturumunda kalır; MCP yalnız kanıt toplar.
@@ -25,9 +25,26 @@ Yazma yetkisi ajanın kendi oturumunda kalır; MCP yalnız kanıt toplar.
 | `doctor` | `issue?`, `checkpoint?`, `strict?` | Statik denetim + kapı sonucu |
 | `next_leaf_list` | — | Bağımlılık sırasına göre hazır leaf kuyruğu; claim yapmaz |
 | `guard` | `issue` (zorunlu) | Worktree + risk kaynak kapısı |
+| `explain` | `project?`, `name?`, `paths?` | Profil/pack/overlay/risk kaynağı ya da tek kontrol açıklaması |
 
 Her araç tanımı `annotations.readOnlyHint: true` taşır; `doctor` bunu
 `check_mcp_self` ile kendisi doğrular.
+
+## Açıklama (`explain`)
+
+`explain` yapılandırmanın nereden geldiğini yanıtlar: hangi profil, pack,
+overlay ve risk kuralı hangi kapıyı üretti; kaynak `path:line` olarak döner.
+Salt-okunur: kontrol çalıştırmaz, dosya ya da issue yazmaz.
+
+- `name` verilirse `doctor.py --explain <name>` koşar; o kontrolün etkin olup
+  olmadığını, modunu (`kit`/`--product`) ve tanım satırını yazar. `name: gates`
+  etkin kapı setini kaynaklarıyla listeler.
+- `name` yoksa `profiles.py --resolve --json` koşar; `project` verilirse
+  `--project`, `paths` verilirse `--paths a,b,c` eklenir. Yanıt profil, pack,
+  overlay, kapı ve risk kuralı kaynaklarını JSON olarak döner.
+
+İki yol da aynı alt süreç koşucusunu kullanır (120 sn zaman aşımı, çıktı
+20.000 karakterde kırpılır).
 
 ## Kayıt
 
@@ -72,16 +89,17 @@ Proje kökünden çalıştırıldığı için `--project .` yeterlidir.
 ## Güvenlik
 
 Sunucu hiçbir şey yazmaz: dosya, issue, etiket, worktree ve git durumu
-değişmez. Mutasyon araçları bilinçli olarak yoktur; `tools/list` yalnız beş
+değişmez. Mutasyon araçları bilinçli olarak yoktur; `tools/list` yalnız altı
 salt-okunur aracı döner. Bununla birlikte `status`, `brief`, `doctor`,
 `next_leaf_list` ve `guard` alt süreç olarak `gh` çağırabilir; yani ağa
 çıkabilir ve GitHub token'ını kullanabilir. `status --offline` ağa çıkmaz.
+`explain` ağa çıkmaz; yalnız yerel `doctor.py`/`profiles.py` çıktısını döner.
 Alt süreç zaman aşımı 120 sn, çıktı 20.000 karakterde kırpılır.
 
 ## Kayıt doğrulama
 
 `./delivery/scripts/doctor.sh --strict` içindeki `mcp` kontrolü sunucuyu
-başlatır, `initialize` + `tools/list` yazar ve yanıtı doğrular: beş aracın
+başlatır, `initialize` + `tools/list` yazar ve yanıtı doğrular: altı aracın
 tam olarak bulunması ve her birinde `readOnlyHint: true` olması gerekir.
 Sunucu 10 sn içinde yanıt vermezse ya da araç listesi saparsa doctor hata verir.
 

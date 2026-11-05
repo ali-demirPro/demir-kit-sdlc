@@ -159,6 +159,28 @@ TOOLS = [
         "Bir issue için kaynak değişikliği kapısını (worktree + risk) salt-okunur denetler.",
         ISSUE_SCHEMA,
     ),
+    tool(
+        "explain",
+        "Yapılandırma açıklaması",
+        "Etkin profili, pack/overlay ve risk kuralını kaynağıyla açıklar; yalnız okur.",
+        object_schema(
+            {
+                "project": {
+                    "type": "string",
+                    "description": "Açıklanacak proje dizini (varsayılan: sunucu projesi).",
+                },
+                "name": {
+                    "type": "string",
+                    "description": "Doctor kontrol adı (ör. mcp) ya da gates.",
+                },
+                "paths": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Risk kuralı için proje-göreli yol listesi.",
+                },
+            }
+        ),
+    ),
 ]
 
 TOOL_BY_NAME = {item["name"]: item for item in TOOLS}
@@ -406,6 +428,34 @@ class McpServer:
             return [python, str(scripts / "next-leaf.py"), "--list", "--json"]
         if name == "guard":
             return [bash, str(scripts / "guard.sh"), "--issue", str(arguments["issue"])]
+        if name == "explain":
+            target = str(arguments.get("name") or "").strip()
+            if target:
+                if arguments.get("paths") or arguments.get("project"):
+                    raise ValueError("name ile paths/project birlikte kullanılamaz")
+                if target.startswith("-"):
+                    raise ValueError("name '-' ile başlayamaz")
+                return [
+                    python,
+                    str(scripts / "doctor.py"),
+                    "--explain",
+                    target,
+                ]
+            command = [python, str(scripts / "profiles.py"), "--resolve", "--json"]
+            if arguments.get("project"):
+                command += ["--project", str(self.status_project(arguments))]
+            paths = []
+            for item in arguments.get("paths") or []:
+                if not isinstance(item, str):
+                    raise ValueError("paths öğesi metin olmalı")
+                text = item.strip()
+                if "," in text:
+                    raise ValueError("paths öğesi virgül içeremez")
+                if text:
+                    paths.append(text)
+            if paths:
+                command += ["--paths", ",".join(paths)]
+            return command
         raise ValueError(f"bilinmeyen araç: {name}")
 
     def run_tool(self, name: str, arguments: dict) -> dict:

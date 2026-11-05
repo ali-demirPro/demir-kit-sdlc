@@ -1,5 +1,18 @@
 # Changelog
 
+## 2.59.0 — 2026-11-05
+
+- **Profil kaynakları** — `profiles.py --resolve --json` birleşik profili ve her
+  değerin kaynağını (`path:line`) döner: base, overlay, pack, kapı ve risk
+  kuralı. `--paths` risk eşleşmesini besler; komut hiçbir şey yazmaz.
+- **Doctor açıklaması** — `doctor.py --explain <ad>` tek kontrolün modunu
+  (`kit`/`--product`), etkinliğini ve tanım satırını yazar; `--explain gates`
+  etkin kapı setini kaynaklarıyla listeler. Kontrol koşmaz.
+- **MCP `explain`** — salt-okunur altıncı araç; `name` ile `doctor --explain`,
+  yoksa `profiles --resolve --json` çağırır (`project`, `paths` opsiyonel).
+  [MCP protokolü](delivery/protocol/mcp.md) altı aracı ve açıklama sözleşmesini
+  anlatır.
+
 ## 2.58.0 — 2026-11-04
 
 - **Submodule modu** — `self_update.py` artık üç modu ayırır (`self` →

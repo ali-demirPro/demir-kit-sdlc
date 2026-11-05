@@ -106,8 +106,8 @@ def item_source(path: Path, key: str, value: str) -> str | None:
     return _source(path, entry_line(path, (key,), "item", value))
 
 
-def key_source(path: Path, *keys: str) -> str | None:
-    return _source(path, entry_line(path, tuple(keys), "key"))
+def key_source(path: Path, *keys: str, base: Path | None = None) -> str | None:
+    return _source(path, entry_line(path, tuple(keys), "key"), base)
 
 
 def function_source(func) -> str | None:
@@ -351,8 +351,8 @@ def resolve(project: Path, paths: list[str] | None = None) -> dict:
     default_source = None
     if configured:
         default_source = key_source(
-            config_path, "factory", "default_profile"
-        ) or key_source(config_path, "default_profile")
+            config_path, "factory", "default_profile", base=project
+        ) or key_source(config_path, "default_profile", base=project)
     overlays = {
         name: _profile_source(name) for name in names if name in OVERLAYS
     }

@@ -1,6 +1,6 @@
 # demir-kit
 
-**2.58.0** — Delivery-first agent system. Runtime `delivery/`; v1 arşivi `archive/v1.7/`.
+**2.59.0** — Delivery-first agent system. Runtime `delivery/`; v1 arşivi `archive/v1.7/`.
 
 ## Yapı
 
@@ -61,5 +61,5 @@ Ayrıntı, çıktı örneği ve geri dönüş:
 ## MCP (salt-okunur)
 
 Kit komutlarını MCP üzerinden ajanlara açar: `status`, `brief`, `doctor`,
-`next_leaf_list`, `guard`. Sunucu yazmaz; mutasyon aracı yoktur.
+`next_leaf_list`, `guard`, `explain`. Sunucu yazmaz; mutasyon aracı yoktur.
 Ayrıntı ve kayıt (Orca / OpenCode): [delivery/protocol/mcp.md](delivery/protocol/mcp.md).
