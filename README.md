@@ -1,6 +1,6 @@
 # demir-kit
 
-**2.59.1** — Delivery-first agent system. Runtime `delivery/`; v1 arşivi `archive/v1.7/`.
+**2.59.2** — Delivery-first agent system. Runtime `delivery/`; v1 arşivi `archive/v1.7/`.
 
 ## Yapı
 

@@ -1,5 +1,21 @@
 # Changelog
 
+## 2.59.2 — 2026-11-05
+
+- **Panel odağı ve ajan eşlemesi** — `workspace.changed` ve
+  `agent.status.changed` artık tahminle kart seçmez: odak sırası olay
+  id/path (varsa), terminal eşlemesi, benzersiz ad; hiçbiri tutmazsa
+  `focused: null` ve hiçbir karta ajan yazılmaz. Ajan olayı workspace
+  taşımıyorsa eski odak yeniden kullanılmaz, tam tazeleme yapılır; başka
+  workspace'in olayı hiçbir kartı değiştirmez. Ajanlar yalnız `agents.list`'in
+  odaklı workspace kartına yazılır; odak worktree'ye düşerse dedupe o kaydı
+  korur.
+- **Host'a duyarlı dedupe** — `workspace.list.hostId` hem kart anahtarına hem
+  30 saniyelik önbellek anahtarına (`project:<host>::<yol>`) girer: iki hosttaki
+  aynı mutlak yol ayrı kart kalır. `hostId` yoksa workspace id'sinin `::` ön eki
+  host dilimi olur (`identity:<host>`); o da yoksa kayıtlar birleşebilir
+  (bilinen sınır).
+
 ## 2.59.1 — 2026-11-05
 
 - **Yanıt şekli denetimi** — `compat.py` üç salt-okunur Orca komutunun

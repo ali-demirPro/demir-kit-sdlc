@@ -65,6 +65,8 @@ export interface Workspace {
   id?: string
   name?: string
   path?: string
+  /** Host kimliği; bu makine `local` döndürür, kaydetmeyen hostta null. */
+  hostId?: string | null
 }
 
 /** Odak sinyali: olaydan gelen id/path; ad yalnız tek eşleşirse kullanılır. */
@@ -216,6 +218,8 @@ export function pickFocused(
 
 interface ProjectRef {
   id: string
+  /** `workspace.list` alanı; host kaydetmeyen kurulumlarda null. */
+  hostId: string | null
   path: string
   name: string
   kitRoot: string
@@ -253,6 +257,7 @@ function refFor(workspace: Workspace): ProjectRef | null {
   if (kitRoot === null) return null
   return {
     id: typeof workspace.id === 'string' ? workspace.id : workspace.path,
+    hostId: textOf(workspace.hostId),
     path: workspace.path,
     name: typeof workspace.name === 'string' ? workspace.name : '',
     kitRoot
@@ -260,8 +265,55 @@ function refFor(workspace: Workspace): ProjectRef | null {
 }
 
 /**
+ * Host dilimi: önce `hostId`, yoksa workspace id'sinin `::` öncesi kimliği
+ * (`identity:<host>`), ikisi de yoksa boş. Host kaydetmeyen iki kurulum aynı
+ * yolu paylaşırsa id ön eki onları ayırır; o da yoksa kayıtlar birleşebilir.
+ */
+function hostSegment(hostId: string | null, id: string | null): string {
+  const host = textOf(hostId)
+  if (host !== null) return host
+  const identity = textOf(id)
+  if (identity !== null) {
+    const cut = identity.indexOf('::')
+    if (cut > 0) return `identity:${identity.slice(0, cut)}`
+  }
+  return ''
+}
+
+/**
+ * Aynı dizin iki kez sayılmasın diye ref anahtarı: host dilimi + normalize yol.
+ * Host kimliği anahtara girer; iki hosttaki aynı mutlak yol tek ref'e düşmez.
+ */
+export function refKey(
+  ref: Pick<ProjectRef, 'hostId' | 'path'> & { id?: string }
+): string {
+  return `${hostSegment(ref.hostId, ref.id ?? null)}::${normalizePath(ref.path)}`
+}
+
+/**
+ * Ayar yolunu (`projectPath`) listedeki workspace'e bağlar: normalize eşleşme,
+ * yani sonda `/` ya da farklı büyük/küçük harf aynı workspace'tir. Eşleşme
+ * yoksa null: sentetik ref'e düşmek çağıranın kararı.
+ */
+export function matchWorkspacePath(
+  workspaces: readonly Workspace[],
+  configured: string
+): Workspace | null {
+  const path = textOf(configured)
+  if (path === null) return null
+  const wanted = normalizePath(path)
+  return (
+    workspaces.find(
+      (workspace) =>
+        typeof workspace.path === 'string' &&
+        normalizePath(workspace.path) === wanted
+    ) ?? null
+  )
+}
+
+/**
  * Tüm workspace'ler; kit'i olanlar. Odaklı workspace, sonra ayarlardaki yol,
- * sonra kalanlar gelir. Aynı dizin bir kez sayılır.
+ * sonra kalanlar gelir. Aynı host + dizin bir kez sayılır.
  */
 async function resolveProjects(
   orca: OrcaWorkerApi
@@ -292,8 +344,10 @@ async function resolveProjects(
   const refs: ProjectRef[] = []
   const seen = new Set<string>()
   const push = (ref: ProjectRef | null): void => {
-    if (ref === null || seen.has(ref.path)) return
-    seen.add(ref.path)
+    if (ref === null) return
+    const key = refKey(ref)
+    if (seen.has(key)) return
+    seen.add(key)
     refs.push(ref)
   }
 
@@ -303,8 +357,10 @@ async function resolveProjects(
   const configured = await orca.settings.get('projectPath')
   if (typeof configured === 'string' && configured.trim() !== '') {
     const path = configured.trim()
-    const match = workspaces.find((workspace) => workspace.path === path)
-    push(match ? refFor(match) : refFor({ path }))
+    // Ayar yolu listedeki workspace'e normalize eşleşmeyle bağlanır: sonda `/`
+    // ya da farklı yazım olsa da sentetik (host'suz) ref üretilmez.
+    const match = matchWorkspacePath(workspaces, path)
+    push(match === null ? refFor({ path }) : refFor(match))
   }
 
   for (const workspace of workspaces) {
@@ -356,14 +412,17 @@ function projectRepoRoot(data: StatusJson): string | null {
 
 /**
  * Aynı repo iki kez sayılmasın: önce git kökü (`repo_root`), sonra
- * `tracker.repo`, yoksa epic worktree son eki atılmış yol.
+ * `tracker.repo`, yoksa epic worktree son eki atılmış yol. Anahtar host ile
+ * başlar: iki hosttaki aynı yol/repo iki ayrı kart kalır.
  */
-function projectKey(project: StatusProject): string {
+export function projectKey(project: StatusProject): string {
+  const host = hostSegment(project.host ?? null, project.id)
+  const prefix = host === '' ? '' : `host:${host}::`
   const root = (project.repo_root ?? '').trim()
-  if (root !== '') return `root:${normalizePath(root)}`
+  if (root !== '') return `${prefix}root:${normalizePath(root)}`
   const repo = (project.repo ?? '').trim().toLowerCase()
-  if (repo !== '') return `repo:${repo}`
-  return `path:${normalizePath(project.path.replace(/\/epic-\d+$/, ''))}`
+  if (repo !== '') return `${prefix}repo:${repo}`
+  return `${prefix}path:${normalizePath(project.path.replace(/\/epic-\d+$/, ''))}`
 }
 
 function normalizePath(path: string): string {
@@ -439,6 +498,7 @@ export function agentTarget(
 function failedProject(ref: ProjectRef, message: string): StatusProject {
   return {
     id: ref.id,
+    host: ref.hostId,
     path: ref.path,
     name: ref.name || ref.path,
     repo: '',
@@ -549,14 +609,31 @@ function isCacheEntry(value: unknown): value is CacheEntry {
   )
 }
 
+/**
+ * Önbellek girdisi bu ref'e ait mi: aynı yol ve aynı host dilimi. Saf yardımcı:
+ * aynı yolu paylaşan başka hostun kaydı bu karta servis edilmez.
+ */
+export function cacheMatches(
+  entry: Pick<CacheEntry, 'project'> | null,
+  ref: Pick<ProjectRef, 'hostId' | 'path'> & { id?: string }
+): boolean {
+  if (entry === null) return false
+  if (entry.project.path !== ref.path) return false
+  return (
+    hostSegment(entry.project.host ?? null, entry.project.id) ===
+    hostSegment(ref.hostId, ref.id ?? null)
+  )
+}
+
 async function cachedProject(
   orca: OrcaWorkerApi,
   ref: ProjectRef
 ): Promise<StatusProject | null> {
-  const raw = await orca.storage.get(`${CACHE_PREFIX}${ref.path}`)
+  const raw = await orca.storage.get(`${CACHE_PREFIX}${refKey(ref)}`)
   if (!isCacheEntry(raw)) return null
   if (Date.now() - raw.saved_at >= CACHE_MS) return null
-  if (raw.project.path !== ref.path) return null
+  // Aynı yol iki hostta: giriş host dilimine ve yola bağlıdır.
+  if (!cacheMatches(raw, ref)) return null
   return raw.project
 }
 
@@ -578,6 +655,7 @@ async function projectSnapshot(
     const data = await runStatus(ref)
     const project: StatusProject = {
       id: ref.id,
+      host: ref.hostId,
       path: ref.path,
       name: projectName(ref, data),
       repo: projectRepo(data),
@@ -588,7 +666,7 @@ async function projectSnapshot(
       warnings: Array.isArray(data.warnings) ? data.warnings : [],
       stale: data.stale === true
     }
-    await orca.storage.set(`${CACHE_PREFIX}${ref.path}`, {
+    await orca.storage.set(`${CACHE_PREFIX}${refKey(ref)}`, {
       saved_at: Date.now(),
       project
     })
@@ -780,21 +858,32 @@ function workspaceIdOf(event: unknown): string | null {
 }
 
 /**
+ * `agent.status.changed` olayının hedefi. Workspace yoksa tam tazeleme:
+ * eski odak (`lastAgentWorkspace`) yeniden kullanılmaz, yanlış karta yazılmaz.
+ * Olay başka workspace'tense hiçbir kart değişmez; aynıysa yalnız o kart.
+ */
+export function agentEventTarget(
+  workspaceId: string | null,
+  lastAgentWorkspace: string | null
+): 'refresh' | 'ignore' | string {
+  if (workspaceId === null || workspaceId === '') return 'refresh'
+  if (workspaceId !== lastAgentWorkspace) return 'ignore'
+  return workspaceId
+}
+
+/**
  * `agent.status.changed`: olayın workspace'i odaklıysa yalnız o kartın ajanları
  * tazelenir. Odaklı olmayan ya da kit'i olmayan workspace hiçbir karta yazmaz.
  */
 async function refreshAgents(
   orca: OrcaWorkerApi,
-  workspaceId: string | null
+  workspaceId: string
 ): Promise<void> {
-  const current = lastSnapshot
-  const target = workspaceId ?? lastAgentWorkspace
-  if (current === null || target === null) {
-    await refresh(orca, false)
-    return
-  }
+  const target = workspaceId
   // Yalnız ajanları okunabilen (odaklı) workspace'in kartı güncellenir.
   if (target !== lastAgentWorkspace) return
+  const current = lastSnapshot
+  if (current === null) return
   if (!current.projects.some((project) => project.id === target)) return
   const listing = await readAgents(orca)
   if (listing.warning !== null) orca.log(`demir-kit: ${listing.warning}`)
@@ -1228,6 +1317,15 @@ export default async function activate(orca: OrcaWorkerApi): Promise<void> {
     void refresh(orca, true)
   })
 
+  /** Odak tazelemesi: 1 sn taban aralık, olay fırtınasında art arda koşmaz. */
+  const retryFocus = (): void => {
+    const now = Date.now()
+    if (!shouldRetryFocus(now, lastFocusRetry)) return
+    lastFocusRetry = now
+    // Ajan olayı yaymadığı için döngü yoktur.
+    void refresh(orca, false)
+  }
+
   orca.events.on('workspace.changed', (event) => {
     // Olay odak için tek otorite: id/path varsa onlar, yoksa bağlamın adı.
     focusSignal = focusSignalOf(event)
@@ -1238,18 +1336,19 @@ export default async function activate(orca: OrcaWorkerApi): Promise<void> {
   orca.events.on('agent.status.changed', (event) => {
     // Terminal -> workspace eşlemesi odak çözümü için öğrenilir (CP-1).
     learnAgentTerminal(event)
-    if (lastAgentWorkspace === null) {
-      // Odak henüz yoksa ilk eşleme kartı beklemeden tazelesin. 1 sn taban
-      // aralık, olay fırtınasında art arda tam tazelemeyi engeller; refresh
-      // ajan olayı yaymadığı için döngü yoktur.
-      const now = Date.now()
-      if (shouldRetryFocus(now, lastFocusRetry)) {
-        lastFocusRetry = now
-        void refresh(orca, false)
-      }
+    const target = agentEventTarget(workspaceIdOf(event), lastAgentWorkspace)
+    if (target === 'ignore') {
+      // Odak hiç yoksa kartı olmayan olay yine de odağı çözebilir: terminal
+      // eşlemesi az önce öğrenildi, tam tazeleme odağı yeniden hesaplar.
+      if (lastAgentWorkspace === null) retryFocus()
       return
     }
-    void refreshAgents(orca, workspaceIdOf(event))
+    if (target === 'refresh') {
+      // Olay workspace taşımıyor: eski odak yeniden kullanılmaz, tam tazeleme.
+      retryFocus()
+      return
+    }
+    void refreshAgents(orca, target)
   })
 
   orca.settings.onDidChange(() => {
