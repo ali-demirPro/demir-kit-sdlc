@@ -16,6 +16,8 @@ import type { OrcaWorkerApi } from 'orca/worker'
 import type {
   ActionReply,
   AgentState,
+  FocusSource,
+  StatusActive,
   StatusAgent,
   StatusCheckpoint,
   StatusCheckpointSummary,
@@ -80,56 +82,408 @@ export interface FocusSignal {
 /** Son `workspace.changed` gövdesi: odak için ana sinyal. */
 let focusSignal: FocusSignal | null = null
 
-/** Ajan olaylarından öğrenilen terminal -> workspace eşlemesi; sınırlı ve sıralı. */
+/** Kalıcı terminal haritası: en fazla 200 kayıt, 30 gün TTL, LRU temizliği. */
 const TERMINAL_MAP_LIMIT = 200
-const terminalWorkspaces = new Map<string, string>()
+const TERMINAL_TTL_MS = 30 * 24 * 60 * 60 * 1000
+const TERMINAL_STORE_KEY = 'agents.terminals.v1'
+const TERMINAL_STORE_VERSION = 1
+const TERMINAL_SAVE_MS = 1000
+
+/** `workspaceId` biçiminden çıkarılan kimlik: id ya da gerçek yol. */
+export interface WorkspaceHint {
+  id?: string
+  path?: string
+}
+
+export interface TerminalEntry {
+  hint: WorkspaceHint
+  lastSeenAt: number
+}
+
+/** Terminal eşlemesinden çıkan odak; `conflict` sinyallerin çeliştiğini söyler. */
+export interface TerminalFocus {
+  workspace: Workspace | null
+  conflict: boolean
+}
+
+/** Odak çözümünün kaynağı; `pickFocused` davranışını değiştirmez. */
+export interface FocusMatch {
+  workspace: Workspace | null
+  source: FocusSource
+}
+
+const terminalWorkspaces = new Map<string, TerminalEntry>()
+let terminalMapLoaded = false
+let terminalMapDirty = false
+let terminalSaveTimer: ReturnType<typeof setTimeout> | null = null
+
+/** Aktif ajan ipuçları: aynı anda tek workspace varsa odak için kullanılır. */
+const AGENT_HINT_TTL_MS = 10 * 60 * 1000
+interface ActiveAgentHint {
+  hint: WorkspaceHint
+  at: number
+  /** `agents.list` ile birebir eşleşen durum başlangıcı; yoksa undefined. */
+  stateStartedAt?: number
+}
+const activeAgentHints = new Map<string, ActiveAgentHint>()
+
+function textOf(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const text = value.trim()
+  return text === '' ? null : text
+}
+
+/** `workspaceId` `<repo>::/yol`, `identity:...` ya da çıplak yol olabilir. */
+export function hintsFromWorkspaceId(value: unknown): WorkspaceHint | null {
+  const text = textOf(value)
+  if (text === null) return null
+  if (text.startsWith('identity:')) return { id: text }
+  const cut = text.indexOf('::')
+  if (cut >= 0) {
+    const path = text.slice(cut + 2).trim()
+    return path === '' ? null : { path }
+  }
+  if (/^[a-zA-Z]:[\\/]/.test(text) || text.startsWith('/')) return { path: text }
+  if (text.startsWith('~/')) return { path: join(os.homedir(), text.slice(2)) }
+  return { id: text }
+}
+
+/** Kayıtlı bir ipucunu listedeki tek workspace'e bağlar; belirsizse null. */
+export function matchWorkspaceHint(
+  workspaces: readonly Workspace[],
+  hint: WorkspaceHint | null
+): Workspace | null {
+  if (hint === null) return null
+  const id = textOf(hint.id)
+  if (id !== null) {
+    const byId = workspaces.find((workspace) => workspace.id === id)
+    if (byId !== undefined) return byId
+    // Eski kayıt iç id taşıyorsa (`<repo>::/yol`) yol kısmını dene.
+    const cut = id.indexOf('::')
+    if (cut >= 0) {
+      const byPath = matchWorkspacePath(workspaces, id.slice(cut + 2))
+      if (byPath !== null) return byPath
+    }
+  }
+  const path = textOf(hint.path)
+  return path === null ? null : matchWorkspacePath(workspaces, path)
+}
 
 /**
- * Yeni eşleme ekler; sınır aşılırsa en eski giriş düşer. Yeniden öğrenilen
- * terminal silinip sona yazılır: en sıcak terminal ilk düşmez (LRU).
+ * Yeni eşleme ekler; `lastSeenAt` sıralamasıyla en eski kayıt düşer.
+ * Yeniden görülen terminal silinip sona yazılır: sıcak terminal ilk düşmez.
  */
-export function rememberTerminal(terminalId: string, workspaceId: string): void {
+export function rememberTerminal(
+  terminalId: string,
+  hint: WorkspaceHint,
+  now = Date.now()
+): void {
   terminalWorkspaces.delete(terminalId)
   if (terminalWorkspaces.size >= TERMINAL_MAP_LIMIT) {
-    const oldest = terminalWorkspaces.keys().next().value
-    if (oldest !== undefined) terminalWorkspaces.delete(oldest)
+    let oldestId: string | null = null
+    let oldestAt = Number.POSITIVE_INFINITY
+    for (const [id, entry] of terminalWorkspaces) {
+      if (entry.lastSeenAt < oldestAt) {
+        oldestAt = entry.lastSeenAt
+        oldestId = id
+      }
+    }
+    if (oldestId !== null) terminalWorkspaces.delete(oldestId)
   }
-  terminalWorkspaces.set(terminalId, workspaceId)
+  terminalWorkspaces.set(terminalId, { hint, lastSeenAt: now })
+  terminalMapDirty = true
+}
+
+/**
+ * `agent.status.changed` gövdesinden workspace ipucu: `workspaceId`,
+ * `worktreeId` ya da bağlam id'si. Orca 1.4.248 satırı `worktreeId` taşır.
+ */
+export function agentWorkspaceHint(event: unknown): WorkspaceHint | null {
+  if (typeof event !== 'object' || event === null) return null
+  const payload = event as {
+    workspaceId?: unknown
+    worktreeId?: unknown
+    context?: { workspaceId?: unknown; id?: unknown }
+  }
+  const raw =
+    textOf(payload.workspaceId) ??
+    textOf(payload.worktreeId) ??
+    textOf(payload.context?.workspaceId) ??
+    textOf(payload.context?.id)
+  return hintsFromWorkspaceId(raw)
+}
+
+/** Olayın ajan durumu; bilinmeyen/eksik değer null. */
+export function agentStateOf(event: unknown): AgentState | null {
+  if (typeof event !== 'object' || event === null) return null
+  const state = (event as { state?: unknown }).state
+  return typeof state === 'string' && AGENT_STATES.includes(state as AgentState)
+    ? (state as AgentState)
+    : null
 }
 
 /**
  * `agent.status.changed` gövdesinden terminal/workspace eşlemesini öğrenir.
  * `workspaceId` ya da `terminalId` yoksa hiçbir şey saklanmaz.
  */
-export function learnAgentTerminal(event: unknown): void {
-  if (typeof event !== 'object' || event === null) return
-  const payload = event as { workspaceId?: unknown; terminalId?: unknown }
-  const workspaceId = textOf(payload.workspaceId)
-  const terminalId = textOf(payload.terminalId)
-  if (workspaceId === null || terminalId === null) return
-  rememberTerminal(terminalId, workspaceId)
+export function learnAgentTerminal(event: unknown): boolean {
+  const hint = agentWorkspaceHint(event)
+  if (hint === null) return false
+  const terminalId =
+    typeof event === 'object' && event !== null
+      ? textOf((event as { terminalId?: unknown }).terminalId)
+      : null
+  if (terminalId !== null) rememberTerminal(terminalId, hint)
+  return true
+}
+
+/** Aktif ajanın workspace ipucunu saklar; `idle`/`done` ipucu düşürür. */
+export function rememberAgentHint(
+  hint: WorkspaceHint | null,
+  state: AgentState | null,
+  now = Date.now(),
+  stateStartedAt?: number
+): boolean {
+  if (hint === null) return false
+  const key = hint.id ?? hint.path ?? ''
+  if (key === '') return false
+  if (state === null) return false
+  if (state === 'idle' || state === 'done') {
+    return activeAgentHints.delete(key)
+  }
+  activeAgentHints.set(key, {
+    hint,
+    at: now,
+    ...(typeof stateStartedAt === 'number' && Number.isFinite(stateStartedAt)
+      ? { stateStartedAt }
+      : {})
+  })
+  return true
 }
 
 /**
- * Terminal listesinin işaret ettiği benzersiz workspace id'leri. Birden çok id
- * dönerse sinyaller çelişiyor demektir; boş dizi hiç bilgi olmadığını gösterir.
+ * Odaklı ajanlarla aktif workspace ipuçlarını eşler. Önce `stateStartedAt`
+ * birebir eşleşmesi denenir; yoksa tüm ipuçları tek workspace'e çıkıyorsa
+ * kullanılır. İki farklı workspace varsa sinyal çelişir: null (tahmin yok).
  */
-export function terminalWorkspaceIds(
-  terminals: readonly string[],
-  maps: ReadonlyMap<string, string> = terminalWorkspaces
-): string[] {
-  const ids = new Set<string>()
-  for (const terminalId of terminals) {
-    const workspaceId = maps.get(terminalId)
-    if (workspaceId !== undefined && workspaceId !== '') ids.add(workspaceId)
+export function activeAgentFocus(
+  workspaces: readonly Workspace[],
+  focusedAgents: readonly StatusAgent[] = [],
+  now = Date.now()
+): Workspace | null {
+  for (const [key, entry] of activeAgentHints) {
+    if (now - entry.at > AGENT_HINT_TTL_MS) activeAgentHints.delete(key)
   }
-  return [...ids]
+  if (activeAgentHints.size === 0) return null
+  const starts = new Set(
+    focusedAgents
+      .map((agent) => agent.stateStartedAt)
+      .filter((value): value is number => typeof value === 'number')
+  )
+  if (starts.size > 0) {
+    const matched = new Map<string, Workspace>()
+    for (const entry of activeAgentHints.values()) {
+      if (entry.stateStartedAt === undefined || !starts.has(entry.stateStartedAt)) {
+        continue
+      }
+      const workspace = matchWorkspaceHint(workspaces, entry.hint)
+      if (workspace !== null) {
+        matched.set(workspace.id ?? workspace.path ?? '', workspace)
+      }
+    }
+    if (matched.size === 1) return [...matched.values()][0] ?? null
+    if (matched.size > 1) return null
+  }
+  // Durum başlangıcı eşleşmese de tüm ipuçları tek workspace'e çıkıyorsa güvenli.
+  const resolved = new Map<string, Workspace>()
+  for (const entry of activeAgentHints.values()) {
+    const workspace = matchWorkspaceHint(workspaces, entry.hint)
+    if (workspace !== null) {
+      resolved.set(workspace.id ?? workspace.path ?? '', workspace)
+    }
+  }
+  return resolved.size === 1 ? [...resolved.values()][0] ?? null : null
 }
 
-function textOf(value: unknown): string | null {
-  if (typeof value !== 'string') return null
-  const text = value.trim()
-  return text === '' ? null : text
+export function resetAgentHints(): void {
+  activeAgentHints.clear()
+}
+
+/** Görülen terminallerin zamanını tazeler; haritada olmayan terminal eklenmez. */
+export function touchTerminals(
+  terminals: readonly string[],
+  now = Date.now()
+): boolean {
+  let changed = false
+  for (const terminalId of terminals) {
+    const entry = terminalWorkspaces.get(terminalId)
+    if (entry === undefined) continue
+    entry.lastSeenAt = now
+    changed = true
+  }
+  if (changed) terminalMapDirty = true
+  return changed
+}
+
+/** Terminal listesinden tek bir workspace çıkarır; iki farklı sonuç çelişkidir. */
+export function terminalFocus(
+  workspaces: readonly Workspace[],
+  terminals: readonly string[],
+  maps: ReadonlyMap<string, TerminalEntry> = terminalWorkspaces
+): TerminalFocus {
+  const found = new Map<string, Workspace>()
+  for (const terminalId of terminals) {
+    const entry = maps.get(terminalId)
+    if (entry === undefined) continue
+    const workspace = matchWorkspaceHint(workspaces, entry.hint)
+    if (workspace === null) continue
+    const key = workspace.id ?? workspace.path ?? ''
+    if (key !== '') found.set(key, workspace)
+  }
+  if (found.size > 1) return { workspace: null, conflict: true }
+  return {
+    workspace: found.size === 1 ? [...found.values()][0] ?? null : null,
+    conflict: false
+  }
+}
+
+/** Testler için haritayı sıfırlar; üretimde yalnız worker yeniden yüklenirken. */
+export function resetTerminalMap(): void {
+  terminalWorkspaces.clear()
+  terminalMapLoaded = false
+  terminalMapDirty = false
+  if (terminalSaveTimer !== null) {
+    clearTimeout(terminalSaveTimer)
+    terminalSaveTimer = null
+  }
+}
+
+export function terminalMapSize(): number {
+  return terminalWorkspaces.size
+}
+
+/** Kayıtlı belgeyi doğrular; bozuk ya da sürümü eski belge boş harita olur. */
+export function parseTerminalMap(raw: unknown): Map<string, TerminalEntry> {
+  const map = new Map<string, TerminalEntry>()
+  if (typeof raw !== 'object' || raw === null) return map
+  const doc = raw as { version?: unknown; entries?: unknown }
+  if (doc.version !== TERMINAL_STORE_VERSION || !Array.isArray(doc.entries)) {
+    return map
+  }
+  for (const item of doc.entries) {
+    if (!Array.isArray(item) || item.length < 2) continue
+    const terminalId = textOf(item[0])
+    const entry = item[1]
+    if (terminalId === null || typeof entry !== 'object' || entry === null) {
+      continue
+    }
+    const stored = entry as { hint?: unknown; lastSeenAt?: unknown }
+    const hint = parseHint(stored.hint)
+    if (hint === null) continue
+    const lastSeenAt =
+      typeof stored.lastSeenAt === 'number' && Number.isFinite(stored.lastSeenAt)
+        ? stored.lastSeenAt
+        : 0
+    map.set(terminalId, { hint, lastSeenAt })
+  }
+  return map
+}
+
+function parseHint(raw: unknown): WorkspaceHint | null {
+  if (typeof raw !== 'object' || raw === null) return null
+  const hint = raw as { id?: unknown; path?: unknown }
+  const id = textOf(hint.id)
+  const path = textOf(hint.path)
+  if (id === null && path === null) return null
+  return {
+    ...(id === null ? {} : { id }),
+    ...(path === null ? {} : { path })
+  }
+}
+
+export function serializeTerminalMap(
+  map: ReadonlyMap<string, TerminalEntry> = terminalWorkspaces
+): { version: number; entries: Array<[string, TerminalEntry]> } {
+  return { version: TERMINAL_STORE_VERSION, entries: [...map.entries()] }
+}
+
+async function loadTerminalMap(orca: OrcaWorkerApi): Promise<void> {
+  if (terminalMapLoaded) return
+  terminalMapLoaded = true
+  try {
+    const raw = await orca.storage.get(TERMINAL_STORE_KEY)
+    const loaded = parseTerminalMap(raw)
+    terminalWorkspaces.clear()
+    for (const [terminalId, entry] of loaded) {
+      terminalWorkspaces.set(terminalId, entry)
+    }
+    terminalMapDirty = false
+  } catch (error) {
+    orca.log(`demir-kit: terminal haritası okunamadı: ${messageOf(error)}`)
+  }
+}
+
+async function saveTerminalMap(orca: OrcaWorkerApi): Promise<void> {
+  if (!terminalMapDirty) return
+  terminalMapDirty = false
+  try {
+    if (terminalWorkspaces.size === 0) {
+      await orca.storage.delete(TERMINAL_STORE_KEY)
+    } else {
+      await orca.storage.set(
+        TERMINAL_STORE_KEY,
+        serializeTerminalMap(terminalWorkspaces)
+      )
+    }
+  } catch (error) {
+    terminalMapDirty = true
+    orca.log(`demir-kit: terminal haritası yazılamadı: ${messageOf(error)}`)
+  }
+}
+
+function scheduleTerminalSave(orca: OrcaWorkerApi): void {
+  if (terminalSaveTimer !== null) clearTimeout(terminalSaveTimer)
+  terminalSaveTimer = setTimeout(() => {
+    terminalSaveTimer = null
+    void saveTerminalMap(orca)
+  }, TERMINAL_SAVE_MS)
+}
+
+/**
+ * TTL, silinmiş workspace ve 200 kayıt sınırını uygular. `truncated` liste
+ * eksikse workspace kontrolü atlanır: geçerli kayıt yanlışlıkla silinmez.
+ */
+export function pruneTerminalMap(
+  workspaces: readonly Workspace[],
+  truncated: boolean,
+  now = Date.now()
+): boolean {
+  let changed = false
+  const canCheckWorkspaces = !truncated && workspaces.length > 0
+  for (const [terminalId, entry] of terminalWorkspaces) {
+    const expired = now - entry.lastSeenAt > TERMINAL_TTL_MS
+    const missing =
+      canCheckWorkspaces && matchWorkspaceHint(workspaces, entry.hint) === null
+    if (expired || missing) {
+      terminalWorkspaces.delete(terminalId)
+      changed = true
+    }
+  }
+  if (terminalWorkspaces.size > TERMINAL_MAP_LIMIT) {
+    const oldestFirst = [...terminalWorkspaces.entries()].sort(
+      (left, right) => left[1].lastSeenAt - right[1].lastSeenAt
+    )
+    const drop = terminalWorkspaces.size - TERMINAL_MAP_LIMIT
+    for (let index = 0; index < drop; index += 1) {
+      const terminalId = oldestFirst[index]?.[0]
+      if (terminalId !== undefined) {
+        terminalWorkspaces.delete(terminalId)
+        changed = true
+      }
+    }
+  }
+  if (changed) terminalMapDirty = true
+  return changed
 }
 
 /**
@@ -175,46 +529,66 @@ function focusSignalOf(event: unknown): FocusSignal | null {
 
 /**
  * Odaklı workspace: önce olayın `id`'si, sonra `path`, sonra odaktaki
- * terminallerin öğrettiği tek workspace, en son ad — ad yalnız tek bir
- * workspace'e aitse. Sinyaller çelişirse ya da yoksa null: tahmin yok.
+ * terminallerin öğrettiği tek workspace, sonra odaklı ajanların terminalleri,
+ * en son ad — ad yalnız tek bir workspace'e aitse. Sinyaller çelişirse ya da
+ * yoksa null: tahmin yok.
  */
-export function pickFocused(
-  workspaces: Workspace[],
+export function resolveFocus(
+  workspaces: readonly Workspace[],
   focus: FocusSignal | null,
   displayName: string | null = null,
   terminals: readonly string[] = [],
-  maps: ReadonlyMap<string, string> = terminalWorkspaces
-): Workspace | null {
+  maps: ReadonlyMap<string, TerminalEntry> = terminalWorkspaces,
+  agentTerminals: readonly string[] = []
+): FocusMatch {
   const id = textOf(focus?.id)
   if (id !== null) {
-    const byId = workspaces.find((workspace) => workspace.id === id)
-    if (byId !== undefined) return byId
+    // `workspaceId` bazen `<repo>::/yol` gelir: ipucu çözümleyicisi yolu bulur.
+    const byId = matchWorkspaceHint(workspaces, hintsFromWorkspaceId(id))
+    if (byId !== null) return { workspace: byId, source: 'event' }
   }
   const path = textOf(focus?.path)
   if (path !== null) {
-    const wanted = normalizePath(path)
-    const byPath = workspaces.find(
-      (workspace) =>
-        typeof workspace.path === 'string' &&
-        normalizePath(workspace.path) === wanted
-    )
-    if (byPath !== undefined) return byPath
+    const byPath = matchWorkspaceHint(workspaces, { path })
+    if (byPath !== null) return { workspace: byPath, source: 'path' }
   }
-  const terminalIds = terminalWorkspaceIds(terminals, maps)
-  if (terminalIds.length > 1) return null
-  if (terminalIds.length === 1) {
-    // Harita eski olabilir: listede olmayan id'de ada düş, null'a saplanma.
-    const byTerminal = workspaces.find(
-      (workspace) => workspace.id === terminalIds[0]
-    )
-    if (byTerminal !== undefined) return byTerminal
+  const fromContext = terminalFocus(workspaces, terminals, maps)
+  if (fromContext.conflict) return { workspace: null, source: 'none' }
+  if (fromContext.workspace !== null) {
+    return { workspace: fromContext.workspace, source: 'terminal' }
+  }
+  const fromAgents = terminalFocus(workspaces, agentTerminals, maps)
+  if (fromAgents.conflict) return { workspace: null, source: 'none' }
+  if (fromAgents.workspace !== null) {
+    return { workspace: fromAgents.workspace, source: 'agent' }
   }
   const name = textOf(focus?.name) ?? textOf(displayName)
   if (name !== null) {
     const sameName = workspaces.filter((workspace) => workspace.name === name)
-    if (sameName.length === 1) return sameName[0] ?? null
+    if (sameName.length === 1) {
+      return { workspace: sameName[0] ?? null, source: 'name' }
+    }
   }
-  return null
+  return { workspace: null, source: 'none' }
+}
+
+/** `resolveFocus` sonucunun yalnız workspace kısmı; eski çağıranlar için. */
+export function pickFocused(
+  workspaces: readonly Workspace[],
+  focus: FocusSignal | null,
+  displayName: string | null = null,
+  terminals: readonly string[] = [],
+  maps: ReadonlyMap<string, TerminalEntry> = terminalWorkspaces,
+  agentTerminals: readonly string[] = []
+): Workspace | null {
+  return resolveFocus(
+    workspaces,
+    focus,
+    displayName,
+    terminals,
+    maps,
+    agentTerminals
+  ).workspace
 }
 
 interface ProjectRef {
@@ -330,15 +704,23 @@ export function matchWorkspacePath(
   )
 }
 
+interface ResolvedProjects {
+  refs: ProjectRef[]
+  focused: string | null
+  focusSource: FocusSource
+  workspaces: Workspace[]
+  contextTerminals: string[]
+  truncated: boolean
+}
+
 /**
  * Tüm workspace'ler; kit'i olanlar. Odaklı workspace, sonra ayarlardaki yol,
  * sonra kalanlar gelir. Aynı host + dizin bir kez sayılır.
  */
-async function resolveProjects(
-  orca: OrcaWorkerApi
-): Promise<{ refs: ProjectRef[]; focused: string | null }> {
+async function resolveProjects(orca: OrcaWorkerApi): Promise<ResolvedProjects> {
   const listed = (await call(orca)('workspace.list')) as {
     workspaces?: Workspace[]
+    truncated?: boolean
   } | null
   const workspaces = (listed?.workspaces ?? []).filter(
     (workspace): workspace is Workspace => typeof workspace.path === 'string'
@@ -353,7 +735,7 @@ async function resolveProjects(
     .map((terminal) => terminal?.id)
     .filter((id): id is string => typeof id === 'string' && id !== '')
   // Olay id/path taşımıyorsa terminal eşlemesi, o da yoksa benzersiz ad.
-  const focusedWorkspace = pickFocused(
+  const focus = resolveFocus(
     workspaces,
     focusSignal,
     focusedName,
@@ -370,7 +752,7 @@ async function resolveProjects(
     refs.push(ref)
   }
 
-  const focusedRef = focusedWorkspace ? refFor(focusedWorkspace) : null
+  const focusedRef = focus.workspace ? refFor(focus.workspace) : null
   push(focusedRef)
 
   const configured = await orca.settings.get('projectPath')
@@ -387,7 +769,14 @@ async function resolveProjects(
   }
 
   // Odak çözülemediyse ya da kit taşımıyorsa `focused` null kalır: tahmin yok.
-  return { refs, focused: focusedRef?.id ?? null }
+  return {
+    refs,
+    focused: focusedRef?.id ?? null,
+    focusSource: focusedRef === null ? 'none' : focus.source,
+    workspaces,
+    contextTerminals: focusedTerminals,
+    truncated: listed?.truncated === true
+  }
 }
 
 function runStatus(ref: ProjectRef): Promise<StatusJson> {
@@ -562,6 +951,7 @@ async function readAgents(orca: OrcaWorkerApi): Promise<AgentListing> {
         terminalId?: string | null
         title?: string | null
         state?: string
+        stateStartedAt?: number
       }>
     } | null
     const agents: StatusAgent[] = (listed?.agents ?? [])
@@ -573,7 +963,11 @@ async function readAgents(orca: OrcaWorkerApi): Promise<AgentListing> {
       .map((item) => ({
         terminalId: typeof item.terminalId === 'string' ? item.terminalId : null,
         title: typeof item.title === 'string' ? item.title : null,
-        state: item.state
+        state: item.state,
+        ...(typeof item.stateStartedAt === 'number' &&
+        Number.isFinite(item.stateStartedAt)
+          ? { stateStartedAt: item.stateStartedAt }
+          : {})
       }))
     return { agents, live: liveOf(agents), warning: null }
   } catch (error) {
@@ -695,20 +1089,67 @@ async function projectSnapshot(
   }
 }
 
-/** Durum çubuğu odaklı projeyi anlatır; yoksa sağlıklı proje sayısını. */
+/** `EP-N · CP d/t · gate g`; 64 karaktere kırpılır. */
+function epicLine(epic: StatusEpic): string {
+  // Eski `{done,total}` şekli dizi değildir: çökme yok, CP 0/0 görünür.
+  const checkpoints = Array.isArray(epic.checkpoints) ? epic.checkpoints : []
+  const done = checkpoints.filter((checkpoint) => checkpoint.done === true).length
+  const total = checkpoints.length
+  const gate = epic.gate ?? 'yok'
+  return `EP-${epic.number} · CP ${done}/${total} · gate ${gate}`.slice(0, 64)
+}
+
+/** Odak epic'i yoksa durum çubuğu için ilk yürüyen/epic satırı. */
+function firstActiveEpic(
+  projects: readonly StatusProject[]
+): StatusEpic | undefined {
+  const open = projects
+    .filter((project) => project.ok)
+    .flatMap((project) => project.epics ?? [])
+  const executing = open.find((epic) =>
+    (epic.leaves ?? []).some((leaf) => leaf.state === 'executing')
+  )
+  return executing ?? open[0]
+}
+
+/** Durum çubuğu odaklı projeyi anlatır; odak yoksa aktif/canlı özet verir. */
 export function statusText(snapshot: StatusSnapshot): string {
   const focused = snapshot.projects.find((item) => item.id === snapshot.focused)
   const epic = focused?.ok === true ? focused.epics?.[0] : undefined
   if (epic !== undefined && typeof epic.number === 'number') {
-    // Eski `{done,total}` şekli dizi değildir: çökme yok, CP 0/0 görünür.
-    const checkpoints = Array.isArray(epic.checkpoints) ? epic.checkpoints : []
-    const done = checkpoints.filter((checkpoint) => checkpoint.done === true).length
-    const total = checkpoints.length
-    const gate = epic.gate ?? 'yok'
-    return `EP-${epic.number} · CP ${done}/${total} · gate ${gate}`.slice(0, 64)
+    return epicLine(epic)
   }
+  const activeEpic = firstActiveEpic(snapshot.projects)
+  if (activeEpic !== undefined) return epicLine(activeEpic)
   const healthy = snapshot.projects.filter((item) => item.ok).length
+  const live = snapshot.live
+  if (live !== undefined && live.working > 0) {
+    return `${live.working} çalışıyor · ${healthy} proje`.slice(0, 64)
+  }
+  if (live !== undefined && live.blocked > 0) {
+    return `${live.blocked} engelli · ${healthy} proje`.slice(0, 64)
+  }
+  const active = snapshot.active
+  if (active !== undefined && active.epics > 0) {
+    return `${active.projects} aktif · ${healthy} proje`.slice(0, 64)
+  }
   return healthy > 0 ? `${healthy} proje` : NO_KIT
+}
+
+/** Açık epic/leaf sayısı; odaktan bağımsız, panelin aktif iş özeti. */
+export function activeOf(projects: readonly StatusProject[]): StatusActive {
+  let activeProjects = 0
+  let epics = 0
+  let leaves = 0
+  for (const project of projects) {
+    if (!Array.isArray(project.epics) || project.epics.length === 0) continue
+    activeProjects += 1
+    epics += project.epics.length
+    for (const epic of project.epics) {
+      leaves += Array.isArray(epic.leaves) ? epic.leaves.length : 0
+    }
+  }
+  return { projects: activeProjects, epics, leaves }
 }
 
 function failedSnapshot(message: string, warnings: string[]): StatusSnapshot {
@@ -717,6 +1158,22 @@ function failedSnapshot(message: string, warnings: string[]): StatusSnapshot {
     code: 'no-kit',
     generated_at: new Date().toISOString(),
     focused: null,
+    focusSource: 'none',
+    active: { projects: 0, epics: 0, leaves: 0 },
+    projects: [],
+    warnings: [...warnings, message],
+    error: message
+  }
+}
+
+/** Beklenmeyen okuma hatası: `no-kit` deme, panel "durum okunamadı" çizsin. */
+function errorSnapshot(message: string, warnings: string[]): StatusSnapshot {
+  return {
+    ok: false,
+    generated_at: new Date().toISOString(),
+    focused: null,
+    focusSource: 'none',
+    active: { projects: 0, epics: 0, leaves: 0 },
     projects: [],
     warnings: [...warnings, message],
     error: message
@@ -753,80 +1210,103 @@ async function refreshOnce(
   force: boolean
 ): Promise<StatusSnapshot> {
   const warnings: string[] = []
-  let refs: ProjectRef[] = []
-  let focused: string | null = null
   try {
     const resolved = await resolveProjects(orca)
-    refs = resolved.refs
-    focused = resolved.focused
-  } catch (error) {
-    const snapshot = failedSnapshot(messageOf(error), warnings)
-    lastSnapshot = snapshot
-    lastAgentWorkspace = null
-    await publish(orca, snapshot)
-    return snapshot
-  }
+    if (resolved.refs.length === 0) {
+      const snapshot = failedSnapshot(
+        'demir-kit bulunamadı: Ayarlar > demir-kit > Proje yolu',
+        warnings
+      )
+      lastSnapshot = snapshot
+      lastAgentWorkspace = null
+      await publish(orca, snapshot)
+      return snapshot
+    }
 
-  if (refs.length === 0) {
-    const snapshot = failedSnapshot(
-      'demir-kit bulunamadı: Ayarlar > demir-kit > Proje yolu',
-      warnings
+    // Promise.all: bir projenin hatası diğerlerini düşürmez, kendi alanında kalır.
+    const snapshots = await Promise.all(
+      resolved.refs.map((ref) => projectSnapshot(orca, ref, force))
     )
-    lastSnapshot = snapshot
-    lastAgentWorkspace = null
-    await publish(orca, snapshot)
-    return snapshot
-  }
 
-  // Promise.all: bir projenin hatası diğerlerini düşürmez, kendi alanında kalır.
-  const snapshots = await Promise.all(
-    refs.map((ref) => projectSnapshot(orca, ref, force))
-  )
-  // Aynı repo (ana checkout + epic worktree) tek kartta; odaklı önce gelir.
-  const deduped = dedupeProjects(snapshots, focused)
-  // Odak dedupe sonrası hangi karta düştüyse ajanlar oraya yazılır; kit değilse null.
-  let target = agentTarget(deduped, snapshots, focused)
-  // Canlı ajanlar yalnız odaklı workspace'ten gelir; diğer kartlar sıfır taşır.
-  let agentListing: AgentListing = {
-    agents: [],
-    live: zeroLive(),
-    warning: null
-  }
-  if (target !== null) {
-    agentListing = await readAgents(orca)
-    if (agentListing.warning !== null) warnings.push(agentListing.warning)
-  } else {
-    // Odak çözülemedi: ajanların terminalleri tek bir workspace'e işaret
-    // ediyorsa onu kullan; çelişirlerse hiçbir karta yazma.
+    // Ajanlar her zaman Orca'nın odaklı workspace'inden gelir. Odak adı
+    // çözülemediyse ajan terminalleri son bir odak sinyali olur.
     const listing = await readAgents(orca)
     if (listing.warning !== null) warnings.push(listing.warning)
-    const terminalIds = listing.agents
+    const agentTerminals = listing.agents
       .map((agent) => agent.terminalId)
       .filter((id): id is string => typeof id === 'string' && id !== '')
-    const mapped = terminalWorkspaceIds(terminalIds)
-    const fallback =
-      mapped.length === 1 ? agentTarget(deduped, snapshots, mapped[0] ?? null) : null
-    if (fallback !== null) {
-      target = fallback
-      agentListing = listing
+
+    let focused = resolved.focused
+    let focusSource = resolved.focusSource
+    if (focused === null && agentTerminals.length > 0) {
+      const byAgent = resolveFocus(
+        resolved.workspaces,
+        null,
+        null,
+        [],
+        terminalWorkspaces,
+        agentTerminals
+      )
+      if (byAgent.workspace !== null) {
+        focused = byAgent.workspace.id ?? byAgent.workspace.path ?? null
+        focusSource = 'agent'
+      }
     }
+    if (focused === null) {
+      // Terminal id'si gelmese de aktif ajanın worktree ipucu tek ise odak olur.
+      const byActive = activeAgentFocus(resolved.workspaces, listing.agents)
+      if (byActive !== null) {
+        focused = byActive.id ?? byActive.path ?? null
+        focusSource = 'agent'
+      }
+    }
+
+    // Aynı repo (ana checkout + epic worktree) tek kartta; odaklı önce gelir.
+    const deduped = dedupeProjects(snapshots, focused)
+    // Odak dedupe sonrası hangi karta düştüyse ajanlar oraya yazılır; kit değilse null.
+    const target = agentTarget(deduped, snapshots, focused)
+
+    // Görülen terminalleri tazele ve haritayı sınırda tut.
+    touchTerminals([...resolved.contextTerminals, ...agentTerminals])
+    pruneTerminalMap(resolved.workspaces, resolved.truncated)
+    if (terminalMapDirty) scheduleTerminalSave(orca)
+
+    // Canlı ajanlar yalnız odaklı karta yazılır; diğer kartlar sıfır taşır.
+    const projects = deduped.map((project) =>
+      project.id === target
+        ? { ...project, agents: listing.agents, live: listing.live }
+        : { ...project, agents: [], live: zeroLive() }
+    )
+    const active = activeOf(projects)
+    if (
+      target === null &&
+      resolved.focused === null &&
+      (listing.agents.length > 0 || active.epics > 0)
+    ) {
+      warnings.push('odak çözülemedi')
+    }
+    const snapshot: StatusSnapshot = {
+      ok: projects.some((project) => project.ok),
+      generated_at: new Date().toISOString(),
+      focused: target,
+      focusSource: target === null ? 'none' : focusSource,
+      live: listing.live,
+      active,
+      projects,
+      warnings
+    }
+    lastSnapshot = snapshot
+    lastAgentWorkspace = target
+    await publish(orca, snapshot)
+    return snapshot
+  } catch (error) {
+    // Beklenmeyen hata paneli düşürmez: son iyi görüntü ya da okunamadı kartı.
+    const snapshot = errorSnapshot(messageOf(error), warnings)
+    lastSnapshot = snapshot
+    lastAgentWorkspace = null
+    await publish(orca, snapshot)
+    return snapshot
   }
-  const projects = deduped.map((project) =>
-    project.id === target
-      ? { ...project, agents: agentListing.agents, live: agentListing.live }
-      : { ...project, agents: [], live: zeroLive() }
-  )
-  const snapshot: StatusSnapshot = {
-    ok: projects.some((project) => project.ok),
-    generated_at: new Date().toISOString(),
-    focused: target,
-    projects,
-    warnings
-  }
-  lastSnapshot = snapshot
-  lastAgentWorkspace = target
-  await publish(orca, snapshot)
-  return snapshot
 }
 
 /** Aynı anda tek tazeleme: paralel python ve sırasız yayın olmasın. */
@@ -869,11 +1349,20 @@ export function shouldRetryFocus(now: number, last: number): boolean {
   return now - last >= FOCUS_RETRY_MS
 }
 
-/** Olayın `workspaceId` alanı; yoksa null (olay workspace'e bağlanamadı). */
+/** Olayın workspace kimliği: `workspaceId`, `worktreeId` ya da bağlam id'si. */
 function workspaceIdOf(event: unknown): string | null {
   if (typeof event !== 'object' || event === null) return null
-  const id = (event as { workspaceId?: unknown }).workspaceId
-  return typeof id === 'string' && id !== '' ? id : null
+  const payload = event as {
+    workspaceId?: unknown
+    worktreeId?: unknown
+    context?: { workspaceId?: unknown; id?: unknown }
+  }
+  return (
+    textOf(payload.workspaceId) ??
+    textOf(payload.worktreeId) ??
+    textOf(payload.context?.workspaceId) ??
+    textOf(payload.context?.id)
+  )
 }
 
 /**
@@ -908,6 +1397,7 @@ async function refreshAgents(
   if (listing.warning !== null) orca.log(`demir-kit: ${listing.warning}`)
   const snapshot: StatusSnapshot = {
     ...current,
+    live: listing.live,
     projects: current.projects.map((project) =>
       project.id === target
         ? { ...project, agents: listing.agents, live: listing.live }
@@ -1144,7 +1634,18 @@ async function refreshAfterAction(orca: OrcaWorkerApi): Promise<void> {
 }
 
 export default async function activate(orca: OrcaWorkerApi): Promise<void> {
-  orca.panels.handle('status.snapshot', async () => refresh(orca, false))
+  // Kalıcı terminal haritası: worker yeniden başlasa da odak eşlemesi korunur.
+  await loadTerminalMap(orca)
+
+  orca.panels.handle('status.snapshot', async () => {
+    try {
+      return await refresh(orca, false)
+    } catch (error) {
+      // Beklenmeyen hata panele istisna olarak gitmez: son iyi görüntü döner.
+      orca.log(`demir-kit: snapshot okunamadı: ${messageOf(error)}`)
+      return lastSnapshot ?? errorSnapshot(messageOf(error), [])
+    }
+  })
 
   // Panel yalnız ister; `workspace.open` yetkisi manifestteki `workspace:write`.
   orca.panels.handle('workspace.open', async (input) => {
@@ -1346,32 +1847,79 @@ export default async function activate(orca: OrcaWorkerApi): Promise<void> {
   }
 
   orca.events.on('workspace.changed', (event) => {
-    // Olay odak için tek otorite: id/path varsa onlar, yoksa bağlamın adı.
-    focusSignal = focusSignalOf(event)
-    void refresh(orca, true)
+    try {
+      // Olay odak için tek otorite: id/path varsa onlar, yoksa bağlamın adı.
+      const context =
+        typeof event === 'object' && event !== null
+          ? (event as { context?: unknown }).context
+          : undefined
+      if (context === null) {
+        focusSignal = null
+        resetAgentHints()
+      } else {
+        const signal = focusSignalOf(event)
+        if (signal !== null) focusSignal = signal
+      }
+      // Bağlamdaki terminaller odaklı workspace'e aittir: sıcaklıklarını tazele.
+      const terminals =
+        typeof context === 'object' && context !== null
+          ? (context as { terminals?: Array<{ id?: unknown }> }).terminals ?? []
+          : []
+      const ids = terminals
+        .map((terminal) => terminal?.id)
+        .filter((id): id is string => typeof id === 'string' && id !== '')
+      if (touchTerminals(ids)) scheduleTerminalSave(orca)
+      void refresh(orca, true)
+    } catch (error) {
+      orca.log(`demir-kit: workspace olayı işlenemedi: ${messageOf(error)}`)
+    }
   })
 
-  // Ajan durumu değişince yalnız olayın workspace'inin kartı tazelenir.
+  // Ajan olayı: terminal haritasını öğren; odak çözümü için tam tazeleme.
   orca.events.on('agent.status.changed', (event) => {
-    // Terminal -> workspace eşlemesi odak çözümü için öğrenilir (CP-1).
-    learnAgentTerminal(event)
-    const target = agentEventTarget(workspaceIdOf(event), lastAgentWorkspace)
-    if (target === 'ignore') {
-      // Odak hiç yoksa kartı olmayan olay yine de odağı çözebilir: terminal
-      // eşlemesi az önce öğrenildi, tam tazeleme odağı yeniden hesaplar.
-      if (lastAgentWorkspace === null) retryFocus()
-      return
-    }
-    if (target === 'refresh') {
-      // Olay workspace taşımıyor: eski odak yeniden kullanılmaz, tam tazeleme.
+    try {
+      const hint = agentWorkspaceHint(event)
+      const state = agentStateOf(event)
+      const started =
+        typeof event === 'object' && event !== null
+          ? (event as { stateStartedAt?: unknown }).stateStartedAt
+          : undefined
+      if (hint !== null && state !== null) {
+        rememberAgentHint(
+          hint,
+          state,
+          Date.now(),
+          typeof started === 'number' && Number.isFinite(started)
+            ? started
+            : undefined
+        )
+      }
+      if (learnAgentTerminal(event)) scheduleTerminalSave(orca)
+      const target = agentEventTarget(workspaceIdOf(event), lastAgentWorkspace)
+      if (target === 'refresh' || target === 'ignore') {
+        // Yeni terminal eşlemesi odağı çözebilir; 1 sn taban aralıkla tazele.
+        retryFocus()
+        return
+      }
+      if (
+        lastSnapshot?.projects.some((project) => project.id === target) === true
+      ) {
+        void refreshAgents(orca, target)
+        return
+      }
+      // İç worktree id'si kart id'siyle eşleşmedi: tam tazeleme odağı çözer.
       retryFocus()
-      return
+    } catch (error) {
+      orca.log(`demir-kit: ajan olayı işlenemedi: ${messageOf(error)}`)
     }
-    void refreshAgents(orca, target)
   })
 
   orca.settings.onDidChange(() => {
-    void refresh(orca, true)
+    try {
+      void refresh(orca, true)
+    } catch (error) {
+      orca.log(`demir-kit: ayar tazelemesi başarısız: ${messageOf(error)}`)
+    }
   })
 
   await refresh(orca, true)

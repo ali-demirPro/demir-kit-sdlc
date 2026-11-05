@@ -3,22 +3,41 @@ import assert from 'node:assert/strict'
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from 'node:fs'
 import * as os from 'node:os'
 import { join } from 'node:path'
-import { test } from 'node:test'
-import type { StatusProject } from './protocol'
+import { beforeEach, test } from 'node:test'
+import type { StatusProject, StatusSnapshot } from './protocol'
 import {
+  activeAgentFocus,
+  activeOf,
   agentEventTarget,
+  agentStateOf,
   agentTarget,
+  agentWorkspaceHint,
   cacheMatches,
   dedupeProjects,
+  hintsFromWorkspaceId,
   learnAgentTerminal,
+  matchWorkspaceHint,
   matchWorkspacePath,
+  parseTerminalMap,
   pickFocused,
   projectKey,
+  pruneTerminalMap,
   refKey,
+  rememberAgentHint,
   rememberTerminal,
+  resetAgentHints,
+  resetTerminalMap,
+  serializeTerminalMap,
   shouldRetryFocus,
-  terminalWorkspaceIds
+  statusText,
+  terminalFocus,
+  terminalMapSize
 } from './worker'
+
+beforeEach(() => {
+  resetTerminalMap()
+  resetAgentHints()
+})
 
 const duplicateNames = [
   { id: 'ws-1', name: 'main', path: '/repo/one' },
@@ -51,6 +70,20 @@ function project(
 const checkout = project('ws-1', '/repo', '/repo')
 const worktree = project('ws-2', '/repo/epic-7', '/repo')
 
+function snapshot(overrides: Partial<StatusSnapshot> = {}): StatusSnapshot {
+  return {
+    ok: true,
+    generated_at: null,
+    focused: null,
+    focusSource: 'none',
+    live: { working: 0, blocked: 0, waiting: 0, idle: 0, done: 0 },
+    active: { projects: 0, epics: 0, leaves: 0 },
+    projects: [],
+    warnings: [],
+    ...overrides
+  }
+}
+
 test('focus: event id beats duplicate names', () => {
   const focused = pickFocused(duplicateNames, { id: 'ws-2' })
   assert.equal(focused?.id, 'ws-2')
@@ -62,7 +95,9 @@ test('focus: ambiguous name without event stays null', () => {
 })
 
 test('focus: terminal map resolves duplicate names', () => {
-  const terminalMap = new Map([['t1', 'ws-2']])
+  const terminalMap = new Map([
+    ['t1', { hint: { id: 'ws-2' }, lastSeenAt: 1 }]
+  ])
   const focused = pickFocused(duplicateNames, null, 'main', ['t1'], terminalMap)
   assert.equal(focused?.id, 'ws-2')
 })
@@ -107,14 +142,223 @@ test('map: learned terminal resolves focus', () => {
 })
 
 test('map: relearned terminal survives eviction', () => {
-  rememberTerminal('lru-t1', 'ws-1')
+  rememberTerminal('lru-t1', { id: 'ws-1' }, 1)
   for (let index = 0; index < 199; index += 1) {
-    rememberTerminal(`lru-fill-${index}`, 'ws-1')
+    rememberTerminal(`lru-fill-${index}`, { id: 'ws-1' }, 2 + index)
   }
   // Aynı terminal yeniden öğrenilince en yeni olmalı; dolgu ondan sonra düşer.
-  rememberTerminal('lru-t1', 'ws-2')
-  rememberTerminal('lru-last', 'ws-2')
-  assert.deepEqual(terminalWorkspaceIds(['lru-t1']), ['ws-2'])
+  rememberTerminal('lru-t1', { id: 'ws-2' }, 1000)
+  rememberTerminal('lru-last', { id: 'ws-2' }, 1001)
+  assert.equal(terminalMapSize(), 200)
+  assert.equal(terminalFocus(duplicateNames, ['lru-t1']).workspace?.id, 'ws-2')
+})
+
+test('hints: identity id stays an id', () => {
+  assert.deepEqual(hintsFromWorkspaceId('identity:wt2:local:abc'), {
+    id: 'identity:wt2:local:abc'
+  })
+})
+
+test('hints: internal id turns into a path', () => {
+  assert.deepEqual(hintsFromWorkspaceId('repo-uuid::/Users/me/nombo'), {
+    path: '/Users/me/nombo'
+  })
+})
+
+test('hints: bare path is a path, empty is null', () => {
+  assert.deepEqual(hintsFromWorkspaceId('/Users/me/nombo'), {
+    path: '/Users/me/nombo'
+  })
+  assert.equal(hintsFromWorkspaceId('   '), null)
+  assert.equal(hintsFromWorkspaceId(null), null)
+})
+
+test('hints: path resolves the duplicate main workspace', () => {
+  assert.equal(
+    matchWorkspaceHint(duplicateNames, { path: '/repo/two' })?.id,
+    'ws-2'
+  )
+  assert.equal(matchWorkspaceHint(duplicateNames, { id: 'ws-1' })?.id, 'ws-1')
+  assert.equal(matchWorkspaceHint(duplicateNames, { path: '/missing' }), null)
+})
+
+test('focus: agent terminal resolves duplicate names', () => {
+  const terminalMap = new Map([
+    ['agent-t1', { hint: { path: '/repo/two' }, lastSeenAt: 1 }]
+  ])
+  const focused = pickFocused(
+    duplicateNames,
+    null,
+    'main',
+    [],
+    terminalMap,
+    ['agent-t1']
+  )
+  assert.equal(focused?.id, 'ws-2')
+})
+
+test('agents: worktreeId is a workspace hint', () => {
+  assert.deepEqual(agentWorkspaceHint({ worktreeId: 'repo::/repo/two' }), {
+    path: '/repo/two'
+  })
+  assert.deepEqual(agentWorkspaceHint({ workspaceId: 'identity:wt2:local:abc' }), {
+    id: 'identity:wt2:local:abc'
+  })
+  assert.equal(agentWorkspaceHint({}), null)
+})
+
+test('agents: state is validated', () => {
+  assert.equal(agentStateOf({ state: 'working' }), 'working')
+  assert.equal(agentStateOf({ state: 'bogus' }), null)
+  assert.equal(agentStateOf(null), null)
+})
+
+test('focus: single active agent workspace is used', () => {
+  rememberAgentHint({ path: '/repo/two' }, 'working')
+  assert.equal(activeAgentFocus(duplicateNames)?.id, 'ws-2')
+})
+
+test('focus: stateStartedAt picks the matching workspace', () => {
+  const now = Date.now()
+  rememberAgentHint({ path: '/repo/one' }, 'working', now, 100)
+  rememberAgentHint({ path: '/repo/two' }, 'working', now, 200)
+  const focused = activeAgentFocus(
+    duplicateNames,
+    [{ state: 'working', stateStartedAt: 200 }],
+    now
+  )
+  assert.equal(focused?.id, 'ws-2')
+})
+
+test('focus: two active workspaces stay ambiguous', () => {
+  const now = Date.now()
+  rememberAgentHint({ path: '/repo/one' }, 'working', now, 100)
+  rememberAgentHint({ path: '/repo/two' }, 'working', now, 200)
+  assert.equal(activeAgentFocus(duplicateNames, [], now), null)
+  assert.equal(
+    activeAgentFocus(duplicateNames, [{ state: 'working', stateStartedAt: 999 }], now),
+    null
+  )
+})
+
+test('focus: two hints for one workspace resolve once', () => {
+  const now = Date.now()
+  rememberAgentHint({ path: '/repo/two' }, 'working', now)
+  rememberAgentHint({ id: 'ws-2' }, 'working', now)
+  assert.equal(activeAgentFocus(duplicateNames, [], now)?.id, 'ws-2')
+})
+
+test('focus: idle agent drops its hint', () => {
+  rememberAgentHint({ path: '/repo/two' }, 'working')
+  rememberAgentHint({ path: '/repo/two' }, 'idle')
+  assert.equal(activeAgentFocus(duplicateNames), null)
+})
+
+test('store: roundtrip keeps hint and timestamp', () => {
+  const source = new Map([
+    ['t1', { hint: { id: 'ws-1' }, lastSeenAt: 42 }],
+    ['t2', { hint: { path: '/repo/two' }, lastSeenAt: 43 }]
+  ])
+  const parsed = parseTerminalMap(serializeTerminalMap(source))
+  assert.equal(parsed.get('t1')?.hint.id, 'ws-1')
+  assert.equal(parsed.get('t1')?.lastSeenAt, 42)
+  assert.equal(parsed.get('t2')?.hint.path, '/repo/two')
+})
+
+test('store: malformed and old versions start empty', () => {
+  assert.equal(parseTerminalMap(null).size, 0)
+  assert.equal(parseTerminalMap({ version: 99, entries: [] }).size, 0)
+  assert.equal(
+    parseTerminalMap({ version: 1, entries: [['t1', {}]] }).size,
+    0
+  )
+  assert.equal(
+    parseTerminalMap({ version: 1, entries: [['', { hint: { id: 'x' } }]] })
+      .size,
+    0
+  )
+})
+
+test('prune: TTL and missing workspace are removed', () => {
+  const now = Date.now()
+  rememberTerminal('old', { id: 'ws-1' }, 1)
+  rememberTerminal('gone', { id: 'ws-9' }, now)
+  pruneTerminalMap(duplicateNames, false, now)
+  assert.equal(terminalMapSize(), 0)
+})
+
+test('prune: truncated list keeps unknown workspaces', () => {
+  const now = Date.now()
+  rememberTerminal('keep', { id: 'ws-9' }, now)
+  pruneTerminalMap(duplicateNames, true, now)
+  assert.equal(terminalMapSize(), 1)
+})
+
+test('prune: capacity stays at 200', () => {
+  const now = Date.now()
+  for (let index = 0; index < 205; index += 1) {
+    rememberTerminal(`cap-${index}`, { id: 'ws-1' }, now + index)
+  }
+  assert.equal(terminalMapSize(), 200)
+  assert.equal(terminalFocus(duplicateNames, ['cap-0']).workspace, null)
+  assert.equal(terminalFocus(duplicateNames, ['cap-204']).workspace?.id, 'ws-1')
+})
+
+test('active: counts open epics and leaves', () => {
+  const withEpic: StatusProject = {
+    ...checkout,
+    epics: [{ number: 4, state: 'executing', leaves: [{ number: 1, state: 'executing' }] }]
+  }
+  assert.deepEqual(activeOf([checkout, withEpic]), {
+    projects: 1,
+    epics: 1,
+    leaves: 1
+  })
+})
+
+test('status text: active epic beats live count', () => {
+  const withEpic: StatusProject = {
+    ...checkout,
+    epics: [
+      {
+        number: 4,
+        state: 'executing',
+        checkpoints: [{ id: 'CP-1', title: 'x', done: false, leaf: 1 }],
+        leaves: [{ number: 1, state: 'executing' }]
+      }
+    ]
+  }
+  assert.equal(
+    statusText(
+      snapshot({
+        projects: [checkout, withEpic],
+        live: { working: 1, blocked: 0, waiting: 0, idle: 0, done: 0 }
+      })
+    ),
+    'EP-4 · CP 0/1 · gate yok'
+  )
+})
+
+test('status text: live and active fallbacks', () => {
+  assert.equal(
+    statusText(
+      snapshot({
+        projects: [checkout],
+        live: { working: 2, blocked: 0, waiting: 0, idle: 0, done: 0 }
+      })
+    ),
+    '2 çalışıyor · 1 proje'
+  )
+  assert.equal(
+    statusText(
+      snapshot({
+        projects: [checkout],
+        active: { projects: 1, epics: 1, leaves: 1 }
+      })
+    ),
+    '1 aktif · 1 proje'
+  )
+  assert.equal(statusText(snapshot({ projects: [checkout] })), '1 proje')
 })
 
 test('refresh: focus retry waits a second', () => {

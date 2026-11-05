@@ -1,5 +1,20 @@
 # Changelog
 
+## 2.59.4 — 2026-11-05
+
+- **Kalıcı plugin odağı** — terminal → workspace eşlemesi artık
+  `agents.terminals.v1` anahtarında `orca.storage`'da tutulur: worker yeniden
+  başlasa da odak korunur. Eşleme `identity:` id, `<repo>::/yol` ve çıplak yol
+  biçimlerini çözer; odak sırasına odaklı ajanların `terminalId`'leri eklendi.
+- **Sınırlı ve temiz harita** — en fazla 200 kayıt, 30 gün TTL, silinmiş
+  workspace temizliği (`workspace.list.truncated` korumalı), bozuk/sürümü eski
+  kayıt atma ve yalnız değişiklikte 1 sn debounce'lu yazma. Harita boşsa
+  `storage.delete` ile anahtar silinir.
+- **Odak yoksa görünür özet** — snapshot üstüne `live` ve `active` alanları
+  eklendi. Odak çözülemezse hata yerine `odak çözülemedi` uyarısı, panelde nötr
+  bilgi satırı, durum çubuğunda `N aktif · M proje` / `N çalışıyor · M proje`
+  gösterilir. `status.snapshot` hiçbir koşulda istisna fırlatmaz.
+
 ## 2.59.3 — 2026-11-05
 
 - **Değişen dosyaya göre CP kapısı** — `delivery/scripts/gate.sh` (python

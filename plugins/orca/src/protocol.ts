@@ -28,6 +28,8 @@ export interface StatusAgent {
   terminalId?: string | null
   title?: string | null
   state: AgentState
+  /** Durumun başladığı an; olaydaki aynı değerle eşleşir. */
+  stateStartedAt?: number
 }
 
 /** Live agent counts: `status.py` never supplies them, `agents.list` does. */
@@ -38,6 +40,16 @@ export interface StatusLive {
   /** Boşta ajan; sessizce atılmaz, `boşta` diye sayılır. */
   idle: number
   done: number
+}
+
+/** Focus sinyalini çözen kaynak; yalnız teşhis için, davranışı değiştirmez. */
+export type FocusSource = 'event' | 'path' | 'terminal' | 'agent' | 'name' | 'none'
+
+/** Odaktan bağımsız açık iş özeti; odak çözülemezse panel bunu gösterir. */
+export interface StatusActive {
+  projects: number
+  epics: number
+  leaves: number
 }
 
 export interface StatusEpic {
@@ -100,6 +112,12 @@ export interface StatusSnapshot {
    * anahtarında ana checkout kartı kalır.
    */
   focused: string | null
+  /** `focused` alanını çözen sinyal; teşhis için. */
+  focusSource?: FocusSource
+  /** Odak çözülmese de odaklı workspace'in canlı ajan özeti. */
+  live?: StatusLive
+  /** Odaktan bağımsız açık iş özeti. */
+  active?: StatusActive
   projects: StatusProject[]
   warnings: string[]
   error?: string
