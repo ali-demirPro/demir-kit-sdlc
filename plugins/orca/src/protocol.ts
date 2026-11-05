@@ -69,6 +69,8 @@ export interface StatusCounts {
 export interface StatusProject {
   /** Orca workspace id, used by `workspace.open`. */
   id: string
+  /** `workspace.list.hostId`; host kaydetmeyen kurulumlarda null. */
+  host?: string | null
   path: string
   /** `project.name` from status.py, else the workspace name. */
   name: string
@@ -91,7 +93,12 @@ export interface StatusProject {
 export interface StatusSnapshot {
   ok: boolean
   generated_at: string | null
-  /** Workspace id of the focused project (listed first). */
+  /**
+   * Odaklı kartın workspace id'si (listenin başında). Çözülemezse null: tahmin
+   * yok. Dedupe birleştirdiyse odaklı kayıt korunur: odak bir epic worktree'sine
+   * düşerse `focused` o worktree kartının id'sidir; odak yoksa aynı repo
+   * anahtarında ana checkout kartı kalır.
+   */
   focused: string | null
   projects: StatusProject[]
   warnings: string[]

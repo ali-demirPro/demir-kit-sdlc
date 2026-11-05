@@ -11,7 +11,7 @@ yalnız `decision: rejected` yorumu yazar. Başarılı kabul geçişinden sonra 
 
 | Yüzey | Ne gösterir |
 |-------|-------------|
-| Panel `portfolio` | Liste: her repo için tek proje kartı, epic ve leaf satırları. Detay: seçilen epic tam panelde, düz özet ve aksiyonlar |
+| Panel `portfolio` | Liste: her host + repo için tek proje kartı, epic ve leaf satırları. Detay: seçilen epic tam panelde, düz özet ve aksiyonlar |
 | Durum çubuğu `epic` | Odaklı proje `ok` ve aktif epiği varsa `EP-N · CP d/t · gate g`; yoksa sağlıklı proje sayısı `N proje` |
 | Durum çubuğu `cost` | Maliyet; `status.py` henüz `null` döndüğü için `-` |
 
@@ -85,36 +85,76 @@ etiket ya da dosya düzeltmez; düzeltme de aynı kit scriptinden geçer.
 
 ## Canlı durum
 
-İşçi `agents.list` (yetenek `agent:read`) ile odaklı workspace'in ajanlarını
-okur ve `status.snapshot` içinde proje kartına `agents: [{terminalId,title,state}]`
-ve `live: {working,blocked,waiting,idle,done}` ekler. Ajanlar yalnız odaklı
-workspace'in kartına yazılır; odaklı workspace kit taşımıyorsa hiçbir karta ajan
-yazılmaz (`agents: []`, sıfır sayaçlar). Diğer kartlar da boş liste ve sıfır
-sayaç taşır; API yalnız odaklı workspace'i verir. `agent.status.changed` olayı
-`workspaceId` taşıyorsa yalnız o workspace'in kartı tazelenir; olay başka bir
-workspace'e aitse hiçbir kart değişmez. `idle` durumu da sayılır (`boşta`),
-sessizce atılmaz. Ajan okuması hata verirse proje düşmez: `agents: []`, sıfır
-sayaçlar ve kısa bir uyarı kalır. Panel kartta `● 2 çalışıyor · 1 boşta · 1
-engelli` satırını ve ilk üç ajanın başlığını gösterir.
+İşçi `agents.list` (yetenek `agent:read`) ile ajanları okur ve `status.snapshot`
+içinde proje kartına `agents: [{terminalId,title,state}]` ve
+`live: {working,blocked,waiting,idle,done}` ekler. Bu API yalnız **odaklı
+workspace'in** ajanlarını verir; ajanlar yalnız o workspace'in kartına yazılır.
+Odaklı workspace kit taşımıyorsa hiçbir karta ajan yazılmaz (`agents: []`, sıfır
+sayaçlar). Diğer kartlar da boş liste ve sıfır sayaç taşır.
+
+**Odak çözümleme sırası** (ilk tutan kazanır):
+
+1. `workspace.changed` gövdesinde `workspaceId`/`id` **varsa**,
+2. aynı olayda `path` **varsa** (normalize yol eşleşmesi),
+3. odaktaki terminallerin öğrendiği **tek** workspace (`agent.status.changed`
+   gövdesindeki `terminalId -> workspaceId` eşlemesi),
+4. olayın/bağlamın `displayName` adı — yalnız bu ad tek bir workspace'e aitse.
+
+Orca 1.4.248'in `workspace.changed` gövdesi yalnız `{ context }` taşır;
+`workspaceId`/`path` gelmez. Bu yüzden pratikte çalışan sinyal 3. adımdır
+(terminal eşlemesi), 4. adım ise `context.displayName` ile devreye girer.
+
+**Tahmin yok:** sinyaller çelişirse (birden çok terminal farklı workspace'i
+gösteriyorsa), ad birden çok workspace'e uyuyorsa ya da hiç sinyal yoksa odak
+`null` kalır; `focused` alanı `null` döner, hiçbir kart "odak" rozeti almaz ve
+hiçbir karta ajan yazılmaz. Odak bir epic worktree'sine düşerse dedupe odaklı
+kaydı korur: kart **odaklı workspace'in** id'sini ve yolunu taşır, `focused` o
+kartın id'sidir. Aynı repo anahtarında odak yoksa worktree olmayan yol kalır.
+
+`agent.status.changed` olayı `workspaceId` taşıyorsa ve bu odaklı workspace ise
+yalnız o kartın ajanları tazelenir; olay başka bir workspace'e aitse hiçbir kart
+değişmez. Olay `workspaceId` taşımıyorsa eski odak yeniden kullanılmaz: tam
+tazeleme yapılır (1 saniye taban aralıkla), odak yeniden çözülür. Odak hiç
+çözülememişse olayın workspace'i ne olursa olsun aynı taban aralıkla tam
+tazeleme denenir: öğrenilen terminal eşlemesi odağı çözebilir. Odak terminal
+yedeğiyle çözüldüğünde hedef, dedupe sonrası **repo kartı** olabilir. Aradaki
+boşlukları panelin 30 saniyelik yoklaması toparlar. `idle` durumu da sayılır
+(`boşta`), sessizce atılmaz. Ajan okuması hata verirse proje düşmez: `agents: []`,
+sıfır sayaçlar ve kısa bir uyarı kalır. Panel kartta
+`● 2 çalışıyor · 1 boşta · 1 engelli` satırını ve ilk üç ajanın başlığını
+gösterir.
 
 ## Çok proje
 
 İşçi `workspace.list` ile bütün workspace'leri gezer, her biri için `kit.config.yaml`
-üzerinden kit kökünü çözer ve `status.py --json` koşar. Aynı repo tek kartta
-toplanır: anahtar sırası `status.project.repo_root`, `project.tracker.repo`, son
-çare olarak epic worktree son eki (`/epic-<N>`) atılmış normalize yoldur.
-`repo_root` git ortak dizininin üst dizinidir; böylece ana checkout ile epic
-worktree'si iki ayrı proje gibi görünmez. Aynı anahtar için odaklı workspace,
-yoksa worktree olmayan yol (yolunda `/epic-` geçmeyen ana checkout) kalır.
-Kartlar odaklı proje önce, sonra ada göre sıralanır; ayarlardaki `projectPath`
-odaklıdan sonra gelir. Kit'i olmayan workspace grubu hiç görünmez.
+üzerinden kit kökünü çözer ve `status.py --json` koşar. Aynı host + dizin bir kez
+okunur (`hostId` + normalize yol); aynı repo tek kartta toplanır: anahtar sırası
+`status.project.repo_root`, `project.tracker.repo`, son çare olarak epic worktree
+son eki (`/epic-<N>`) atılmış normalize yoldur. Dedupe anahtarı host dilimiyle
+başlar (`host:<host>::…`): iki hosttaki aynı mutlak yol ve aynı `repo_root` **iki
+ayrı kart** kalır, birleşmez. `repo_root` git ortak dizininin üst dizinidir;
+böylece aynı hosttaki ana checkout ile epic worktree'si iki ayrı proje gibi
+görünmez. Aynı anahtar için odaklı workspace kaydı kalır: kart onun id'sini ve
+yolunu taşır. Odak o repo anahtarında değilse worktree olmayan yol (yolunda
+`/epic-` geçmeyen ana checkout) kalır. Kartlar odaklı proje önce, sonra ada göre
+sıralanır; ayarlardaki `projectPath` odaklıdan sonra gelir. Kit'i olmayan
+workspace grubu hiç görünmez. Kartın `host` alanı `workspace.list` çıktısındaki
+`hostId`'dir; host kaydetmeyen kurulumlarda `null` olur (bu makine `local`
+döndürür).
+
+**Bilinen sınır:** iki host da `hostId: null` döndürürse host dilimi workspace
+id'sinin `::` öncesinden türetilir (`identity:<host>`). Id'de bu ön ek yoksa aynı
+yoldaki iki kayıt hâlâ tek karta birleşebilir.
 
 Bir projede `gh`, python ya da `status.py` hatası olursa yalnız o proje `ok: false`
 ve `error` ile döner; diğer projeler `ok: true` kalır. Üst düzey `code: "no-kit"`
 yalnız hiçbir workspace'te kit yoksa gelir; panel o zaman boş durum çizer.
 
-Önbellek proje başına 30 saniyedir: `orca.storage` anahtarı `project:<yol>`, değeri
-`{saved_at, project}`. "Yenile" ve `workspace.changed` bu önbelleği atlar.
+Önbellek proje başına 30 saniyedir: `orca.storage` anahtarı
+`project:<host dilimi>::<yol>`, değeri `{saved_at, project}`. Aynı yol iki hostta
+olabildiği için okuma `cacheMatches` ile hem yolu hem host dilimini doğrular:
+başka hostun önbelleği bu karta servis edilmez. "Yenile" ve `workspace.changed`
+bu önbelleği atlar.
 
 Veri `python3 <proje>/delivery/scripts/status.py --json` çıktısıdır. Sözleşme
 alanları [status.md](status.md), panel-işçi tipleri

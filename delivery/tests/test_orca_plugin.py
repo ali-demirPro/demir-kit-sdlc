@@ -85,7 +85,9 @@ class WorkerBehaviorTests(unittest.TestCase):
     def test_cache_is_project_keyed(self) -> None:
         source = (PLUGIN / "src" / "worker.ts").read_text(encoding="utf-8")
         self.assertIn("CACHE_PREFIX = 'project:'", source)
-        self.assertIn("`${CACHE_PREFIX}${ref.path}`", source)
+        # Anahtar host dilimli ref: aynı yol iki hostta aynı girişe düşmez.
+        self.assertIn("`${CACHE_PREFIX}${refKey(ref)}`", source)
+        self.assertIn("cacheMatches(raw, ref)", source)
         self.assertIn("no-kit", source)
 
     def test_kit_root_is_confined(self) -> None:
@@ -376,9 +378,24 @@ class ReviewFixTests(unittest.TestCase):
         worker = WORKER.read_text(encoding="utf-8")
 
         # Odaklı workspace kit taşımıyorsa hiçbir karta ajan yazılmaz.
-        self.assertIn("const agentTarget =", worker)
-        self.assertIn("deduped.some((project) => project.id === focused)", worker)
-        self.assertIn("if (agentTarget !== null)", worker)
+        self.assertIn("export function agentTarget", worker)
+        self.assertIn("let target = agentTarget(deduped, snapshots, focused)", worker)
+        self.assertIn("if (target !== null)", worker)
+        # Yapısal değişmez: ajanlar yalnız hedef kartın dalında yazılır, kalan
+        # kartlar boş liste ve sıfır sayaçla döner.
+        self.assertIn("project.id === target", worker)
+        self.assertRegex(
+            worker,
+            r"\?\s*\{\s*\.\.\.project,\s*agents:\s*agentListing\.agents,"
+            r"\s*live:\s*agentListing\.live\s*\}",
+        )
+        self.assertIn(": { ...project, agents: [], live: zeroLive() }", worker)
+        self.assertIn("live[agent.state] += 1", worker)
+        # CP-2: olay hedefi saf yardımcıyla seçilir; workspace yoksa tam tazeleme.
+        self.assertIn("export function agentEventTarget", worker)
+        self.assertIn(
+            "agentEventTarget(workspaceIdOf(event), lastAgentWorkspace)", worker
+        )
         # Olayın workspaceId'si varsa yalnız o kart tazelenir.
         self.assertIn("function workspaceIdOf", worker)
         self.assertIn("function refreshAgents", worker)
