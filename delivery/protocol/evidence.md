@@ -14,7 +14,7 @@ issue: 12
 agent: developer
 commit: abc1234
 behavior:
-  command: ./delivery/scripts/doctor.sh --checkpoint CP-1
+  command: ./delivery/scripts/gate.sh --checkpoint CP-1
   exit_code: 0
   checkpoint: CP-1
 reviews:
@@ -138,7 +138,7 @@ CI zorunludur.
 ## Denetim
 
 ```bash
-./delivery/scripts/doctor.sh --issue <N> --checkpoint CP-1
+./delivery/scripts/gate.sh --issue <N> --checkpoint CP-1
 ```
 
 - `leaf-done` varsa her CP için `status: pass` evidence arar.

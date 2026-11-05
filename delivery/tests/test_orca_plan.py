@@ -54,7 +54,7 @@ class OrcaPlanTests(unittest.TestCase):
         self.assertIn("demir-kit #17 CP-1: Adapter", first["spec"])
         self.assertIn("Role: developer", first["spec"])
         self.assertIn(
-            "doctor.sh --issue 17 --checkpoint CP-1", first["spec"]
+            "gate.sh --issue 17 --checkpoint CP-1", first["spec"]
         )
         self.assertNotIn("--product", first["spec"])
         self.assertIn("delivery/agents/designer/SKILL.md", second["spec"])
@@ -325,7 +325,10 @@ checkpoints:
         spec = plan["tasks"][0]["spec"]
         self.assertIn("demir-kit/delivery/CONTRACT.md", spec)
         self.assertIn("demir-kit/delivery/agents/developer/SKILL.md", spec)
-        self.assertIn("--product --root .", spec)
+        self.assertIn(
+            "demir-kit/delivery/scripts/gate.sh --issue 35 --checkpoint CP-1",
+            spec,
+        )
 
     def test_write_plan(self) -> None:
         plan = orca_plan.build_plan(

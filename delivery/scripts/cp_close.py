@@ -95,6 +95,10 @@ def validate_record(
 
 def gate_command(issue: int, cp_id: str) -> str:
     prefix = routing.kit_prefix(ROOT)
+    project = routing.project_root(ROOT)
+    gate = project / prefix / "delivery" / "scripts" / "gate.sh"
+    if gate.is_file():
+        return f"./{prefix}delivery/scripts/gate.sh --issue {issue} --checkpoint {cp_id}"
     command = f"./{prefix}delivery/scripts/doctor.sh --issue {issue} --checkpoint {cp_id}"
     if prefix:
         command += " --product --root ."

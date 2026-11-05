@@ -13,7 +13,7 @@ Sözleşme: [CONTRACT.md](../CONTRACT.md) · Akış: [FLOW.md](../FLOW.md)
    → `next-leaf --claim` → `executing`.
 8. CP döngüsü: behavior → review → [evidence](../protocol/evidence.md)
    ([execution](../protocol/execution.md)).
-9. Leaf kapanışı: `doctor.sh --issue N --checkpoint CP-x`; risk `low`/`medium`
+9. Leaf kapanışı: `gate.sh --issue N --checkpoint CP-x`; risk `low`/`medium`
    otomatik `leaf-done`, `high`/`critical` insan QA.
 10. Tüm leaf'ler `leaf-done`/`deferred` → [epic-closure](epic-closure.md) →
     `pass` → epic insan kabulü → `epic-done`.

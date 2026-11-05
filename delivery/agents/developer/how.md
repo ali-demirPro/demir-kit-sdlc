@@ -5,7 +5,7 @@
    Ana checkout'tan kaynak commit'i yapılmaz; epic worktree'si `next-leaf --claim`
    tarafından bulunur/açılır.
 3. Her CP: testi önce yaz (red), sonra uygula (green).
-4. Gate: `doctor.sh --issue N --checkpoint CP-x` exit 0.
+4. Gate: `gate.sh --issue N --checkpoint CP-x` exit 0.
 5. Evidence yaz ([evidence](../../protocol/evidence.md)); tester'a bildir.
 
 ## Contract

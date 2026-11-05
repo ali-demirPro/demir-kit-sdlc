@@ -52,7 +52,7 @@ gates:
 
 ### behavior
 
-- `ecosystem.yaml` surface komutu, `{checkpoint}` yerine CP id.
+- `ecosystem.yaml` surface komutu (`gate.sh`), `{checkpoint}` yerine CP id.
 - `tests_plan` case'leri test edilir; exit `0` zorunlu.
 - Test önce yazılır (red), sonra uygulama (green).
 
@@ -136,7 +136,7 @@ capability `risk_floor` seal riskinin altına inemez (`doctor`).
 ## Komutlar
 
 ```bash
-./delivery/scripts/doctor.sh --issue 12 --checkpoint CP-1   # behavior + seal
+./delivery/scripts/gate.sh --issue 12 --checkpoint CP-1   # behavior + seal + suite
 ./delivery/scripts/doctor.sh --issue 12                     # seal + evidence
 ./delivery/scripts/guard.sh --issue 12                      # G1 + risk escalation
 ```

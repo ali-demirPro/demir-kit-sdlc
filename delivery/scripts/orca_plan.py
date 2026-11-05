@@ -209,8 +209,7 @@ def build_plan(
             f"the contract, CI or another agent's files. Surfaces: {surfaces}.\n"
             f"Constraints: no work outside issue #{issue}; do not self-approve; "
             f"do not touch other CPs; risk is {effective_risk} (seal {risk}).\n"
-            f"Acceptance: `./{prefix}delivery/scripts/doctor.sh"
-            + (" --product --root ." if prefix else "")
+            f"Acceptance: `./{prefix}delivery/scripts/gate.sh"
             + f" --issue {issue} --checkpoint {cp_id}` exit 0, then post evidence with agent: {role}.\n"
         )
         tasks.append(

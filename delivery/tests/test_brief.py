@@ -68,9 +68,18 @@ class CpBriefTests(unittest.TestCase):
         self.assertIn("T-1 (AC-1, doc)", text)
         self.assertNotIn("T-3", text)
         self.assertIn("delivery/scripts/brief.py", text)
-        self.assertIn("doctor.sh --issue 142 --checkpoint CP-1", text)
+        self.assertIn("gate.sh --issue 142 --checkpoint CP-1", text)
         self.assertIn("demir-kit-evidence", text)
         self.assertIn("tamamını okuma", text)
+
+    def test_prefix_uses_vendored_gate(self) -> None:
+        text = brief.render_cp_brief(
+            {"issue": 35, "risk": "medium"}, SEAL, "CP-1", "demir-kit/"
+        )
+        self.assertIn(
+            "./demir-kit/delivery/scripts/gate.sh --issue 35 --checkpoint CP-1",
+            text,
+        )
 
     def test_designer_role_for_ui_gate(self) -> None:
         text = brief.render_cp_brief(
