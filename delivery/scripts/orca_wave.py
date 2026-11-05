@@ -97,7 +97,8 @@ def ensure_run_id(plan: dict, args) -> tuple[str | None, dict]:
     epic = plan.get("epic") or getattr(args, "epic", None)
     if not epic:
         raw = orca(["orchestration", "run-create", "--objective", args.objective, "--json"])
-        return (json.loads(raw).get("result") or {}).get("run", {}).get("id"), {}
+        run = epic_worktree.normalize_run(json.loads(raw), args.objective)
+        return run.get("id"), {}
     project = PROJECT
     state = epic_worktree.load_state(project, int(epic))
     run_id = str(state.get("run_id") or "")
@@ -111,7 +112,7 @@ def ensure_run_id(plan: dict, args) -> tuple[str | None, dict]:
             # commands can still target it explicitly with --run.
             return run_id, state
     raw = orca(["orchestration", "run-create", "--objective", args.objective, "--json"])
-    run = (json.loads(raw).get("result") or {}).get("run") or {}
+    run = epic_worktree.normalize_run(json.loads(raw), args.objective)
     run_id = run.get("id")
     if run_id:
         state["run_id"] = run_id

@@ -21,6 +21,7 @@ import yaml
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import epic_worktree  # noqa: E402
 import routing  # noqa: E402
 import usage  # noqa: E402
 
@@ -194,11 +195,15 @@ def run_id_for(epic: int) -> str | None:
         if run_id:
             return run_id
     runs = usage.orca_result(["orchestration", "run-list", "--json"]).get("runs") or []
-    matches = [
-        item for item in runs if str(item.get("objective")) == f"epic #{epic}"
-    ]
-    matches.sort(key=lambda item: str(item.get("created_at") or ""), reverse=True)
-    return str(matches[0].get("id") or "") or None if matches else None
+    # Newest first keeps the previous "latest run wins" behaviour; the shape
+    # itself is resolved by the one shared normaliser.
+    ordered = sorted(
+        (item for item in runs if isinstance(item, dict)),
+        key=lambda item: str(item.get("created_at") or ""),
+        reverse=True,
+    )
+    run = epic_worktree.normalize_run({"result": {"runs": ordered}}, f"epic #{epic}")
+    return run.get("id") or None
 
 
 def worker_totals(run_id: str | None) -> dict:
