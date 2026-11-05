@@ -144,6 +144,18 @@ class ClosureTests(unittest.TestCase):
         ):
             self.assertEqual(closure.run_id_for(1), "new")
 
+    def test_run_id_ignores_other_objective(self) -> None:
+        runs = {
+            "runs": [
+                {"id": "other", "objective": "epic #2",
+                 "created_at": "2026-11-02T08:00:00Z"},
+            ]
+        }
+        with patch.object(closure, "state_roots", return_value=[]), patch.object(
+            closure.usage, "orca_result", return_value=runs
+        ):
+            self.assertIsNone(closure.run_id_for(1))
+
     def test_worker_totals_fail_closed(self) -> None:
         zero = {"totals": {"worker_count": 0, "measured": 0, "unavailable": 0}}
         partial = {"totals": {"worker_count": 3, "measured": 1, "unavailable": 2,

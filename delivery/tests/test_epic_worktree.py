@@ -245,3 +245,143 @@ class MainRootIntegrationTests(unittest.TestCase):
             ), patch.object(epic_worktree, "current_worktree", return_value=main_record):
                 with self.assertRaises(epic_worktree.WorktreeError):
                     epic_worktree.check(15, root)
+
+
+class RunShapeTests(unittest.TestCase):
+    """Orca run payload shapes (1.4 flat vs older nested) resolve to one run id."""
+
+    def ensure(self, responses: dict, record: dict | None = None) -> dict:
+        record = record or {"epic": 7, "mode": "orca", "run_id": None, "tasks": []}
+
+        def fake_orca_json(args, _project):
+            return responses.get(args[1])
+
+        with patch.object(epic_worktree, "orca_json", side_effect=fake_orca_json):
+            return epic_worktree.ensure_run(Path("/tmp/repo"), 7, record)
+
+    def test_flat_run_id(self) -> None:
+        record = self.ensure(
+            {
+                "run-current": {
+                    "ok": True,
+                    "result": {"runId": "run_flat", "objective": "epic #7"},
+                }
+            }
+        )
+        self.assertEqual(record["run_id"], "run_flat")
+        self.assertNotIn("run_error", record)
+
+    def test_nested_run_id(self) -> None:
+        record = self.ensure(
+            {
+                "run-current": {
+                    "ok": True,
+                    "result": {"run": {"id": "run_nested", "objective": "epic #7"}},
+                }
+            }
+        )
+        self.assertEqual(record["run_id"], "run_nested")
+        self.assertNotIn("run_error", record)
+
+    def test_runs_list_objective_match(self) -> None:
+        record = self.ensure(
+            {
+                "run-current": {
+                    "ok": True,
+                    "result": {
+                        "runs": [
+                            {"id": "run_other", "objective": "epic #6"},
+                            {"id": "run_right", "objective": "epic #7"},
+                        ]
+                    },
+                }
+            }
+        )
+        self.assertEqual(record["run_id"], "run_right")
+
+    def test_runs_list_other_objective_falls_through(self) -> None:
+        record = self.ensure(
+            {
+                "run-current": {
+                    "ok": True,
+                    "result": {"runs": [{"id": "run_other", "objective": "epic #6"}]},
+                },
+                "run-create": {
+                    "ok": True,
+                    "result": {"runId": "run_new", "objective": "epic #7"},
+                },
+            }
+        )
+        self.assertEqual(record["run_id"], "run_new")
+        self.assertNotIn("run_error", record)
+
+    def test_no_shape_sets_error(self) -> None:
+        record = self.ensure(
+            {"run-current": {"ok": True, "result": {}}, "run-create": {"ok": True, "result": {}}}
+        )
+        self.assertIn("run_error", record)
+        self.assertIsNone(record.get("run_id"))
+
+    def test_success_clears_stale_run_error(self) -> None:
+        stale = {
+            "epic": 7,
+            "mode": "orca",
+            "run_id": None,
+            "tasks": [],
+            "run_error": "run-create başarısız; eski hata",
+        }
+        record = self.ensure(
+            {
+                "run-current": {
+                    "ok": True,
+                    "result": {"runId": "run_flat", "objective": "epic #7"},
+                }
+            },
+            record=stale,
+        )
+        self.assertEqual(record["run_id"], "run_flat")
+        self.assertNotIn("run_error", record)
+
+    def test_flat_run_id_wrong_objective(self) -> None:
+        payload = {"ok": True, "result": {"runId": "run_6", "objective": "epic #6"}}
+        self.assertEqual(epic_worktree.normalize_run(payload, "epic #204"), {})
+        self.assertEqual(
+            epic_worktree.normalize_run(payload, "epic #6")["id"], "run_6"
+        )
+
+    def test_flat_run_id_missing_objective_is_not_a_match(self) -> None:
+        payload = {"ok": True, "result": {"runId": "run_x"}}
+        self.assertEqual(epic_worktree.normalize_run(payload, "epic #7"), {})
+        self.assertEqual(epic_worktree.normalize_run(payload)["id"], "run_x")
+
+    def test_non_string_run_id_rejected(self) -> None:
+        for run_id in (123, {"a": 1}, ["run_x"], "", None):
+            payload = {"ok": True, "result": {"runId": run_id, "objective": "epic #7"}}
+            self.assertEqual(epic_worktree.normalize_run(payload, "epic #7"), {})
+            nested = {
+                "ok": True,
+                "result": {"run": {"id": run_id, "objective": "epic #7"}},
+            }
+            self.assertEqual(epic_worktree.normalize_run(nested, "epic #7"), {})
+            listed = {
+                "ok": True,
+                "result": {"runs": [{"id": run_id, "objective": "epic #7"}]},
+            }
+            self.assertEqual(epic_worktree.normalize_run(listed, "epic #7"), {})
+
+    def test_run_list_payload_normalizes(self) -> None:
+        payload = {
+            "ok": True,
+            "result": {
+                "runs": [
+                    {"id": "run_other", "objective": "epic #6"},
+                    {"id": "run_right", "objective": "epic #204"},
+                ],
+                "nextCursor": None,
+            },
+        }
+        self.assertEqual(
+            epic_worktree.normalize_run(payload, "epic #204"),
+            {"id": "run_right", "objective": "epic #204"},
+        )
+        self.assertEqual(epic_worktree.normalize_run(payload, "epic #999"), {})

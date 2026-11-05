@@ -268,13 +268,71 @@ def _record_from(worktree: dict, epic: int, mode: str) -> dict:
     }
 
 
+def _objective_matches(run: dict, objective: str | None) -> bool:
+    """True only when the run states the requested objective.
+
+    Strict on purpose: the old ``run-current`` check required an exact match,
+    and a run that omits its objective cannot be proven to belong to the epic.
+    ``objective=None`` means "any run".
+    """
+    if not objective:
+        return True
+    return str(run.get("objective") or "") == objective
+
+
+def _valid_run_id(value: object) -> str:
+    """Accept only a non-empty string id; never coerce ints or dicts."""
+    return value if isinstance(value, str) and value else ""
+
+
+def normalize_run(payload: dict | None, objective: str | None = None) -> dict:
+    """Normalise the run shapes Orca returns for ``orchestration run-*``.
+
+    Orca 1.4 answers ``run-create``/``run-current``/``run-show`` with a flat
+    ``{"result": {"runId": ..., "objective": ...}}``; older builds nested the
+    run under ``result.run`` and ``run-list`` returns ``result.runs[]``.
+    Resolution order: nested run, flat ``runId``, ``runs[]``, then ``{}``.
+
+    The objective filter is the same for all three branches: when
+    ``objective`` is given the run must state exactly that objective (a
+    missing objective is not a match), so a run for another epic is never
+    returned. Ids are never invented and must be non-empty strings.
+    """
+    if not isinstance(payload, dict):
+        return {}
+    result = payload.get("result")
+    if not isinstance(result, dict):
+        return {}
+
+    run = result.get("run")
+    if isinstance(run, dict):
+        run_id = _valid_run_id(run.get("id"))
+        if run_id and _objective_matches(run, objective):
+            return {"id": run_id, "objective": run.get("objective")}
+
+    flat = {"id": result.get("runId"), "objective": result.get("objective")}
+    run_id = _valid_run_id(flat["id"])
+    if run_id and _objective_matches(flat, objective):
+        return {"id": run_id, "objective": flat["objective"]}
+
+    runs = result.get("runs")
+    if isinstance(runs, list):
+        for item in runs:
+            if not isinstance(item, dict):
+                continue
+            run_id = _valid_run_id(item.get("id"))
+            if run_id and _objective_matches(item, objective):
+                return {"id": run_id, "objective": item.get("objective")}
+    return {}
+
+
 def ensure_run(project: Path, epic: int, record: dict) -> dict:
     if record.get("mode") != "orca":
         return record
     objective = f"epic #{epic}"
     current = orca_json(["orchestration", "run-current", "--json"], project)
-    run = ((current or {}).get("result") or {}).get("run")
-    if not isinstance(run, dict) or str(run.get("objective") or "") != objective:
+    run = normalize_run(current, objective)
+    if not run.get("id"):
         created = orca_json(
             [
                 "orchestration",
@@ -285,14 +343,16 @@ def ensure_run(project: Path, epic: int, record: dict) -> dict:
             ],
             project,
         )
-        run = ((created or {}).get("result") or {}).get("run")
-        if not isinstance(run, dict):
+        run = normalize_run(created, objective)
+        if not run.get("id"):
             record["run_error"] = (
                 "run-create başarısız; epic worktree terminalinden "
                 f"`orca orchestration run-create --objective \"{objective}\"` çalıştır"
             )
             return record
     record["run_id"] = run.get("id")
+    # A stale error from an earlier failed ensure must not block the claim.
+    record.pop("run_error", None)
     return record
 
 
