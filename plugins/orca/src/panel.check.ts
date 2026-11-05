@@ -170,6 +170,47 @@ const sameNameSnapshot = {
   warnings: []
 }
 
+/** Odak çözülemezse yanlış karta rozet basılmaz; nötr bilgi satırı çizilir. */
+const focusMissingSnapshot = {
+  ok: true,
+  generated_at: '2026-11-05T10:00:00Z',
+  focused: null,
+  focusSource: 'none',
+  live: { working: 1, blocked: 0, waiting: 0, idle: 0, done: 0 },
+  active: { projects: 1, epics: 1, leaves: 1 },
+  projects: [
+    {
+      id: 'ws-nombo',
+      path: '/Users/ali/projeler/nombo',
+      name: 'main',
+      repo: 'ali-demirPro/nombo',
+      repo_root: '/Users/ali/projeler/nombo',
+      ok: true,
+      epics: [
+        {
+          number: 4,
+          title: 'Epic: UI gate',
+          state: 'executing',
+          risk: 'medium',
+          checkpoints: [],
+          updated_at: null,
+          url: null,
+          leaves: [{ number: 1, title: 'Leaf: harness', state: 'executing' }],
+          gate: null,
+          approvals: { agent_approved: false, human_qa: false },
+          next_action: null
+        }
+      ],
+      counts: { epics: 1, leaves: 1, blocked: 0 },
+      agents: [],
+      live: { working: 0, blocked: 0, waiting: 0, idle: 0, done: 0 },
+      warnings: [],
+      stale: false
+    }
+  ],
+  warnings: ['odak çözülemedi']
+}
+
 export default defineCheck({
   fresh: {
     ...quietWorker,
@@ -199,6 +240,11 @@ export default defineCheck({
     ...quietWorker,
     // Aynı `name`, farklı `id`: rozet yalnız odaklı ikinci kartta görünür.
     requests: { 'status.snapshot': sameNameSnapshot }
+  },
+  focusMissing: {
+    ...quietWorker,
+    // Odak yok: canlı/aktif özet nötr satırda, hiçbir kartta "odak" rozeti yok.
+    requests: { 'status.snapshot': focusMissingSnapshot }
   },
   empty: {
     ...quietWorker,

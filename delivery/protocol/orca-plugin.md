@@ -85,42 +85,60 @@ etiket ya da dosya düzeltmez; düzeltme de aynı kit scriptinden geçer.
 
 ## Canlı durum
 
-İşçi `agents.list` (yetenek `agent:read`) ile ajanları okur ve `status.snapshot`
-içinde proje kartına `agents: [{terminalId,title,state}]` ve
-`live: {working,blocked,waiting,idle,done}` ekler. Bu API yalnız **odaklı
-workspace'in** ajanlarını verir; ajanlar yalnız o workspace'in kartına yazılır.
+İşçi `agents.list` (yetenek `agent:read`) ile ajanları okur. Snapshot üstünde
+`live: {working,blocked,waiting,idle,done}` ve odaktan bağımsız
+`active: {projects,epics,leaves}` alanları durur; ajanlar ayrıca **yalnız odaklı
+workspace'in** kartına `agents: [{terminalId,title,state}]` olarak yazılır.
 Odaklı workspace kit taşımıyorsa hiçbir karta ajan yazılmaz (`agents: []`, sıfır
-sayaçlar). Diğer kartlar da boş liste ve sıfır sayaç taşır.
+sayaçlar); üst düzey `live` yine Orca'nın odaklı workspace'ini anlatır. Diğer
+kartlar boş liste ve sıfır sayaç taşır.
 
 **Odak çözümleme sırası** (ilk tutan kazanır):
 
-1. `workspace.changed` gövdesinde `workspaceId`/`id` **varsa**,
-2. aynı olayda `path` **varsa** (normalize yol eşleşmesi),
-3. odaktaki terminallerin öğrendiği **tek** workspace (`agent.status.changed`
-   gövdesindeki `terminalId -> workspaceId` eşlemesi),
-4. olayın/bağlamın `displayName` adı — yalnız bu ad tek bir workspace'e aitse.
+1. `workspace.changed` gövdesindeki `workspaceId`/`id` — `identity:<key>` ise
+   doğrudan, `<repo>::/yol` ise yol olarak,
+2. aynı olaydaki `path` (gerçek yol + normalize eşleşme),
+3. odaktaki terminallerin kalıcı haritadaki **tek** workspace'i,
+4. odaklı ajanların (`agents.list`) `terminalId`'lerinin haritadaki **tek**
+   workspace'i,
+5. olayın/bağlamın `displayName` adı — yalnız bu ad tek bir workspace'e aitse.
 
 Orca 1.4.248'in `workspace.changed` gövdesi yalnız `{ context }` taşır;
-`workspaceId`/`path` gelmez. Bu yüzden pratikte çalışan sinyal 3. adımdır
-(terminal eşlemesi), 4. adım ise `context.displayName` ile devreye girer.
+`workspaceId`/`path` gelmez. Ana checkout'ların `displayName` değeri çoğu zaman
+`"main"` olduğu için 5. adım tek başına yetmez; pratikte 3 ve 4. adımlar
+(terminal haritası) odağı çözer.
+
+**Kalıcı terminal haritası:** `agent.status.changed` gövdesindeki
+`terminalId -> workspaceId` eşlemesi `orca.storage` altında
+`agents.terminals.v1` anahtarında saklanır. Worker yeniden başlasa da odak
+eşlemesi korunur. Harita sınırsız büyümez:
+
+- en fazla **200** kayıt; sınır aşılırsa en eski `lastSeenAt` düşer,
+- **30 gün** TTL: görülmeyen terminal kaydı silinir,
+- `workspace.list`'te artık olmayan workspace kayıtları temizlenir; liste
+  `truncated` ise bu kontrol atlanır,
+- bozuk/sürümü eski kayıtlar yüklenirken atılır,
+- yalnız değişiklik varsa yazılır (1 sn debounce); harita boşsa anahtar
+  `storage.delete` ile silinir.
 
 **Tahmin yok:** sinyaller çelişirse (birden çok terminal farklı workspace'i
 gösteriyorsa), ad birden çok workspace'e uyuyorsa ya da hiç sinyal yoksa odak
 `null` kalır; `focused` alanı `null` döner, hiçbir kart "odak" rozeti almaz ve
-hiçbir karta ajan yazılmaz. Odak bir epic worktree'sine düşerse dedupe odaklı
-kaydı korur: kart **odaklı workspace'in** id'sini ve yolunu taşır, `focused` o
-kartın id'sidir. Aynı repo anahtarında odak yoksa worktree olmayan yol kalır.
+hiçbir karta ajan yazılmaz. Bu durum hata değildir: snapshot `warnings` içine
+`odak çözülemedi` eklenir, panel nötr bir bilgi satırı
+(`● 1 çalışıyor · odak çözülemedi` / `1 aktif iş · odak çözülemedi`) çizer,
+durum çubuğu `N aktif · M proje` ya da `N çalışıyor · M proje` gösterir. Odak
+bir epic worktree'sine düşerse dedupe odaklı kaydı korur: kart **odaklı
+workspace'in** id'sini ve yolunu taşır, `focused` o kartın id'sidir. Aynı repo
+anahtarında odak yoksa worktree olmayan yol kalır.
 
-`agent.status.changed` olayı `workspaceId` taşıyorsa ve bu odaklı workspace ise
-yalnız o kartın ajanları tazelenir; olay başka bir workspace'e aitse hiçbir kart
-değişmez. Olay `workspaceId` taşımıyorsa eski odak yeniden kullanılmaz: tam
-tazeleme yapılır (1 saniye taban aralıkla), odak yeniden çözülür. Odak hiç
-çözülememişse olayın workspace'i ne olursa olsun aynı taban aralıkla tam
-tazeleme denenir: öğrenilen terminal eşlemesi odağı çözebilir. Odak terminal
-yedeğiyle çözüldüğünde hedef, dedupe sonrası **repo kartı** olabilir. Aradaki
-boşlukları panelin 30 saniyelik yoklaması toparlar. `idle` durumu da sayılır
-(`boşta`), sessizce atılmaz. Ajan okuması hata verirse proje düşmez: `agents: []`,
-sıfır sayaçlar ve kısa bir uyarı kalır. Panel kartta
+`agent.status.changed` olayı geldiğinde terminal haritası öğrenilir. Olayın
+`workspaceId`'si bir kart id'siyle eşleşiyorsa yalnız o kartın ajanları
+tazelenir; eşleşmiyorsa (iç worktree id'si) 1 saniye taban aralıkla tam
+tazeleme yapılır ve odak yeniden çözülür. `idle` durumu da sayılır (`boşta`),
+sessizce atılmaz. Ajan okuması ya da storage hata verirse proje düşmez:
+`agents: []`, sıfır sayaçlar ve kısa bir uyarı kalır; `status.snapshot` hiçbir
+koşulda istisna fırlatmaz. Panel kartta
 `● 2 çalışıyor · 1 boşta · 1 engelli` satırını ve ilk üç ajanın başlığını
 gösterir.
 
@@ -241,6 +259,7 @@ Orca 1.4.247'de de panel ve durum çubuğu öğeleri görünür; eksik yüzey ha
 |---------|-------|
 | Panel boş / "demir-kit bulunamadı" | `orca plugin logs local.demir-kit`; `projectPath` ayarını kontrol et |
 | Durum eski görünüyor | `orca plugin restart local.demir-kit`, sonra "Yenile" |
+| "odak çözülemedi" / canlı ajan yok | `orca plugin restart local.demir-kit`; ajanı bir kez çalıştır (terminal eşlemesi öğrenilsin), sonra "Yenile" |
 | Paneli gözle kontrol | `orca plugin shot local.demir-kit --panel portfolio` |
 | İşçiyi panel gibi çağır | `orca plugin dev request plugins/orca status.snapshot` |
 

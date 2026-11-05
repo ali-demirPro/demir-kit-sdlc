@@ -192,7 +192,7 @@ class PanelTests(unittest.TestCase):
     def detail_source(self) -> str:
         source = PANEL.read_text(encoding="utf-8")
         self.assertIn("function EpicDetail", source)
-        return source.split("function EpicDetail", 1)[1].split("function ProjectGroup", 1)[0]
+        return source.split("function EpicDetail", 1)[1].split("function isActive", 1)[0]
 
     def test_detail_is_flat(self) -> None:
         source = PANEL.read_text(encoding="utf-8")
@@ -379,15 +379,12 @@ class ReviewFixTests(unittest.TestCase):
 
         # Odaklı workspace kit taşımıyorsa hiçbir karta ajan yazılmaz.
         self.assertIn("export function agentTarget", worker)
-        self.assertIn("let target = agentTarget(deduped, snapshots, focused)", worker)
-        self.assertIn("if (target !== null)", worker)
+        self.assertIn("const target = agentTarget(deduped, snapshots, focused)", worker)
         # Yapısal değişmez: ajanlar yalnız hedef kartın dalında yazılır, kalan
         # kartlar boş liste ve sıfır sayaçla döner.
         self.assertIn("project.id === target", worker)
-        self.assertRegex(
-            worker,
-            r"\?\s*\{\s*\.\.\.project,\s*agents:\s*agentListing\.agents,"
-            r"\s*live:\s*agentListing\.live\s*\}",
+        self.assertIn(
+            "{ ...project, agents: listing.agents, live: listing.live }", worker
         )
         self.assertIn(": { ...project, agents: [], live: zeroLive() }", worker)
         self.assertIn("live[agent.state] += 1", worker)
@@ -415,6 +412,70 @@ class ReviewFixTests(unittest.TestCase):
         self.assertIn("'idle'", worker)
         self.assertIn("idle: 0", worker)
         self.assertIn("boşta", panel)
+
+
+class FocusPersistenceTests(unittest.TestCase):
+    """Kalıcı odak: terminal eşlemesi, TTL/LRU temizliği ve hatasız snapshot."""
+
+    def test_focus_signals(self) -> None:
+        worker = WORKER.read_text(encoding="utf-8")
+
+        # Üç sinyal: olay/id-yol, kalıcı terminal haritası, odaklı ajan terminali.
+        self.assertIn("export function resolveFocus", worker)
+        self.assertIn("export function hintsFromWorkspaceId", worker)
+        self.assertIn("export function matchWorkspaceHint", worker)
+        self.assertIn("export function terminalFocus", worker)
+        self.assertIn("agentTerminals", worker)
+        # Orca 1.4.248 olayı `worktreeId` taşır; terminal id'si boş olabilir.
+        self.assertIn("export function agentWorkspaceHint", worker)
+        self.assertIn("payload.worktreeId", worker)
+        self.assertIn("export function activeAgentFocus", worker)
+        self.assertIn("stateStartedAt", worker)
+        # İç worktree id'si (`<repo>::/yol`) yol olarak çözülür.
+        self.assertIn("text.indexOf('::')", worker)
+        self.assertIn("text.startsWith('identity:')", worker)
+
+    def test_storage_is_bounded_and_pruned(self) -> None:
+        worker = WORKER.read_text(encoding="utf-8")
+
+        self.assertIn("TERMINAL_MAP_LIMIT = 200", worker)
+        self.assertIn("TERMINAL_TTL_MS = 30 * 24 * 60 * 60 * 1000", worker)
+        self.assertIn("TERMINAL_STORE_KEY = 'agents.terminals.v1'", worker)
+        self.assertIn("export function pruneTerminalMap", worker)
+        self.assertIn("!truncated && workspaces.length > 0", worker)
+        self.assertIn("orca.storage.delete(TERMINAL_STORE_KEY)", worker)
+        # Kayıt yalnız değiştiyse ve 1 sn debounce ile yazılır.
+        self.assertIn("TERMINAL_SAVE_MS = 1000", worker)
+        self.assertIn("scheduleTerminalSave", worker)
+
+    def test_snapshot_never_throws(self) -> None:
+        worker = WORKER.read_text(encoding="utf-8")
+        panel = PANEL.read_text(encoding="utf-8")
+
+        self.assertIn("function errorSnapshot", worker)
+        self.assertIn("orca.panels.handle('status.snapshot'", worker)
+        self.assertIn("return lastSnapshot ?? errorSnapshot", worker)
+        self.assertIn("function focusNotice", panel)
+        self.assertIn("odak çözülemedi", panel)
+        # Odak çözülmedi diye kırmızı hata kutusu çizilmez.
+        self.assertNotIn("Odak çözülemedi\" icon=\"error", panel)
+
+    def test_snapshot_carries_live_and_active(self) -> None:
+        protocol = (PLUGIN / "src" / "protocol.ts").read_text(encoding="utf-8")
+        worker = WORKER.read_text(encoding="utf-8")
+        panel = PANEL.read_text(encoding="utf-8")
+
+        for field in ("focusSource?:", "live?:", "active?:", "stateStartedAt?:"):
+            self.assertIn(field, protocol)
+        self.assertIn("export function activeOf", worker)
+        self.assertIn("live: listing.live", worker)
+        self.assertIn("active,", worker)
+        # Durum çubuğu odak epic'i yoksa ilk yürüyen epic'i gösterir.
+        self.assertIn("function firstActiveEpic", worker)
+        self.assertIn("function epicLine", worker)
+        # Odak olmayan yürüyen proje "aktif" rozeti alır.
+        self.assertIn("function isActive", panel)
+        self.assertIn('<Badge tone="accent">aktif</Badge>', panel)
 
 
 class ReadOnlyTests(unittest.TestCase):

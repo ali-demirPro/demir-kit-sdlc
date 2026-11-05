@@ -125,6 +125,24 @@ function liveText(project: StatusProject): string {
   return `● ${live?.working ?? 0} çalışıyor${idleText} · ${live?.blocked ?? 0} engelli`
 }
 
+/**
+ * Odak çözülemezse hiçbir karta "odak" basılmaz; bunun yerine kısa ve nötr
+ * bir satır gösterilir. Hata değildir: Orca 1.4.248 bağlamda id/yol taşımaz.
+ */
+function focusNotice(data: StatusSnapshot): string | null {
+  if (data.focused !== null) return null
+  const live = data.live
+  const working = live?.working ?? 0
+  const blocked = live?.blocked ?? 0
+  if (working > 0) return `● ${working} çalışıyor · odak çözülemedi`
+  if (blocked > 0) return `● ${blocked} engelli · odak çözülemedi`
+  const active = data.active
+  if ((active?.epics ?? 0) > 0) {
+    return `${active?.projects ?? 0} aktif iş · odak çözülemedi`
+  }
+  return null
+}
+
 /** İlk üç ajanın başlığı; terminal kimliği yoksa tire. */
 function agentTitles(project: StatusProject): string {
   return (project.agents ?? [])
@@ -383,6 +401,13 @@ function EpicDetail({
   )
 }
 
+/** Yürüyen leaf'i olan proje: odak olmasa da "aktif" rozeti alır. */
+function isActive(project: StatusProject): boolean {
+  return project.epics.some((epic) =>
+    (epic.leaves ?? []).some((leaf) => leaf.state === 'executing')
+  )
+}
+
 function ProjectGroup({
   project,
   focused
@@ -391,12 +416,14 @@ function ProjectGroup({
   focused: boolean
 }) {
   const claimable = claimableLeaf(project)
+  const active = isActive(project)
 
   return (
     <Card title={projectTitle(project)} description={shortPath(project.path)}>
       <Stack gap="sm">
         <Row gap="xs" wrap>
           {focused && <Badge tone="accent">odak</Badge>}
+          {!focused && active && <Badge tone="accent">aktif</Badge>}
           <Badge tone={project.ok ? 'neutral' : 'danger'}>
             {project.ok ? 'ok' : 'hata'}
           </Badge>
@@ -487,6 +514,7 @@ export default function Panel() {
   const note = read(actionNote)
   const current = read(view)
   const noteLine = <ActionNote note={note} />
+  const focusLine = data === null ? null : focusNotice(data)
 
   if (current.kind === 'detail') {
     const project = data?.projects.find((item) => item.id === current.projectId)
@@ -541,6 +569,9 @@ export default function Panel() {
                 {data.projects.length} proje
               </Badge>
             )}
+            {data !== null && (data.active?.epics ?? 0) > 0 && (
+              <Badge tone="accent">{`${data.active?.projects ?? 0} aktif`}</Badge>
+            )}
           </Row>
         </Stack>
         <Button
@@ -562,6 +593,12 @@ export default function Panel() {
       )}
 
       {noteLine}
+
+      {failure === null && focusLine !== null && (
+        <Text muted size="xs">
+          {focusLine}
+        </Text>
+      )}
 
       {failure === null && data === null && (
         <Stack gap="sm">
