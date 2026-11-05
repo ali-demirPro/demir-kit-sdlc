@@ -6,10 +6,16 @@ Run: python3 -m unittest discover -s delivery/tests -v
 from __future__ import annotations
 
 import importlib.util
+import inspect
+import io
 import json
 import os
+import re
+import subprocess
+import sys
 import tempfile
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
 
@@ -1529,6 +1535,119 @@ class WorktreeManagementTests(DoctorTestCase):
             root = Path(directory)
             self.run_check(root, ci=True)
             self.assertEqual(doctor.ERRORS, [])
+
+
+class ExplainTests(DoctorTestCase):
+    def run_cli(self, *args: str) -> subprocess.CompletedProcess:
+        return subprocess.run(
+            [sys.executable, str(DOCTOR_PATH), *args],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+
+    def test_known_and_unknown_check(self) -> None:
+        known = self.run_cli("--explain", "mcp")
+        self.assertEqual(known.returncode, 0, known.stderr)
+        self.assertIn("enabled: true", known.stdout)
+        self.assertIn("source: delivery/scripts/doctor.py:", known.stdout)
+        self.assertIn("summary:", known.stdout)
+        self.assertNotIn(str(ROOT), known.stdout)
+
+        unknown = self.run_cli("--explain", "yok-boyle-bir-sey")
+        self.assertEqual(unknown.returncode, 2)
+        self.assertIn("yok-boyle-bir-sey", unknown.stderr + unknown.stdout)
+
+    def test_gates_explain(self) -> None:
+        result = self.run_cli("--explain", "gates")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("profile: kit-internal", result.stdout)
+        self.assertIn("profile_source:", result.stdout)
+        self.assertIn("gates:", result.stdout)
+
+    def test_explain_does_not_run_checks(self) -> None:
+        buffer = io.StringIO()
+        with patch.object(sys, "argv", ["doctor.py", "--explain", "mcp"]), patch.object(
+            doctor.subprocess,
+            "run",
+            side_effect=AssertionError("explain kontrol/subprocess çalıştırmamalı"),
+        ), redirect_stdout(buffer):
+            code = doctor.main()
+        output = buffer.getvalue()
+        self.assertEqual(code, 0)
+        self.assertIn("explain: mcp", output)
+        self.assertNotIn("[fail]", output)
+        self.assertNotIn("[warn]", output)
+
+
+    def test_gates_matches_profiles_resolve(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            (project / "kit.config.yaml").write_text(
+                "factory:\n  default_profile: payments\n", encoding="utf-8"
+            )
+            explained = self.run_cli(
+                "--explain", "gates", "--product", "--root", str(project)
+            )
+            self.assertEqual(explained.returncode, 0, explained.stderr)
+            explained_gates = [
+                (match.group(1), match.group(2))
+                for match in re.finditer(
+                    r"^gate: (\S+) source=(\S+)$", explained.stdout, re.M
+                )
+            ]
+            resolved = subprocess.run(
+                [
+                    sys.executable,
+                    str(ROOT / "delivery" / "scripts" / "profiles.py"),
+                    "--resolve",
+                    "--json",
+                    "--project",
+                    str(project),
+                ],
+                capture_output=True,
+                text=True,
+                timeout=60,
+            )
+            self.assertEqual(resolved.returncode, 0, resolved.stderr)
+            data = json.loads(resolved.stdout)
+            expected = [(gate["value"], gate["source"]) for gate in data["gates"]]
+            self.assertEqual(explained_gates, expected)
+            self.assertTrue(explained_gates, "payments profili gate üretmeli")
+
+    def test_disabled_check_reports_reason(self) -> None:
+        result = self.run_cli("--explain", "product")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("enabled: false", result.stdout)
+        self.assertIn("reason: yalnız --product", result.stdout)
+
+        with tempfile.TemporaryDirectory() as directory:
+            product = self.run_cli(
+                "--explain", "files", "--product", "--root", directory
+            )
+        self.assertEqual(product.returncode, 0, product.stderr)
+        self.assertIn("enabled: false", product.stdout)
+        self.assertIn("reason: yalnız kit modu", product.stdout)
+
+    def test_registry_covers_main_checks(self) -> None:
+        source = inspect.getsource(doctor.main)
+        called = set(re.findall(r"^\s+check_([a-z_]+)\(", source, re.M))
+        called -= {"issue", "issue_body"}  # seal/evidence, explain kapsamı dışı
+        aliases = {"worktree_management": "worktree"}
+        expected = {aliases.get(raw, raw.replace("_", "-")) for raw in called}
+        self.assertTrue(expected)
+        self.assertEqual(set(doctor.EXPLAIN_CHECKS), expected)
+        for name, func in doctor.EXPLAIN_CHECKS.items():
+            self.assertEqual(func.__module__, "doctor", name)
+            self.assertIn(name, doctor.doctor_explain.SUMMARIES)
+
+    def test_empty_and_unknown_name_exit_2(self) -> None:
+        empty = self.run_cli("--explain", "")
+        self.assertEqual(empty.returncode, 2, empty.stdout)
+        unknown = self.run_cli("--explain", "nope")
+        self.assertEqual(unknown.returncode, 2, unknown.stdout)
+        self.assertIn("bilinmeyen kontrol: nope", unknown.stderr + unknown.stdout)
 
 
 if __name__ == "__main__":
