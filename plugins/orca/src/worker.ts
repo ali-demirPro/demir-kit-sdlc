@@ -6,6 +6,7 @@ import {
   existsSync,
   mkdtempSync,
   readFileSync,
+  realpathSync,
   rmSync,
   writeFileSync
 } from 'node:fs'
@@ -291,9 +292,24 @@ export function refKey(
 }
 
 /**
+ * Karşılaştırma anahtarı: yolun sembolik bağları ve `..` parçaları çözülmüş
+ * hâli. Yol diskte yoksa `realpathSync` hata verir; o zaman normalize yol
+ * kullanılır (davranış eskisiyle aynı).
+ */
+export function realPath(path: string): string {
+  try {
+    return normalizePath(realpathSync(path))
+  } catch {
+    return normalizePath(path)
+  }
+}
+
+/**
  * Ayar yolunu (`projectPath`) listedeki workspace'e bağlar: normalize eşleşme,
- * yani sonda `/` ya da farklı büyük/küçük harf aynı workspace'tir. Eşleşme
- * yoksa null: sentetik ref'e düşmek çağıranın kararı.
+ * yani sonda `/` ya da farklı büyük/küçük harf aynı workspace'tir. Önce gerçek
+ * yollar (`realpathSync`) karşılaştırılır: sembolik bağ ya da `..` üzerinden
+ * verilen yol da aynı workspace'i bulur. Eşleşme yoksa null: sentetik ref'e
+ * düşmek çağıranın kararı.
  */
 export function matchWorkspacePath(
   workspaces: readonly Workspace[],
@@ -302,12 +318,15 @@ export function matchWorkspacePath(
   const path = textOf(configured)
   if (path === null) return null
   const wanted = normalizePath(path)
+  const resolved = realPath(path)
   return (
-    workspaces.find(
-      (workspace) =>
-        typeof workspace.path === 'string' &&
+    workspaces.find((workspace) => {
+      if (typeof workspace.path !== 'string') return false
+      return (
+        realPath(workspace.path) === resolved ||
         normalizePath(workspace.path) === wanted
-    ) ?? null
+      )
+    }) ?? null
   )
 }
 

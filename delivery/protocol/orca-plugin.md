@@ -144,7 +144,9 @@ döndürür).
 
 **Bilinen sınır:** iki host da `hostId: null` döndürürse host dilimi workspace
 id'sinin `::` öncesinden türetilir (`identity:<host>`). Id'de bu ön ek yoksa aynı
-yoldaki iki kayıt hâlâ tek karta birleşebilir.
+yoldaki iki kayıt hâlâ tek karta birleşebilir. `realpathSync` yalnız yerel
+sembolik bağları çözer: çok hostlu listede yerel bir bağın hedefi, başka hostun
+aynı yol metnini taşıyan kaydıyla eşleşebilir.
 
 Bir projede `gh`, python ya da `status.py` hatası olursa yalnız o proje `ok: false`
 ve `error` ile döner; diğer projeler `ok: true` kalır. Üst düzey `code: "no-kit"`
@@ -174,7 +176,10 @@ Komut parmak izini kendisi yazar; onaysız çalıştırıldığında
 **Settings → Plugins → Development folders**. Klasör epic worktree'sinde de
 olabilir; yol mutlak verilmelidir. Proje yolu **Ayarlar → demir-kit → Proje
 yolu** (`settings.projectPath`) ile verilir; boşsa `kit.config.yaml` içeren ilk
-workspace kullanılır ve yol değişince durum anında yenilenir.
+workspace kullanılır ve yol değişince durum anında yenilenir. Ayar yolu
+`matchWorkspacePath` ile eşleşir: önce `realpathSync` ile gerçek yol alınır, yani
+sembolik bağ ya da `..` içeren yol da doğru workspace kartını bulur; yol diskte
+yoksa normalize karşılaştırmaya (sondaki `/`, büyük/küçük harf) düşülür.
 
 Doğrula:
 

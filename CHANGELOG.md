@@ -1,5 +1,16 @@
 # Changelog
 
+## 2.59.3 — 2026-11-05
+
+- **Değişen dosyaya göre CP kapısı** — `delivery/scripts/gate.sh` (python
+  `gate.py`) sürümü yalnız gerekli suite'i koşar: `delivery/tests/` altındaki
+  değişiklik unittest'i, `plugins/` altındaki değişiklik Orca eklenti suite'ini
+  tetikler; doctor her zaman ve kapı olarak çalışır.
+- **Sembolik bağ eşleşmesi** — `projectPath` karşılaştırması artık önce
+  `realpathSync` ile gerçek yolu alır: sembolik bağ ya da `..` üzerinden verilen
+  ayar yolu da aynı workspace kartını bulur. Yol diskte yoksa normalize
+  karşılaştırma korunur; önbellek anahtarı ve `agentEventTarget` değişmedi.
+
 ## 2.59.2 — 2026-11-05
 
 - **Panel odağı ve ajan eşlemesi** — `workspace.changed` ve

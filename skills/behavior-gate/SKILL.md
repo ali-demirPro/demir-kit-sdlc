@@ -23,11 +23,12 @@ Communication: `delivery/policies/human-communication.md`.
 ## Gate command
 
 ```bash
-./delivery/scripts/doctor.sh --issue <N> --checkpoint CP-1
+./delivery/scripts/gate.sh --issue <N> --checkpoint CP-1
 ```
 
-Without `--issue` the command only validates the checkpoint id format (doc-only
-leaves); runtime CP membership needs the issue.
+With `--issue` the gate checks seal/evidence plus the suites the changes
+require; without it (`ecosystem.yaml` form, `{checkpoint}` replaced) only the
+checkpoint id format and those suites are checked.
 
 ## Orca
 

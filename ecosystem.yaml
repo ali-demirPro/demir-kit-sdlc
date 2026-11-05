@@ -11,7 +11,7 @@ products:
         stacks: [markdown]
         platforms: [any]
         gates:
-          behavior: ./delivery/scripts/doctor.sh --checkpoint {checkpoint}
+          behavior: ./delivery/scripts/gate.sh --checkpoint {checkpoint}
           behavior_mode: unit-only
           ui: false
           ui_compare: none

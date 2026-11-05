@@ -47,7 +47,7 @@ python3 delivery/scripts/orca_plan.py <issue> --write /tmp/orca-plan
 
 One sealed leaf → one task per checkpoint. Role mapping: `gates.ui` → designer,
 otherwise developer. Every spec names target, change, constraints, ownership and
-observable acceptance (`doctor.sh --issue N --checkpoint CP-x`).
+observable acceptance (`gate.sh --issue N --checkpoint CP-x`).
 
 ## Epic worktree
 

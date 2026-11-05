@@ -202,8 +202,7 @@ def render_cp_brief(
     reference = (seal.get("reference") or {}).get("paths") or []
     surfaces = ", ".join(str(item) for item in seal.get("surfaces") or []) or "n/a"
     gate_command = (
-        f"./{prefix}delivery/scripts/doctor.sh --issue {data['issue']}"
-        + (" --product --root ." if prefix else "")
+        f"./{prefix}delivery/scripts/gate.sh --issue {data['issue']}"
         + f" --checkpoint {cp_id}"
     )
     gate_source = {**effective_gates, **(profile_gates or {})}

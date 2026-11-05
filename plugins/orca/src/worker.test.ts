@@ -1,5 +1,8 @@
 // Odak çözümü ve ajan kartı saf yardımcılarla sınanır: python ya da gerçek kit yok.
 import assert from 'node:assert/strict'
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from 'node:fs'
+import * as os from 'node:os'
+import { join } from 'node:path'
 import { test } from 'node:test'
 import type { StatusProject } from './protocol'
 import {
@@ -185,4 +188,27 @@ test('config: normalized project path reuses the workspace', () => {
   )
   // Liste dışı bir yol sentetik ref'e düşer: tahmin yok.
   assert.equal(matchWorkspacePath(listed, '/other'), null)
+})
+
+test('config: symlinked project path reuses the workspace', () => {
+  const root = mkdtempSync(join(os.tmpdir(), 'demir-kit-path-'))
+  try {
+    const real = join(root, 'real')
+    const link = join(root, 'link')
+    const otherReal = join(root, 'other')
+    mkdirSync(real)
+    mkdirSync(otherReal)
+    symlinkSync(real, link, 'dir')
+    const listed = [{ id: 'ws-1', name: 'main', path: real }]
+    // Bağ üzerinden verilen ayar yolu da aynı workspace'i bulur.
+    assert.equal(matchWorkspacePath(listed, link)?.id, 'ws-1')
+    // `..` parçası da çözülür: bağ + `..` gerçek dizine döner.
+    assert.equal(matchWorkspacePath(listed, join(link, '..', 'real'))?.id, 'ws-1')
+    // Gerçekten var olan başka bir dizin eşleşmez (gerçek yollar farklı).
+    assert.equal(matchWorkspacePath(listed, otherReal), null)
+    // Diskte olmayan dizin de eşleşmez.
+    assert.equal(matchWorkspacePath(listed, join(root, 'missing')), null)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
 })
