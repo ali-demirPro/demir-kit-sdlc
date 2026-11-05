@@ -132,6 +132,44 @@ const legacySnapshot = {
   warnings: []
 }
 
+/** Aynı adlı iki kit workspace: odak ikincisi; "odak" rozeti ikinci kartta kalmalı. */
+const sameNameSnapshot = {
+  ok: true,
+  generated_at: '2026-11-04T10:00:00Z',
+  focused: 'ws-ikinci',
+  projects: [
+    {
+      id: 'ws-birinci',
+      path: '/Users/ali/projeler/birinci',
+      name: 'main',
+      repo: 'ali-demirPro/birinci',
+      repo_root: '/Users/ali/projeler/birinci',
+      ok: true,
+      epics: [],
+      counts: { epics: 0, leaves: 0, blocked: 0 },
+      agents: [],
+      live: { working: 0, blocked: 0, waiting: 0, idle: 0, done: 0 },
+      warnings: [],
+      stale: false
+    },
+    {
+      id: 'ws-ikinci',
+      path: '/Users/ali/projeler/ikinci',
+      name: 'main',
+      repo: 'ali-demirPro/ikinci',
+      repo_root: '/Users/ali/projeler/ikinci',
+      ok: true,
+      epics: [],
+      counts: { epics: 0, leaves: 0, blocked: 0 },
+      agents: [],
+      live: { working: 0, blocked: 0, waiting: 0, idle: 0, done: 0 },
+      warnings: [],
+      stale: false
+    }
+  ],
+  warnings: []
+}
+
 export default defineCheck({
   fresh: {
     ...quietWorker,
@@ -156,6 +194,11 @@ export default defineCheck({
       }
     },
     requests: { 'status.snapshot': legacySnapshot }
+  },
+  sameName: {
+    ...quietWorker,
+    // Aynı `name`, farklı `id`: rozet yalnız odaklı ikinci kartta görünür.
+    requests: { 'status.snapshot': sameNameSnapshot }
   },
   empty: {
     ...quietWorker,
