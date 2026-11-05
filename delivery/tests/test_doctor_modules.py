@@ -20,7 +20,7 @@ spec.loader.exec_module(doctor)
 
 class ModuleSplitTest(unittest.TestCase):
     def test_modules_exist(self) -> None:
-        for name in ("doctor_skills.py", "doctor_surfaces.py"):
+        for name in ("doctor_skills.py", "doctor_surfaces.py", "doctor_explain.py"):
             self.assertTrue((SCRIPTS / name).is_file(), name)
 
     def test_doctor_uses_the_modules(self) -> None:

@@ -1,17 +1,7 @@
 #!/usr/bin/env python3
 """demir-kit doctor — delivery contract enforcement.
 
-Checks:
-  1. required files and schemas
-  2. registry <-> agent directories <-> path policy
-  3. canonical labels
-  4. broken markdown links / backticked paths
-  5. legacy archive references (warn by default, fail with --strict)
-  6. VERSION / CHANGELOG / README consistency
-  7. ecosystem.yaml and kit.config.yaml (self-host wiring)
-  8. SKILL.md name uniqueness
-  9. seed issue validation (--issue N or --body FILE)
- 10. MCP self-check (tools/list salt-okunur araçlar)
+Kontroller: `--explain <ad>` · etkin gate'ler: `--explain gates`.
 """
 
 from __future__ import annotations
@@ -31,6 +21,7 @@ import approvals as approvals_lib  # noqa: E402
 import capabilities as capabilities_lib  # noqa: E402
 import delivery_block  # noqa: E402
 import doctor_mcp  # noqa: E402
+import doctor_explain  # noqa: E402
 import doctor_skills  # noqa: E402
 import epic_worktree  # noqa: E402
 import evidence as evidence_lib  # noqa: E402
@@ -1713,6 +1704,9 @@ def check_product(root: Path) -> None:
                 error(f".kit/capabilities.yaml: bilinmeyen capability — {cap_id}")
 
 
+EXPLAIN_CHECKS = doctor_explain.checks(globals())
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="demir-kit delivery doctor")
     parser.add_argument("--strict", action="store_true", help="uyarıları da hata say")
@@ -1735,9 +1729,15 @@ def main() -> int:
         help="geçiş öncesi kaldırılacak etiketi yok say",
     )
     parser.add_argument("--verbose", action="store_true", help="tüm uyarıları göster")
+    parser.add_argument("--explain", metavar="NAME", help="tek kontrolü ve kaynağını açıkla")
     parser.add_argument("--product", action="store_true", help="ürün reposu kontrolleri")
     parser.add_argument("--root", type=Path, help="ürün kökü (--product)")
     args = parser.parse_args()
+    if args.explain is not None:
+        if args.issue or args.body or args.checkpoint:
+            parser.error("--explain --issue/--body/--checkpoint ile kullanılamaz")
+        root = (args.root or Path.cwd()).resolve() if args.product else ROOT
+        return doctor_explain.explain(args.explain, EXPLAIN_CHECKS, root, args.product)
 
     product_root = (args.root or Path.cwd()).resolve()
     check_worktree_management(product_root if args.product else ROOT)

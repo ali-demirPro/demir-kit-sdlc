@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import importlib.util
+import json
+import os
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -178,6 +181,139 @@ class ValidateTests(unittest.TestCase):
             "platform.api",
         ):
             self.assertIn(expected, caps)
+
+
+class ResolveTests(unittest.TestCase):
+    def entries(self, data: dict) -> list[tuple[dict, str]]:
+        found = [(data["profile"], str(data["profile"]["value"]))]
+        found.extend((item, str(item["value"])) for item in data["profiles"])
+        for key in ("overlays", "packs", "gates", "capabilities", "required_skills"):
+            found.extend((item, str(item["value"])) for item in data[key])
+        found.append(
+            (
+                data["architecture_baseline_required"],
+                str(data["architecture_baseline_required"]["value"]),
+            )
+        )
+        found.append(
+            (
+                data["commercial_baseline_required"],
+                str(data["commercial_baseline_required"]["value"]),
+            )
+        )
+        found.append((data["risk"]["human_gate"], str(data["risk"]["human_gate"]["value"])))
+        found.extend(
+            (item, item["value"].split(":", 1)[1]) for item in data["risk"]["matches"]
+        )
+        return found
+
+    def assert_line_content(self, root: Path, source: str, value: str) -> None:
+        path, _, number = source.rpartition(":")
+        self.assertFalse(Path(path).is_absolute(), source)
+        line = (root / path).read_text(encoding="utf-8").splitlines()[
+            int(number) - 1
+        ]
+        self.assertIn(value.lower(), line.lower(), source)
+
+    def test_json_provenance(self) -> None:
+        data = profiles.resolve(ROOT)
+        self.assertEqual(data["profile"]["value"], "kit-internal")
+        for key in ("profile", "overlays", "packs", "gates", "risk"):
+            self.assertIn(key, data)
+        for entry, value in self.entries(data):
+            source = entry["source"]
+            if source is None:
+                continue
+            self.assertRegex(source, r"^[^:]+:\d+$")
+            self.assert_line_content(ROOT, source, value)
+
+        # Overlay gate kaynağı gerçek satır olmalı (architect, auth.yaml).
+        with tempfile.TemporaryDirectory() as directory:
+            root = project(Path(directory), config(["web-app", "auth"], "web-app"))
+            gates = {
+                item["value"]: item["source"]
+                for item in profiles.resolve(root)["gates"]
+            }
+        self.assertIn("architect", gates)
+        self.assertEqual(
+            profiles.item_source(PROFILES / "auth.yaml", "extra_gates", "architect"),
+            gates["architect"],
+        )
+        self.assert_line_content(ROOT, gates["architect"], "architect")
+
+    def test_project_config_source_is_relative(self) -> None:
+        """Proje kökü kit dışında olsa da kaynak `kit.config.yaml:<satır>` olur."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = project(Path(directory), config(["web-app"], "web-app"))
+            data = profiles.resolve(root)
+        source = data["profile"]["source"]
+        self.assertEqual(source, "kit.config.yaml:6")
+        self.assertFalse(Path(source.rpartition(":")[0]).is_absolute(), source)
+        self.assertNotIn(str(root), json.dumps(data, ensure_ascii=False))
+
+    def test_in_repo_config_source_is_relative(self) -> None:
+        data = profiles.resolve(ROOT)
+        source = data["profile"]["source"]
+        self.assertRegex(str(source), r"^kit\.config\.yaml:\d+$")
+        self.assertFalse(Path(str(source).rpartition(":")[0]).is_absolute(), source)
+
+    def test_risk_excluded_paths(self) -> None:
+        data = profiles.resolve(ROOT, ["delivery/tests/auth_test.py"])
+        self.assertEqual(data["risk"]["level"], "none")
+        self.assertEqual(data["risk"]["matches"], [])
+        self.assertEqual(data["risk"]["origin"], "derived")
+        self.assertIsNone(data["risk"]["level_source"])
+
+    def test_risk_project_overlay(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = project(Path(directory), config(["web-app"], "web-app"))
+            (root / ".kit").mkdir()
+            (root / ".kit" / "risk.yaml").write_text(
+                'auto_escalate:\n  high:\n    - "**/special/**"\n',
+                encoding="utf-8",
+            )
+            data = profiles.resolve(root, ["src/special/pay.py"])
+            self.assertEqual(data["risk"]["level"], "high")
+            self.assertEqual(data["risk"]["origin"], "match")
+            self.assertEqual(data["risk"]["human_gate"]["value"], "leaf")
+            self.assertEqual(
+                data["risk"]["matches"],
+                [{"value": "high:**/special/**", "source": ".kit/risk.yaml:3"}],
+            )
+            self.assertEqual(data["risk"]["level_source"], ".kit/risk.yaml:3")
+            self.assert_line_content(root, ".kit/risk.yaml:3", "**/special/**")
+
+    def test_order_is_deterministic(self) -> None:
+        outputs = []
+        for seed in ("0", "1"):
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(SCRIPTS / "profiles.py"),
+                    "--project",
+                    str(ROOT),
+                    "--resolve",
+                ],
+                cwd=str(ROOT),
+                capture_output=True,
+                text=True,
+                env={**os.environ, "PYTHONHASHSEED": seed},
+                check=False,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            outputs.append(result.stdout)
+        self.assertEqual(outputs[0], outputs[1])
+        self.assertEqual(
+            json.loads(outputs[0])["order"],
+            ["base", "overlays", "packs", "risk_globs"],
+        )
+
+        # Overlay config'te önce gelse de base değeri kazanır.
+        with tempfile.TemporaryDirectory() as directory:
+            root = project(Path(directory), config(["auth", "web-app"], "web-app"))
+            data = profiles.resolve(root)
+        skills = {item["value"]: item["source"] for item in data["required_skills"]}
+        self.assertEqual(skills["work-package"], "delivery/profiles/web-app.yaml:8")
 
 
 class ResolverMergeTests(unittest.TestCase):

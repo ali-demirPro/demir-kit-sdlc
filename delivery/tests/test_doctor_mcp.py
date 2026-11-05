@@ -6,6 +6,9 @@ Run: python3 -m unittest delivery.tests.test_doctor_mcp -v
 from __future__ import annotations
 
 import importlib.util
+import json
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -18,13 +21,15 @@ doctor_mcp = importlib.util.module_from_spec(spec)
 assert spec.loader is not None
 spec.loader.exec_module(doctor_mcp)
 
+FAKE_TOOLS = ("status", "brief", "doctor", "next_leaf_list", "guard", "explain")
+
 FAKE_SERVER = '''\
 """Test için sahte MCP sunucusu: iki satır soruya iki satır yanıt."""
 
 import json
 import sys
 
-TOOLS = ("status", "brief", "doctor", "next_leaf_list", "guard")
+TOOLS = __TOOLS__
 
 for line in sys.stdin:
     line = line.strip()
@@ -63,13 +68,58 @@ for line in sys.stdin:
 '''
 
 
+def fake_server(tools: tuple[str, ...] = FAKE_TOOLS) -> str:
+    return FAKE_SERVER.replace("__TOOLS__", repr(tools))
+
+
+def call_explain(arguments: dict, msg_id: int = 2) -> dict:
+    """Gerçek sunucuda `tools/call explain`; sonuç zarfını döner."""
+    request = "\n".join(
+        json.dumps(message)
+        for message in (
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2024-11-05",
+                    "capabilities": {},
+                    "clientInfo": {"name": "test", "version": "1"},
+                },
+            },
+            {
+                "jsonrpc": "2.0",
+                "id": msg_id,
+                "method": "tools/call",
+                "params": {"name": "explain", "arguments": arguments},
+            },
+        )
+    ) + "\n"
+    result = subprocess.run(
+        [sys.executable, str(SCRIPTS / "mcp_server.py"), "--project", str(ROOT)],
+        cwd=str(ROOT),
+        input=request,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        timeout=60,
+    )
+    for line in result.stdout.splitlines():
+        if not line.strip():
+            continue
+        reply = json.loads(line)
+        if reply.get("id") == msg_id:
+            return reply
+    raise AssertionError(f"yanıt yok: {result.stdout} {result.stderr}")
+
+
 class SelfCheckTests(unittest.TestCase):
     def test_ok_and_missing(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             scripts = root / "delivery" / "scripts"
             scripts.mkdir(parents=True)
-            (scripts / "mcp_server.py").write_text(FAKE_SERVER, encoding="utf-8")
+            (scripts / "mcp_server.py").write_text(fake_server(), encoding="utf-8")
             self.assertEqual(doctor_mcp.check_mcp_self(root), [])
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -82,18 +132,52 @@ class SelfCheckTests(unittest.TestCase):
                 doctor_mcp.check_mcp_self(root, missing), ["mcp: mcp_server.py yok"]
             )
 
+    def test_duplicate_tool_fails(self) -> None:
+        """Aynı araç iki kez listelenirse self-check hata verir."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            scripts = root / "delivery" / "scripts"
+            scripts.mkdir(parents=True)
+            (scripts / "mcp_server.py").write_text(
+                fake_server(FAKE_TOOLS + ("explain",)), encoding="utf-8"
+            )
+            errors = doctor_mcp.check_mcp_self(root)
+        self.assertTrue(any("tekrarlı" in item for item in errors), errors)
+        self.assertTrue(any("araç sayısı" in item for item in errors), errors)
+
 
 class RealServerTests(unittest.TestCase):
     def test_real_server_passes(self) -> None:
-        """Gerçek mcp_server.py beş aracı ve inputSchema'yı sağlar."""
+        """Gerçek mcp_server.py altı aracı ve inputSchema'yı sağlar."""
         errors = doctor_mcp.check_mcp_self(ROOT)
         self.assertEqual(errors, [])
+
+
+class ExplainToolTests(unittest.TestCase):
+    def test_explain_tool(self) -> None:
+        """`explain` altıncı araçtır ve gerçek sunucuda yanıt üretir."""
+        self.assertIn("explain", doctor_mcp.MCP_TOOLS)
+        self.assertEqual(len(doctor_mcp.MCP_TOOLS), 6)
+        self.assertEqual(doctor_mcp.check_mcp_self(ROOT), [])
+
+        reply = call_explain({})
+        result = reply["result"]
+        self.assertFalse(result["isError"])
+        data = json.loads(result["content"][0]["text"])
+        self.assertIn("profile", data)
+        self.assertIn("order", data)
+
+        named = call_explain({"name": "mcp"}, msg_id=3)
+        self.assertFalse(named["result"]["isError"])
+        self.assertTrue(
+            named["result"]["content"][0]["text"].startswith("explain: mcp")
+        )
 
 
 class DocTests(unittest.TestCase):
     def test_mcp_doc(self) -> None:
         text = (ROOT / "delivery" / "protocol" / "mcp.md").read_text(encoding="utf-8")
-        for name in ("status", "brief", "doctor", "next_leaf_list", "guard"):
+        for name in ("status", "brief", "doctor", "next_leaf_list", "guard", "explain"):
             self.assertIn(name, text)
         for word in ("Orca", "OpenCode", "readOnlyHint"):
             self.assertIn(word, text)

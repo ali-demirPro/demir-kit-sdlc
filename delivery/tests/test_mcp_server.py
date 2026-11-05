@@ -11,7 +11,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "delivery" / "scripts" / "mcp_server.py"
-TOOL_NAMES = {"status", "brief", "doctor", "next_leaf_list", "guard"}
+TOOL_NAMES = {"status", "brief", "doctor", "next_leaf_list", "guard", "explain"}
 FORBIDDEN = {"transition", "claim", "update", "seal"}
 
 
@@ -192,6 +192,75 @@ class ToolTests(ServerTestCase):
         self.assertFalse(reply["result"]["isError"])
         data = json.loads(reply["result"]["content"][0]["text"])
         self.assertIn("epics", data)
+
+    def test_tools_list_six(self) -> None:
+        """tools/list tam olarak altı aracı readOnlyHint ile döner."""
+        self.start("--project", str(ROOT))
+        listed = self.send({"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
+        assert listed is not None
+        tools = listed["result"]["tools"]
+        names = {item["name"] for item in tools}
+        self.assertEqual(names, TOOL_NAMES)
+        self.assertEqual(len(tools), 6)
+        for item in tools:
+            self.assertIs(item["annotations"].get("readOnlyHint"), True)
+
+    def cli(self, *args: str) -> str:
+        """Kit komutunu ROOT'ta koşar; stdout'u döner."""
+        result = subprocess.run(
+            [sys.executable, *args],
+            cwd=str(ROOT),
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            timeout=120,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return result.stdout
+
+    def test_explain_tool(self) -> None:
+        """`explain` CLI çıktısını aynen döner; geçersiz argüman -32602."""
+        self.start("--project", str(ROOT))
+        reply = self.call_tool("explain", {}, msg_id=20)
+        result = reply["result"]
+        self.assertFalse(result["isError"])
+        text = result["content"][0]["text"]
+        expected = self.cli(
+            str(ROOT / "delivery" / "scripts" / "profiles.py"), "--resolve", "--json"
+        )
+        self.assertEqual(text, expected)
+        data = json.loads(text)
+        self.assertIn("profile", data)
+        self.assertIn("order", data)
+
+        named = self.call_tool("explain", {"name": "mcp"}, msg_id=21)
+        self.assertFalse(named["result"]["isError"])
+        named_text = named["result"]["content"][0]["text"]
+        self.assertEqual(
+            named_text,
+            self.cli(
+                str(ROOT / "delivery" / "scripts" / "doctor.py"), "--explain", "mcp"
+            ),
+        )
+
+        invalid = (
+            ({"name": "mcp", "paths": ["a.py"]}, 30, "birlikte kullanılamaz"),
+            ({"name": "mcp", "project": "."}, 31, "birlikte kullanılamaz"),
+            ({"paths": [123]}, 32, "metin olmalı"),
+            ({"paths": ["a,b"]}, 33, "virgül içeremez"),
+            ({"name": "--issue"}, 34, "'-' ile başlayamaz"),
+        )
+        for arguments, msg_id, needle in invalid:
+            failed = self.call_tool("explain", arguments, msg_id=msg_id)
+            self.assertIn("error", failed, arguments)
+            self.assertEqual(failed["error"]["code"], -32602)
+            self.assertIn(needle, failed["error"]["message"])
+
+        alive = self.send({"jsonrpc": "2.0", "id": 35, "method": "ping"})
+        assert alive is not None
+        self.assertEqual(alive["result"], {})
+        assert self.proc is not None
+        self.assertIsNone(self.proc.poll(), "sunucu süreci yaşamalı")
 
     def test_errors(self) -> None:
         """Eksik/yanlış argüman ve bilinmeyen araç -32602; süreç yaşar."""
