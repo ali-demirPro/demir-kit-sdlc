@@ -1633,11 +1633,21 @@ class ExplainTests(DoctorTestCase):
     def test_registry_covers_main_checks(self) -> None:
         source = inspect.getsource(doctor.main)
         called = set(re.findall(r"^\s+check_([a-z_]+)\(", source, re.M))
+        called |= set(
+            re.findall(r"^\s+doctor_[a-z_]+\.check_([a-z_]+)\(", source, re.M)
+        )
         called -= {"issue", "issue_body"}  # seal/evidence, explain kapsamı dışı
         aliases = {"worktree_management": "worktree"}
         expected = {aliases.get(raw, raw.replace("_", "-")) for raw in called}
         self.assertTrue(expected)
         self.assertEqual(set(doctor.EXPLAIN_CHECKS), expected)
+
+    def test_delegated_check_call_is_detected(self) -> None:
+        source = "        doctor_compat.check_compat(ROOT, error, check)"
+        found = set(
+            re.findall(r"^\s+doctor_[a-z_]+\.check_([a-z_]+)\(", source, re.M)
+        )
+        self.assertEqual(found, {"compat"})
         for name, func in doctor.EXPLAIN_CHECKS.items():
             self.assertEqual(func.__module__, "doctor", name)
             self.assertIn(name, doctor.doctor_explain.SUMMARIES)

@@ -1,5 +1,20 @@
 # Changelog
 
+## 2.59.1 — 2026-11-05
+
+- **Yanıt şekli denetimi** — `compat.py` üç salt-okunur Orca komutunun
+  (`run-current`, `run-list`, `task-list`) `result` şeklini doğrular; drift
+  `orca <komut>: yanıt şekli — <ayrıntı>` olarak raporlanır. `run-current` hem
+  `result.runId` hem eski `result.run.id` biçimini kabul eder; bağlı Run yoksa
+  prob atlanır, problar bağımsız çalışır ve `orca` yoksa sessizce geçilir
+  (`--no-shapes` ile kapatılır).
+- **Doctor** — kit modunda `doctor_compat.check_compat` şema ve şekil
+  sorunlarını aynı hata listesine yazar (`--product` etkilenmez); kontrol
+  `--explain compat` ile listelenir. Sözleşme
+  [Orca protokolü](delivery/protocol/orca.md) içindeki "Yanıt şekli"
+  bölümünde. Sürüm drift yardımcısı satır bütçesi için
+  `doctor_version.py`'ye taşındı (davranış aynı).
+
 ## 2.59.0 — 2026-11-05
 
 - **Profil kaynakları** — `profiles.py --resolve --json` birleşik profili ve her

@@ -14,6 +14,29 @@ Checks `orca status --json` and the version-matched orchestration skill. It does
 **not** start a worker. `--create-run` creates a Run only. Product projects do
 not compare Orca versions; `agent-context` feature detection is the contract.
 
+## Yanıt şekli
+
+`--json` çıktısı `{"ok":true,"result":{…}}` zarfıdır. Kit üç salt-okunur
+komutun şeklini doğrular:
+
+| Komut | Beklenen |
+|-------|----------|
+| `orchestration run-current` | `result.runId` (dolu metin) veya `result.run.id` |
+| `orchestration run-list` | `result.runs` liste |
+| `orchestration task-list` | `result.tasks` liste |
+
+Eski build'lerin `result.run` biçimi de kabul edilir. Bağlı Run yoksa
+(`result.runId`/`result.run` null, `result` yok veya `ok:false`) bu drift
+sayılmaz; prob atlanır. `task-list` probu `run-current` kimliğiyle çalışır,
+kimlik yoksa atlanır. Problar bağımsızdır: biri hata verirse yalnız o atlanır,
+önceki bulgular korunur. Drift `orca <komut>: yanıt şekli — <ayrıntı>` olarak
+`compat.py` ve `doctor` tarafından bildirilir; `orca` yoksa prob sessizce
+atlanır.
+
+`compat.py --no-shapes` probları kapatır (çevrimdışı testler için). Doctor bu
+kontrolü yalnız kit modunda çalıştırır (`--product` etkilenmez); `--explain
+compat` kontrolü listeler.
+
 ## Task specs
 
 ```bash
