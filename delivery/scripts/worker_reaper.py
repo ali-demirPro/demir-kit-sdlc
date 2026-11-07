@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -70,28 +71,27 @@ def runs(project: Path | None = None) -> list[str]:
     return found
 
 
-def _dispatch(dispatch_id: str) -> dict:
+def _record(dispatch_id: str) -> dict:
     try:
-        record = usage.dispatch_record(dispatch_id, full=True) or {}
+        return usage.dispatch_record(dispatch_id, full=True) or {}
     except Exception:
         return {}
+
+
+def _activity(record: dict) -> datetime | None:
+    """Latest proof of work: heartbeat or a live session update in the worktree."""
     dispatch = record.get("dispatch")
-    return dispatch if isinstance(dispatch, dict) else {}
-
-
-def _activity(dispatch_id: str, dispatch: dict) -> datetime | None:
-    """Latest proof of work: heartbeat, session update, else nothing."""
-    stamps = [
-        parse_ts(dispatch.get("lastHeartbeatAt")),
-        parse_ts(dispatch.get("updatedAt")),
-    ]
-    session = usage.mapped_session(dispatch_id) or {}
-    updated = session.get("updated")
-    if isinstance(updated, (int, float)):
-        try:
-            stamps.append(datetime.fromtimestamp(updated / 1000, timezone.utc))
-        except (OverflowError, OSError, ValueError):
-            pass
+    dispatch = dispatch if isinstance(dispatch, dict) else {}
+    stamps = [parse_ts(dispatch.get("lastHeartbeatAt"))]
+    path = str(record.get("path") or "")
+    if path:
+        for session in usage.sessions_in(path):
+            updated = session.get("updated")
+            if isinstance(updated, (int, float)):
+                try:
+                    stamps.append(datetime.fromtimestamp(updated / 1000, timezone.utc))
+                except (OverflowError, OSError, ValueError):
+                    continue
     stamps = [stamp for stamp in stamps if stamp]
     return max(stamps) if stamps else None
 
@@ -107,8 +107,8 @@ def plan_for(
         dispatch_id = str(worker.get("dispatchId") or "")
         if not dispatch_id:
             continue
-        dispatch = _dispatch(dispatch_id)
-        heartbeat = _activity(dispatch_id, dispatch)
+        record = _record(dispatch_id)
+        heartbeat = _activity(record)
         idle = int((now - heartbeat).total_seconds() // 60) if heartbeat else -1
 
         state = str(worker.get("workerState") or "")
@@ -152,7 +152,7 @@ def apply(rows: list[dict]) -> list[dict]:
 
 def reap_idle(project: Path | str | None, apply_release: bool = True) -> int:
     """Release idle workers for every known run; never raises."""
-    if not project:
+    if not project or os.environ.get("DEMIR_KIT_REAPER", "on") == "off":
         return 0
     try:
         total = 0
@@ -172,6 +172,7 @@ def main() -> int:
     parser.add_argument("--idle-minutes", type=int, default=DEFAULT_IDLE)
     parser.add_argument("--project", default=".")
     parser.add_argument("--apply", action="store_true")
+    parser.add_argument("--dry-run", action="store_true", help="plan only (default)")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
 
@@ -187,7 +188,7 @@ def main() -> int:
     rows: list[dict] = []
     for run_id in targets:
         rows.extend(plan_for(run_id, args.idle_minutes))
-    if args.apply:
+    if args.apply and not args.dry_run:
         rows = apply(rows)
 
     released = sum(1 for row in rows if row.get("released"))

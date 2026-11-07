@@ -66,21 +66,21 @@ class PlanTests(unittest.TestCase):
         self.assertEqual([row["action"] for row in rows], ["keep", "keep"])
 
     def test_unknown_activity_keeps_the_worker(self) -> None:
-        record = {"dispatch": dispatch(None)}
+        record = {"dispatch": dispatch(None), "path": "/tmp/worktree"}
         record["dispatch"]["dispatchedAt"] = stamp(40)
         with mock.patch.object(reaper.usage, "run_workers", return_value=[worker("d1")]), \
              mock.patch.object(reaper.usage, "dispatch_record", return_value=record), \
-             mock.patch.object(reaper.usage, "mapped_session", return_value=None):
+             mock.patch.object(reaper.usage, "sessions_in", return_value=[]):
             rows = reaper.plan_for("run_x", idle_minutes=15, now=NOW)
         self.assertEqual(rows[0]["action"], "keep")
         self.assertIn("zaman", rows[0]["reason"])
 
     def test_session_update_counts_as_activity(self) -> None:
-        record = {"dispatch": dispatch(None)}
+        record = {"dispatch": dispatch(None), "path": "/tmp/worktree"}
         session = {"id": "ses_x", "updated": int(NOW.timestamp() * 1000) - 5 * 60_000}
         with mock.patch.object(reaper.usage, "run_workers", return_value=[worker("d1")]), \
              mock.patch.object(reaper.usage, "dispatch_record", return_value=record), \
-             mock.patch.object(reaper.usage, "mapped_session", return_value=session):
+             mock.patch.object(reaper.usage, "sessions_in", return_value=[session]):
             rows = reaper.plan_for("run_x", idle_minutes=15, now=NOW)
         self.assertEqual(rows[0]["action"], "keep")
         self.assertEqual(rows[0]["idle_minutes"], 5)
@@ -110,6 +110,37 @@ class ApplyTests(unittest.TestCase):
             result = reaper.apply(rows)
         release.assert_called_once_with("d1")
         self.assertEqual(result[0]["released"], True)
+
+
+class CliTests(unittest.TestCase):
+    def test_dry_run_prints_plan_and_does_not_release(self) -> None:
+        import contextlib
+        import io
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / ".orchestration").mkdir()
+            (root / ".orchestration" / "epic-1.json").write_text(
+                json.dumps({"run_id": "run_a"}), encoding="utf-8"
+            )
+            buffer = io.StringIO()
+            with mock.patch.object(reaper.usage, "run_workers", return_value=[worker("d1")]), \
+                 mock.patch.object(
+                     reaper.usage,
+                     "dispatch_record",
+                     return_value={"dispatch": dispatch(30), "path": ""},
+                 ), \
+                 mock.patch.object(reaper.worker_cleanup, "release") as release, \
+                 mock.patch.object(
+                     sys, "argv", ["worker_reaper.py", "--project", str(root), "--dry-run", "--json"]
+                 ), \
+                 contextlib.redirect_stdout(buffer):
+                code = reaper.main()
+        self.assertEqual(code, 0)
+        release.assert_not_called()
+        payload = json.loads(buffer.getvalue())
+        self.assertEqual(payload["rows"][0]["action"], "release")
+        self.assertEqual(payload["released"], 0)
 
 
 if __name__ == "__main__":

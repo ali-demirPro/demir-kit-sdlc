@@ -450,6 +450,7 @@ def run_workers(run_id: str) -> list[dict]:
             run_id,
             "--limit",
             "100",
+            "--full",
             "--json",
         ]
         if cursor:
