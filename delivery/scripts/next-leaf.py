@@ -327,10 +327,90 @@ def release(number: int, force: bool, reason: str) -> int:
     return 0
 
 
+DEFAULT_MAX_PARALLEL = 2
+
+
+def seal_paths(seal: dict) -> set[str]:
+    reference = seal.get("reference") or {}
+    return {str(path) for path in reference.get("paths") or [] if str(path)}
+
+
+def conflicts(seal: dict, active: list[dict]) -> bool:
+    """Same file touched by an executing leaf blocks a second claim."""
+    mine = seal_paths(seal)
+    if not mine:
+        return False
+    return any(mine & seal_paths(other) for other in active)
+
+
+def select_eligible(
+    open_issues: list[dict],
+    all_issues: list[dict],
+    max_parallel: int = DEFAULT_MAX_PARALLEL,
+) -> list[dict]:
+    done: set[int] = set()
+    for item in all_issues:
+        labels = {label["name"] for label in item.get("labels", [])}
+        if item["state"] == "CLOSED" or labels & {"leaf-done", "epic-done", "deferred"}:
+            done.add(item["number"])
+
+    active: dict[int, list[dict]] = {}
+    for issue in open_issues:
+        labels = {label["name"] for label in issue["labels"]}
+        if "executing" not in labels:
+            continue
+        seal = parse_seal(issue.get("body", ""))
+        epic = seal.get("epic")
+        if epic:
+            active.setdefault(int(epic), []).append(seal)
+
+    eligible: list[dict] = []
+    for issue in open_issues:
+        labels = {label["name"] for label in issue["labels"]}
+        if "agent-approved" not in labels or labels & SKIP_LABELS:
+            continue
+        seal = parse_seal(issue.get("body", ""))
+        if not seal:
+            continue
+        deps = [
+            dep
+            for dep in seal.get("dependencies") or []
+            if isinstance(dep, dict) and dep.get("kind", "blocks") == "blocks"
+        ]
+        if any(dep.get("issue") not in done for dep in deps):
+            continue
+        epic = seal.get("epic")
+        if epic:
+            running = active.get(int(epic), [])
+            if len(running) >= max_parallel:
+                continue
+            if conflicts(seal, running):
+                continue
+        eligible.append(
+            {
+                "number": issue["number"],
+                "title": issue["title"],
+                "epic": epic,
+                "risk": (seal.get("risk") or {}).get("level", "low"),
+                "createdAt": issue["createdAt"],
+            }
+        )
+        if epic:
+            active.setdefault(int(epic), []).append(seal)
+    eligible.sort(key=lambda item: item["createdAt"])
+    return eligible
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="pick the next executable leaf")
     parser.add_argument("--list", action="store_true", help="all eligible leaves")
     parser.add_argument("--claim", action="store_true", help="claim the first leaf")
+    parser.add_argument(
+        "--max-parallel",
+        type=int,
+        default=DEFAULT_MAX_PARALLEL,
+        help="aynı epic'te eşzamanlı leaf üst sınırı",
+    )
     parser.add_argument("--release", action="store_true", help="release a lease")
     parser.add_argument("--issue", type=int, help="issue for --release")
     parser.add_argument("--force", action="store_true", help="force a release")
