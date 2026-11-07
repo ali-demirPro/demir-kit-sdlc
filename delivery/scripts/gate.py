@@ -13,9 +13,12 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import hashlib
+import json
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 # Kit root: the directory that holds ``delivery/``. In a vendored product this
@@ -26,6 +29,10 @@ STEP_TIMEOUT = 900
 TEST_ROOT = "delivery/tests"
 PLUGIN_ROOT = "plugins"
 PLUGIN_PATH = "plugins/orca"
+
+CACHE_NAME = "gate-cache.json"
+CACHE_TTL = 86_400
+CACHE_MAX = 50
 
 
 def _git(args: list[str], project: Path) -> str | None:
@@ -80,6 +87,92 @@ def _normalize(path: str) -> str:
 
 def _under(path: str, root: str) -> bool:
     return path == root or path.startswith(root + "/")
+
+
+
+
+def _git_text(args: list[str], project: Path) -> str:
+    try:
+        result = subprocess.run(
+            ["git", "-c", "core.quotePath=false", *args],
+            cwd=str(project),
+            capture_output=True,
+            text=True,
+        )
+    except OSError:
+        return ""
+    return result.stdout if result.returncode == 0 else ""
+
+
+def tree_state(project: Path) -> str:
+    """HEAD + dirty diff + untracked list, hashed."""
+    payload = [
+        _git_text(["rev-parse", "HEAD"], project),
+        _git_text(["diff", "--binary", "HEAD"], project),
+        _git_text(["ls-files", "--others", "--exclude-standard"], project),
+    ]
+    return hashlib.sha256("\0".join(payload).encode("utf-8")).hexdigest()
+
+
+def tool_version() -> str:
+    version = Path(__file__).resolve().parents[2] / "VERSION"
+    try:
+        return version.read_text(encoding="utf-8").strip()
+    except OSError:
+        return "?"
+
+
+def cache_path(project: Path) -> Path:
+    return Path(project) / ".kit" / CACHE_NAME
+
+
+def load_cache(project: Path) -> dict:
+    path = cache_path(project)
+    if not path.is_file():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def save_cache(project: Path, data: dict) -> None:
+    path = cache_path(project)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
+
+
+def cache_key(project: Path, steps: list[str], checkpoint: str) -> str:
+    payload = json.dumps(
+        {"tree": tree_state(project), "steps": steps, "checkpoint": checkpoint,
+         "version": tool_version()},
+        sort_keys=True,
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def cache_lookup(project: Path, key: str, now: float | None = None) -> dict | None:
+    data = load_cache(project)
+    entry = data.get(key)
+    if not isinstance(entry, dict):
+        return None
+    now = now or time.time()
+    if now - float(entry.get("ts") or 0) > CACHE_TTL:
+        return None
+    return entry
+
+
+def cache_store(project: Path, key: str, code: int, output: str) -> None:
+    data = load_cache(project)
+    now = time.time()
+    data[key] = {"ts": now, "code": int(code), "output": output[-4000:]}
+    fresh = sorted(
+        ((k, v) for k, v in data.items() if isinstance(v, dict)),
+        key=lambda item: float(item[1].get("ts") or 0),
+        reverse=True,
+    )[:CACHE_MAX]
+    save_cache(project, dict(fresh))
 
 
 def suites_for(paths: list[str]) -> list[str]:
@@ -139,6 +232,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--issue", type=int, help="seal + evidence doğrula (opsiyonel)")
     parser.add_argument("--checkpoint", required=True)
     parser.add_argument("--plan", action="store_true", help="adımları yaz, çalıştırma")
+    parser.add_argument("--cached", action="store_true", help="tree hash cache'ini kullan")
+    parser.add_argument("--no-cache", action="store_true", help="cache'i baypas et")
     parser.add_argument("--project", type=Path, default=None, help="proje kökü")
     parser.add_argument(
         "--changed",
@@ -172,6 +267,14 @@ def main(argv: list[str] | None = None) -> int:
             command = step_command(step, project, args.issue, args.checkpoint)
             print(f"[gate] plan {step}: {' '.join(command)}", flush=True)
         return 0
+
+    key = None
+    if args.cached and not args.no_cache:
+        key = cache_key(project, steps, args.checkpoint)
+        hit = cache_lookup(project, key)
+        if hit is not None:
+            print(f"[gate] cache hit {key[:12]} (exit {hit['code']})", flush=True)
+            return int(hit["code"])
 
     failed = False
     for step in steps:
