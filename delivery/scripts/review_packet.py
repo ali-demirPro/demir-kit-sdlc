@@ -153,6 +153,46 @@ def compose_packet(
     return packet
 
 
+def gate_summary(project: Path) -> dict:
+    """Last known gate result: cache first, then the cycle log."""
+    cache = Path(project) / ".kit" / "gate-cache.json"
+    if cache.is_file():
+        try:
+            data = json.loads(cache.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            data = {}
+        if isinstance(data, dict) and data:
+            key, entry = max(
+                data.items(),
+                key=lambda item: float((item[1] or {}).get("ts") or 0),
+            )
+            entry = entry if isinstance(entry, dict) else {}
+            return {
+                "source": "cache",
+                "key": str(key)[:12],
+                "exit": entry.get("code"),
+                "ts": entry.get("ts"),
+            }
+    cycle = Path(project) / ".kit" / "cycle.jsonl"
+    if cycle.is_file():
+        last = None
+        for line in cycle.read_text(encoding="utf-8").splitlines():
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(row, dict) and row.get("stage") == "gate":
+                last = row
+        if last:
+            return {
+                "source": "cycle",
+                "exit": None,
+                "ts": last.get("ts"),
+                "reason": last.get("reason"),
+            }
+    return {"source": "none"}
+
+
 def packet_for(
     issue_number: int,
     cp_id: str,
@@ -206,9 +246,11 @@ def packet_for(
     diff_stat = git(["diff", "--stat", span])
     files = git(["diff", "--name-only", span]).strip().splitlines()
     diff = git(["diff", span])
+    gate = gate_summary(routing.project_root(ROOT))
     header = [
         f"## Review packet — #{issue_number} {cp_id}",
         f"Commit: {commit[:12]} · Aralık: {range_label}",
+        f"Kapı: {gate['source']} · exit {gate.get('exit')} · {gate.get('ts') or '-'}",
         f"Boyut sınırı: {max_chars} bayt",
         "Değişen dosyalar:",
     ]

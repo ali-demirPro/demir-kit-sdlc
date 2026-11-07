@@ -29,7 +29,8 @@ Start from the packet instead of the whole repo:
 python3 delivery/scripts/review_packet.py --issue <N> --cp CP-1 --commit <sha>
 ```
 
-- Packet: CP brief, AC/test rows, open findings, diff (max 12 KB).
+- Packet: CP brief, AC/test rows, open findings, gate result, diff (max 12 KB).
+- Kapıyı yeniden koşma; paketteki `Kapı:` satırındaki sonucu doğrula.
 - After a fix: `--delta <base>`; re-check only changed hunks and open findings.
 - Script: [review_packet.py](../../delivery/scripts/review_packet.py).
 
