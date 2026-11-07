@@ -258,6 +258,31 @@ def collect(workers: list[dict], run_id: str | None = None) -> list[dict]:
     return workers
 
 
+def reap_idle(worktree) -> int:
+    """Close idle workers after a reviewer wave; never fails the wave."""
+    import os
+
+    if not worktree or os.environ.get("DEMIR_KIT_REAPER", "on") == "off":
+        return 0
+    try:
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(Path(__file__).resolve().parent / "worker_reaper.py"),
+                "--apply",
+                "--json",
+                "--project",
+                str(worktree),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        return int(json.loads(result.stdout).get("released", 0))
+    except (subprocess.SubprocessError, OSError, json.JSONDecodeError, ValueError):
+        return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="parallel reviewer wave")
     parser.add_argument("--issue", type=int, required=True)
@@ -332,6 +357,7 @@ def main() -> int:
         for item in workers
     }
     approved = all(value is True for value in verdicts.values())
+    reap_idle(worktree)
     result = {
         **plan,
         "run_id": run_id,
