@@ -17,6 +17,7 @@ import yaml
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPTS = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPTS))
+import cycle  # noqa: E402
 import routing  # noqa: E402
 
 PROJECT = routing.project_root(ROOT)
@@ -388,6 +389,7 @@ def build_report(
     end=None,
     delta: dict | None = None,
     orca: dict | None = None,
+    cycle_text: str = "",
 ) -> str:
     all_items = [issue] + children
     agents = sorted(
@@ -509,6 +511,8 @@ def build_report(
         f"{totals.get('input', 0):,} in / {totals.get('output', 0):,} out · "
         f"{totals.get('cache_read', 0):,} cache · {cost_text}"
     )
+    if cycle_text:
+        lines.append(cycle_text)
     if delta:
         tokens = delta.get("tokens") or {}
         lines.append(
@@ -599,6 +603,11 @@ def main() -> int:
     orca_data = collect_orca(epic_for_orca)
     if args.sessions:
         orca_data["sessions"] = collect_sessions(f"#{args.issue}")
+    cycle_parts = []
+    for number in [args.issue] + [item["number"] for item in children]:
+        rows = cycle.read(PROJECT, number)
+        if rows:
+            cycle_parts.append(cycle.section(rows, f"#{number}"))
     report = build_report(
         epic,
         children,
@@ -608,6 +617,7 @@ def main() -> int:
         end,
         collect_delta(args.issue),
         orca=orca_data,
+        cycle_text="\n".join(cycle_parts),
     )
     if args.artifact:
         url = share_artifact(report, args.issue)
