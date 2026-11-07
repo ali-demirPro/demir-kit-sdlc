@@ -91,7 +91,12 @@ def session_rows(db_path: Path, since_ms: int) -> list[dict]:
 
 
 def cycle_stats(project: Path, since: datetime) -> dict:
-    """Review rounds, gate runs and leaf median from `.kit/cycle.jsonl`."""
+    """Review rounds, gate runs and leaf median from `.kit/cycle.jsonl`.
+
+    Counts are windowed; the leaf median selects issues whose ``leaf-done`` falls
+    inside the window and measures ``executing -> leaf-done`` so approval waiting
+    does not inflate the leaf time.
+    """
     empty = {"review_rounds": 0, "gates": 0, "leaf_median_minutes": None}
     path = Path(project) / ".kit" / "cycle.jsonl"
     if not path.is_file():
@@ -106,25 +111,47 @@ def cycle_stats(project: Path, since: datetime) -> dict:
             continue
         if not isinstance(row, dict):
             continue
+        try:
+            number = int(row.get("issue") or 0)
+        except (TypeError, ValueError):
+            continue
         stamp = parse_ts(row.get("ts") or "")
-        if not stamp or stamp < since:
+        if not stamp:
+            continue
+        by_issue.setdefault(number, []).append(row)
+        if stamp < since:
             continue
         if row.get("stage") == "review":
             reviews += 1
         elif row.get("stage") == "gate":
             gates += 1
-        by_issue.setdefault(int(row.get("issue") or 0), []).append(row)
 
     durations = []
     for rows in by_issue.values():
         stages = {row.get("stage") for row in rows}
-        if "leaf-done" not in stages or "epic-done" in stages or len(rows) < 2:
+        if "epic-done" in stages or "leaf-done" not in stages:
             continue
-        stamps = [parse_ts(row.get("ts") or "") for row in rows]
-        stamps = [stamp for stamp in stamps if stamp]
-        if len(stamps) < 2:
+        done = [
+            parse_ts(row.get("ts") or "")
+            for row in rows
+            if row.get("stage") == "leaf-done"
+        ]
+        done = [stamp for stamp in done if stamp and stamp >= since]
+        if not done:
             continue
-        minutes = (max(stamps) - min(stamps)).total_seconds() / 60
+        starts = [
+            parse_ts(row.get("ts") or "")
+            for row in rows
+            if row.get("stage") == "executing"
+        ]
+        starts = [stamp for stamp in starts if stamp]
+        begin = min(starts) if starts else min(
+            (stamp for stamp in (parse_ts(row.get("ts") or "") for row in rows) if stamp),
+            default=None,
+        )
+        if not begin:
+            continue
+        minutes = (min(done) - begin).total_seconds() / 60
         if minutes > 0:
             durations.append(minutes)
     return {
@@ -250,8 +277,10 @@ def _mb(value: int) -> str:
     return f"{value / 1_000_000:.0f}M"
 
 
-def _gb(value: int) -> str:
-    return f"{value / 1_000_000_000:.1f}G"
+def _size(value: int) -> str:
+    if value >= 1_000_000_000:
+        return f"{value / 1_000_000_000:.1f}G"
+    return f"{value / 1_000_000:.0f}M"
 
 
 def render(data: dict) -> str:
@@ -270,7 +299,7 @@ def render(data: dict) -> str:
             f"{(str(leaf) + ' dk') if leaf is not None else '—':>6}  "
             f"{project['review_rounds']:6}  {project['gates']:4}  "
             f"{project['zombies']:5}  {project['derived_data']:5}  "
-            f"{_gb(project['derived_bytes']):>5}"
+            f"{_size(project['derived_bytes']):>5}"
         )
     summary = data["global"]
     lines += [
@@ -278,7 +307,7 @@ def render(data: dict) -> str:
         f"toplam: {_mb(summary['cache_read'])} cache · ${summary['cost']:.2f} · "
         f"{summary['review_rounds']} review turu · {summary['gates']} kapı · "
         f"{summary['zombies']} zombi · {summary['simulators']} simülatör · "
-        f"{summary['derived_data']} DerivedData ({_gb(summary['derived_bytes'])})",
+        f"{summary['derived_data']} DerivedData ({_size(summary['derived_bytes'])})",
     ]
     return "\n".join(lines)
 
@@ -291,7 +320,7 @@ def recommend(data: dict) -> list[str]:
     if summary["simulators"] > 1:
         tips.append(f"{summary['simulators']} simülatör cihazı var — tek cihaz yeter.")
     if summary["derived_bytes"] > 20_000_000_000:
-        tips.append(f"{_gb(summary['derived_bytes'])} DerivedData — eski dizinleri temizle.")
+        tips.append(f"{_size(summary['derived_bytes'])} DerivedData — eski dizinleri temizle.")
     for name, project in sorted(data["projects"].items()):
         if project["derived_data"] > 1:
             tips.append(f"{name}: {project['derived_data']} DerivedData dizini — paylaşılan yol kullan.")
