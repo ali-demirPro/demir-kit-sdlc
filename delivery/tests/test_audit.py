@@ -66,6 +66,7 @@ class CollectTests(unittest.TestCase):
         self.derived = self.root / "DerivedData"
         self.derived.mkdir()
         (self.derived / "votum-abc").mkdir()
+        (self.derived / "votum-abc" / "f.bin").write_bytes(b"x" * 1024)
         (self.derived / "votum-def").mkdir()
         make_db(
             self.db,
@@ -94,6 +95,7 @@ class CollectTests(unittest.TestCase):
         votum = data["projects"]["votum"]
         self.assertEqual(votum["zombies"], 1)
         self.assertEqual(votum["derived_data"], 2)
+        self.assertGreater(votum["derived_bytes"], 0)
 
     def test_cycle_leaf_median(self) -> None:
         kit = self.projects / "votum" / ".kit"
@@ -109,6 +111,22 @@ class CollectTests(unittest.TestCase):
         )
         data = audit.collect(self.projects, days=7, db_path=self.db, derived_root=self.derived)
         self.assertEqual(data["projects"]["votum"]["leaf_median_minutes"], 30)
+
+    def test_review_rounds_and_gates_are_counted(self) -> None:
+        kit = self.projects / "votum" / ".kit"
+        kit.mkdir(parents=True)
+        rows = [
+            {"ts": "2026-11-07T10:00:00+00:00", "issue": 1, "stage": "executing"},
+            {"ts": "2026-11-07T10:05:00+00:00", "issue": 1, "stage": "review"},
+            {"ts": "2026-11-07T10:10:00+00:00", "issue": 1, "stage": "gate"},
+            {"ts": "2026-11-07T10:20:00+00:00", "issue": 1, "stage": "leaf-done"},
+        ]
+        (kit / "cycle.jsonl").write_text(
+            "\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8"
+        )
+        data = audit.collect(self.projects, days=7, db_path=self.db, derived_root=self.derived)
+        self.assertEqual(data["projects"]["votum"]["review_rounds"], 1)
+        self.assertEqual(data["projects"]["votum"]["gates"], 1)
 
     def test_render_table_and_recommendations(self) -> None:
         data = audit.collect(self.projects, days=7, db_path=self.db, derived_root=self.derived)

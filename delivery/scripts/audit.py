@@ -15,8 +15,9 @@ import argparse
 import json
 import sqlite3
 import statistics
+import subprocess
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 DEFAULT_DB = Path.home() / ".local/share/opencode/opencode.db"
@@ -28,6 +29,13 @@ ZOMBIE_MINUTES = 180
 
 def now_ms() -> int:
     return int(datetime.now(timezone.utc).timestamp() * 1000)
+
+
+def parse_ts(value: str) -> datetime | None:
+    try:
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
 
 
 def project_name(directory: str) -> str:
@@ -82,38 +90,109 @@ def session_rows(db_path: Path, since_ms: int) -> list[dict]:
         conn.close()
 
 
-def cycle_leaf_minutes(project: Path) -> float | None:
+def cycle_stats(project: Path, since: datetime) -> dict:
+    """Review rounds, gate runs and leaf median from `.kit/cycle.jsonl`."""
+    empty = {"review_rounds": 0, "gates": 0, "leaf_median_minutes": None}
     path = Path(project) / ".kit" / "cycle.jsonl"
     if not path.is_file():
-        return None
-    rows: dict[int, list[str]] = {}
+        return empty
+    by_issue: dict[int, list[dict]] = {}
+    reviews = 0
+    gates = 0
     for line in path.read_text(encoding="utf-8").splitlines():
         try:
             row = json.loads(line)
         except json.JSONDecodeError:
             continue
-        if not isinstance(row, dict) or not row.get("ts"):
+        if not isinstance(row, dict):
             continue
-        rows.setdefault(int(row.get("issue") or 0), []).append(str(row["ts"]))
+        stamp = parse_ts(row.get("ts") or "")
+        if not stamp or stamp < since:
+            continue
+        if row.get("stage") == "review":
+            reviews += 1
+        elif row.get("stage") == "gate":
+            gates += 1
+        by_issue.setdefault(int(row.get("issue") or 0), []).append(row)
+
     durations = []
-    for stamps in rows.values():
-        if not stamps:
+    for rows in by_issue.values():
+        stages = {row.get("stage") for row in rows}
+        if "leaf-done" not in stages or "epic-done" in stages or len(rows) < 2:
             continue
-        start = datetime.fromisoformat(min(stamps).replace("Z", "+00:00"))
-        end = datetime.fromisoformat(max(stamps).replace("Z", "+00:00"))
-        durations.append((end - start).total_seconds() / 60)
-    durations = [value for value in durations if value > 0]
-    if not durations:
-        return None
-    return round(statistics.median(durations))
+        stamps = [parse_ts(row.get("ts") or "") for row in rows]
+        stamps = [stamp for stamp in stamps if stamp]
+        if len(stamps) < 2:
+            continue
+        minutes = (max(stamps) - min(stamps)).total_seconds() / 60
+        if minutes > 0:
+            durations.append(minutes)
+    return {
+        "review_rounds": reviews,
+        "gates": gates,
+        "leaf_median_minutes": round(statistics.median(durations)) if durations else None,
+    }
 
 
-def derived_count(project: str, derived_root: Path) -> int:
+def derived_usage(project: str, derived_root: Path) -> tuple[int, int]:
+    """(directory count, bytes) for `<project>-*` DerivedData folders."""
     root = Path(derived_root)
     if not root.is_dir():
-        return 0
+        return (0, 0)
     prefix = project.lower() + "-"
-    return sum(1 for item in root.iterdir() if item.is_dir() and item.name.lower().startswith(prefix))
+    dirs = [item for item in root.iterdir() if item.is_dir() and item.name.lower().startswith(prefix)]
+    if not dirs:
+        return (0, 0)
+    try:
+        output = subprocess.check_output(
+            ["du", "-sk", *[str(item) for item in dirs]], text=True, timeout=20
+        )
+        total_kb = sum(int(line.split()[0]) for line in output.splitlines() if line.split())
+        return (len(dirs), total_kb * 1024)
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return (len(dirs), 0)
+
+
+def project_dirs(projects_root: Path) -> list[Path]:
+    root = Path(projects_root)
+    if not root.is_dir():
+        return []
+    return [
+        item
+        for item in root.iterdir()
+        if item.is_dir() and ((item / ".kit").is_dir() or (item / "kit.config.yaml").is_file())
+    ]
+
+
+def blank_project() -> dict:
+    return {
+        "sessions": 0,
+        "subagents": 0,
+        "cache_read": 0,
+        "cost": 0.0,
+        "minutes": 0,
+        "zombies": 0,
+        "review_rounds": 0,
+        "gates": 0,
+        "leaf_median_minutes": None,
+        "derived_data": 0,
+        "derived_bytes": 0,
+    }
+
+
+def totals(projects: dict, simulators: int) -> dict:
+    return {
+        "simulators": simulators,
+        "derived_data": sum(p["derived_data"] for p in projects.values()),
+        "derived_bytes": sum(p.get("derived_bytes", 0) for p in projects.values()),
+        "sessions": sum(p["sessions"] for p in projects.values()),
+        "subagents": sum(p["subagents"] for p in projects.values()),
+        "cache_read": sum(p["cache_read"] for p in projects.values()),
+        "cost": round(sum(p["cost"] for p in projects.values()), 2),
+        "zombies": sum(p["zombies"] for p in projects.values()),
+        "review_rounds": sum(p["review_rounds"] for p in projects.values()),
+        "gates": sum(p["gates"] for p in projects.values()),
+    }
 
 
 def collect(
@@ -124,26 +203,17 @@ def collect(
 ) -> dict:
     db = Path(db_path) if db_path else DEFAULT_DB
     derived = Path(derived_root) if derived_root else DEFAULT_DERIVED
-    rows = session_rows(db, now_ms() - int(days * 86_400_000))
+    since = datetime.now(timezone.utc) - timedelta(days=days)
+    rows = session_rows(db, int(since.timestamp() * 1000))
 
-    projects: dict[str, dict] = {}
+    projects: dict[str, dict] = {
+        item.name: blank_project() for item in project_dirs(Path(projects_root))
+    }
     for row in rows:
         if not row["directory"] or row["directory"] in {"/", "."}:
             continue
         name = project_name(row["directory"])
-        project = projects.setdefault(
-            name,
-            {
-                "sessions": 0,
-                "subagents": 0,
-                "cache_read": 0,
-                "cost": 0.0,
-                "minutes": 0,
-                "zombies": 0,
-                "derived_data": 0,
-                "leaf_median_minutes": None,
-            },
-        )
+        project = projects.setdefault(name, blank_project())
         project["sessions"] += 1
         if row["parent"]:
             project["subagents"] += 1
@@ -156,8 +226,13 @@ def collect(
 
     for name, project in projects.items():
         project["cost"] = round(project["cost"], 2)
-        project["derived_data"] = derived_count(name, derived)
-        project["leaf_median_minutes"] = cycle_leaf_minutes(Path(projects_root) / name)
+        count, size = derived_usage(name, derived)
+        project["derived_data"] = count
+        project["derived_bytes"] = size
+        stats = cycle_stats(Path(projects_root) / name, since)
+        project["review_rounds"] = stats["review_rounds"]
+        project["gates"] = stats["gates"]
+        project["leaf_median_minutes"] = stats["leaf_median_minutes"]
 
     simulators = 0
     if SIMULATORS.is_dir():
@@ -167,15 +242,7 @@ def collect(
         "window_days": days,
         "db": str(db),
         "projects": projects,
-        "global": {
-            "simulators": simulators,
-            "derived_data": sum(p["derived_data"] for p in projects.values()),
-            "sessions": sum(p["sessions"] for p in projects.values()),
-            "subagents": sum(p["subagents"] for p in projects.values()),
-            "cache_read": sum(p["cache_read"] for p in projects.values()),
-            "cost": round(sum(p["cost"] for p in projects.values()), 2),
-            "zombies": sum(p["zombies"] for p in projects.values()),
-        },
+        "global": totals(projects, simulators),
     }
 
 
@@ -183,54 +250,58 @@ def _mb(value: int) -> str:
     return f"{value / 1_000_000:.0f}M"
 
 
+def _gb(value: int) -> str:
+    return f"{value / 1_000_000_000:.1f}G"
+
+
 def render(data: dict) -> str:
     lines = [
         f"Filo denetimi · son {data['window_days']} gün · {data['global']['sessions']} oturum",
         "",
-        "proje       oturum  subagent  cache-read  maliyet  leaf med  zombi  ddata",
+        "proje           oturum  sub  cache  maliyet  leaf  review  gate  zombi  ddata  disk",
     ]
     for name, project in sorted(
         data["projects"].items(), key=lambda item: -item[1]["cache_read"]
     ):
         leaf = project["leaf_median_minutes"]
         lines.append(
-            f"{name[:14]:14}  {project['sessions']:6}  {project['subagents']:8}  "
-            f"{_mb(project['cache_read']):>10}  ${project['cost']:>6.2f}  "
-            f"{(str(leaf) + ' dk') if leaf is not None else '—':>8}  "
-            f"{project['zombies']:5}  {project['derived_data']:5}"
+            f"{name[:14]:14}  {project['sessions']:6}  {project['subagents']:3}  "
+            f"{_mb(project['cache_read']):>5}  ${project['cost']:>6.2f}  "
+            f"{(str(leaf) + ' dk') if leaf is not None else '—':>6}  "
+            f"{project['review_rounds']:6}  {project['gates']:4}  "
+            f"{project['zombies']:5}  {project['derived_data']:5}  "
+            f"{_gb(project['derived_bytes']):>5}"
         )
-    global_stats = data["global"]
+    summary = data["global"]
     lines += [
         "",
-        f"toplam: {_mb(global_stats['cache_read'])} cache · ${global_stats['cost']:.2f} · "
-        f"{global_stats['zombies']} zombi oturum · {global_stats['simulators']} simülatör · "
-        f"{global_stats['derived_data']} DerivedData",
+        f"toplam: {_mb(summary['cache_read'])} cache · ${summary['cost']:.2f} · "
+        f"{summary['review_rounds']} review turu · {summary['gates']} kapı · "
+        f"{summary['zombies']} zombi · {summary['simulators']} simülatör · "
+        f"{summary['derived_data']} DerivedData ({_gb(summary['derived_bytes'])})",
     ]
     return "\n".join(lines)
 
 
 def recommend(data: dict) -> list[str]:
     tips: list[str] = []
-    if data["global"]["zombies"]:
-        tips.append(
-            f"{data['global']['zombies']} oturum boşta (3 saatten uzun) — reaper çalıştır."
-        )
-    if data["global"]["simulators"] > 1:
-        tips.append(
-            f"{data['global']['simulators']} simülatör cihazı var — tek cihaz yeter."
-        )
+    summary = data["global"]
+    if summary["zombies"]:
+        tips.append(f"{summary['zombies']} oturum boşta (3 saatten uzun) — reaper çalıştır.")
+    if summary["simulators"] > 1:
+        tips.append(f"{summary['simulators']} simülatör cihazı var — tek cihaz yeter.")
+    if summary["derived_bytes"] > 20_000_000_000:
+        tips.append(f"{_gb(summary['derived_bytes'])} DerivedData — eski dizinleri temizle.")
     for name, project in sorted(data["projects"].items()):
         if project["derived_data"] > 1:
-            tips.append(
-                f"{name}: {project['derived_data']} DerivedData dizini — paylaşılan yol kullan."
-            )
+            tips.append(f"{name}: {project['derived_data']} DerivedData dizini — paylaşılan yol kullan.")
         if project["cache_read"] > 300_000_000:
-            tips.append(
-                f"{name}: {_mb(project['cache_read'])} cache-read — bağlam bütçesini düşür."
-            )
+            tips.append(f"{name}: {_mb(project['cache_read'])} cache-read — bağlam bütçesini düşür.")
         leaf = project["leaf_median_minutes"]
         if leaf is not None and leaf > 45:
             tips.append(f"{name}: leaf medyanı {leaf} dk — review turlarını azalt.")
+        if project["review_rounds"] > project["sessions"]:
+            tips.append(f"{name}: {project['review_rounds']} review turu — tur bütçesini uygula.")
     if not tips:
         tips.append("Eşik aşan kalem yok.")
     return tips
@@ -248,10 +319,12 @@ def main() -> int:
     args = parser.parse_args()
 
     data = collect(Path(args.projects), args.days, Path(args.db), Path(args.derived_root))
+    simulators = data["global"]["simulators"]
     if args.project:
         data["projects"] = {
             name: value for name, value in data["projects"].items() if name == args.project
         }
+        data["global"] = totals(data["projects"], simulators)
     tips = recommend(data)
     data["recommendations"] = tips
 

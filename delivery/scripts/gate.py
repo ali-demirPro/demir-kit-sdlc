@@ -187,6 +187,22 @@ def main(argv: list[str] | None = None) -> int:
         print(f"[gate] {step} exit {code}", flush=True)
         if code != 0:
             failed = True
+
+    if args.issue is not None:
+        try:
+            import cycle
+
+            cycle.record(
+                cycle.project_root(KIT_ROOT),
+                cycle.make_row(
+                    args.issue,
+                    "gate",
+                    actor="gate",
+                    reason=f"{args.checkpoint or '-'} exit={1 if failed else 0}",
+                ),
+            )
+        except Exception:
+            pass
     return 1 if failed else 0
 
 
