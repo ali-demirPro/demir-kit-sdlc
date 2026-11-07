@@ -1,0 +1,11 @@
+# Haftalık filo denetimi — varsayılan kapalı.
+name: "demir-kit weekly audit"
+trigger: "0 8 * * 1"
+timezone: "Europe/Istanbul"
+prompt: >-
+  `audit.py --projects ~/Projects --days 7 --recommend` çalıştır ve çıktıyı kısa
+  bir Türkçe özetle epic panosuna yaz. Yalnız okuma yap; dosya silme, kod
+  değiştirme, issue kapatma yok.
+provider: "opencode2"
+precheck: "python3 demir-kit/delivery/scripts/audit.py --days 1 --json"
+reuse_session: false
