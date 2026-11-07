@@ -19,3 +19,7 @@ products:
 tracker:
   provider: github
   repo: ali-demirPro/demir-kit-sdlc
+
+resources:
+  heavy_workers: 2
+  simulators: 1

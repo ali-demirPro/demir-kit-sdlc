@@ -21,6 +21,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPTS = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPTS))
+import budget  # noqa: E402
 import resources  # noqa: E402
 import worker_reaper  # noqa: E402
 import routing  # noqa: E402
@@ -291,7 +292,9 @@ def normalize_dep(value: str) -> str:
     return value[5:] if value.startswith("task:") else value
 
 
-def topological_waves(tasks: list[dict]) -> list[list[str]]:
+def topological_waves(
+    tasks: list[dict], max_parallel: int | None = None
+) -> list[list[str]]:
     ids = [task["id"] for task in tasks]
     if len(ids) != len(set(ids)):
         raise ValueError("duplicate task id")
@@ -311,16 +314,20 @@ def topological_waves(tasks: list[dict]) -> list[list[str]]:
         if not ready_ids:
             raise ValueError("dependency cycle")
         ready = [task_id for task_id in ids if task_id in ready_ids]
-        waves.append(ready)
+        size = max_parallel if max_parallel and max_parallel > 0 else len(ready)
+        for start in range(0, len(ready), max(size, 1)):
+            waves.append(ready[start : start + size])
         for task_id in ready:
             done.add(task_id)
             del deps[task_id]
     return waves
 
 
-def execute_dag(plan: dict, args) -> dict:
+def execute_dag(plan: dict, args, max_parallel: int | None = None) -> dict:
     tasks = plan.get("tasks") or []
-    waves = topological_waves(tasks)
+    if max_parallel is None:
+        max_parallel = budget.load(PROJECT)["heavy_workers"]
+    waves = topological_waves(tasks, max_parallel=max_parallel)
     by_id = {task["id"]: task for task in tasks}
 
     if args.dry_run:
@@ -546,10 +553,20 @@ def resolve_worktree(plan: dict, args) -> dict | None:
     return record
 
 
-def execute_wave(plan: dict, args) -> dict:
+def execute_wave(plan: dict, args, max_parallel: int | None = None) -> dict:
+    if max_parallel is None:
+        max_parallel = budget.load(PROJECT)["heavy_workers"]
     tasks = ready_tasks(plan)
     if not tasks:
         sys.exit("orca_wave: no ready tasks (all depend on something)")
+    pending: list[str] = []
+    if max_parallel and max_parallel > 0 and len(tasks) > max_parallel:
+        pending = [str(task["id"]) for task in tasks[max_parallel:]]
+        print(
+            f"orca_wave: bütçe {max_parallel}; {len(pending)} iş pending",
+            file=sys.stderr,
+        )
+        tasks = tasks[:max_parallel]
 
     if args.dry_run:
         commands = [
@@ -566,6 +583,7 @@ def execute_wave(plan: dict, args) -> dict:
             "dry_run": True,
             "run_id": None,
             "tasks": [{"id": task["id"]} for task in tasks],
+            "pending": pending,
             "done": [],
             "missing": [],
             "attention": [],
@@ -729,7 +747,9 @@ def main() -> int:
 
     plan = load_plan(args)
     worktree = resolve_worktree(plan, args)
+    limits = budget.load(PROJECT)
     summary = execute_dag(plan, args) if args.dag else execute_wave(plan, args)
+    summary["budget"] = limits
     if worktree is not None:
         summary["epic_worktree"] = {
             "name": worktree.get("name"),
