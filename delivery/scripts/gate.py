@@ -106,10 +106,25 @@ def _git_text(args: list[str], project: Path) -> str:
 
 def tree_state(project: Path) -> str:
     """HEAD + dirty diff + untracked list, hashed."""
+    names = [
+        name
+        for name in _git_text(
+            ["ls-files", "--others", "--exclude-standard"], project
+        ).splitlines()
+        if name.strip()
+    ]
+    untracked = []
+    for name in names:
+        path = project / name
+        try:
+            data = path.read_bytes()[:200_000]
+        except OSError:
+            data = b""
+        untracked.append(name + "\0" + hashlib.sha256(data).hexdigest())
     payload = [
         _git_text(["rev-parse", "HEAD"], project),
         _git_text(["diff", "--binary", "HEAD"], project),
-        _git_text(["ls-files", "--others", "--exclude-standard"], project),
+        "\n".join(untracked),
     ]
     return hashlib.sha256("\0".join(payload).encode("utf-8")).hexdigest()
 
@@ -143,10 +158,17 @@ def save_cache(project: Path, data: dict) -> None:
     path.write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
 
 
-def cache_key(project: Path, steps: list[str], checkpoint: str) -> str:
+def cache_key(
+    project: Path, steps: list[str], checkpoint: str, issue: int | None = None
+) -> str:
     payload = json.dumps(
-        {"tree": tree_state(project), "steps": steps, "checkpoint": checkpoint,
-         "version": tool_version()},
+        {
+            "tree": tree_state(project),
+            "steps": steps,
+            "checkpoint": checkpoint,
+            "issue": issue,
+            "version": tool_version(),
+        },
         sort_keys=True,
     )
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
@@ -157,8 +179,13 @@ def cache_lookup(project: Path, key: str, now: float | None = None) -> dict | No
     entry = data.get(key)
     if not isinstance(entry, dict):
         return None
-    now = now or time.time()
-    if now - float(entry.get("ts") or 0) > CACHE_TTL:
+    if now is None:
+        now = time.time()
+    try:
+        stamp = float(entry.get("ts") or 0)
+    except (TypeError, ValueError):
+        return None
+    if now - stamp > CACHE_TTL:
         return None
     return entry
 
@@ -270,7 +297,7 @@ def main(argv: list[str] | None = None) -> int:
 
     key = None
     if args.cached and not args.no_cache:
-        key = cache_key(project, steps, args.checkpoint)
+        key = cache_key(project, steps, args.checkpoint, args.issue)
         hit = cache_lookup(project, key)
         if hit is not None:
             print(f"[gate] cache hit {key[:12]} (exit {hit['code']})", flush=True)
@@ -290,6 +317,9 @@ def main(argv: list[str] | None = None) -> int:
         print(f"[gate] {step} exit {code}", flush=True)
         if code != 0:
             failed = True
+
+    if key is not None:
+        cache_store(project, key, 1 if failed else 0, "")
     return 1 if failed else 0
 
 
