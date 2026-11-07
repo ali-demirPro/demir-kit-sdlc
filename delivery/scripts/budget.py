@@ -12,7 +12,7 @@ from pathlib import Path
 
 import yaml
 
-KEYS = ("heavy_workers", "simulators")
+KEYS = ("heavy_workers", "simulators", "reviewers")
 
 
 def load(project: Path) -> dict:
@@ -31,6 +31,10 @@ def load(project: Path) -> dict:
         return limits
     for key in KEYS:
         value = values.get(key)
+        if isinstance(value, bool):
+            continue
+        if isinstance(value, float) and value.is_integer():
+            value = int(value)
         if isinstance(value, int) and value > 0:
             limits[key] = value
     return limits

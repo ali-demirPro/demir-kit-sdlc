@@ -15,6 +15,7 @@ import yaml
 
 SCRIPTS = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPTS))
+import budget  # noqa: E402
 import epic_worktree  # noqa: E402
 import resources  # noqa: E402
 import process_gate  # noqa: E402
@@ -228,6 +229,13 @@ def prepare_worktree(number: int, epic: int | None) -> int:
         print(
             "[worktree] degrade: Orca yok. Guard öncesi "
             f"`guard.sh --issue {number} --degrade --reason \"...\"` ile kaydet.",
+            file=sys.stderr,
+        )
+    limits = budget.load(epic_worktree.project_root())
+    if limits["heavy_workers"]:
+        print(
+            f"[budget] ağır iş {limits['heavy_workers']} · "
+            f"reviewer {limits['reviewers'] or 'sınırsız'}",
             file=sys.stderr,
         )
     print(f"[next] cd {path}", file=sys.stderr)
@@ -455,7 +463,15 @@ def main() -> int:
         )
 
     if args.json and not args.claim:
-        print(json.dumps(eligible, indent=2))
+        print(
+            json.dumps(
+                {
+                    "eligible": eligible,
+                    "budget": budget.load(epic_worktree.project_root()),
+                },
+                indent=2,
+            )
+        )
         return 0
 
     if args.list and not args.claim:
