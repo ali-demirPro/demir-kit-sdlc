@@ -69,12 +69,12 @@ def load_limits(project: Path) -> dict:
     return limits
 
 
-def _vm_stat() -> tuple[float, float]:
-    """(free+speculative MB, compressor MB) from vm_stat."""
+def _vm_stat() -> tuple[float, float, bool]:
+    """(free+speculative MB, compressor MB, measured) from vm_stat."""
     try:
         output = subprocess.check_output(["vm_stat"], text=True)
     except (OSError, subprocess.CalledProcessError):
-        return (0.0, 0.0)
+        return (0.0, 0.0, False)
     page = 4096
     for line in output.splitlines()[:2]:
         if "page size of" in line:
@@ -91,7 +91,7 @@ def _vm_stat() -> tuple[float, float]:
             values[key.strip()] = int(digits)
     free = values.get("Pages free", 0) + values.get("Pages speculative", 0)
     compressor = values.get("Pages occupied by compressor", 0)
-    return (free * page / 1024 / 1024, compressor * page / 1024 / 1024)
+    return (free * page / 1024 / 1024, compressor * page / 1024 / 1024, bool(values))
 
 
 def _booted_simulators() -> int:
@@ -117,7 +117,7 @@ def _heavy_workers() -> int:
 
 
 def measure() -> dict:
-    free_mb, compressor_mb = _vm_stat()
+    free_mb, compressor_mb, measured = _vm_stat()
     try:
         load1 = float(os.getloadavg()[0])
     except (OSError, AttributeError):
@@ -129,11 +129,12 @@ def measure() -> dict:
         "cpus": os.cpu_count() or 1,
         "booted_simulators": _booted_simulators(),
         "heavy_workers": _heavy_workers(),
+        "vm_measured": measured,
     }
 
 
 def evaluate(metrics: dict, limits: dict | None = None) -> dict:
-    limits = dict(limits or DEFAULTS)
+    limits = {**DEFAULTS, **(limits or {})}
     reasons: list[str] = []
     state = 0
 
@@ -148,7 +149,9 @@ def evaluate(metrics: dict, limits: dict | None = None) -> dict:
         reasons.append(reason)
 
     free = metrics.get("free_ram_mb") or 0
-    if free < limits["free_ram_block_mb"]:
+    if metrics.get("vm_measured") is False:
+        block("RAM ölçülemedi (vm_stat) — güvenli tarafta kal")
+    elif free < limits["free_ram_block_mb"]:
         block(f"RAM neredeyse dolu ({int(free)} MB boş) — worker başlatma")
     elif free < limits["free_ram_warn_mb"]:
         warn(f"RAM daralıyor ({int(free)} MB boş)")
@@ -207,8 +210,7 @@ def blocked(project: Path | None = None) -> str | None:
     return "; ".join(result["reasons"]) if result["state"] == 3 else None
 
 
-def report(project: Path | None = None) -> str:
-    result = check(project)
+def report(result: dict) -> str:
     metrics = result["metrics"]
     head = {
         0: "Makine hazır",
@@ -240,12 +242,14 @@ def main() -> int:
     if args.metrics:
         result = evaluate(json.loads(args.metrics), load_limits(project))
     else:
-        result = check(project, log=not args.no_log)
+        result = evaluate(measure(), load_limits(project))
+    if not args.no_log:
+        record(project, result)
 
     if args.json:
         print(json.dumps(result, ensure_ascii=False, indent=2))
     elif args.report:
-        print(report(project))
+        print(report(result))
     elif result["reasons"]:
         print("; ".join(result["reasons"]))
     return result["state"]
