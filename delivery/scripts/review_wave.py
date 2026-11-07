@@ -25,6 +25,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import closure  # noqa: E402
 import model_policy  # noqa: E402
 import review_packet  # noqa: E402
+import resources  # noqa: E402
 import routing  # noqa: E402
 import usage  # noqa: E402
 import worker_cleanup  # noqa: E402
@@ -311,6 +312,10 @@ def main() -> int:
     if not run_id:
         raise SystemExit("review_wave: Orca run bulunamadı (--run ver)")
     worktree = str(routing.project_root(ROOT))
+    reason = resources.blocked(routing.project_root(ROOT))
+    if reason:
+        print(f"review_wave: makine bloke — {reason}", file=sys.stderr)
+        return 3
 
     model = model_policy.role_launch(
         routing.project_root(ROOT), "reviewer"
