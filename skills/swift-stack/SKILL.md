@@ -12,6 +12,20 @@ description: >-
 macOS tarafında kod yazarken en sık kırılan beş yer. Her biri kısa kural ve
 kanıt ile gelir.
 
+## Paylaşılan derleme önbelleği
+
+Her worktree kendi `DerivedData` yolunu üretir; paralel worker'lar sıfırdan
+derler. `xcodebuild` komutuna paylaşılan yolu ekle:
+
+```bash
+xcodebuild test \
+  -derivedDataPath "$HOME/Library/Developer/Xcode/DerivedData/<proje>-shared" \
+  -clonedSourcePackagesDirPath "$HOME/Library/Developer/Xcode/DerivedData/<proje>-shared/SourcePackages"
+```
+
+`<proje>` = `.xcodeproj`/`.xcworkspace` adı. `detect.py` ürettiği behavior
+komutuna bu iki parametreyi koyar; elle yazılan kapılarda da aynı yol kullanılır.
+
 ## 1 — Eşzamanlılık
 
 - Projede default MainActor izolasyonu açıksa koru; değilse UI tiplerini açıkça
