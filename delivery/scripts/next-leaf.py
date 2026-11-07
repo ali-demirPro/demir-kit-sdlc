@@ -494,11 +494,7 @@ def main() -> int:
         if args.json:
             print(
                 json.dumps(
-                    {
-                        "eligible": [],
-                        "skipped": skipped,
-                        "budget": budget.load(root),
-                    },
+                    {"eligible": [], "skipped": skipped},
                     indent=2,
                 )
             )
@@ -517,11 +513,7 @@ def main() -> int:
     if args.json and not args.claim:
         print(
             json.dumps(
-                {
-                    "eligible": eligible,
-                    "skipped": skipped,
-                    "budget": budget.load(root),
-                },
+                {"eligible": eligible, "skipped": skipped},
                 indent=2,
             )
         )

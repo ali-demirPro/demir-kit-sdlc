@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased — 2026-11-08
+
+- **Epic içi paralel leaf** — `next-leaf.py` aynı epic'te dosya kesişimi
+  olmayan iki leaf'i aynı anda verebilir (`--max-parallel`, varsayılan 2).
+  Kesişen leaf bekler ve gerekçe tek satır yazılır; `--list --json` çıktısı
+  `{eligible, skipped}` sözlüğüne döndü.
+
 ## 2.59.4 — 2026-11-05
 
 - **Kalıcı plugin odağı** — terminal → workspace eşlemesi artık

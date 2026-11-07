@@ -120,6 +120,24 @@ class MainTests(unittest.TestCase):
         self.assertIn("#1", out.getvalue())
         self.assertIn("#2", out.getvalue())
 
+    def test_json_shape_has_eligible_and_skipped(self) -> None:
+        issues = [issue(1, paths=["a.py"]), issue(2, paths=["a.py"])]
+        out = io.StringIO()
+        with mock.patch.object(
+            next_leaf, "gh", side_effect=[json.dumps(issues), json.dumps(issues)]
+        ), mock.patch.object(
+            next_leaf.process_gate, "dirty_sources", return_value=[]
+        ), mock.patch.object(
+            next_leaf.epic_worktree, "project_root", return_value=ROOT
+        ), mock.patch.object(sys, "argv", ["next-leaf.py", "--list", "--json"]), \
+             contextlib.redirect_stdout(out):
+            code = next_leaf.main()
+        self.assertEqual(code, 0)
+        payload = json.loads(out.getvalue())
+        self.assertEqual([item["number"] for item in payload["eligible"]], [1])
+        self.assertEqual(payload["skipped"][0]["number"], 2)
+        self.assertIn("dosya kesişimi", payload["skipped"][0]["reason"])
+
     def test_main_reports_the_skip_reason(self) -> None:
         issues = [
             issue(1, paths=["a.py"]),
