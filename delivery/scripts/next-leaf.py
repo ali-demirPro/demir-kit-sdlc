@@ -232,9 +232,9 @@ def prepare_worktree(number: int, epic: int | None) -> int:
             file=sys.stderr,
         )
     limits = budget.load(epic_worktree.project_root())
-    if limits["heavy_workers"]:
+    if any(limits.values()):
         print(
-            f"[budget] ağır iş {limits['heavy_workers']} · "
+            f"[budget] ağır iş {limits['heavy_workers'] or 'sınırsız'} · "
             f"reviewer {limits['reviewers'] or 'sınırsız'}",
             file=sys.stderr,
         )
@@ -451,7 +451,12 @@ def main() -> int:
             )
             return 1
         if args.json:
-            print("[]")
+            print(
+                json.dumps(
+                    {"eligible": [], "budget": budget.load(epic_worktree.project_root())},
+                    indent=2,
+                )
+            )
         else:
             print("no work")
         return 0

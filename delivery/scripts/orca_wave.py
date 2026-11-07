@@ -498,6 +498,7 @@ def execute_dag(plan: dict, args, max_parallel: int | None = None) -> dict:
     summary = {
         "dry_run": False,
         "run_id": run_id,
+        "pending": [],
         "tasks": receipts,
         "waves": wave_results,
         "done": sorted(done),
@@ -705,6 +706,7 @@ def execute_wave(plan: dict, args, max_parallel: int | None = None) -> dict:
     summary = {
         "dry_run": False,
         "run_id": run_id,
+        "pending": pending,
         "tasks": receipts,
         "done": sorted(done),
         "missing": sorted(expected - set(done)),

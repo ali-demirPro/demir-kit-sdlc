@@ -285,7 +285,11 @@ def main() -> int:
     )
     limits = budget.load(routing.project_root(ROOT))
     if limits.get("reviewers") and len(names) > int(limits["reviewers"]):
-        names = names[: int(limits["reviewers"])]
+        print(
+            "review_wave: uyarı — reviewers bütçesi kalite kapısının altında; "
+            "gerekli reviewer sayısı korunuyor",
+            file=sys.stderr,
+        )
     specs = {name: reviewer_spec(name, packet, args.issue, args.cp) for name in names}
     plan = {
         "issue": args.issue,
