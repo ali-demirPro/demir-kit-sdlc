@@ -347,7 +347,7 @@ def select_eligible(
     open_issues: list[dict],
     all_issues: list[dict],
     max_parallel: int = DEFAULT_MAX_PARALLEL,
-) -> list[dict]:
+) -> tuple[list[dict], list[dict]]:
     done: set[int] = set()
     for item in all_issues:
         labels = {label["name"] for label in item.get("labels", [])}
@@ -365,6 +365,7 @@ def select_eligible(
             active.setdefault(int(epic), []).append(seal)
 
     eligible: list[dict] = []
+    skipped: list[dict] = []
     for issue in open_issues:
         labels = {label["name"] for label in issue["labels"]}
         if "agent-approved" not in labels or labels & SKIP_LABELS:
@@ -378,13 +379,28 @@ def select_eligible(
             if isinstance(dep, dict) and dep.get("kind", "blocks") == "blocks"
         ]
         if any(dep.get("issue") not in done for dep in deps):
+            skipped.append({"number": issue["number"], "reason": "bağımlılık bekliyor"})
             continue
         epic = seal.get("epic")
         if epic:
             running = active.get(int(epic), [])
             if len(running) >= max_parallel:
+                skipped.append(
+                    {"number": issue["number"], "reason": f"epic bütçesi dolu ({max_parallel})"}
+                )
                 continue
             if conflicts(seal, running):
+                shared = sorted(
+                    mine
+                    for mine in seal_paths(seal)
+                    if any(mine in seal_paths(other) for other in running)
+                )
+                skipped.append(
+                    {
+                        "number": issue["number"],
+                        "reason": "dosya kesişimi: " + ", ".join(shared),
+                    }
+                )
                 continue
         eligible.append(
             {
@@ -398,7 +414,7 @@ def select_eligible(
         if epic:
             active.setdefault(int(epic), []).append(seal)
     eligible.sort(key=lambda item: item["createdAt"])
-    return eligible
+    return eligible, skipped
 
 
 def main() -> int:
@@ -417,6 +433,8 @@ def main() -> int:
     parser.add_argument("--reason", default="stale claim", help="release reason")
     parser.add_argument("--json", action="store_true", help="machine output")
     args = parser.parse_args()
+    if args.max_parallel < 1:
+        parser.error("--max-parallel en az 1 olmalı")
 
     if args.release:
         if not args.issue:
@@ -451,49 +469,7 @@ def main() -> int:
             ]
         )
     )
-    done: set[int] = set()
-    for item in all_issues:
-        labels = {label["name"] for label in item.get("labels", [])}
-        if item["state"] == "CLOSED" or labels & {"leaf-done", "epic-done", "deferred"}:
-            done.add(item["number"])
-
-    executing_epics: set[int] = set()
-    for issue in open_issues:
-        labels = {label["name"] for label in issue["labels"]}
-        if "executing" in labels:
-            seal = parse_seal(issue.get("body", ""))
-            if seal.get("epic"):
-                executing_epics.add(seal["epic"])
-
-    eligible = []
-    for issue in open_issues:
-        labels = {label["name"] for label in issue["labels"]}
-        if "agent-approved" not in labels or labels & SKIP_LABELS:
-            continue
-        seal = parse_seal(issue.get("body", ""))
-        if not seal:
-            continue
-        deps = [
-            dep
-            for dep in seal.get("dependencies") or []
-            if isinstance(dep, dict) and dep.get("kind", "blocks") == "blocks"
-        ]
-        if any(dep.get("issue") not in done for dep in deps):
-            continue
-        epic = seal.get("epic")
-        if epic and epic in executing_epics:
-            continue
-        eligible.append(
-            {
-                "number": issue["number"],
-                "title": issue["title"],
-                "epic": epic,
-                "risk": (seal.get("risk") or {}).get("level", "low"),
-                "createdAt": issue["createdAt"],
-            }
-        )
-
-    eligible.sort(key=lambda item: item["createdAt"])
+    eligible, skipped = select_eligible(open_issues, all_issues, args.max_parallel)
     root = epic_worktree.project_root()
     try:
         dirty = process_gate.dirty_sources(root)
@@ -516,9 +492,20 @@ def main() -> int:
             )
             return 1
         if args.json:
-            print("[]")
+            print(
+                json.dumps(
+                    {
+                        "eligible": [],
+                        "skipped": skipped,
+                        "budget": budget.load(root),
+                    },
+                    indent=2,
+                )
+            )
         else:
             print("no work")
+            for item in skipped:
+                print(f"  - #{item['number']}: {item['reason']}", file=sys.stderr)
         return 0
     if dirty:
         print(
@@ -528,12 +515,23 @@ def main() -> int:
         )
 
     if args.json and not args.claim:
-        print(json.dumps(eligible, indent=2))
+        print(
+            json.dumps(
+                {
+                    "eligible": eligible,
+                    "skipped": skipped,
+                    "budget": budget.load(root),
+                },
+                indent=2,
+            )
+        )
         return 0
 
     if args.list and not args.claim:
         for item in eligible:
             print(f"#{item['number']}  {item['title']}  [{item['risk']}]")
+        for item in skipped:
+            print(f"  - #{item['number']}: {item['reason']}", file=sys.stderr)
         return 0
 
     if args.claim:

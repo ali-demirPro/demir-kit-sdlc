@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import contextlib
 import importlib.util
+import io
+import json
 import sys
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import yaml
 
@@ -51,7 +55,7 @@ class SelectTests(unittest.TestCase):
             issue(1, paths=["delivery/scripts/a.py"]),
             issue(2, paths=["delivery/scripts/b.py"]),
         ]
-        eligible = next_leaf.select_eligible(issues, issues)
+        eligible, _ = next_leaf.select_eligible(issues, issues)
         self.assertEqual([item["number"] for item in eligible], [1, 2])
 
     def test_same_file_waits(self) -> None:
@@ -59,7 +63,7 @@ class SelectTests(unittest.TestCase):
             issue(1, paths=["delivery/scripts/a.py"]),
             issue(2, paths=["delivery/scripts/a.py"]),
         ]
-        eligible = next_leaf.select_eligible(issues, issues)
+        eligible, _ = next_leaf.select_eligible(issues, issues)
         self.assertEqual([item["number"] for item in eligible], [1])
 
     def test_max_parallel_one_keeps_the_old_behaviour(self) -> None:
@@ -67,7 +71,7 @@ class SelectTests(unittest.TestCase):
             issue(1, paths=["a.py"]),
             issue(2, paths=["b.py"]),
         ]
-        eligible = next_leaf.select_eligible(issues, issues, max_parallel=1)
+        eligible, _ = next_leaf.select_eligible(issues, issues, max_parallel=1)
         self.assertEqual([item["number"] for item in eligible], [1])
 
     def test_running_leaves_fill_the_budget(self) -> None:
@@ -76,7 +80,7 @@ class SelectTests(unittest.TestCase):
             issue(2, labels=("agent-approved", "executing"), paths=["b.py"]),
             issue(3, paths=["c.py"]),
         ]
-        eligible = next_leaf.select_eligible(issues, issues, max_parallel=2)
+        eligible, _ = next_leaf.select_eligible(issues, issues, max_parallel=2)
         self.assertEqual(eligible, [])
 
     def test_running_leaf_blocks_same_surface(self) -> None:
@@ -85,15 +89,54 @@ class SelectTests(unittest.TestCase):
             issue(2, paths=["a.py"]),
             issue(3, paths=["c.py"]),
         ]
-        eligible = next_leaf.select_eligible(issues, issues, max_parallel=2)
+        eligible, _ = next_leaf.select_eligible(issues, issues, max_parallel=2)
         self.assertEqual([item["number"] for item in eligible], [3])
 
     def test_dependency_blocks_until_done(self) -> None:
         issues = [issue(2, paths=["b.py"], deps=[1])]
-        self.assertEqual(next_leaf.select_eligible(issues, issues), [])
+        self.assertEqual(next_leaf.select_eligible(issues, issues)[0], [])
         closed = [dict(issue(1, paths=["a.py"]), state="CLOSED")]
-        eligible = next_leaf.select_eligible(issues, closed + issues)
+        eligible, _ = next_leaf.select_eligible(issues, closed + issues)
         self.assertEqual([item["number"] for item in eligible], [2])
+
+
+class MainTests(unittest.TestCase):
+    def test_main_lists_two_parallel_leaves(self) -> None:
+        issues = [
+            issue(1, paths=["delivery/scripts/a.py"]),
+            issue(2, paths=["delivery/scripts/b.py"]),
+        ]
+        out, err = io.StringIO(), io.StringIO()
+        with mock.patch.object(
+            next_leaf, "gh", side_effect=[json.dumps(issues), json.dumps(issues)]
+        ), mock.patch.object(
+            next_leaf.process_gate, "dirty_sources", return_value=[]
+        ), mock.patch.object(
+            next_leaf.epic_worktree, "project_root", return_value=ROOT
+        ), mock.patch.object(sys, "argv", ["next-leaf.py", "--list"]), \
+             contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = next_leaf.main()
+        self.assertEqual(code, 0)
+        self.assertIn("#1", out.getvalue())
+        self.assertIn("#2", out.getvalue())
+
+    def test_main_reports_the_skip_reason(self) -> None:
+        issues = [
+            issue(1, paths=["a.py"]),
+            issue(2, paths=["a.py"]),
+        ]
+        out, err = io.StringIO(), io.StringIO()
+        with mock.patch.object(
+            next_leaf, "gh", side_effect=[json.dumps(issues), json.dumps(issues)]
+        ), mock.patch.object(
+            next_leaf.process_gate, "dirty_sources", return_value=[]
+        ), mock.patch.object(
+            next_leaf.epic_worktree, "project_root", return_value=ROOT
+        ), mock.patch.object(sys, "argv", ["next-leaf.py", "--list"]), \
+             contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = next_leaf.main()
+        self.assertEqual(code, 0)
+        self.assertIn("dosya kesişimi", err.getvalue())
 
 
 if __name__ == "__main__":
