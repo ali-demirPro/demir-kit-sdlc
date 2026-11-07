@@ -177,17 +177,24 @@ def phases(rows: list[dict]) -> list[dict]:
 
 
 def review_minutes(rows: list[dict]) -> int:
-    """Time between a review start and the next recorded event (subset of exec)."""
+    """Review tail: last review before leaf-done, never the gap between rounds.
+
+    A multi-checkpoint leaf records one review row per checkpoint; summing every
+    review row would count the next checkpoint's implementation as review time.
+    """
     ordered = sorted(rows, key=lambda item: str(item.get("ts")))
-    total = 0
-    for index, row in enumerate(ordered[:-1]):
-        if row.get("stage") != "review":
-            continue
-        begin = parse_ts(row.get("ts"))
-        end = parse_ts(ordered[index + 1].get("ts"))
-        if begin and end and end > begin:
-            total += int((end - begin).total_seconds() // 60)
-    return total
+    done = _first(ordered, "leaf-done")
+    if not done:
+        return 0
+    last = None
+    for row in ordered:
+        if row.get("stage") == "review":
+            stamp = parse_ts(row.get("ts"))
+            if stamp and stamp < done:
+                last = stamp
+    if not last:
+        return 0
+    return max(0, int((done - last).total_seconds() // 60))
 
 
 def summary(rows: list[dict]) -> dict:
@@ -227,7 +234,17 @@ def section(
         for item in data["phases"]
     ]
     if data["review_minutes"]:
-        parts[-1] += f" · review {data['review_minutes']} dk (exec içinde)"
+        share = (
+            round(100 * data["review_minutes"] / data["total_minutes"])
+            if data["total_minutes"]
+            else 0
+        )
+        note = f"review {data['review_minutes']} dk (%{share}, exec içinde)"
+        exec_parts = [part for part in parts if part.startswith("executing→")]
+        if exec_parts:
+            parts[parts.index(exec_parts[0])] += f" · {note}"
+        else:
+            parts.append(note)
     suffix = ""
     if tokens:
         suffix += f" · {int(tokens):,} token"

@@ -7,7 +7,6 @@ import json
 import os
 import sys
 import tempfile
-import tempfile
 import unittest
 from pathlib import Path
 
@@ -130,6 +129,22 @@ class ReportCycleTests(unittest.TestCase):
             cycle_text="**Döngü:** #216 seal→executing 10 dk (%10)",
         )
         self.assertIn("#216 seal→executing 10 dk (%10)", text)
+
+    def test_report_reads_two_issues_from_one_log(self) -> None:
+        spec_r = importlib.util.spec_from_file_location("report2", SCRIPTS / "report.py")
+        report = importlib.util.module_from_spec(spec_r)
+        assert spec_r.loader is not None
+        spec_r.loader.exec_module(report)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            cycle.record(root, cycle.make_row(1, "executing", ts="2026-11-07T10:00:00+00:00"))
+            cycle.record(root, cycle.make_row(1, "leaf-done", ts="2026-11-07T10:20:00+00:00"))
+            cycle.record(root, cycle.make_row(2, "executing", ts="2026-11-07T10:00:00+00:00"))
+            cycle.record(root, cycle.make_row(2, "leaf-done", ts="2026-11-07T11:40:00+00:00"))
+            lines = report.cycle_lines([1, 2], root)
+        self.assertEqual(len(lines), 2)
+        self.assertIn("20 dk", lines[0])
+        self.assertIn("100 dk", lines[1])
 
     def test_two_leaves_closed_in_the_same_minute_keep_their_own_durations(self) -> None:
         fast = [

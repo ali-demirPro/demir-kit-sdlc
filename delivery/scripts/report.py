@@ -381,6 +381,16 @@ def collect_orca(epic: int) -> dict:
     return data
 
 
+def cycle_lines(numbers: list[int], root: Path) -> list[str]:
+    """One cycle line per issue that has log rows."""
+    lines = []
+    for number in numbers:
+        rows = cycle.read(root, number)
+        if rows:
+            lines.append(cycle.section(rows, f"#{number}"))
+    return lines
+
+
 def build_report(
     issue: dict,
     children: list[dict],
@@ -604,12 +614,9 @@ def main() -> int:
     orca_data = collect_orca(epic_for_orca)
     if args.sessions:
         orca_data["sessions"] = collect_sessions(f"#{args.issue}")
-    cycle_parts = []
-    for number in [args.issue] + [item["number"] for item in children]:
-        rows = cycle.read(CYCLE_ROOT, number)
-        if not rows:
-            continue
-        cycle_parts.append(cycle.section(rows, f"#{number}"))
+    cycle_parts = cycle_lines(
+        [args.issue] + [item["number"] for item in children], CYCLE_ROOT
+    )
     report = build_report(
         epic,
         children,
