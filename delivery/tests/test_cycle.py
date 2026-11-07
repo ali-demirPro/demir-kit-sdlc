@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import sys
+import tempfile
 import tempfile
 import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
+os.environ.setdefault("DEMIR_KIT_CYCLE_ROOT", tempfile.mkdtemp(prefix="kit-cycle-"))
 SCRIPTS = ROOT / "delivery" / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
@@ -69,15 +72,17 @@ class CycleLogTests(unittest.TestCase):
         self.assertEqual([phase["percent"] for phase in data["phases"]], [33, 67])
         self.assertEqual([phase["key"] for phase in data["phases"]], ["claim", "exec"])
 
-    def test_review_round_gets_its_own_bucket(self) -> None:
+    def test_review_time_is_a_subset_of_exec(self) -> None:
         rows = [
             cycle.make_row(216, "executing", ts="2026-11-07T10:00:00+00:00"),
             cycle.make_row(216, "review", ts="2026-11-07T10:30:00+00:00"),
             cycle.make_row(216, "leaf-done", ts="2026-11-07T10:50:00+00:00"),
         ]
         data = cycle.summary(rows)
-        self.assertEqual([phase["key"] for phase in data["phases"]], ["exec", "review"])
-        self.assertEqual([phase["minutes"] for phase in data["phases"]], [30, 20])
+        self.assertEqual([phase["key"] for phase in data["phases"]], ["exec"])
+        self.assertEqual(data["phases"][0]["minutes"], 50)
+        self.assertEqual(data["review_minutes"], 20)
+        self.assertIn("review 20 dk", cycle.section(rows, "#216"))
 
     def test_section_is_readable_and_empty_safe(self) -> None:
         self.assertIn("kayıt yok", cycle.section([]))

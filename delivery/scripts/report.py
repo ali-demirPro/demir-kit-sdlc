@@ -31,19 +31,6 @@ def gh(args: list[str]) -> str:
     return result.stdout
 
 
-def issue_totals(number: int) -> dict:
-    """Per-issue token/cost totals for the cycle line; empty when unavailable."""
-    try:
-        raw = subprocess.check_output(
-            [sys.executable, str(SCRIPTS / "usage.py"), "--issue", str(number), "--json"],
-            cwd=str(PROJECT),
-            text=True,
-        )
-        return (json.loads(raw) or {}).get("totals") or {}
-    except (subprocess.CalledProcessError, OSError, json.JSONDecodeError):
-        return {}
-
-
 def parse_time(value: str | None) -> datetime | None:
     if not value:
         return None
@@ -622,15 +609,7 @@ def main() -> int:
         rows = cycle.read(CYCLE_ROOT, number)
         if not rows:
             continue
-        totals = issue_totals(number)
-        cycle_parts.append(
-            cycle.section(
-                rows,
-                f"#{number}",
-                cost=totals.get("cost"),
-                tokens=int(totals.get("input") or 0) + int(totals.get("output") or 0),
-            )
-        )
+        cycle_parts.append(cycle.section(rows, f"#{number}"))
     report = build_report(
         epic,
         children,

@@ -13,6 +13,7 @@ written from the worktree but read after the worktree is gone, so
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
@@ -64,6 +65,9 @@ def git_root(cwd: Path | None = None) -> Path | None:
 
 def project_root(kit_root: Path, cwd: Path | None = None) -> Path:
     """Directory that owns ``.kit/``: the main checkout when it is a project."""
+    override = os.environ.get("DEMIR_KIT_CYCLE_ROOT")
+    if override:
+        return Path(override)
     root = git_root(cwd)
     if root and (root / "kit.config.yaml").is_file():
         return root
@@ -143,22 +147,18 @@ def _first(rows: list[dict], stage: str) -> datetime | None:
 
 
 def phases(rows: list[dict]) -> list[dict]:
-    """Named buckets: wait, claim, exec, review, close."""
+    """Named buckets: claim, exec, close. Review is measured separately."""
     ordered = sorted(rows, key=lambda item: str(item.get("ts")))
     if not ordered:
         return []
-    start = parse_ts(ordered[0].get("ts"))
     sealed = _first(ordered, "agent-approved")
     executing = _first(ordered, "executing")
-    review = _first(ordered, "review")
     done = _first(ordered, "leaf-done")
     closed = _first(ordered, "epic-done")
 
     anchors = [
-        ("wait", "başlangıç", "seal", start, sealed),
         ("claim", "seal", "executing", sealed, executing),
-        ("exec", "executing", "review" if review else "leaf-done", executing, review or done),
-        ("review", "review", "leaf-done", review, done),
+        ("exec", "executing", "leaf-done", executing, done),
         ("close", "leaf-done", "epic-done", done, closed),
     ]
     result: list[dict] = []
@@ -176,6 +176,20 @@ def phases(rows: list[dict]) -> list[dict]:
     return result
 
 
+def review_minutes(rows: list[dict]) -> int:
+    """Time between a review start and the next recorded event (subset of exec)."""
+    ordered = sorted(rows, key=lambda item: str(item.get("ts")))
+    total = 0
+    for index, row in enumerate(ordered[:-1]):
+        if row.get("stage") != "review":
+            continue
+        begin = parse_ts(row.get("ts"))
+        end = parse_ts(ordered[index + 1].get("ts"))
+        if begin and end and end > begin:
+            total += int((end - begin).total_seconds() // 60)
+    return total
+
+
 def summary(rows: list[dict]) -> dict:
     """Phase breakdown with percentages that add up to 100."""
     items = phases(rows)
@@ -189,7 +203,11 @@ def summary(rows: list[dict]) -> dict:
     else:
         for item in items:
             item["percent"] = 0
-    return {"total_minutes": total, "phases": items}
+    return {
+        "total_minutes": total,
+        "phases": items,
+        "review_minutes": review_minutes(rows),
+    }
 
 
 def section(
@@ -208,6 +226,8 @@ def section(
         f"{item['from']}→{item['to']} {item['minutes']} dk (%{item['percent']})"
         for item in data["phases"]
     ]
+    if data["review_minutes"]:
+        parts[-1] += f" · review {data['review_minutes']} dk (exec içinde)"
     suffix = ""
     if tokens:
         suffix += f" · {int(tokens):,} token"
