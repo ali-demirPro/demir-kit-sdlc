@@ -453,6 +453,8 @@ def main() -> int:
         "dry_run": args.dry_run,
     }
     if args.dry_run:
+        if args.to == "leaf-done":
+            print("reaper: dry-run")
         print(json.dumps(plan, ensure_ascii=False) if args.json else f"#{args.issue}: {state} -> {args.to} (dry-run)")
         return 0
 
@@ -479,6 +481,25 @@ def main() -> int:
         post_comment(args.issue, transition_comment)
         added, removed = apply_delta(args.issue, labels_of(issue), args.to)
         applied = {"add": added, "remove": removed}
+
+    if args.to == "leaf-done" and os.environ.get("DEMIR_KIT_REAPER", "on") != "off":
+        reaper = subprocess.run(
+            [
+                sys.executable,
+                str(SCRIPTS / "worker_reaper.py"),
+                "--apply",
+                "--json",
+                "--project",
+                str(Path.cwd()),
+            ],
+            capture_output=True,
+            text=True,
+        )
+        try:
+            released = json.loads(reaper.stdout).get("released", 0)
+        except (json.JSONDecodeError, AttributeError):
+            released = 0
+        print(f"reaper: {released} boşta worker kapatıldı")
 
     if not args.no_orca:
         seal = parse_seal(issue.get("body") or "")

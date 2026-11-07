@@ -22,6 +22,7 @@ ROOT = Path(__file__).resolve().parents[2]
 SCRIPTS = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPTS))
 import resources  # noqa: E402
+import worker_reaper  # noqa: E402
 import routing  # noqa: E402
 import epic_worktree  # noqa: E402
 
@@ -698,31 +699,6 @@ def execute_wave(plan: dict, args) -> dict:
     return summary
 
 
-def reap_idle(worktree) -> int:
-    """Close idle workers after a wave; never fails the wave."""
-    import os
-
-    if not worktree or os.environ.get("DEMIR_KIT_REAPER", "on") == "off":
-        return 0
-    try:
-        result = subprocess.run(
-            [
-                sys.executable,
-                str(Path(__file__).resolve().parent / "worker_reaper.py"),
-                "--apply",
-                "--json",
-                "--project",
-                str(worktree),
-            ],
-            capture_output=True,
-            text=True,
-            timeout=120,
-        )
-        return int(json.loads(result.stdout).get("released", 0))
-    except (subprocess.SubprocessError, OSError, json.JSONDecodeError, ValueError):
-        return 0
-
-
 def main() -> int:
     parser = argparse.ArgumentParser(description="independent Orca task wave")
     parser.add_argument("--issue", type=int)
@@ -787,7 +763,7 @@ def main() -> int:
                     + (result.stderr.strip() or result.stdout.strip())
                 )
 
-    reaped = reap_idle(worktree) if args.execute else 0
+    reaped = worker_reaper.reap_idle(worktree) if args.execute else 0
     if args.json:
         summary["reaped"] = reaped
         print(json.dumps(summary, ensure_ascii=False, indent=2))

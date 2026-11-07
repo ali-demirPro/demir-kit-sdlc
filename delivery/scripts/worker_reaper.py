@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -36,10 +37,29 @@ def parse_ts(value: str | None) -> datetime | None:
     return stamp if stamp.tzinfo else stamp.replace(tzinfo=timezone.utc)
 
 
+def git_root(path: Path) -> Path | None:
+    """Main checkout root, even from a linked worktree."""
+    try:
+        output = subprocess.check_output(
+            ["git", "rev-parse", "--path-format=absolute", "--git-common-dir"],
+            cwd=str(path),
+            text=True,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return None
+    common = Path(output.strip())
+    return common.parent if common.name == ".git" else common
+
+
 def runs(project: Path | None = None) -> list[str]:
     root = Path(project or Path.cwd())
+    roots = [root]
+    main = git_root(root)
+    if main and main not in roots:
+        roots.append(main)
     found: list[str] = []
-    for path in sorted((root / ".orchestration").glob("epic-*.json")):
+    for state_root in roots:
+      for path in sorted((state_root / ".orchestration").glob("epic-*.json")):
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
@@ -52,11 +72,28 @@ def runs(project: Path | None = None) -> list[str]:
 
 def _dispatch(dispatch_id: str) -> dict:
     try:
-        record = usage.dispatch_record(dispatch_id) or {}
+        record = usage.dispatch_record(dispatch_id, full=True) or {}
     except Exception:
         return {}
     dispatch = record.get("dispatch")
     return dispatch if isinstance(dispatch, dict) else {}
+
+
+def _activity(dispatch_id: str, dispatch: dict) -> datetime | None:
+    """Latest proof of work: heartbeat, session update, else nothing."""
+    stamps = [
+        parse_ts(dispatch.get("lastHeartbeatAt")),
+        parse_ts(dispatch.get("updatedAt")),
+    ]
+    session = usage.mapped_session(dispatch_id) or {}
+    updated = session.get("updated")
+    if isinstance(updated, (int, float)):
+        try:
+            stamps.append(datetime.fromtimestamp(updated / 1000, timezone.utc))
+        except (OverflowError, OSError, ValueError):
+            pass
+    stamps = [stamp for stamp in stamps if stamp]
+    return max(stamps) if stamps else None
 
 
 def plan_for(
@@ -71,9 +108,7 @@ def plan_for(
         if not dispatch_id:
             continue
         dispatch = _dispatch(dispatch_id)
-        heartbeat = parse_ts(dispatch.get("lastHeartbeatAt")) or parse_ts(
-            dispatch.get("dispatchedAt")
-        )
+        heartbeat = _activity(dispatch_id, dispatch)
         idle = int((now - heartbeat).total_seconds() // 60) if heartbeat else -1
 
         state = str(worker.get("workerState") or "")
@@ -115,6 +150,22 @@ def apply(rows: list[dict]) -> list[dict]:
     return rows
 
 
+def reap_idle(project: Path | str | None, apply_release: bool = True) -> int:
+    """Release idle workers for every known run; never raises."""
+    if not project:
+        return 0
+    try:
+        total = 0
+        for run_id in runs(Path(project)):
+            rows = plan_for(run_id)
+            if apply_release:
+                rows = apply(rows)
+            total += sum(1 for row in rows if row.get("released") or row.get("action") == "release")
+        return total
+    except Exception:
+        return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="release idle worker terminals")
     parser.add_argument("--run", action="append", default=[])
@@ -126,7 +177,11 @@ def main() -> int:
 
     targets = args.run or runs(Path(args.project))
     if not targets:
-        print("worker_reaper: Orca run bulunamadı", file=sys.stderr)
+        payload = {"runs": [], "idle_minutes": args.idle_minutes, "released": 0, "rows": []}
+        if args.json:
+            print(json.dumps(payload, ensure_ascii=False, indent=2))
+        else:
+            print("worker_reaper: Orca run bulunamadı")
         return 0
 
     rows: list[dict] = []

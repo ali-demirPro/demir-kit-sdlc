@@ -65,14 +65,25 @@ class PlanTests(unittest.TestCase):
             rows = reaper.plan_for("run_x", idle_minutes=15, now=NOW)
         self.assertEqual([row["action"] for row in rows], ["keep", "keep"])
 
-    def test_unknown_heartbeat_uses_dispatch_time(self) -> None:
+    def test_unknown_activity_keeps_the_worker(self) -> None:
         record = {"dispatch": dispatch(None)}
         record["dispatch"]["dispatchedAt"] = stamp(40)
         with mock.patch.object(reaper.usage, "run_workers", return_value=[worker("d1")]), \
-             mock.patch.object(reaper.usage, "dispatch_record", return_value=record):
+             mock.patch.object(reaper.usage, "dispatch_record", return_value=record), \
+             mock.patch.object(reaper.usage, "mapped_session", return_value=None):
             rows = reaper.plan_for("run_x", idle_minutes=15, now=NOW)
-        self.assertEqual(rows[0]["action"], "release")
-        self.assertEqual(rows[0]["idle_minutes"], 40)
+        self.assertEqual(rows[0]["action"], "keep")
+        self.assertIn("zaman", rows[0]["reason"])
+
+    def test_session_update_counts_as_activity(self) -> None:
+        record = {"dispatch": dispatch(None)}
+        session = {"id": "ses_x", "updated": int(NOW.timestamp() * 1000) - 5 * 60_000}
+        with mock.patch.object(reaper.usage, "run_workers", return_value=[worker("d1")]), \
+             mock.patch.object(reaper.usage, "dispatch_record", return_value=record), \
+             mock.patch.object(reaper.usage, "mapped_session", return_value=session):
+            rows = reaper.plan_for("run_x", idle_minutes=15, now=NOW)
+        self.assertEqual(rows[0]["action"], "keep")
+        self.assertEqual(rows[0]["idle_minutes"], 5)
 
 
 class RunDiscoveryTests(unittest.TestCase):
