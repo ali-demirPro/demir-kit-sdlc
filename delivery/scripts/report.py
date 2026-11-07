@@ -21,6 +21,7 @@ import cycle  # noqa: E402
 import routing  # noqa: E402
 
 PROJECT = routing.project_root(ROOT)
+CYCLE_ROOT = cycle.project_root(ROOT)
 
 
 def gh(args: list[str]) -> str:
@@ -28,6 +29,19 @@ def gh(args: list[str]) -> str:
     if result.returncode != 0:
         sys.exit(f"report: gh failed — {result.stderr.strip()}")
     return result.stdout
+
+
+def issue_totals(number: int) -> dict:
+    """Per-issue token/cost totals for the cycle line; empty when unavailable."""
+    try:
+        raw = subprocess.check_output(
+            [sys.executable, str(SCRIPTS / "usage.py"), "--issue", str(number), "--json"],
+            cwd=str(PROJECT),
+            text=True,
+        )
+        return (json.loads(raw) or {}).get("totals") or {}
+    except (subprocess.CalledProcessError, OSError, json.JSONDecodeError):
+        return {}
 
 
 def parse_time(value: str | None) -> datetime | None:
@@ -605,9 +619,18 @@ def main() -> int:
         orca_data["sessions"] = collect_sessions(f"#{args.issue}")
     cycle_parts = []
     for number in [args.issue] + [item["number"] for item in children]:
-        rows = cycle.read(PROJECT, number)
-        if rows:
-            cycle_parts.append(cycle.section(rows, f"#{number}"))
+        rows = cycle.read(CYCLE_ROOT, number)
+        if not rows:
+            continue
+        totals = issue_totals(number)
+        cycle_parts.append(
+            cycle.section(
+                rows,
+                f"#{number}",
+                cost=totals.get("cost"),
+                tokens=int(totals.get("input") or 0) + int(totals.get("output") or 0),
+            )
+        )
     report = build_report(
         epic,
         children,

@@ -16,7 +16,6 @@ import yaml
 import approvals
 import cycle
 import epic_worktree
-import routing
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPTS = Path(__file__).resolve().parent
@@ -481,7 +480,7 @@ def main() -> int:
     plan["cycle"] = row
     if args.dry_run:
         if args.write_cycle and not args.no_cycle:
-            cycle.record(routing.project_root(ROOT), row)
+            cycle.record(cycle.project_root(ROOT), row)
         print(
             json.dumps(plan, ensure_ascii=False)
             if args.json
@@ -514,7 +513,7 @@ def main() -> int:
         applied = {"add": added, "remove": removed}
 
     if not args.no_cycle:
-        cycle.record(routing.project_root(ROOT), row)
+        cycle.record(cycle.project_root(ROOT), row)
 
     if not args.no_orca:
         seal = parse_seal(issue.get("body") or "")

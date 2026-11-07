@@ -4,11 +4,16 @@
 One JSON line per transition in ``<project>/.kit/cycle.jsonl``. The log is the
 source of truth for durations: GitHub labels are applied in batches at close
 time, so they cannot report when work actually started.
+
+The log always lives in the main checkout, never in an epic worktree. Rows are
+written from the worktree but read after the worktree is gone, so
+:func:`project_root` resolves the git common dir instead of the current one.
 """
 
 from __future__ import annotations
 
 import json
+import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -18,6 +23,7 @@ STAGES = (
     "scope-confirmed",
     "agent-approved",
     "executing",
+    "review",
     "blocked",
     "deferred",
     "leaf-done",
@@ -37,6 +43,34 @@ def parse_ts(value: str | None) -> datetime | None:
         return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
     except ValueError:
         return None
+
+
+def git_root(cwd: Path | None = None) -> Path | None:
+    """Main checkout root, even when called from a linked worktree."""
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--path-format=absolute", "--git-common-dir"],
+            cwd=str(cwd or Path.cwd()),
+            capture_output=True,
+            text=True,
+        )
+    except OSError:
+        return None
+    if result.returncode != 0:
+        return None
+    common = Path(result.stdout.strip())
+    return common.parent if common.name == ".git" else common
+
+
+def project_root(kit_root: Path, cwd: Path | None = None) -> Path:
+    """Directory that owns ``.kit/``: the main checkout when it is a project."""
+    root = git_root(cwd)
+    if root and (root / "kit.config.yaml").is_file():
+        return root
+    current = Path(cwd or Path.cwd())
+    if (current / "kit.config.yaml").is_file():
+        return current
+    return Path(kit_root)
 
 
 def cycle_path(project: Path) -> Path:
@@ -90,43 +124,80 @@ def read(project: Path, issue: int | None = None) -> list[dict]:
             continue
         if not isinstance(row, dict) or not row.get("ts") or "issue" not in row:
             continue
-        if issue is not None and int(row.get("issue") or 0) != int(issue):
+        try:
+            number = int(row.get("issue"))
+        except (TypeError, ValueError):
+            continue
+        if issue is not None and number != int(issue):
             continue
         rows.append(row)
     rows.sort(key=lambda item: str(item.get("ts")))
     return rows
 
 
+def _first(rows: list[dict], stage: str) -> datetime | None:
+    for row in rows:
+        if row.get("stage") == stage:
+            return parse_ts(row.get("ts"))
+    return None
+
+
 def phases(rows: list[dict]) -> list[dict]:
-    """Minutes spent between consecutive stages."""
+    """Named buckets: wait, claim, exec, review, close."""
     ordered = sorted(rows, key=lambda item: str(item.get("ts")))
+    if not ordered:
+        return []
+    start = parse_ts(ordered[0].get("ts"))
+    sealed = _first(ordered, "agent-approved")
+    executing = _first(ordered, "executing")
+    review = _first(ordered, "review")
+    done = _first(ordered, "leaf-done")
+    closed = _first(ordered, "epic-done")
+
+    anchors = [
+        ("wait", "başlangıç", "seal", start, sealed),
+        ("claim", "seal", "executing", sealed, executing),
+        ("exec", "executing", "review" if review else "leaf-done", executing, review or done),
+        ("review", "review", "leaf-done", review, done),
+        ("close", "leaf-done", "epic-done", done, closed),
+    ]
     result: list[dict] = []
-    for previous, current in zip(ordered, ordered[1:]):
-        start = parse_ts(previous.get("ts"))
-        end = parse_ts(current.get("ts"))
-        if not start or not end:
+    for key, label_from, label_to, begin, end in anchors:
+        if not begin or not end or end <= begin:
             continue
-        minutes = max(0, int((end - start).total_seconds() // 60))
         result.append(
             {
-                "from": str(previous.get("stage") or "?"),
-                "to": str(current.get("stage") or "?"),
-                "minutes": minutes,
+                "key": key,
+                "from": label_from,
+                "to": label_to,
+                "minutes": max(0, int((end - begin).total_seconds() // 60)),
             }
         )
     return result
 
 
 def summary(rows: list[dict]) -> dict:
-    """Phase breakdown with percentages of the measured span."""
+    """Phase breakdown with percentages that add up to 100."""
     items = phases(rows)
     total = sum(item["minutes"] for item in items)
-    for item in items:
-        item["percent"] = round(100 * item["minutes"] / total) if total else 0
+    if total:
+        running = 0
+        for item in items[:-1]:
+            item["percent"] = round(100 * item["minutes"] / total)
+            running += item["percent"]
+        items[-1]["percent"] = max(0, 100 - running)
+    else:
+        for item in items:
+            item["percent"] = 0
     return {"total_minutes": total, "phases": items}
 
 
-def section(rows: list[dict], label: str = "Döngü") -> str:
+def section(
+    rows: list[dict],
+    label: str = "Döngü",
+    cost: float | None = None,
+    tokens: int | None = None,
+) -> str:
     """One Markdown line for the human report."""
     if not rows:
         return f"**{label}:** kayıt yok"
@@ -137,7 +208,12 @@ def section(rows: list[dict], label: str = "Döngü") -> str:
         f"{item['from']}→{item['to']} {item['minutes']} dk (%{item['percent']})"
         for item in data["phases"]
     ]
-    return f"**{label}:** toplam {data['total_minutes']} dk · " + " · ".join(parts)
+    suffix = ""
+    if tokens:
+        suffix += f" · {int(tokens):,} token"
+    if cost is not None:
+        suffix += f" · ${float(cost):.4f}"
+    return f"**{label}:** toplam {data['total_minutes']} dk · " + " · ".join(parts) + suffix
 
 
 def main() -> int:
