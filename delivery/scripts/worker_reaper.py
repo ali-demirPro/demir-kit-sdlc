@@ -78,14 +78,23 @@ def _record(dispatch_id: str) -> dict:
         return {}
 
 
-def _activity(record: dict) -> datetime | None:
-    """Latest proof of work: heartbeat or a live session update in the worktree."""
+def _activity(dispatch_id: str, record: dict) -> datetime | None:
+    """Latest proof of work: heartbeat or *this worker's* session update.
+
+    Only the mapped session counts; the coordinator and other workers share the
+    same epic worktree, so a directory-wide signal would keep every idle worker
+    looking active.
+    """
     dispatch = record.get("dispatch")
     dispatch = dispatch if isinstance(dispatch, dict) else {}
     stamps = [parse_ts(dispatch.get("lastHeartbeatAt"))]
+    mapped = usage.mapped_session(dispatch_id) or {}
+    session_id = str(mapped.get("id") or "")
     path = str(record.get("path") or "")
-    if path:
+    if session_id and path:
         for session in usage.sessions_in(path):
+            if str(session.get("id") or "") != session_id:
+                continue
             updated = session.get("updated")
             if isinstance(updated, (int, float)):
                 try:
@@ -108,7 +117,7 @@ def plan_for(
         if not dispatch_id:
             continue
         record = _record(dispatch_id)
-        heartbeat = _activity(record)
+        heartbeat = _activity(dispatch_id, record)
         idle = int((now - heartbeat).total_seconds() // 60) if heartbeat else -1
 
         state = str(worker.get("workerState") or "")

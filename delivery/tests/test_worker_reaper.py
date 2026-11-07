@@ -70,6 +70,7 @@ class PlanTests(unittest.TestCase):
         record["dispatch"]["dispatchedAt"] = stamp(40)
         with mock.patch.object(reaper.usage, "run_workers", return_value=[worker("d1")]), \
              mock.patch.object(reaper.usage, "dispatch_record", return_value=record), \
+             mock.patch.object(reaper.usage, "mapped_session", return_value=None), \
              mock.patch.object(reaper.usage, "sessions_in", return_value=[]):
             rows = reaper.plan_for("run_x", idle_minutes=15, now=NOW)
         self.assertEqual(rows[0]["action"], "keep")
@@ -80,10 +81,25 @@ class PlanTests(unittest.TestCase):
         session = {"id": "ses_x", "updated": int(NOW.timestamp() * 1000) - 5 * 60_000}
         with mock.patch.object(reaper.usage, "run_workers", return_value=[worker("d1")]), \
              mock.patch.object(reaper.usage, "dispatch_record", return_value=record), \
+             mock.patch.object(reaper.usage, "mapped_session", return_value={"id": "ses_x"}), \
              mock.patch.object(reaper.usage, "sessions_in", return_value=[session]):
             rows = reaper.plan_for("run_x", idle_minutes=15, now=NOW)
         self.assertEqual(rows[0]["action"], "keep")
         self.assertEqual(rows[0]["idle_minutes"], 5)
+
+    def test_other_sessions_in_the_same_worktree_do_not_count(self) -> None:
+        record = {"dispatch": dispatch(None), "path": "/tmp/worktree"}
+        coordinator = {
+            "id": "ses_coordinator",
+            "updated": int(NOW.timestamp() * 1000) - 1 * 60_000,
+        }
+        with mock.patch.object(reaper.usage, "run_workers", return_value=[worker("d1")]), \
+             mock.patch.object(reaper.usage, "dispatch_record", return_value=record), \
+             mock.patch.object(reaper.usage, "mapped_session", return_value={"id": "ses_worker"}), \
+             mock.patch.object(reaper.usage, "sessions_in", return_value=[coordinator]):
+            rows = reaper.plan_for("run_x", idle_minutes=15, now=NOW)
+        self.assertEqual(rows[0]["action"], "keep")
+        self.assertIn("zaman", rows[0]["reason"])
 
 
 class RunDiscoveryTests(unittest.TestCase):
