@@ -35,6 +35,11 @@ checkpoint id format and those suites are checked.
 Prefer `orca terminal create --command "<gate>"` + `terminal wait` over ad-hoc
 shell outside the worktree.
 
+## Salt-okur kapı
+
+Kapı depoyu değiştirmez; düzeltici adım (yerelleştirme birleştirme, kod üretimi)
+`--fix` ile ayrı koşar. Kapı sonrası `git status --short` boş kalmalı.
+
 ## Blockers
 
 Gate limit (3 rounds) or environment failure → `blocked` + one human-language

@@ -82,6 +82,29 @@ def _under(path: str, root: str) -> bool:
     return path == root or path.startswith(root + "/")
 
 
+def _git_text(args: list[str], project: Path) -> str:
+    try:
+        result = subprocess.run(
+            ["git", "-c", "core.quotePath=false", *args],
+            cwd=str(project),
+            capture_output=True,
+            text=True,
+        )
+    except OSError:
+        return ""
+    return result.stdout if result.returncode == 0 else ""
+
+
+def tracked_changes(project: Path) -> set[str]:
+    """Tracked files that differ from HEAD (staged or not)."""
+    lines = _git_text(["status", "--porcelain"], project).splitlines()
+    return {
+        line[3:].strip()
+        for line in lines
+        if line.strip() and not line.startswith("??")
+    }
+
+
 def suites_for(paths: list[str]) -> list[str]:
     """Suites selected by changed paths, in run order."""
     normalized = [_normalize(path) for path in paths]
@@ -173,6 +196,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"[gate] plan {step}: {' '.join(command)}", flush=True)
         return 0
 
+    before = tracked_changes(project)
     failed = False
     for step in steps:
         if step == "plugin":
