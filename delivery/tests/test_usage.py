@@ -442,6 +442,55 @@ class ContextBudgetTests(unittest.TestCase):
         self.assertIn("300k token", text)
         self.assertIn("200k token", text)
 
+class CaptureSessionTests(unittest.TestCase):
+    def test_new_session_is_recorded(self) -> None:
+        session = {"id": "ses_new", "created": 1000}
+        with patch.object(usage, "sessions_in", return_value=[session]), \
+             patch.object(usage, "record_session") as record:
+            picked = usage.capture_session("ctx_1", "/tmp/w", set(), 0, timeout=0.1)
+        self.assertEqual(picked, session)
+        record.assert_called_once_with("ctx_1", session)
+
+    def test_ambiguous_sessions_are_not_mapped(self) -> None:
+        sessions = [{"id": "a", "created": 1000}, {"id": "b", "created": 1001}]
+        with patch.object(usage, "sessions_in", return_value=sessions), \
+             patch.object(usage, "record_session") as record:
+            picked = usage.capture_session("ctx_1", "/tmp/w", set(), 0, timeout=0.1)
+        self.assertIsNone(picked)
+        record.assert_not_called()
+
+    def test_map_new_session_records_a_single_new_session(self) -> None:
+        session = {"id": "ses_new", "created": 2000}
+        with patch.object(usage, "sessions_in", return_value=[session]), \
+             patch.object(usage, "record_session") as record:
+            picked = usage.map_new_session("ctx_1", "/tmp/w", 1000)
+        self.assertEqual(picked, session)
+        record.assert_called_once_with("ctx_1", session)
+
+    def test_map_new_session_ignores_old_or_ambiguous_sessions(self) -> None:
+        old = [{"id": "ses_old", "created": 100}]
+        with patch.object(usage, "sessions_in", return_value=old), \
+             patch.object(usage, "record_session") as record:
+            self.assertIsNone(usage.map_new_session("ctx_1", "/tmp/w", 5000))
+        record.assert_not_called()
+
+    def test_map_new_session_rejects_ambiguous_window(self) -> None:
+        sessions = [
+            {"id": "ses_a", "created": 1500},
+            {"id": "ses_b", "created": 1600},
+        ]
+        with patch.object(usage, "sessions_in", return_value=sessions), \
+             patch.object(usage, "record_session") as record:
+            self.assertIsNone(usage.map_new_session("ctx_1", "/tmp/w", 1000))
+        record.assert_not_called()
+
+    def test_map_new_session_rejects_a_late_session(self) -> None:
+        late = [{"id": "ses_late", "created": 10_000_000}]
+        with patch.object(usage, "sessions_in", return_value=late), \
+             patch.object(usage, "record_session") as record:
+            self.assertIsNone(usage.map_new_session("ctx_1", "/tmp/w", 1000))
+        record.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()

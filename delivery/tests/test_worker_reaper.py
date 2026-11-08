@@ -47,10 +47,20 @@ def dispatch(heartbeat_ago: int | None = 0, status: str = "dispatched") -> dict:
 class PlanTests(unittest.TestCase):
     def test_idle_worker_is_released(self) -> None:
         with mock.patch.object(reaper.usage, "run_workers", return_value=[worker("d1")]), \
-             mock.patch.object(reaper.usage, "dispatch_record", return_value={"dispatch": dispatch(30)}):
+             mock.patch.object(reaper.usage, "dispatch_record", return_value={"dispatch": dispatch(30)}), \
+             mock.patch.object(reaper.usage, "mapped_session", return_value={"id": "ses_w"}), \
+             mock.patch.object(reaper.usage, "sessions_in", return_value=[]):
             rows = reaper.plan_for("run_x", idle_minutes=15, now=NOW)
         self.assertEqual(rows[0]["action"], "release")
         self.assertEqual(rows[0]["idle_minutes"], 30)
+
+    def test_worker_without_a_mapped_session_is_kept(self) -> None:
+        with mock.patch.object(reaper.usage, "run_workers", return_value=[worker("d1")]), \
+             mock.patch.object(reaper.usage, "dispatch_record", return_value={"dispatch": dispatch(30)}), \
+             mock.patch.object(reaper.usage, "mapped_session", return_value=None):
+            rows = reaper.plan_for("run_x", idle_minutes=15, now=NOW)
+        self.assertEqual(rows[0]["action"], "keep")
+        self.assertIn("eşleme", rows[0]["reason"])
 
     def test_recent_worker_is_kept(self) -> None:
         with mock.patch.object(reaper.usage, "run_workers", return_value=[worker("d1")]), \
@@ -101,6 +111,28 @@ class PlanTests(unittest.TestCase):
         self.assertEqual(rows[0]["action"], "keep")
         self.assertIn("zaman", rows[0]["reason"])
 
+    def test_missing_mapping_is_recovered_lazily(self) -> None:
+        session = {"id": "ses_new", "updated": int(NOW.timestamp() * 1000) - 60_000}
+        record = {"dispatch": dispatch(30), "path": "/tmp/worktree"}
+        with mock.patch.object(reaper.usage, "run_workers", return_value=[worker("d1")]), \
+             mock.patch.object(reaper.usage, "dispatch_record", return_value=record), \
+             mock.patch.object(reaper.usage, "mapped_session", return_value=None), \
+             mock.patch.object(reaper.usage, "map_new_session", return_value=session), \
+             mock.patch.object(reaper.usage, "sessions_in", return_value=[session]):
+            rows = reaper.plan_for("run_x", idle_minutes=15, now=NOW, persist=True)
+        self.assertEqual(rows[0]["action"], "keep")
+        self.assertEqual(rows[0]["idle_minutes"], 1)
+
+    def test_dry_run_does_not_write_a_mapping(self) -> None:
+        record = {"dispatch": dispatch(30), "path": "/tmp/worktree"}
+        with mock.patch.object(reaper.usage, "run_workers", return_value=[worker("d1")]), \
+             mock.patch.object(reaper.usage, "dispatch_record", return_value=record), \
+             mock.patch.object(reaper.usage, "mapped_session", return_value=None), \
+             mock.patch.object(reaper.usage, "map_new_session") as map_new:
+            rows = reaper.plan_for("run_x", idle_minutes=15, now=NOW)
+        map_new.assert_not_called()
+        self.assertEqual(rows[0]["action"], "keep")
+
 
 class RunDiscoveryTests(unittest.TestCase):
     def test_runs_are_read_from_epic_state(self) -> None:
@@ -146,6 +178,8 @@ class CliTests(unittest.TestCase):
                      "dispatch_record",
                      return_value={"dispatch": dispatch(30), "path": ""},
                  ), \
+                 mock.patch.object(reaper.usage, "mapped_session", return_value={"id": "ses_w"}), \
+                 mock.patch.object(reaper.usage, "sessions_in", return_value=[]), \
                  mock.patch.object(reaper.worker_cleanup, "release") as release, \
                  mock.patch.object(
                      sys, "argv", ["worker_reaper.py", "--project", str(root), "--dry-run", "--json"]

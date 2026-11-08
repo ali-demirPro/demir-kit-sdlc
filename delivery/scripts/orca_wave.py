@@ -23,6 +23,7 @@ SCRIPTS = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPTS))
 import budget  # noqa: E402
 import resources  # noqa: E402
+import usage  # noqa: E402
 import worker_reaper  # noqa: E402
 import routing  # noqa: E402
 import epic_worktree  # noqa: E402
@@ -63,6 +64,28 @@ def start_command(
         command += ["--effort", effort]
     command += ["--json"]
     return command
+
+
+def worker_worktree(value: str) -> str:
+    """Orca's ``current`` means the coordinator's own worktree."""
+    text = str(value or "").strip()
+    return str(Path.cwd()) if text in {"", "current", "HEAD"} else text
+
+
+def map_worker_session(
+    dispatch_id: str, worktree: str, known: set[str], started_ms: int
+) -> None:
+    """Record dispatch→session so the reaper can tell idle from busy."""
+    try:
+        if usage.capture_session(dispatch_id, worktree, known, started_ms, timeout=1.0):
+            return
+    except Exception as exc:
+        print(f"orca_wave: oturum eşlemesi yazılamadı — {exc}", file=sys.stderr)
+        return
+    print(
+        f"orca_wave: {dispatch_id} için oturum eşlemesi yok; reaper onu koruyacak",
+        file=sys.stderr,
+    )
 
 
 def task_command(task: dict, run_id: str, deps: list[str]) -> list[str]:
@@ -378,6 +401,9 @@ def execute_dag(plan: dict, args, max_parallel: int | None = None) -> dict:
         for task_id in wave:
             task = by_id[task_id]
             record = task_map.get(task_id) or {}
+            worktree = worker_worktree(args.worktree)
+            known = {str(item.get("id")) for item in usage.sessions_in(worktree)}
+            started_ms = int(time.time() * 1000)
             raw = orca(
                 [
                     "orchestration",
@@ -416,6 +442,7 @@ def execute_dag(plan: dict, args, max_parallel: int | None = None) -> dict:
                     }
                 )
                 epic_worktree.save_state(PROJECT, int(plan["epic"]), state)
+            map_worker_session(item["dispatch_id"], worktree, known, started_ms)
             receipts.append(item)
             wave_receipts.append(item)
 
@@ -599,6 +626,9 @@ def execute_wave(plan: dict, args, max_parallel: int | None = None) -> dict:
     receipts = []
     for task in tasks:
         record = task_map.get(str(task["id"])) or {}
+        worktree = worker_worktree(args.worktree)
+        known = {str(item.get("id")) for item in usage.sessions_in(worktree)}
+        started_ms = int(time.time() * 1000)
         raw = orca(
             [
                 "orchestration",
@@ -637,6 +667,7 @@ def execute_wave(plan: dict, args, max_parallel: int | None = None) -> dict:
                 }
             )
             epic_worktree.save_state(PROJECT, int(plan["epic"]), state)
+        map_worker_session(item["dispatch_id"], worktree, known, started_ms)
         receipts.append(item)
 
     expected = {item["dispatch_id"] for item in receipts}

@@ -27,6 +27,15 @@ spec.loader.exec_module(orca_wave)
 
 
 class WaveTests(unittest.TestCase):
+    def setUp(self) -> None:
+        # Dispatch touches the session map; unit tests must not call the CLI.
+        sessions = patch.object(orca_wave.usage, "sessions_in", return_value=[])
+        capture = patch.object(orca_wave.usage, "capture_session", return_value=None)
+        sessions.start()
+        capture.start()
+        self.addCleanup(sessions.stop)
+        self.addCleanup(capture.stop)
+
     def test_ready_tasks_skips_dependencies(self) -> None:
         plan = {
             "tasks": [
@@ -681,6 +690,29 @@ class NotifyTests(unittest.TestCase):
         worker_calls = [call for call in calls if call[:2] == ["orchestration", "worker-start"]]
         self.assertTrue(worker_calls)
         self.assertIn("run_flat", worker_calls[0])
+
+class SessionMapTests(unittest.TestCase):
+    def test_map_worker_session_records_the_dispatch(self) -> None:
+        from unittest.mock import patch
+
+        with patch.object(orca_wave.usage, "capture_session") as capture:
+            orca_wave.map_worker_session("ctx_1", "/tmp/w", {"ses_old"}, 123)
+        args = capture.call_args[0]
+        self.assertEqual(args, ("ctx_1", "/tmp/w", {"ses_old"}, 123))
+        self.assertGreater(capture.call_args.kwargs.get("timeout", 0), 0)
+
+    def test_map_worker_session_never_raises(self) -> None:
+        from unittest.mock import patch
+
+        with patch.object(orca_wave.usage, "capture_session", side_effect=OSError("x")):
+            orca_wave.map_worker_session("ctx_1", "/tmp/w", set(), 1)
+
+    def test_current_worktree_is_the_coordinator_directory(self) -> None:
+        from pathlib import Path as _Path
+
+        self.assertEqual(orca_wave.worker_worktree("current"), str(_Path.cwd()))
+        self.assertEqual(orca_wave.worker_worktree(""), str(_Path.cwd()))
+        self.assertEqual(orca_wave.worker_worktree("/tmp/epic"), "/tmp/epic")
 
 
 if __name__ == "__main__":

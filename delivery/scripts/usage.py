@@ -367,6 +367,55 @@ def record_session(dispatch_id: str, session: dict) -> None:
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
+def capture_session(
+    dispatch_id: str,
+    worktree: str,
+    known_ids: set[str],
+    start_ms: int,
+    timeout: float = 20,
+) -> dict | None:
+    """Map a freshly started worker to the one new session in its worktree."""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        new = [
+            session
+            for session in sessions_in(worktree)
+            if str(session.get("id")) not in known_ids
+            and int(session.get("created") or 0) >= start_ms - 1_000
+        ]
+        if len(new) == 1:
+            record_session(dispatch_id, new[0])
+            return new[0]
+        if len(new) > 1:
+            return None
+        time.sleep(0.5)
+    return None
+
+
+def map_new_session(
+    dispatch_id: str, worktree: str, start_ms: int, window_ms: int = 120_000
+) -> dict | None:
+    """Record the single session created in this dispatch's start window.
+
+    The upper bound matters: in a shared worktree a later coordinator or worker
+    session must not be mistaken for this dispatch.
+    """
+    try:
+        new = [
+            session
+            for session in sessions_in(worktree)
+            if start_ms - 1_000
+            <= int(session.get("created") or 0)
+            <= start_ms + window_ms
+        ]
+    except (OSError, TypeError, ValueError):
+        return None
+    if len(new) == 1:
+        record_session(dispatch_id, new[0])
+        return new[0]
+    return None
+
+
 def mapped_session(dispatch_id: str) -> dict | None:
     entry = load_session_map().get(str(dispatch_id))
     return entry if isinstance(entry, dict) and entry.get("id") else None
