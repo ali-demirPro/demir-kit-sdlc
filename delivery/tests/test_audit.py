@@ -142,7 +142,7 @@ class CollectTests(unittest.TestCase):
         )
         index = [
             {"ts": "2026-11-07T10:06:00+00:00", "issue": 1, "cp": "CP-1",
-             "reviewers": ["ses_real123"]},
+             "reviewers": ["ses_real123", None]},
             {"ts": "2026-11-07T10:07:00+00:00", "issue": 1, "cp": "CP-2",
              "reviewers": ["reviewer_a"]},
             {"ts": "2026-11-07T10:08:00+00:00", "issue": 1, "cp": "CP-3",

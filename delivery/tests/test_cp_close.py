@@ -129,6 +129,18 @@ class CpCloseTests(unittest.TestCase):
         blank = {**RECORD, "verification": {"reviewers": [{"role": "adversarial"}]}}
         self.assertEqual(cp_close.index_row(blank, 1, "CP-1")["reviewers"], [])
 
+    def test_evidence_index_keeps_one_line_per_checkpoint(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            cp_close.record_evidence_index(project, RECORD, 148, "CP-1")
+            newer = {**RECORD, "gate_level": "full"}
+            cp_close.record_evidence_index(project, newer, 148, "CP-1")
+            lines = (
+                project / ".kit" / "evidence.jsonl"
+            ).read_text(encoding="utf-8").splitlines()
+        self.assertEqual(len(lines), 1)
+        self.assertEqual(json.loads(lines[0])["gate_level"], "full")
+
     def test_apply_runs_gate_post_verify_checkpoint(self) -> None:
         calls: list[str] = []
         with patch.object(

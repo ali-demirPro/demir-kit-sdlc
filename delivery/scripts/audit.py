@@ -114,8 +114,12 @@ def evidence_reviews(project: Path, since: datetime) -> int | None:
         if not stamp or stamp < since:
             continue
         raw = row.get("reviewers")
-        ids = [str(item).strip() for item in raw] if isinstance(raw, list) else []
-        if [item for item in ids if item and not PLACEHOLDER_RE.match(item)]:
+        ids = (
+            [item for item in raw if isinstance(item, str)]
+            if isinstance(raw, list)
+            else []
+        )
+        if [item.strip() for item in ids if item.strip() and not PLACEHOLDER_RE.match(item)]:
             rounds += 1
     return rounds
 
@@ -381,15 +385,6 @@ def recommend(data: dict) -> list[str]:
             tips.append(f"{name}: leaf medyanı {leaf} dk — review turlarını azalt.")
         if project["review_rounds"] > project["sessions"]:
             tips.append(f"{name}: {project['review_rounds']} review turu — tur bütçesini uygula.")
-        if (
-            project.get("reviews_measured")
-            and project["gates"]
-            and not project["review_rounds"]
-        ):
-            tips.append(
-                f"{name}: {project['gates']} kapı ama doğrulanmış review yok — "
-                "kanıta gerçek reviewer id'si yaz."
-            )
     if not tips:
         tips.append("Eşik aşan kalem yok.")
     return tips

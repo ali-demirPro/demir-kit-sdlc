@@ -228,8 +228,25 @@ def record_evidence_index(project: Path, record: dict, issue: int, cp_id: str) -
     row = index_row(record, issue, cp_id)
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        with path.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n")
+        kept: list[str] = []
+        if path.is_file():
+            for line in path.read_text(encoding="utf-8").splitlines():
+                if not line.strip():
+                    continue
+                try:
+                    old = json.loads(line)
+                except json.JSONDecodeError:
+                    kept.append(line)
+                    continue
+                same = (
+                    isinstance(old, dict)
+                    and str(old.get("issue")) == str(int(issue))
+                    and str(old.get("cp") or "") == str(cp_id)
+                )
+                if not same:
+                    kept.append(line)
+        kept.append(json.dumps(row, ensure_ascii=False, sort_keys=True))
+        path.write_text("\n".join(kept) + "\n", encoding="utf-8")
     except OSError:
         return False
     return True
