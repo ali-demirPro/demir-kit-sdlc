@@ -239,6 +239,41 @@ class ReleaseWorkerTests(unittest.TestCase):
             self.assertNotIn("worker_reaper", source, name)
             self.assertNotIn("worker_cleanup", source, name)
 
+class ReviewBatchTests(unittest.TestCase):
+    def test_reviewers_are_split_into_bounded_batches(self) -> None:
+        names = ["a", "b", "c", "d", "e"]
+        self.assertEqual(
+            review_wave.review_batches(names, {"reviewers": 2}),
+            [["a", "b"], ["c", "d"], ["e"]],
+        )
+
+    def test_default_cap_is_two(self) -> None:
+        self.assertEqual(
+            review_wave.review_batches(["a", "b", "c"], {}), [["a", "b"], ["c"]]
+        )
+
+    def test_non_positive_cap_falls_back_to_default(self) -> None:
+        self.assertEqual(
+            review_wave.review_batches(["a", "b"], {"reviewers": -1}),
+            [["a", "b"]],
+        )
+
+    def test_main_uses_bounded_batches(self) -> None:
+        source = (ROOT / "delivery" / "scripts" / "review_wave.py").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("for batch in review_batches(", source)
+
+class SettleBatchTests(unittest.TestCase):
+    def test_dispatched_stragglers_are_stopped(self) -> None:
+        workers = [
+            {"name": "a", "dispatch_id": "ctx_a", "state": "dispatched"},
+            {"name": "b", "dispatch_id": "ctx_b", "state": "succeeded"},
+        ]
+        with patch.object(review_wave, "stop_worker") as stop:
+            review_wave.settle_batch(workers)
+        stop.assert_called_once_with("ctx_a")
+
 
 if __name__ == "__main__":
     unittest.main()

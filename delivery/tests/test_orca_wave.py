@@ -26,6 +26,13 @@ spec.loader.exec_module(orca_wave)
 
 class WaveTests(unittest.TestCase):
     def setUp(self) -> None:
+        budget = patch.object(
+            orca_wave.budget,
+            "load",
+            return_value={"heavy_workers": 2, "reviewers": 2, "simulators": 1},
+        )
+        budget.start()
+        self.addCleanup(budget.stop)
         # Dispatch touches the session map; unit tests must not call the CLI.
         sessions = patch.object(orca_wave.usage, "sessions_in", return_value=[])
         capture = patch.object(orca_wave.usage, "capture_session", return_value=None)
@@ -138,6 +145,15 @@ class WaveTests(unittest.TestCase):
 
 
 class NotifyTests(unittest.TestCase):
+    def setUp(self) -> None:
+        budget = patch.object(
+            orca_wave.budget,
+            "load",
+            return_value={"heavy_workers": 2, "reviewers": 2, "simulators": 1},
+        )
+        budget.start()
+        self.addCleanup(budget.stop)
+
     SUMMARY = {
         "dry_run": False,
         "run_id": "run_x",
@@ -711,6 +727,15 @@ class SessionMapTests(unittest.TestCase):
         self.assertEqual(orca_wave.worker_worktree("current"), str(_Path.cwd()))
         self.assertEqual(orca_wave.worker_worktree(""), str(_Path.cwd()))
         self.assertEqual(orca_wave.worker_worktree("/tmp/epic"), "/tmp/epic")
+
+class RepoBudgetTests(unittest.TestCase):
+    def test_repo_budget_is_fixed_for_this_machine(self) -> None:
+        import budget
+
+        limits = budget.load(ROOT)
+        self.assertEqual(limits["heavy_workers"], 1)
+        self.assertEqual(limits["reviewers"], 2)
+        self.assertEqual(limits["simulators"], 1)
 
 
 if __name__ == "__main__":
