@@ -316,11 +316,29 @@ def push_needed(branch: str) -> bool:
     return bool(branch) and branch not in {"HEAD", "main", "master"}
 
 
-def push_branch(project: Path) -> tuple[bool, str]:
-    """Push the epic branch so evidence commits exist on origin."""
+def push_branch(project: Path) -> tuple[str, str]:
+    """Push the epic branch so evidence commits exist on origin.
+
+    Returns ``pushed``, ``skipped`` (main/detached: caller must record a reason)
+    or ``failed``. A dirty tree never pushes: the evidence commit would not
+    describe what was tested.
+    """
     branch = branch_name(project)
     if not push_needed(branch):
-        return True, "push gerekmez"
+        return "skipped", f"dal {branch or 'ayrık HEAD'} push edilmez"
+    try:
+        status = subprocess.run(
+            ["git", "status", "--porcelain"],
+            cwd=str(project),
+            capture_output=True,
+            text=True,
+        )
+    except OSError as exc:
+        return "failed", str(exc)
+    if status.returncode != 0:
+        return "failed", "çalışma ağacı durumu okunamadı"
+    if status.stdout.strip():
+        return "failed", "çalışma ağacı kirli; commit veya stash et"
     try:
         result = subprocess.run(
             ["git", "push", "-u", "origin", "HEAD"],
@@ -330,8 +348,11 @@ def push_branch(project: Path) -> tuple[bool, str]:
             timeout=120,
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
-        return False, str(exc)
-    return result.returncode == 0, (result.stderr or result.stdout).strip()
+        return "failed", str(exc)
+    return (
+        ("pushed" if result.returncode == 0 else "failed"),
+        (result.stderr or result.stdout).strip(),
+    )
 
 
 def validate(issue: dict, target: str, args) -> tuple[bool, str]:
@@ -520,9 +541,22 @@ def check_push(args) -> None:
             f"run degrade: issue #{args.issue}\nreason: {args.reason}",
         )
         return
-    pushed, message = push_branch(Path.cwd())
-    if not pushed:
-        sys.exit(f"transition: epic dalı push edilemedi — {message}")
+    status, message = push_branch(Path.cwd())
+    if status == "pushed":
+        return
+    if status == "skipped":
+        if not (args.reason or "").strip():
+            sys.exit(
+                "transition: push atlandı — --no-push --reason gerekli "
+                f"({message})"
+            )
+        post_comment(
+            args.issue,
+            f"run degrade: issue #{args.issue}\n"
+            f"reason: push atlandı — {message}; {args.reason}",
+        )
+        return
+    sys.exit(f"transition: epic dalı push edilemedi — {message}")
 
 
 def main() -> int:

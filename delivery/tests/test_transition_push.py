@@ -39,8 +39,8 @@ class PushTests(unittest.TestCase):
             return result(0, "", "pushed")
 
         with mock.patch("subprocess.run", side_effect=fake):
-            ok, message = transition.push_branch(ROOT)
-        self.assertTrue(ok)
+            status, message = transition.push_branch(ROOT)
+        self.assertEqual(status, "pushed")
         self.assertIn("push", calls[-1])
         self.assertEqual(calls[-1][:4], ["git", "push", "-u", "origin"])
 
@@ -48,11 +48,13 @@ class PushTests(unittest.TestCase):
         def fake(args, **kwargs):
             if "rev-parse" in args:
                 return result(0, "epic-246\n")
+            if "status" in args:
+                return result(0, "")
             return result(1, "", "remote: denied")
 
         with mock.patch("subprocess.run", side_effect=fake):
-            ok, message = transition.push_branch(ROOT)
-        self.assertFalse(ok)
+            status, message = transition.push_branch(ROOT)
+        self.assertEqual(status, "failed")
         self.assertIn("denied", message)
 
     def test_main_branch_is_skipped(self) -> None:
@@ -63,9 +65,48 @@ class PushTests(unittest.TestCase):
             return result(0, "main\n")
 
         with mock.patch("subprocess.run", side_effect=fake):
-            ok, _ = transition.push_branch(ROOT)
-        self.assertTrue(ok)
+            status, message = transition.push_branch(ROOT)
+        self.assertEqual(status, "skipped")
+        self.assertIn("push edilmez", message)
         self.assertEqual(len(calls), 1)
+
+    def test_dirty_tree_blocks_the_push(self) -> None:
+        calls = []
+
+        def fake(args, **kwargs):
+            calls.append(args)
+            if "rev-parse" in args:
+                return result(0, "epic-246\n")
+            if "status" in args:
+                return result(0, " M delivery/scripts/gate.py\n")
+            return result(0, "", "pushed")
+
+        with mock.patch("subprocess.run", side_effect=fake):
+            status, message = transition.push_branch(ROOT)
+        self.assertEqual(status, "failed")
+        self.assertIn("kirli", message)
+        self.assertFalse(any("push" in call for call in calls))
+
+
+class CheckPushTests(unittest.TestCase):
+    def args(self, **overrides):
+        base = mock.Mock(issue=268, no_push=False, reason="")
+        for key, value in overrides.items():
+            setattr(base, key, value)
+        return base
+
+    def test_skipped_push_requires_a_recorded_reason(self) -> None:
+        with mock.patch.object(transition, "push_branch", return_value=("skipped", "dal main")), \
+             mock.patch.object(transition, "post_comment"):
+            with self.assertRaises(SystemExit):
+                transition.check_push(self.args())
+
+    def test_skipped_push_with_reason_writes_degrade(self) -> None:
+        with mock.patch.object(transition, "push_branch", return_value=("skipped", "dal main")), \
+             mock.patch.object(transition, "post_comment") as post:
+            transition.check_push(self.args(reason="epic PR sonrasi"))
+        self.assertIn("run degrade: issue #268", post.call_args[0][1])
+        self.assertIn("push atlandı", post.call_args[0][1])
 
 
 if __name__ == "__main__":
