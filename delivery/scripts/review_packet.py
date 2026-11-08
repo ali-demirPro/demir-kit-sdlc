@@ -153,6 +153,70 @@ def compose_packet(
     return packet
 
 
+def gate_summary(project: Path) -> dict:
+    """Last known gate result: cache first, then the cycle log."""
+    cache = Path(project) / ".kit" / "gate-cache.json"
+    if cache.is_file():
+        try:
+            data = json.loads(cache.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            data = {}
+        entries = []
+        if isinstance(data, dict):
+            for key, entry in data.items():
+                if not isinstance(entry, dict):
+                    continue
+                try:
+                    stamp = float(entry.get("ts") or 0)
+                except (TypeError, ValueError):
+                    continue
+                entries.append((stamp, str(key), entry))
+        if entries:
+            stamp, key, entry = max(entries, key=lambda item: item[0])
+            code = entry.get("code")
+            return {
+                "source": "cache",
+                "command": str(entry.get("command") or "-"),
+                "exit": int(code) if isinstance(code, (int, float)) else None,
+                "tree": key[:12],
+                "ts": stamp,
+            }
+    cycle = Path(project) / ".kit" / "cycle.jsonl"
+    if cycle.is_file():
+        last = None
+        for line in cycle.read_text(encoding="utf-8").splitlines():
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(row, dict) and row.get("stage") == "gate":
+                last = row
+        if last:
+            reason = str(last.get("reason") or "")
+            command, _, exit_part = reason.partition(" exit=")
+            try:
+                code = int(exit_part)
+            except ValueError:
+                code = None
+            return {
+                "source": "cycle",
+                "command": command or "-",
+                "exit": code,
+                "tree": "-",
+                "ts": last.get("ts"),
+            }
+    return {"source": "none", "command": "-", "exit": None, "tree": "-", "ts": None}
+
+
+def gate_line(gate: dict) -> str:
+    code = gate.get("exit")
+    return (
+        f"Kapı: {gate.get('source')} · {gate.get('command')} · "
+        f"exit {code if code is not None else '-'} · tree {gate.get('tree')} · "
+        f"{gate.get('ts') or '-'}"
+    )
+
+
 def packet_for(
     issue_number: int,
     cp_id: str,
@@ -206,9 +270,11 @@ def packet_for(
     diff_stat = git(["diff", "--stat", span])
     files = git(["diff", "--name-only", span]).strip().splitlines()
     diff = git(["diff", span])
+    gate = gate_summary(routing.project_root(ROOT))
     header = [
         f"## Review packet — #{issue_number} {cp_id}",
         f"Commit: {commit[:12]} · Aralık: {range_label}",
+        gate_line(gate),
         f"Boyut sınırı: {max_chars} bayt",
         "Değişen dosyalar:",
     ]

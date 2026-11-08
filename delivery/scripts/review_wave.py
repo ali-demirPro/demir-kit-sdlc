@@ -79,13 +79,38 @@ def reviewer_spec(name: str, packet: str, issue: int, cp_id: str) -> str:
     )
 
 
+SEVERITY_RE = re.compile(r"^\s*severity:\s*(blocking|nit)\s*$", re.I | re.M)
+
+
+def parse_findings(text: str) -> list[dict]:
+    """Split the reviewer's findings by severity; unlabelled findings block."""
+    findings: list[dict] = []
+    current: dict | None = None
+    for line in (text or "").splitlines():
+        match = re.match(r"^\s*-?\s*severity:\s*(blocking|nit)\s*$", line, re.I)
+        if match:
+            current = {"severity": match.group(1).lower(), "text": ""}
+            findings.append(current)
+            continue
+        if current is not None and line.strip().startswith(("file:", "problem:", "fix:")):
+            current["text"] = (current["text"] + " " + line.strip()).strip()
+    return findings
+
+
+def blocking_count(text: str) -> int:
+    return sum(1 for item in parse_findings(text) if item["severity"] == "blocking")
+
+
 def parse_verdict(text: str) -> bool | None:
     value = text or ""
     matches = re.findall(
         r"^\s*approved:\s*(true|false)\s*$", value, re.I | re.M
     )
     if matches:
-        return matches[-1].lower() == "true"
+        approved = matches[-1].lower() == "true"
+        if approved and blocking_count(value):
+            return False
+        return approved
     if "true|false" in value.lower():
         return None
     if re.search(
