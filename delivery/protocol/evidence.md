@@ -3,11 +3,11 @@
 Her CP için tek kanıt comment'i. `leaf-done` bu bloklar olmadan imkânsızdır.
 Şema: [evidence.schema.json](../schemas/evidence.schema.json).
 
-## Kurallar (2026-11-08 sonrası)
+## Yeni kurallar (2026-11-08 sonrası)
 
 - `verification.reviewers[].id` gerçek oturum id'si olmalı (`ses_…`); `reviewer_a`
   gibi yer tutucu kimlikler reddedilir (kesme: 2026-11-08T09:00Z).
-- `gate_level: fast|full` alanı CP'de koşan kapıyı yazar; `cp_close` damgalar.
+- `gate_level: fast|full` alanı CP'de koşan kapıyı yazar; `cp_close` yalnız `gate.sh` koşarken damgalar.
 
 ## Şablon
 

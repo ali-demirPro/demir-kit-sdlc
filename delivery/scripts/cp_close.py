@@ -214,6 +214,8 @@ def main() -> int:
     command = gate_command(args.issue, args.cp, args.gate_level)
     if "gate.sh" in command:
         record["gate_level"] = args.gate_level
+    else:
+        record.pop("gate_level", None)
     plan = {
         "issue": args.issue,
         "cp_id": args.cp,
