@@ -15,6 +15,8 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
 COMMIT_RE = re.compile(r"^[0-9a-f]{7,40}$")
+PLACEHOLDER_RE = re.compile(r"^reviewer[_-][a-z]$", re.I)
+STRICT_SINCE = "2026-11-08T09:00:00+00:00"
 HASH_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 
 
@@ -204,6 +206,20 @@ def verify_refactor(
     return errors
 
 
+def commit_time(commit: str, root: Path = ROOT) -> str:
+    result = git(["show", "-s", "--format=%cI", commit], root)
+    return result.stdout.strip() if result.returncode == 0 else ""
+
+
+def placeholder_review_error(reviewer_id: str, when: str) -> str | None:
+    """Placeholder reviewer ids are rejected only for evidence after the cutoff."""
+    if not PLACEHOLDER_RE.match(str(reviewer_id or "")):
+        return None
+    if not when or when < STRICT_SINCE:
+        return None
+    return "reviewer id yer tutucu; gerçek oturum id'si gerekli"
+
+
 def verify(
     record: dict,
     root: Path = ROOT,
@@ -308,6 +324,11 @@ def verify(
             if not str(reviewer.get(key) or "").strip():
                 errors.append(f"reviewer {index}: {key} yok")
         reviewer_id = str(reviewer.get("id") or "")
+        message = placeholder_review_error(
+            reviewer_id, commit_time(commit, root) if commit else ""
+        )
+        if message:
+            errors.append(f"reviewer {index}: {message}")
         if reviewer_id and reviewer_id in seen:
             errors.append(f"reviewer id tekrarlı: {reviewer_id}")
         seen.add(reviewer_id)
