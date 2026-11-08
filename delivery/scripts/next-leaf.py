@@ -375,7 +375,15 @@ def select_eligible(
     open_issues: list[dict],
     all_issues: list[dict],
     max_parallel: int = DEFAULT_MAX_PARALLEL,
+    only: int | None = None,
 ) -> tuple[list[dict], list[dict]]:
+    """Leaves that may be claimed now.
+
+    ``only`` evaluates one explicitly requested leaf against the leaves that are
+    already executing. Without it the epic budget also caps how many candidates
+    are offered at once; an explicit request must not depend on the order GitHub
+    happens to return.
+    """
     done: set[int] = set()
     for item in all_issues:
         labels = {label["name"] for label in item.get("labels", [])}
@@ -395,6 +403,8 @@ def select_eligible(
     eligible: list[dict] = []
     skipped: list[dict] = []
     for issue in open_issues:
+        if only is not None and int(issue["number"]) != int(only):
+            continue
         labels = {label["name"] for label in issue["labels"]}
         if "agent-approved" not in labels or labels & SKIP_LABELS:
             continue
@@ -439,7 +449,7 @@ def select_eligible(
                 "createdAt": issue["createdAt"],
             }
         )
-        if epic:
+        if epic and only is None:
             active.setdefault(int(epic), []).append(seal)
     eligible.sort(key=lambda item: (str(item["createdAt"]), int(item["number"])))
     return eligible, skipped
@@ -503,7 +513,9 @@ def main() -> int:
             ]
         )
     )
-    eligible, skipped = select_eligible(open_issues, all_issues, args.max_parallel)
+    eligible, skipped = select_eligible(
+        open_issues, all_issues, args.max_parallel, only=args.issue
+    )
     if args.issue is not None:
         chosen = [item for item in eligible if int(item["number"]) == args.issue]
         if not chosen:

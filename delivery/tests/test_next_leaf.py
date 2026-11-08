@@ -219,5 +219,74 @@ class LeaseTests(unittest.TestCase):
         self.assertIn("App/x.swift", err.getvalue())
 
 
+def seal_body(epic: int, path: str) -> str:
+    return (
+        "```yaml demir-kit\n"
+        "demir_kit_version: '2'\n"
+        f"epic: {epic}\n"
+        "reference:\n"
+        "  kind: github_paths\n"
+        f"  paths: [{path}]\n"
+        "```\n"
+    )
+
+
+def leaf(number: int, created: str, epic: int = 11, path: str | None = None) -> dict:
+    return {
+        "number": number,
+        "title": f"leaf {number}",
+        "state": "OPEN",
+        "body": seal_body(epic, path or f"delivery/scripts/leaf-{number}.py"),
+        "labels": [{"name": "agent-approved"}],
+        "createdAt": created,
+    }
+
+
+class ExplicitIssueTests(unittest.TestCase):
+    def test_explicit_issue_ignores_other_leaves_budget(self) -> None:
+        # gh returns newest first; the older explicit leaf must still be eligible.
+        open_issues = [
+            leaf(41, "2026-11-08T12:00:00Z"),
+            leaf(40, "2026-11-08T11:00:00Z"),
+            leaf(39, "2026-11-08T10:00:00Z"),
+        ]
+        eligible, skipped = next_leaf.select_eligible(
+            open_issues, open_issues, max_parallel=1, only=39
+        )
+        self.assertEqual([item["number"] for item in eligible], [39])
+        self.assertEqual(skipped, [])
+
+    def test_explicit_issue_still_honours_dependencies(self) -> None:
+        body = (
+            "```yaml demir-kit\n"
+            "epic: 11\n"
+            "dependencies:\n"
+            "- {kind: blocks, issue: 900}\n"
+            "```\n"
+        )
+        target = leaf(39, "2026-11-08T10:00:00Z")
+        target["body"] = body
+        eligible, skipped = next_leaf.select_eligible(
+            [target], [target], max_parallel=2, only=39
+        )
+        self.assertEqual(eligible, [])
+        self.assertEqual(skipped[0]["reason"], "bağımlılık bekliyor")
+
+
+class OrderTests(unittest.TestCase):
+    def test_eligible_order_is_stable(self) -> None:
+        rows = [
+            leaf(43, "2026-11-08T12:00:00Z"),
+            leaf(41, "2026-11-08T10:00:00Z"),
+            leaf(42, "2026-11-08T11:00:00Z"),
+        ]
+        first, _ = next_leaf.select_eligible(rows, rows, max_parallel=5)
+        second, _ = next_leaf.select_eligible(list(reversed(rows)), rows, max_parallel=5)
+        self.assertEqual([item["number"] for item in first], [41, 42, 43])
+        self.assertEqual(
+            [item["number"] for item in first], [item["number"] for item in second]
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
