@@ -17,6 +17,7 @@ import yaml
 import approvals
 import cycle
 import epic_worktree
+import routing
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPTS = Path(__file__).resolve().parent
@@ -264,6 +265,27 @@ def cycle_row(
     return cycle.make_row(issue, stage, actor=actor, reason=reason, epic=epic)
 
 
+def last_checkpoint(issue: dict) -> str | None:
+    seal = parse_seal(issue.get("body") or "")
+    checkpoints = seal.get("checkpoints") or []
+    if not checkpoints:
+        return None
+    last = checkpoints[-1]
+    return str((last or {}).get("id") or "") or None
+
+
+def leaf_gate_command(project: Path, issue: int, checkpoint: str) -> str:
+    prefix = routing.kit_prefix(ROOT, project)
+    return (
+        f"./{prefix}delivery/scripts/gate.sh "
+        f"--issue {issue} --checkpoint {checkpoint}"
+    )
+
+
+def leaf_gate_enabled() -> bool:
+    return os.environ.get("DEMIR_KIT_LEAF_GATE", "on") != "off"
+
+
 def branch_name(project: Path) -> str:
     result = subprocess.run(
         ["git", "rev-parse", "--abbrev-ref", "HEAD"],
@@ -463,6 +485,11 @@ def main() -> int:
     )
     parser.add_argument("--no-cycle", action="store_true", help="cycle satırı yazma")
     parser.add_argument(
+        "--no-gate",
+        action="store_true",
+        help="leaf-done'da tam kapıyı koşma (--reason ile degrade kaydı)",
+    )
+    parser.add_argument(
         "--no-push",
         action="store_true",
         help="leaf-done'da dalı push etme (--reason ile degrade kaydı)",
@@ -523,6 +550,29 @@ def main() -> int:
         return 0
 
     if args.to == "leaf-done":
+        if args.no_gate:
+            if not (args.reason or "").strip():
+                sys.exit("transition: --no-gate için --reason gerekli")
+            post_comment(
+                args.issue,
+                f"run degrade: issue #{args.issue}\nreason: {args.reason}",
+            )
+        elif leaf_gate_enabled():
+            checkpoint = last_checkpoint(issue)
+            if not checkpoint:
+                sys.exit("transition: leaf-done için checkpoint bulunamadı")
+            command = leaf_gate_command(Path.cwd(), args.issue, checkpoint)
+            print(f"gate: {command}", flush=True)
+            result = subprocess.run(
+                command, shell=True, cwd=str(Path.cwd()), capture_output=True, text=True
+            )
+            if result.returncode != 0:
+                sys.exit(
+                    "transition: leaf tam kapısı düştü — "
+                    + (result.stdout + result.stderr).strip()[-400:]
+                )
+            print("gate: full exit 0", flush=True)
+
         if args.no_push:
             if not (args.reason or "").strip():
                 sys.exit("transition: --no-push için --reason gerekli")

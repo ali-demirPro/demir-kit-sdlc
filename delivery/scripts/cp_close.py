@@ -26,6 +26,7 @@ import routing  # noqa: E402
 import update as update_mod  # noqa: E402
 
 SCHEMA = ROOT / "delivery" / "schemas" / "evidence.schema.json"
+DEFAULT_GATE_LEVEL = "fast"
 
 
 def gh(args: list[str], stdin: str | None = None) -> str:
@@ -93,7 +94,7 @@ def validate_record(
     return errors
 
 
-def gate_command(issue: int, cp_id: str, level: str = "full") -> str:
+def gate_command(issue: int, cp_id: str, level: str = DEFAULT_GATE_LEVEL) -> str:
     prefix = routing.kit_prefix(ROOT)
     project = routing.project_root(ROOT)
     gate = project / prefix / "delivery" / "scripts" / "gate.sh"
@@ -196,7 +197,7 @@ def main() -> int:
     parser.add_argument("--cp", required=True)
     parser.add_argument("--evidence", type=Path, required=True)
     parser.add_argument("--apply", action="store_true", help="gate, post, verify, checkpoint")
-    parser.add_argument("--gate-level", choices=["full", "fast"], default="full")
+    parser.add_argument("--gate-level", choices=["full", "fast"], default=DEFAULT_GATE_LEVEL)
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
 
