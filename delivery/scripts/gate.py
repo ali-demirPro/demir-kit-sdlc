@@ -113,6 +113,12 @@ def tracked_changes(project: Path) -> set[str]:
         if line.strip() and not line.startswith("??")
     }
 
+def working_tree_changes(project: Path) -> set[str]:
+    """Tracked *and* untracked paths that differ from HEAD."""
+    lines = _git_text(["status", "--porcelain"], project).splitlines()
+    return {line[3:].strip() for line in lines if line.strip()}
+
+
 def tree_state(project: Path) -> str:
     """HEAD + dirty diff + untracked list, hashed."""
     names = [
@@ -256,6 +262,40 @@ def product_behavior(project: Path, checkpoint: str) -> list[str]:
     return commands
 
 
+def product_fix(project: Path, checkpoint: str) -> list[str]:
+    """Corrective commands a product surface declares under ``gates.fix``."""
+    if project.resolve() == KIT_ROOT.resolve():
+        return []
+    path = project / "ecosystem.yaml"
+    if not path.is_file():
+        return []
+    try:
+        import yaml
+
+        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except (OSError, yaml.YAMLError):
+        return []
+    commands: list[str] = []
+    products = data.get("products") if isinstance(data, dict) else None
+    if not isinstance(products, dict):
+        return []
+    for product in products.values():
+        surfaces = (product or {}).get("surfaces") if isinstance(product, dict) else None
+        if not isinstance(surfaces, dict):
+            continue
+        for surface in surfaces.values():
+            gates = (surface or {}).get("gates") if isinstance(surface, dict) else None
+            if not isinstance(gates, dict):
+                continue
+            command = str(gates.get("fix") or "").strip()
+            if not command or "gate.sh" in command:
+                continue
+            command = command.replace("{checkpoint}", checkpoint)
+            if command not in commands:
+                commands.append(command)
+    return commands
+
+
 def suites_for(paths: list[str]) -> list[str]:
     """Suites selected by changed paths, in run order."""
     normalized = [_normalize(path) for path in paths]
@@ -366,14 +406,23 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     key = None
-    if args.cached and not args.no_cache:
+    if args.cached and not args.no_cache and not args.fix:
         key = cache_key(project, steps, args.checkpoint, args.issue)
         hit = cache_lookup(project, key)
         if hit is not None:
             print(f"[gate] cache hit {key[:12]} (exit {hit['code']})", flush=True)
             return int(hit["code"])
 
-    before = tracked_changes(project)
+    if args.fix:
+        for command in product_fix(project, args.checkpoint):
+            print(f"[gate] fix: {command}", flush=True)
+            code = _run(command, project, shell=True)
+            print(f"[gate] fix exit {code}", flush=True)
+            if code != 0:
+                print("[gate] düzeltme adımı düştü", flush=True)
+                return 1
+
+    before = working_tree_changes(project)
     failed = False
     executed: list[str] = []
     for command in behavior:
@@ -398,8 +447,8 @@ def main(argv: list[str] | None = None) -> int:
         if code != 0:
             failed = True
 
-    touched = sorted(tracked_changes(project) - before)
-    if touched and not args.fix:
+    touched = sorted(working_tree_changes(project) - before)
+    if touched:
         print(
             "[gate] depo değişti: " + ", ".join(touched[:5])
             + " — kapı salt-okur olmalı; düzeltme ayrı adım (--fix).",

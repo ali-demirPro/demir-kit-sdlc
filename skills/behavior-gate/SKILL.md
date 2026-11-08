@@ -38,7 +38,9 @@ shell outside the worktree.
 ## Salt-okur kapı
 
 Kapı depoyu değiştirmez; düzeltici adım (yerelleştirme birleştirme, kod üretimi)
-`--fix` ile ayrı koşar. Kapı sonrası `git status --short` boş kalmalı.
+`--fix` ile ayrı koşar. Düzeltici komutlar `ecosystem.yaml` yüzeyinde `gates.fix`
+alanında tanımlanır; `--fix` yoksa koşmaz. Kontrol kapısı salt-okurdur: düzeltme
+koşmadıysa `git status --short` boş kalmalı; izlenmeyen yeni dosya da kirli sayılır.
 
 ## Blockers
 
