@@ -139,6 +139,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--issue", type=int, help="seal + evidence doğrula (opsiyonel)")
     parser.add_argument("--checkpoint", required=True)
     parser.add_argument("--plan", action="store_true", help="adımları yaz, çalıştırma")
+    parser.add_argument("--fast", action="store_true", help="yalnız statik doctor (CP)")
     parser.add_argument("--project", type=Path, default=None, help="proje kökü")
     parser.add_argument(
         "--changed",
@@ -165,7 +166,11 @@ def main(argv: list[str] | None = None) -> int:
                     file=sys.stderr,
                     flush=True,
                 )
-    steps = ["doctor", *suites_for(paths)]
+    steps = ["doctor"] if args.fast else ["doctor", *suites_for(paths)]
+    if not args.fast:
+        print("[gate] level full", flush=True)
+    else:
+        print("[gate] level fast", flush=True)
 
     if args.plan:
         for step in steps:

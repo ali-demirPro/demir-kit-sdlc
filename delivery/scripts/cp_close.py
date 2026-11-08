@@ -93,12 +93,13 @@ def validate_record(
     return errors
 
 
-def gate_command(issue: int, cp_id: str) -> str:
+def gate_command(issue: int, cp_id: str, level: str = "full") -> str:
     prefix = routing.kit_prefix(ROOT)
     project = routing.project_root(ROOT)
     gate = project / prefix / "delivery" / "scripts" / "gate.sh"
     if gate.is_file():
-        return f"./{prefix}delivery/scripts/gate.sh --issue {issue} --checkpoint {cp_id}"
+        suffix = " --fast" if level == "fast" else ""
+        return f"./{prefix}delivery/scripts/gate.sh --issue {issue} --checkpoint {cp_id}{suffix}"
     command = f"./{prefix}delivery/scripts/doctor.sh --issue {issue} --checkpoint {cp_id}"
     if prefix:
         command += " --product --root ."
@@ -195,6 +196,7 @@ def main() -> int:
     parser.add_argument("--cp", required=True)
     parser.add_argument("--evidence", type=Path, required=True)
     parser.add_argument("--apply", action="store_true", help="gate, post, verify, checkpoint")
+    parser.add_argument("--gate-level", choices=["full", "fast"], default="full")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
 
@@ -208,7 +210,7 @@ def main() -> int:
             print(f"cp_close: {error}", file=sys.stderr)
         return 1
 
-    command = gate_command(args.issue, args.cp)
+    command = gate_command(args.issue, args.cp, args.gate_level)
     plan = {
         "issue": args.issue,
         "cp_id": args.cp,
