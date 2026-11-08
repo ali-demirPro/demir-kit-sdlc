@@ -7,7 +7,6 @@
 .kit/cycle.jsonl
 .kit/evidence.jsonl
 .kit/resources.jsonl
-.kit/resources.yaml
 .kit/gate-cache.json
 # install.sh → npx skills add çıktısı: makineye özel, kaynaktan türetilir
 .agents/
