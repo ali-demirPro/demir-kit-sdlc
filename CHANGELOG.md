@@ -1,5 +1,18 @@
 # Changelog
 
+## 2.60.0 — 2026-11-08
+
+- **Makine bütçesi (Epic A)** — paylaşılan `DerivedData` (`detect.py` + skill'ler),
+  `resources.py` makine freni (RAM/compressor/load/simülatör/ağır iş), boşta worker
+  reaper, `budget.py` ağır iş bütçesi, `gate-cache` (tree hash + TTL), `hygiene.py`
+  güvenli temizlik.
+- **Epic hızı (Epic B)** — epic içi paralel leaf (dosya kesişimi yoksa 2),
+  `severity: blocking|nit` ile review yakınsaması, 60 dk onay timeout'u
+  (`approval_sweep.py`), review paketinde kapı kanıtı, `gate --fast` tiering.
+- **Ölçüm ve bağlam (Epic C)** — `.kit/cycle.jsonl` gerçek geçiş defteri,
+  `audit.py` filo denetimi, 200k/300k bağlam sınırı, oturum hijyeni, salt-okur
+  kapı (`--fix`), genel anahtar kelimelerin risk tabanını şişirmesi düzeltildi.
+
 ## Unreleased — 2026-11-08
 
 - **Epic içi paralel leaf** — `next-leaf.py` aynı epic'te dosya kesişimi

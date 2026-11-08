@@ -281,17 +281,26 @@ def build(project: Path, repo: str | None = None, upstream: str = DEFAULT_UPSTRE
     }
 
 
+RUNTIME_IGNORES = (
+    ".orchestration/",
+    ".kit/cycle.jsonl",
+    ".kit/resources.jsonl",
+    ".kit/gate-cache.json",
+)
+
+
 def ensure_gitignore(root: Path) -> dict:
-    """Keep the orchestration state directory out of version control."""
+    """Keep orchestration and cycle state out of version control."""
     path = root / ".gitignore"
     existing = path.read_text(encoding="utf-8") if path.is_file() else ""
-    if ".orchestration/" in existing.splitlines():
+    lines = existing.splitlines()
+    missing = [line for line in RUNTIME_IGNORES if line not in lines]
+    if not missing:
         return {"changed": False, "applied": False}
-    line = ".orchestration/"
     text = existing.rstrip("\n")
     if text:
         text += "\n"
-    text += f"# demir-kit oturum artıkları\n{line}\n"
+    text += "# demir-kit oturum artıkları\n" + "\n".join(missing) + "\n"
     path.write_text(text, encoding="utf-8")
     return {"changed": True, "applied": True}
 
