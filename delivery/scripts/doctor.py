@@ -1320,6 +1320,11 @@ def check_issue(
     elif "agent-approved" in labels or "leaf-done" in labels:
         error(f"issue #{number}: leaf seal (`demir-kit` bloğu) yok")
 
+    child_labels = seal_lint.child_labels_for(
+        repo, body, lambda url: run(["gh", "api", url])
+    )
+    for message in seal_lint.validate_epic_record(body, labels, child_labels):
+        error(f"issue #{number}: {message}")
     epic_block = re.search(r"```yaml\s+demir-kit-epic\s*\n(.*?)```", body, re.S)
     if epic_block:
         schema = load_json(DELIVERY / "schemas" / "epic.schema.json")

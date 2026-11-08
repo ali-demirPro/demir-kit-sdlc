@@ -8,6 +8,8 @@ Usage:
 
 from __future__ import annotations
 
+import re
+
 import argparse
 import json
 import re
@@ -212,3 +214,74 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
+
+
+def validate_epic_record(
+    body: str,
+    labels: list[str] | set[str],
+    child_labels: dict[int, list[str]] | None = None,
+) -> list[str]:
+    """Shape and child checks for an epic seal; empty when not an epic."""
+    labels = set(labels)
+    if "epic" not in labels:
+        return []
+    match = re.search(r"```yaml\s+demir-kit-epic\s*\n(.*?)```", body, re.S)
+    if not match:
+        if "```yaml demir-kit-epic" in body:
+            return ["epic seal: YAML bloğu kapanmamış"]
+        return ["epic seal: `demir-kit-epic` bloğu yok"]
+    try:
+        data = yaml.safe_load(match.group(1)) or {}
+    except yaml.YAMLError as exc:
+        return [f"epic seal: YAML geçersiz — {exc}"]
+    if not isinstance(data, dict):
+        return ["epic seal: kök mapping değil"]
+    errors: list[str] = []
+    children = data.get("children")
+    if not isinstance(children, list) or not children:
+        errors.append("epic seal: children boş")
+        return errors
+    for child in children:
+        if not isinstance(child, int) or child < 1:
+            errors.append(f"epic seal: geçersiz child {child!r}")
+            continue
+        if child_labels is None:
+            continue
+        labels_c = child_labels.get(child)
+        if labels_c is None:
+            errors.append(f"epic seal: child #{child} yok")
+        elif "epic" in set(labels_c):
+            errors.append(f"epic seal: child #{child} epic olamaz")
+    return errors
+
+
+
+
+def child_labels_for(repo, body: str, fetch) -> dict[int, list[str]] | None:
+    """Labels of the epic's children, fetched once for seal validation."""
+    import json
+
+    if not repo:
+        return None
+    match = re.search(r"```yaml\s+demir-kit-epic\s*\n(.*?)```", body, re.S)
+    if not match:
+        return None
+    try:
+        data = yaml.safe_load(match.group(1)) or {}
+    except yaml.YAMLError:
+        return {}
+    labels: dict[int, list[str]] = {}
+    for child in data.get("children") or []:
+        if not isinstance(child, int):
+            continue
+        raw = fetch(f"repos/{repo}/issues/{child}")
+        if not raw:
+            labels[child] = []
+            continue
+        try:
+            payload = json.loads(raw)
+        except json.JSONDecodeError:
+            labels[child] = []
+            continue
+        labels[child] = [item.get("name") for item in payload.get("labels", [])]
+    return labels

@@ -50,6 +50,14 @@ def issue(
 
 
 class SelectTests(unittest.TestCase):
+    def test_same_timestamp_sorts_by_issue_number(self) -> None:
+        issues = [
+            issue(244, paths=["b.py"], created="2026-11-08T10:00:00Z"),
+            issue(243, paths=["a.py"], created="2026-11-08T10:00:00Z"),
+        ]
+        eligible, _ = next_leaf.select_eligible(issues, issues)
+        self.assertEqual([item["number"] for item in eligible], [243, 244])
+
     def test_disjoint_leaves_run_together(self) -> None:
         issues = [
             issue(1, paths=["delivery/scripts/a.py"]),
