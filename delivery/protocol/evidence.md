@@ -151,6 +151,29 @@ CI zorunludur.
 - `leaf-done` varsa her CP için `status: pass` evidence arar.
 - `epic-done` varsa `demir-kit-closure` bloğu arar.
 
+## Review turu indeksi
+
+`cp_close.py --apply` her kapanan CP için `.kit/evidence.jsonl` dosyasına bir
+satır yazar: issue, CP, `verification.reviewers[].id` kimlikleri, risk ve kapı
+seviyesi. Aynı CP yeniden kapanırsa satır güncellenir, çoğalmaz.
+
+`audit.py` review turunu bu indeksten sayar; indeks yoksa eski
+`.kit/cycle.jsonl` davranışı geçerlidir. Yer tutucu (`reviewer_a`) kimlik review
+sayılmaz. İndeks makine durumudur, depoya girmez.
+
+## Telafi review
+
+Bir leaf `leaf-done` olduktan sonra kanıtında gerçek reviewer kimliği yoksa
+(veya hiç review satırı yoksa), fark geriye dönük denetlenir:
+
+- Kapsam issue numarasıyla sabitlenir; eski kanıt ve cycle satırları **yeniden
+  yazılmaz**.
+- Dalga: 5 fark, 1 bağımsız reviewer. Reviewer oturum kimliği ve verdict
+  (`approved` / `findings`) issue yorumunda satır satır yazılır.
+- Bulgular tek bir düzeltme kuyruğu issue'sunda toplanır; her bulgu ayrı fix
+  leaf'i açar. Telafi review leaf'i düzeltme yapmaz.
+- Örnek: epic #261, 25 leaf, 5 dalga → 10 approved, 15 findings (#262).
+
 ## Kötü örnekler
 
 | Örnek | Neden |
