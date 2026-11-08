@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import importlib.util
+import os
 import io
 import json
 import sys
@@ -14,6 +15,8 @@ from unittest.mock import patch
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
+os.environ.setdefault("DEMIR_KIT_REAPER", "off")
+os.environ.setdefault("DEMIR_KIT_RESOURCES", "off")
 SCRIPTS = ROOT / "delivery" / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 

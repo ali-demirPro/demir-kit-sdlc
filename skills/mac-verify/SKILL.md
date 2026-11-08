@@ -29,6 +29,20 @@ gates:
 
 Biri eksikse yüzey hazır değildir: `health-check` `ready: false` verir.
 
+## Paylaşılan derleme önbelleği
+
+Her worktree kendi `DerivedData` yolunu üretir; paralel worker'lar sıfırdan
+derler. `xcodebuild` komutuna paylaşılan yolu ekle:
+
+```bash
+xcodebuild test \
+  -derivedDataPath "$HOME/Library/Developer/Xcode/DerivedData/<proje>-shared" \
+  -clonedSourcePackagesDirPath "$HOME/Library/Developer/Xcode/DerivedData/<proje>-shared/SourcePackages"
+```
+
+`<proje>` = `.xcodeproj`/`.xcworkspace` adı. `detect.py` ürettiği behavior
+komutuna bu iki parametreyi koyar; elle yazılan kapılarda da aynı yol kullanılır.
+
 ## Self-test
 
 - `--selftest` bayrağıyla çalışır, store **`/tmp`** altında olur.
