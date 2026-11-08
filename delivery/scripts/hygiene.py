@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -53,6 +54,11 @@ def _size(path: Path) -> int:
         return 0
 
 
+UUID_RE = re.compile(
+    r"\(([0-9A-Fa-f]{8}(?:-[0-9A-Fa-f]{4}){3}-[0-9A-Fa-f]{12})\)"
+)
+
+
 def _booted() -> set[str]:
     try:
         output = subprocess.check_output(
@@ -60,11 +66,7 @@ def _booted() -> set[str]:
         )
     except (OSError, subprocess.CalledProcessError):
         return set()
-    return {
-        line.split("(")[-1].rstrip(")").strip()
-        for line in output.splitlines()
-        if line.strip() and "(" in line
-    }
+    return set(UUID_RE.findall(output))
 
 
 def _busy() -> bool:
@@ -142,18 +144,27 @@ def guards(
 
 def apply(result: dict) -> dict:
     deleted = 0
+    failed = 0
     for item in result["items"]:
         path = Path(item["path"])
         try:
             if item["kind"] == "simulator":
-                subprocess.run(["xcrun", "simctl", "delete", path.name],
-                               capture_output=True, text=True, timeout=60)
+                done = subprocess.run(
+                    ["xcrun", "simctl", "delete", path.name],
+                    capture_output=True,
+                    text=True,
+                    timeout=60,
+                )
+                if done.returncode != 0:
+                    failed += 1
+                    continue
             else:
                 shutil.rmtree(path)
             deleted += 1
         except (OSError, subprocess.SubprocessError):
+            failed += 1
             continue
-    return {"deleted": deleted}
+    return {"deleted": deleted, "failed": failed}
 
 
 def mark_indexes() -> int:
