@@ -211,3 +211,13 @@ orca emulator shutdown --worktree active --json
 
 Kit hiçbir cihazı silmez; `simctl` yalnız teşhis için doğrudan çağrılabilir.
 Disk geri kazanımı için cihaz silme gerekirse Xcode Devices penceresi kullanılır.
+
+## Bağlam devri
+
+Bağlam eşiği `policies/context-budget.md` ile aynıdır. Eşiğe gelince `handoff.py` kısa devir notunu
+issue'ya yazar, successor agent'ı `orca agent launch --worktree path:<epic>`
+ile başlatır. Yanıt kaybolursa aynı komutu `--retry-launch <operationId>` ile
+tekrar et; ikinci agent açma. Eski terminal, launch başarılı olduğunda
+`terminal close` ile kapanır. Runtime'ı masaüstü uygulamasından bağımsız tutmak
+için `orca serve service install` (LaunchAgent/systemd) kullanılabilir; tek
+başına `--supervise` bunu sağlamaz.
