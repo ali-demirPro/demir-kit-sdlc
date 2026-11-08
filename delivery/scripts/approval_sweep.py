@@ -137,17 +137,20 @@ def accept_block(issue: int, note: str) -> str:
     )
 
 
-def _gh(args: list[str]) -> str:
-    result = subprocess.run(["gh", *args], capture_output=True, text=True)
+def _gh(args: list[str], repo: str | None = None) -> str:
+    command = list(args)
+    if repo and command and command[0] == "issue":
+        command += ["--repo", repo]
+    result = subprocess.run(["gh", *command], capture_output=True, text=True)
     if result.returncode != 0:
         raise SystemExit(f"approval_sweep: gh failed — {result.stderr.strip()}")
     return result.stdout
 
 
 def apply(issue: int, note: str, repo: str) -> None:
-    _gh(["issue", "comment", str(issue), "--body", accept_block(issue, note)])
-    _gh(["issue", "edit", str(issue), "--add-label", LABEL])
-    _gh(["issue", "edit", str(issue), "--remove-label", "human-qa"])
+    _gh(["issue", "comment", str(issue), "--body", accept_block(issue, note)], repo)
+    _gh(["issue", "edit", str(issue), "--add-label", LABEL], repo)
+    _gh(["issue", "edit", str(issue), "--remove-label", "human-qa"], repo)
 
 
 def repo_name(project: Path) -> str:

@@ -106,6 +106,26 @@ class BlockTests(unittest.TestCase):
         self.assertIn("via: timeout", block)
         self.assertIn("note:", block)
 
+class ApplyRepoTests(unittest.TestCase):
+    def test_apply_targets_the_given_repo(self) -> None:
+        calls = []
+        from unittest.mock import patch
+
+        def fake(args, **kwargs):
+            calls.append(args)
+            class Done:
+                returncode = 0
+                stdout = "{}"
+                stderr = ""
+            return Done()
+
+        with patch.object(sweep.subprocess, "run", side_effect=fake):
+            sweep.apply(46, "not", "owner/repo")
+        self.assertEqual(len(calls), 3)
+        for args in calls:
+            self.assertIn("--repo", args)
+            self.assertEqual(args[args.index("--repo") + 1], "owner/repo")
+
 
 if __name__ == "__main__":
     unittest.main()
