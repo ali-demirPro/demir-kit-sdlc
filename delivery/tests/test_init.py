@@ -249,5 +249,30 @@ class InitTests(unittest.TestCase):
             self.assertFalse(second["worktreeinclude"]["changed"])
 
 
+class GitignoreRuntimeTests(unittest.TestCase):
+    def test_runtime_entries_are_added_once(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            first = init_mod.ensure_gitignore(root)
+            self.assertTrue(first["changed"])
+            text = (root / ".gitignore").read_text(encoding="utf-8")
+            for line in init_mod.RUNTIME_IGNORES:
+                self.assertIn(line, text.splitlines())
+            second = init_mod.ensure_gitignore(root)
+            self.assertFalse(second["changed"])
+            self.assertEqual(
+                (root / ".gitignore").read_text(encoding="utf-8").count(".kit/cycle.jsonl"), 1
+            )
+
+    def test_existing_orchestration_line_is_kept(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / ".gitignore").write_text(".orchestration/\n", encoding="utf-8")
+            init_mod.ensure_gitignore(root)
+            text = (root / ".gitignore").read_text(encoding="utf-8")
+            self.assertEqual(text.count(".orchestration/"), 1)
+            self.assertIn(".kit/resources.jsonl", text)
+
+
 if __name__ == "__main__":
     unittest.main()
