@@ -15,7 +15,7 @@ import argparse
 import json
 import subprocess
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import yaml
@@ -97,6 +97,8 @@ def render(
     approval: bool = False,
     ask: str | None = None,
     now: datetime | None = None,
+    issue: int | None = None,
+    timeout_minutes: int = 60,
 ) -> str:
     now = now or datetime.now(timezone.utc)
     stamp = now.strftime("%Y-%m-%d %H:%M UTC")
@@ -115,6 +117,19 @@ def render(
         lines.append(f"**{next_label}:** {next_step}")
     if approval:
         lines.append(f"**Onay:** gerekiyor — {ask or 'Karar onayı bekleniyor.'}")
+        if issue is not None:
+            asked = now.isoformat(timespec="seconds")
+            deadline = (now + timedelta(minutes=timeout_minutes)).isoformat(timespec="seconds")
+            lines += [
+                "",
+                "```yaml demir-kit-request",
+                f"issue: {issue}",
+                f"asked_at: {asked}",
+                f"deadline: {deadline}",
+                f"timeout_minutes: {timeout_minutes}",
+                'ask: "' + (ask or "").replace('"', "'") + '"',
+                "```",
+            ]
     else:
         lines.append("**Onay:** gerekmiyor")
     return "\n".join(lines) + "\n"
@@ -168,6 +183,7 @@ def main() -> int:
     parser.add_argument("--next", dest="next_step")
     parser.add_argument("--approval", choices=["yes", "no"], default="no")
     parser.add_argument("--ask")
+    parser.add_argument("--timeout-minutes", type=int, default=60)
     parser.add_argument(
         "--human-gate",
         action="store_true",
@@ -193,6 +209,8 @@ def main() -> int:
         next_step=args.next_step,
         approval=args.approval == "yes",
         ask=args.ask,
+        issue=args.issue,
+        timeout_minutes=args.timeout_minutes,
     )
 
     if args.issue is None or args.dry_run:

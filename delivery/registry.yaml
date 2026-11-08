@@ -32,6 +32,7 @@ labels:
   deferred: deferred
   leaf_complete: leaf-done
   human_review: human-qa
+  approval_timeout: approval-timeout
   epic_reconcile: epic-reconcile
   epic_complete: epic-done
   architect_revise: architect-revise
