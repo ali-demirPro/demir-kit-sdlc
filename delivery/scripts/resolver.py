@@ -192,7 +192,15 @@ def _keyword_hit(text: str, keyword: str) -> bool:
     )
 
 
-def match_capabilities(registry: dict, signals: list[dict], text: str = "") -> dict:
+GENERIC_KEYWORDS = {"oturum", "session", "checkout", "izin"}
+
+
+def match_capabilities(
+    registry: dict,
+    signals: list[dict],
+    text: str = "",
+    allow_keywords: bool = True,
+) -> dict:
     matched: dict[str, dict] = {}
     lowered = text.lower()
     for cap_id, capability in (registry.get("capabilities") or {}).items():
@@ -221,10 +229,11 @@ def match_capabilities(registry: dict, signals: list[dict], text: str = "") -> d
                         break
                 if hit:
                     break
-            if not hit:
+            if not hit and allow_keywords:
                 hit = any(
                     _keyword_hit(lowered, str(keyword).lower())
                     for keyword in match.get("keywords") or []
+                    if str(keyword).lower() not in GENERIC_KEYWORDS
                 )
         if hit:
             matched[cap_id] = capability
@@ -240,10 +249,11 @@ def resolve(
     text: str = "",
     delivery_registry: dict | None = None,
     declared: dict | None = None,
+    allow_keywords: bool = True,
 ) -> dict:
     delivery = delivery_registry or load_yaml(ROOT / "delivery" / "registry.yaml")
     path_agents = routing.resolve_agents(delivery, path_id)
-    capabilities = match_capabilities(registry, signals, text)
+    capabilities = match_capabilities(registry, signals, text, allow_keywords=allow_keywords)
     capabilities = apply_declared(capabilities, registry, declared)
     capability_roles: set[str] = set()
     for capability in capabilities.values():

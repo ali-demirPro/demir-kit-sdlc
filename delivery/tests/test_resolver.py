@@ -181,5 +181,42 @@ risk: {level: medium}
         self.assertIn("roles", data["matrix"])
 
 
+class KeywordFloorTests(unittest.TestCase):
+    def test_surfaces_disable_free_text_keywords(self) -> None:
+        registry = {
+            "capabilities": {
+                "domain.auth": {
+                    "kind": "domain",
+                    "match": {"keywords": ["oturum"]},
+                    "roles": {},
+                    "risk_floor": "high",
+                }
+            }
+        }
+        signals = [
+            {"platforms": [], "stacks": [], "surfaces": ["kit.docs"], "distribution": []}
+        ]
+        self.assertEqual(
+            resolver.match_capabilities(registry, signals, "oturum", allow_keywords=False),
+            {},
+        )
+        self.assertEqual(
+            resolver.match_capabilities(registry, signals, "oturum"), {}
+        )
+        oauth = {
+            "capabilities": {
+                "domain.auth": {
+                    "kind": "domain",
+                    "match": {"keywords": ["oauth"]},
+                    "roles": {},
+                    "risk_floor": "high",
+                }
+            }
+        }
+        self.assertIn(
+            "domain.auth", resolver.match_capabilities(oauth, signals, "oauth")
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
