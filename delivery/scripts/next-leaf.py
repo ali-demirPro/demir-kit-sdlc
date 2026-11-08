@@ -229,6 +229,16 @@ def prepare_worktree(number: int, epic: int | None) -> int:
             f"`guard.sh --issue {number} --degrade --reason \"...\"` ile kaydet.",
             file=sys.stderr,
         )
+    try:
+        here = Path.cwd().resolve()
+        there = Path(path).resolve()
+    except OSError:
+        here = there = Path(".")
+    if path and here != there:
+        print(
+            "[uyarı] ana dizindesin; kaynak değişikliği epic worktree'sinde yapılır",
+            file=sys.stderr,
+        )
     print(f"[next] cd {path}", file=sys.stderr)
     print(
         "[next] orca orchestration task-create --spec <CP spec> "
