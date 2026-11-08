@@ -183,7 +183,10 @@ def main() -> int:
     parser.add_argument("--next", dest="next_step")
     parser.add_argument("--approval", choices=["yes", "no"], default="no")
     parser.add_argument("--ask")
-    parser.add_argument("--timeout-minutes", type=int, default=60)
+    parser.add_argument("--timeout-minutes", type=int, default=None)
+    parser.add_argument(
+        "--risk", choices=["low", "medium", "high", "critical", "irreversible"]
+    )
     parser.add_argument(
         "--human-gate",
         action="store_true",
@@ -197,6 +200,14 @@ def main() -> int:
         sys.exit("update: --what boş olamaz")
     if args.human_gate:
         args.approval = "yes"
+    if args.timeout_minutes is None:
+        args.timeout_minutes = {
+            "low": 60,
+            "medium": 60,
+            "high": 240,
+            "critical": 0,
+            "irreversible": 0,
+        }.get(args.risk or "low", 60)
     if args.approval == "yes" and not (args.ask or "").strip():
         sys.exit("update: --approval yes için --ask \"...\" gerekli")
 

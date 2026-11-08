@@ -89,9 +89,11 @@ def decide(
     issue: int,
     comments: list[dict],
     now: datetime | None = None,
-    risk: str = "low",
+    risk: str | None = "low",
     timeouts: dict | None = None,
 ) -> dict | None:
+    if not risk:
+        return None
     now = now or datetime.now(timezone.utc)
     request = request_block(comments)
     if not request:
@@ -103,9 +105,15 @@ def decide(
         return None
     if already_timed_out(comments, asked_at):
         return None
-    minutes = int((timeouts or TIMEOUTS).get(risk, 60))
-    if minutes <= 0:
+    policy = (timeouts or TIMEOUTS).get(risk)
+    if policy is not None and policy <= 0:
         return None
+    block_minutes = request.get("timeout_minutes")
+    try:
+        block = int(block_minutes)
+    except (TypeError, ValueError):
+        block = 0
+    minutes = max(block, int(policy or 0), 1)
     deadline = asked_at + timedelta(minutes=minutes)
     if now < deadline:
         return None
@@ -152,11 +160,14 @@ def repo_name(project: Path) -> str:
     return str(repo)
 
 
-def risk_of(body: str) -> str:
+def risk_of(body: str) -> str | None:
+    if "human_gate: irreversible" in body:
+        return "irreversible"
     match = re.search(r"```yaml\s+demir-kit\s*\n(.*?)```", body, re.S)
     if not match:
-        return "low"
-    return str(((_yaml(match.group(1)).get("risk") or {}).get("level")) or "low")
+        return None
+    level = ((_yaml(match.group(1)).get("risk") or {}).get("level"))
+    return str(level) if level else None
 
 
 def main() -> int:
@@ -169,8 +180,8 @@ def main() -> int:
     project = Path(args.project).resolve()
     repo = repo_name(project)
     issues = json.loads(
-        _gh(["issue", "list", "--state", "open", "--label", "human-qa",
-             "--limit", "100", "--json", "number,body"])
+        _gh(["issue", "list", "--repo", repo, "--state", "open",
+             "--label", "human-qa", "--limit", "100", "--json", "number,body"])
     )
     now = datetime.now(timezone.utc)
     results = []

@@ -83,6 +83,18 @@ class DecideTests(unittest.TestCase):
     def test_irreversible_has_no_timeout(self) -> None:
         self.assertIsNone(sweep.decide(225, [request(600)], NOW, risk="irreversible"))
 
+    def test_epic_without_seal_is_out_of_scope(self) -> None:
+        self.assertIsNone(sweep.decide(225, [request(600)], NOW, risk=None))
+
+    def test_policy_floor_is_respected(self) -> None:
+        self.assertIsNone(sweep.decide(225, [request(61, minutes=30)], NOW, risk="high"))
+
+    def test_critical_has_no_timeout(self) -> None:
+        self.assertIsNone(sweep.decide(225, [request(600)], NOW, risk="critical"))
+
+    def test_irreversible_marker_has_no_timeout(self) -> None:
+        self.assertIsNone(sweep.decide(225, [request(600)], NOW, risk="irreversible"))
+
     def test_no_request_no_action(self) -> None:
         self.assertIsNone(sweep.decide(225, [human(5)], NOW, risk="low"))
 
