@@ -35,6 +35,11 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+# Makine bütçesi: bloke ise ağır iş başlatma; uyarı kapıyı düşürmez.
+if ! python3 "${KIT_ROOT}/delivery/scripts/resources.py" --check >/dev/null 2>&1; then
+  echo "guard: uyarı — makine zorlanıyor/bloke; ayrıntı: resources.py --report" >&2
+fi
+
 APP_PATHS=()
 while IFS= read -r path; do
   [[ -n "$path" ]] && APP_PATHS+=("$path")

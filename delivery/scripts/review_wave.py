@@ -25,6 +25,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import closure  # noqa: E402
 import model_policy  # noqa: E402
 import review_packet  # noqa: E402
+import budget  # noqa: E402
+import resources  # noqa: E402
+import worker_reaper  # noqa: E402
 import routing  # noqa: E402
 import usage  # noqa: E402
 import worker_cleanup  # noqa: E402
@@ -280,12 +283,20 @@ def main() -> int:
     packet = review_packet.packet_for(
         args.issue, args.cp, args.commit, args.delta, args.max_chars, args.base
     )
+    limits = budget.load(routing.project_root(ROOT))
+    if limits.get("reviewers") and len(names) > int(limits["reviewers"]):
+        print(
+            "review_wave: uyarı — reviewers bütçesi kalite kapısının altında; "
+            "gerekli reviewer sayısı korunuyor",
+            file=sys.stderr,
+        )
     specs = {name: reviewer_spec(name, packet, args.issue, args.cp) for name in names}
     plan = {
         "issue": args.issue,
         "cp_id": args.cp,
         "commit": args.commit,
         "reviewers": names,
+        "budget": limits,
         "packet_chars": len(packet.encode("utf-8")),
         "spec_chars": {name: len(spec.encode("utf-8")) for name, spec in specs.items()},
     }
@@ -311,6 +322,10 @@ def main() -> int:
     if not run_id:
         raise SystemExit("review_wave: Orca run bulunamadı (--run ver)")
     worktree = str(routing.project_root(ROOT))
+    reason = resources.blocked(routing.project_root(ROOT))
+    if reason:
+        print(f"review_wave: makine bloke — {reason}", file=sys.stderr)
+        return 3
 
     model = model_policy.role_launch(
         routing.project_root(ROOT), "reviewer"
@@ -327,6 +342,7 @@ def main() -> int:
         for item in workers
     }
     approved = all(value is True for value in verdicts.values())
+    worker_reaper.reap_idle(worktree)
     result = {
         **plan,
         "run_id": run_id,

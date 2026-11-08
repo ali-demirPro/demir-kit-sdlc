@@ -15,7 +15,9 @@ import yaml
 
 SCRIPTS = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPTS))
+import budget  # noqa: E402
 import epic_worktree  # noqa: E402
+import resources  # noqa: E402
 import process_gate  # noqa: E402
 
 SKIP_LABELS = {"executing", "blocked", "deferred", "leaf-done", "epic-done"}
@@ -229,6 +231,13 @@ def prepare_worktree(number: int, epic: int | None) -> int:
             f"`guard.sh --issue {number} --degrade --reason \"...\"` ile kaydet.",
             file=sys.stderr,
         )
+    limits = budget.load(epic_worktree.project_root())
+    if any(limits.values()):
+        print(
+            f"[budget] ağır iş {limits['heavy_workers'] or 'sınırsız'} · "
+            f"reviewer {limits['reviewers'] or 'sınırsız'}",
+            file=sys.stderr,
+        )
     print(f"[next] cd {path}", file=sys.stderr)
     print(
         "[next] orca orchestration task-create --spec <CP spec> "
@@ -343,6 +352,12 @@ def main() -> int:
             sys.exit("next-leaf: --release requires --issue N")
         return release(args.issue, args.force, args.reason)
 
+    if args.claim:
+        reason = resources.blocked(epic_worktree.project_root())
+        if reason:
+            print(f"next-leaf: makine bloke — {reason}", file=sys.stderr)
+            return 3
+
     open_issues = json.loads(
         gh(
             [
@@ -436,7 +451,12 @@ def main() -> int:
             )
             return 1
         if args.json:
-            print("[]")
+            print(
+                json.dumps(
+                    {"eligible": [], "budget": budget.load(epic_worktree.project_root())},
+                    indent=2,
+                )
+            )
         else:
             print("no work")
         return 0
@@ -448,7 +468,15 @@ def main() -> int:
         )
 
     if args.json and not args.claim:
-        print(json.dumps(eligible, indent=2))
+        print(
+            json.dumps(
+                {
+                    "eligible": eligible,
+                    "budget": budget.load(epic_worktree.project_root()),
+                },
+                indent=2,
+            )
+        )
         return 0
 
     if args.list and not args.claim:
