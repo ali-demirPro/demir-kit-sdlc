@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -33,6 +34,7 @@ PLUGIN_PATH = "plugins/orca"
 CACHE_NAME = "gate-cache.json"
 CACHE_TTL = 86_400
 CACHE_MAX = 50
+CHECKPOINT_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 
 
 def _git(args: list[str], project: Path) -> str | None:
@@ -287,10 +289,13 @@ def step_command(
     raise ValueError(f"bilinmeyen adım: {step}")
 
 
-def _run(command: list[str], project: Path) -> int:
+def _run(command: list[str] | str, project: Path, shell: bool = False) -> int:
     try:
         return subprocess.run(
-            command, cwd=str(project), timeout=STEP_TIMEOUT
+            command,
+            cwd=str(project),
+            timeout=STEP_TIMEOUT,
+            shell=shell,
         ).returncode
     except subprocess.TimeoutExpired:
         print(f"[gate] timeout: {STEP_TIMEOUT}s aşıldı", flush=True)
@@ -317,6 +322,10 @@ def main(argv: list[str] | None = None) -> int:
         help="git yerine bu değişen dosyaları kullan (tekrarlanabilir)",
     )
     args = parser.parse_args(argv)
+    if not CHECKPOINT_RE.fullmatch(args.checkpoint or ""):
+        parser.error(
+            "--checkpoint yalnız harf, rakam, nokta, alt çizgi ve tire içerir"
+        )
     if args.changed is not None and not args.plan:
         parser.error("--changed yalnız --plan ile kullanılabilir")
 
@@ -361,7 +370,7 @@ def main(argv: list[str] | None = None) -> int:
     failed = False
     for command in behavior:
         print(f"[gate] behavior: {command}", flush=True)
-        code = _run(command, project)
+        code = _run(command, project, shell=True)
         print(f"[gate] behavior exit {code}", flush=True)
         if code != 0:
             failed = True
