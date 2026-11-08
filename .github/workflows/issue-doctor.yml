@@ -18,9 +18,11 @@ jobs:
     name: issue-doctor
     runs-on: ubuntu-latest
     if: >-
-      contains(github.event.issue.labels.*.name, 'agent-approved') ||
-      contains(github.event.issue.labels.*.name, 'leaf-done') ||
-      contains(github.event.issue.labels.*.name, 'epic-done')
+      (github.event.action != 'labeled' ||
+        contains(fromJson('["agent-approved","leaf-done","epic-done"]'), github.event.label.name)) &&
+      (contains(github.event.issue.labels.*.name, 'agent-approved') ||
+       contains(github.event.issue.labels.*.name, 'leaf-done') ||
+       contains(github.event.issue.labels.*.name, 'epic-done'))
     steps:
       - uses: actions/checkout@v7
         with:
