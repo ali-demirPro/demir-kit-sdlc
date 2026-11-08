@@ -24,6 +24,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import brief  # noqa: E402
+import cycle  # noqa: E402
 import profiles  # noqa: E402
 import routing  # noqa: E402
 
@@ -310,6 +311,10 @@ def main() -> int:
         args.write.mkdir(parents=True, exist_ok=True)
         path = args.write / f"review-{args.cp}.md"
         path.write_text(packet, encoding="utf-8")
+        cycle.record(
+            cycle.project_root(ROOT),
+            cycle.make_row(args.issue, "review", actor="reviewer", reason=args.cp),
+        )
         print(path)
     elif args.json:
         print(

@@ -89,8 +89,6 @@ def _under(path: str, root: str) -> bool:
     return path == root or path.startswith(root + "/")
 
 
-
-
 def _git_text(args: list[str], project: Path) -> str:
     try:
         result = subprocess.run(
@@ -103,6 +101,15 @@ def _git_text(args: list[str], project: Path) -> str:
         return ""
     return result.stdout if result.returncode == 0 else ""
 
+
+def tracked_changes(project: Path) -> set[str]:
+    """Tracked files that differ from HEAD (staged or not)."""
+    lines = _git_text(["status", "--porcelain"], project).splitlines()
+    return {
+        line[3:].strip()
+        for line in lines
+        if line.strip() and not line.startswith("??")
+    }
 
 def tree_state(project: Path) -> str:
     """HEAD + dirty diff + untracked list, hashed."""
@@ -262,6 +269,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--fast", action="store_true", help="yalnız statik doctor (CP)")
     parser.add_argument("--cached", action="store_true", help="tree hash cache'ini kullan")
     parser.add_argument("--no-cache", action="store_true", help="cache'i baypas et")
+    parser.add_argument("--fix", action="store_true", help="düzeltici adımlara izin ver")
     parser.add_argument("--project", type=Path, default=None, help="proje kökü")
     parser.add_argument(
         "--changed",
@@ -308,6 +316,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"[gate] cache hit {key[:12]} (exit {hit['code']})", flush=True)
             return int(hit["code"])
 
+    before = tracked_changes(project)
     failed = False
     for step in steps:
         if step == "plugin":
@@ -323,8 +332,32 @@ def main(argv: list[str] | None = None) -> int:
         if code != 0:
             failed = True
 
+    touched = sorted(tracked_changes(project) - before)
+    if touched and not args.fix:
+        print(
+            "[gate] depo değişti: " + ", ".join(touched[:5])
+            + " — kapı salt-okur olmalı; düzeltme ayrı adım (--fix).",
+            flush=True,
+        )
+        failed = True
+
     if key is not None:
         cache_store(project, key, 1 if failed else 0, "")
+    if args.issue is not None:
+        try:
+            import cycle
+
+            cycle.record(
+                cycle.project_root(KIT_ROOT),
+                cycle.make_row(
+                    args.issue,
+                    "gate",
+                    actor="gate",
+                    reason=f"{args.checkpoint or '-'} exit={1 if failed else 0}",
+                ),
+            )
+        except Exception:
+            pass
     return 1 if failed else 0
 
 

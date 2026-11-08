@@ -15,6 +15,7 @@ from pathlib import Path
 import yaml
 
 import approvals
+import cycle
 import epic_worktree
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -252,6 +253,17 @@ def epic_pr_merged(epic: int) -> tuple[bool, str]:
     return True, ""
 
 
+def cycle_row(
+    issue: int,
+    stage: str,
+    actor: str,
+    reason: str = "",
+    epic: int | None = None,
+) -> dict:
+    """One cycle-log row for a state transition."""
+    return cycle.make_row(issue, stage, actor=actor, reason=reason, epic=epic)
+
+
 def validate(issue: dict, target: str, args) -> tuple[bool, str]:
     epic = is_epic(issue)
     state = current_state(issue, epic)
@@ -414,6 +426,10 @@ def main() -> int:
     parser.add_argument("--gate", help="onayla birlikte çözülecek Orca gate id")
     parser.add_argument("--resolution", default="approved", help="gate çözümü")
     parser.add_argument("--no-orca", action="store_true", help="Orca metadata yazma")
+    parser.add_argument(
+        "--write-cycle", action="store_true", help="dry-run olsa da cycle satırını yaz"
+    )
+    parser.add_argument("--no-cycle", action="store_true", help="cycle satırı yazma")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
@@ -452,9 +468,20 @@ def main() -> int:
         "by": args.by,
         "dry_run": args.dry_run,
     }
+    seal = parse_seal(issue.get("body") or "")
+    row = cycle_row(
+        args.issue,
+        args.to,
+        args.by,
+        args.reason,
+        None if epic else seal.get("epic"),
+    )
+    plan["cycle"] = row
     if args.dry_run:
         if args.to == "leaf-done" and not args.json:
             print("reaper: dry-run")
+        if args.write_cycle and not args.no_cycle:
+            cycle.record(cycle.project_root(ROOT), row)
         print(json.dumps(plan, ensure_ascii=False) if args.json else f"#{args.issue}: {state} -> {args.to} (dry-run)")
         return 0
 
@@ -481,6 +508,9 @@ def main() -> int:
         post_comment(args.issue, transition_comment)
         added, removed = apply_delta(args.issue, labels_of(issue), args.to)
         applied = {"add": added, "remove": removed}
+
+    if not args.no_cycle:
+        cycle.record(cycle.project_root(ROOT), row)
 
     released = 0
     if args.to == "leaf-done" and os.environ.get("DEMIR_KIT_REAPER", "on") != "off":
@@ -571,6 +601,7 @@ def main() -> int:
         "add": applied["add"],
         "remove": applied["remove"],
         "run_id": run_id,
+        "cycle": row,
         "released": released,
     }
     print(json.dumps(result, ensure_ascii=False) if args.json else f"#{args.issue}: {state} -> {args.to}")
