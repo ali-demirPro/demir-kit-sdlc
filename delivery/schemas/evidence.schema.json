@@ -5,92 +5,270 @@
   "description": "One evidence comment per checkpoint. A leaf cannot be leaf-done without these.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["demir_kit_version", "cp_id", "issue", "behavior", "reviews", "tests", "status"],
+  "required": [
+    "demir_kit_version",
+    "cp_id",
+    "issue",
+    "behavior",
+    "reviews",
+    "tests",
+    "status"
+  ],
   "properties": {
-    "demir_kit_version": { "const": "2" },
-    "cp_id": { "type": "string", "pattern": "^CP-[0-9]+$" },
-    "issue": { "type": "integer", "minimum": 1 },
-    "agent": { "type": "string", "minLength": 2 },
-    "commit": { "type": "string" },
+    "demir_kit_version": {
+      "const": "2"
+    },
+    "cp_id": {
+      "type": "string",
+      "pattern": "^CP-[0-9]+$"
+    },
+    "issue": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "agent": {
+      "type": "string",
+      "minLength": 2
+    },
+    "commit": {
+      "type": "string"
+    },
     "behavior": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["command", "exit_code"],
+      "required": [
+        "command",
+        "exit_code"
+      ],
       "properties": {
-        "command": { "type": "string", "minLength": 1 },
-        "exit_code": { "type": "integer" },
-        "checkpoint": { "type": "string" }
+        "command": {
+          "type": "string",
+          "minLength": 1
+        },
+        "exit_code": {
+          "type": "integer"
+        },
+        "checkpoint": {
+          "type": "string"
+        }
       }
     },
     "reviews": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "architect": { "enum": ["approved", "revise_required", "skipped"] },
-        "commercial": { "enum": ["approved", "revise_required", "skipped"] },
-        "ui": { "enum": ["pass", "invalid", "skipped"] },
-        "ui_visual": { "enum": ["pass", "fail", "skipped"] },
-        "ui_interaction": { "enum": ["pass", "fail", "skipped"] },
-        "comparison_valid": { "type": "boolean" },
-        "platform": { "enum": ["pass", "fail", "skipped"] },
+        "architect": {
+          "enum": [
+            "approved",
+            "revise_required",
+            "skipped"
+          ]
+        },
+        "commercial": {
+          "enum": [
+            "approved",
+            "revise_required",
+            "skipped"
+          ]
+        },
+        "ui": {
+          "enum": [
+            "pass",
+            "invalid",
+            "skipped"
+          ]
+        },
+        "ui_visual": {
+          "enum": [
+            "pass",
+            "fail",
+            "skipped"
+          ]
+        },
+        "ui_interaction": {
+          "enum": [
+            "pass",
+            "fail",
+            "skipped"
+          ]
+        },
+        "comparison_valid": {
+          "type": "boolean"
+        },
+        "platform": {
+          "enum": [
+            "pass",
+            "fail",
+            "skipped"
+          ]
+        },
         "adversarial": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["reviewer_a"],
+          "required": [
+            "reviewer_a"
+          ],
           "properties": {
-            "reviewer_a": { "enum": ["approved", "revise_required", "skipped"] },
-            "reviewer_b": { "enum": ["approved", "revise_required", "skipped"] }
+            "reviewer_a": {
+              "enum": [
+                "approved",
+                "revise_required",
+                "skipped"
+              ]
+            },
+            "reviewer_b": {
+              "enum": [
+                "approved",
+                "revise_required",
+                "skipped"
+              ]
+            }
           }
         },
-        "human": { "enum": ["approved", "revise_required", "skipped"] },
-        "human_second": { "enum": ["approved", "revise_required", "skipped"] },
-        "risk": { "enum": ["low", "medium", "high", "critical"] }
+        "human": {
+          "enum": [
+            "approved",
+            "revise_required",
+            "skipped"
+          ]
+        },
+        "human_second": {
+          "enum": [
+            "approved",
+            "revise_required",
+            "skipped"
+          ]
+        },
+        "risk": {
+          "enum": [
+            "low",
+            "medium",
+            "high",
+            "critical"
+          ]
+        }
       }
     },
     "worker": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["run_id", "task_id", "dispatch_id", "agent", "outcome"],
+      "required": [
+        "run_id",
+        "task_id",
+        "dispatch_id",
+        "agent",
+        "outcome"
+      ],
       "properties": {
-        "run_id": { "type": "string", "minLength": 3 },
-        "task_id": { "type": "string", "minLength": 3 },
-        "dispatch_id": { "type": "string", "minLength": 3 },
-        "agent": { "type": "string", "minLength": 2 },
-        "outcome": { "enum": ["succeeded", "failed"] }
+        "run_id": {
+          "type": "string",
+          "minLength": 3
+        },
+        "task_id": {
+          "type": "string",
+          "minLength": 3
+        },
+        "dispatch_id": {
+          "type": "string",
+          "minLength": 3
+        },
+        "agent": {
+          "type": "string",
+          "minLength": 2
+        },
+        "outcome": {
+          "enum": [
+            "succeeded",
+            "failed"
+          ]
+        }
       }
     },
     "worktree": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["name", "path", "branch", "epic"],
+      "required": [
+        "name",
+        "path",
+        "branch",
+        "epic"
+      ],
       "properties": {
-        "name": { "type": "string", "minLength": 3 },
-        "path": { "type": "string", "minLength": 1 },
-        "branch": { "type": "string", "minLength": 1 },
-        "epic": { "type": "integer", "minimum": 1 }
+        "name": {
+          "type": "string",
+          "minLength": 3
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "branch": {
+          "type": "string",
+          "minLength": 1
+        },
+        "epic": {
+          "type": "integer",
+          "minimum": 1
+        }
       }
     },
     "degrade": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["reason"],
+      "required": [
+        "reason"
+      ],
       "properties": {
-        "reason": { "type": "string", "minLength": 5 },
-        "recorded_at": { "type": "string", "minLength": 1 }
+        "reason": {
+          "type": "string",
+          "minLength": 5
+        },
+        "recorded_at": {
+          "type": "string",
+          "minLength": 1
+        }
       }
     },
     "orca": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["run_id", "task_id", "dispatch_id", "outcome"],
+      "required": [
+        "run_id",
+        "task_id",
+        "dispatch_id",
+        "outcome"
+      ],
       "properties": {
-        "run_id": { "type": "string", "minLength": 3 },
-        "task_id": { "type": "string", "minLength": 3 },
-        "dispatch_id": { "type": "string", "minLength": 3 },
-        "gate_id": { "type": "string", "minLength": 3 },
-        "outcome": { "enum": ["succeeded", "failed"] },
-        "host": { "type": "string", "minLength": 1 },
-        "artifact": { "type": "string", "minLength": 1 }
+        "run_id": {
+          "type": "string",
+          "minLength": 3
+        },
+        "task_id": {
+          "type": "string",
+          "minLength": 3
+        },
+        "dispatch_id": {
+          "type": "string",
+          "minLength": 3
+        },
+        "gate_id": {
+          "type": "string",
+          "minLength": 3
+        },
+        "outcome": {
+          "enum": [
+            "succeeded",
+            "failed"
+          ]
+        },
+        "host": {
+          "type": "string",
+          "minLength": 1
+        },
+        "artifact": {
+          "type": "string",
+          "minLength": 1
+        }
       }
     },
     "workers": {
@@ -99,13 +277,36 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["run_id", "task_id", "dispatch_id", "agent", "outcome"],
+        "required": [
+          "run_id",
+          "task_id",
+          "dispatch_id",
+          "agent",
+          "outcome"
+        ],
         "properties": {
-          "run_id": { "type": "string", "minLength": 3 },
-          "task_id": { "type": "string", "minLength": 3 },
-          "dispatch_id": { "type": "string", "minLength": 3 },
-          "agent": { "type": "string", "minLength": 2 },
-          "outcome": { "enum": ["succeeded", "failed"] }
+          "run_id": {
+            "type": "string",
+            "minLength": 3
+          },
+          "task_id": {
+            "type": "string",
+            "minLength": 3
+          },
+          "dispatch_id": {
+            "type": "string",
+            "minLength": 3
+          },
+          "agent": {
+            "type": "string",
+            "minLength": 2
+          },
+          "outcome": {
+            "enum": [
+              "succeeded",
+              "failed"
+            ]
+          }
         }
       }
     },
@@ -115,11 +316,25 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["case", "result"],
+        "required": [
+          "case",
+          "result"
+        ],
         "properties": {
-          "case": { "type": "string", "minLength": 1 },
-          "result": { "enum": ["pass", "fail", "skip"] },
-          "note": { "type": "string" }
+          "case": {
+            "type": "string",
+            "minLength": 1
+          },
+          "result": {
+            "enum": [
+              "pass",
+              "fail",
+              "skip"
+            ]
+          },
+          "note": {
+            "type": "string"
+          }
         }
       }
     },
@@ -128,82 +343,204 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["id", "status"],
+        "required": [
+          "id",
+          "status"
+        ],
         "properties": {
-          "id": { "type": "string" },
-          "status": { "enum": ["open", "fixed", "waived"] },
-          "note": { "type": "string" }
+          "id": {
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "open",
+              "fixed",
+              "waived"
+            ]
+          },
+          "note": {
+            "type": "string"
+          }
         }
       }
     },
-    "notes": { "type": "string" },
+    "notes": {
+      "type": "string"
+    },
     "verification": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["commit", "diff_hash", "ci", "reviewers"],
+      "required": [
+        "commit",
+        "diff_hash",
+        "ci",
+        "reviewers"
+      ],
       "properties": {
-        "commit": { "type": "string", "pattern": "^[0-9a-f]{7,40}$" },
-        "diff_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+        "commit": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{7,40}$"
+        },
+        "diff_hash": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
         "local_gate": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["command", "exit_code"],
+          "required": [
+            "command",
+            "exit_code"
+          ],
           "properties": {
-            "command": { "type": "string", "minLength": 3 },
-            "exit_code": { "type": "integer" }
+            "command": {
+              "type": "string",
+              "minLength": 3
+            },
+            "exit_code": {
+              "type": "integer"
+            }
           }
         },
         "ci": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["status"],
+          "required": [
+            "status"
+          ],
           "properties": {
-            "status": { "enum": ["success", "skipped"] },
-            "run_id": { "type": "string", "minLength": 1 },
-            "url": { "type": "string", "minLength": 1 },
-            "reason": { "type": "string", "minLength": 5 }
+            "status": {
+              "enum": [
+                "success",
+                "skipped"
+              ]
+            },
+            "run_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "url": {
+              "type": "string",
+              "minLength": 1
+            },
+            "reason": {
+              "type": "string",
+              "minLength": 5
+            }
           },
           "allOf": [
             {
-              "if": { "properties": { "status": { "const": "success" } }, "required": ["status"] },
-              "then": { "required": ["run_id"] }
+              "if": {
+                "properties": {
+                  "status": {
+                    "const": "success"
+                  }
+                },
+                "required": [
+                  "status"
+                ]
+              },
+              "then": {
+                "required": [
+                  "run_id"
+                ]
+              }
             },
             {
-              "if": { "properties": { "status": { "const": "skipped" } }, "required": ["status"] },
-              "then": { "required": ["reason"] }
+              "if": {
+                "properties": {
+                  "status": {
+                    "const": "skipped"
+                  }
+                },
+                "required": [
+                  "status"
+                ]
+              },
+              "then": {
+                "required": [
+                  "reason"
+                ]
+              }
             }
           ]
         },
         "refactor": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["baseline", "after", "unchanged", "files_changed"],
+          "required": [
+            "baseline",
+            "after",
+            "unchanged",
+            "files_changed"
+          ],
           "properties": {
             "baseline": {
               "type": "object",
               "additionalProperties": false,
-              "required": ["commit", "tests"],
+              "required": [
+                "commit",
+                "tests"
+              ],
               "properties": {
-                "commit": { "type": "string", "pattern": "^[0-9a-f]{7,40}$" },
-                "tests": { "enum": ["pass", "fail", "skip"] },
-                "snapshots": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
-                "perf_ms": { "type": "number" }
+                "commit": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{7,40}$"
+                },
+                "tests": {
+                  "enum": [
+                    "pass",
+                    "fail",
+                    "skip"
+                  ]
+                },
+                "snapshots": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$"
+                },
+                "perf_ms": {
+                  "type": "number"
+                }
               }
             },
             "after": {
               "type": "object",
               "additionalProperties": false,
-              "required": ["commit", "tests"],
+              "required": [
+                "commit",
+                "tests"
+              ],
               "properties": {
-                "commit": { "type": "string", "pattern": "^[0-9a-f]{7,40}$" },
-                "tests": { "enum": ["pass", "fail", "skip"] },
-                "snapshots": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
-                "perf_ms": { "type": "number" }
+                "commit": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{7,40}$"
+                },
+                "tests": {
+                  "enum": [
+                    "pass",
+                    "fail",
+                    "skip"
+                  ]
+                },
+                "snapshots": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$"
+                },
+                "perf_ms": {
+                  "type": "number"
+                }
               }
             },
-            "unchanged": { "type": "boolean" },
-            "ui_unchanged": { "type": "boolean" },
-            "files_changed": { "type": "integer", "minimum": 1 }
+            "unchanged": {
+              "type": "boolean"
+            },
+            "ui_unchanged": {
+              "type": "boolean"
+            },
+            "files_changed": {
+              "type": "integer",
+              "minimum": 1
+            }
           }
         },
         "reviewers": {
@@ -212,31 +549,81 @@
           "items": {
             "type": "object",
             "additionalProperties": false,
-            "required": ["role", "id", "model", "prompt_hash", "diff_hash"],
+            "required": [
+              "role",
+              "id",
+              "model",
+              "prompt_hash",
+              "diff_hash"
+            ],
             "properties": {
-              "role": { "type": "string", "minLength": 2 },
-              "id": { "type": "string", "minLength": 3 },
-              "model": { "type": "string", "minLength": 3 },
-              "prompt_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
-              "diff_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+              "role": {
+                "type": "string",
+                "minLength": 2
+              },
+              "id": {
+                "type": "string",
+                "minLength": 3
+              },
+              "model": {
+                "type": "string",
+                "minLength": 3
+              },
+              "prompt_hash": {
+                "type": "string",
+                "pattern": "^sha256:[0-9a-f]{64}$"
+              },
+              "diff_hash": {
+                "type": "string",
+                "pattern": "^sha256:[0-9a-f]{64}$"
+              }
             }
           }
         }
       }
     },
-    "status": { "enum": ["pass", "fail"] }
+    "status": {
+      "enum": [
+        "pass",
+        "fail"
+      ]
+    },
+    "gate_level": {
+      "enum": [
+        "fast",
+        "full"
+      ],
+      "description": "CP'de koşan kapı seviyesi"
+    }
   },
   "allOf": [
     {
-      "if": { "properties": { "status": { "const": "pass" } }, "required": ["status"] },
+      "if": {
+        "properties": {
+          "status": {
+            "const": "pass"
+          }
+        },
+        "required": [
+          "status"
+        ]
+      },
       "then": {
         "properties": {
           "behavior": {
-            "properties": { "exit_code": { "const": 0 } }
+            "properties": {
+              "exit_code": {
+                "const": 0
+              }
+            }
           },
           "tests": {
             "items": {
-              "properties": { "result": { "const": "pass" } }
+              "properties": {
+                "result": {
+                  "const": "pass"
+                }
+              }
             }
           }
         }

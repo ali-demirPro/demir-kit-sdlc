@@ -400,7 +400,11 @@ def main(argv: list[str] | None = None) -> int:
                     args.issue,
                     "gate",
                     actor="gate",
-                    reason=f"{args.checkpoint or '-'} exit={1 if failed else 0}",
+                    reason=(
+                        f"{args.checkpoint or '-'} "
+                        f"{'fast' if args.fast else 'full'} "
+                        f"exit={1 if failed else 0}"
+                    ),
                 ),
             )
         except Exception:
