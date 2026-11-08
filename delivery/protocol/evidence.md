@@ -3,6 +3,12 @@
 Her CP için tek kanıt comment'i. `leaf-done` bu bloklar olmadan imkânsızdır.
 Şema: [evidence.schema.json](../schemas/evidence.schema.json).
 
+## Kurallar (2026-11-08 sonrası)
+
+- `verification.reviewers[].id` gerçek oturum id'si olmalı (`ses_…`); `reviewer_a`
+  gibi yer tutucu kimlikler reddedilir (kesme: 2026-11-08T09:00Z).
+- `gate_level: fast|full` alanı CP'de koşan kapıyı yazar; `cp_close` damgalar.
+
 ## Şablon
 
 ````markdown
@@ -38,7 +44,7 @@ verification:
     url: https://github.com/owner/repo/actions/runs/123456
   reviewers:
     - role: adversarial
-      id: ses_reviewer
+      id: ses_<gerçek oturum id>
       model: provider/model
       prompt_hash: "sha256:<64 hex>"
       diff_hash: "sha256:<64 hex>"
@@ -64,6 +70,7 @@ tests:
   - { case: T-1, result: pass, note: doküman kontrolü }
 findings: []
 notes: Kısa Türkçe özet.
+gate_level: full
 status: pass
 ```
 ````

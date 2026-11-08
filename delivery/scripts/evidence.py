@@ -211,11 +211,24 @@ def commit_time(commit: str, root: Path = ROOT) -> str:
     return result.stdout.strip() if result.returncode == 0 else ""
 
 
+def _aware(value: str):
+    from datetime import datetime, timezone
+
+    if not value:
+        return None
+    try:
+        stamp = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return stamp if stamp.tzinfo else stamp.replace(tzinfo=timezone.utc)
+
+
 def placeholder_review_error(reviewer_id: str, when: str) -> str | None:
     """Placeholder reviewer ids are rejected only for evidence after the cutoff."""
     if not PLACEHOLDER_RE.match(str(reviewer_id or "")):
         return None
-    if not when or when < STRICT_SINCE:
+    stamp, cutoff = _aware(when), _aware(STRICT_SINCE)
+    if not stamp or not cutoff or stamp < cutoff:
         return None
     return "reviewer id yer tutucu; gerçek oturum id'si gerekli"
 
@@ -316,6 +329,7 @@ def verify(
     if len(reviewers) < minimum:
         errors.append(f"en az {minimum} reviewer kaydı gerekli")
     seen: set[str] = set()
+    reviewed_at = commit_time(commit, root) if commit else ""
     for index, reviewer in enumerate(reviewers, 1):
         if not isinstance(reviewer, dict):
             errors.append(f"reviewer {index} mapping değil")
@@ -324,9 +338,7 @@ def verify(
             if not str(reviewer.get(key) or "").strip():
                 errors.append(f"reviewer {index}: {key} yok")
         reviewer_id = str(reviewer.get("id") or "")
-        message = placeholder_review_error(
-            reviewer_id, commit_time(commit, root) if commit else ""
-        )
+        message = placeholder_review_error(reviewer_id, reviewed_at)
         if message:
             errors.append(f"reviewer {index}: {message}")
         if reviewer_id and reviewer_id in seen:

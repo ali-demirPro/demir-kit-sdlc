@@ -205,7 +205,6 @@ def main() -> int:
     payload = issue_payload(repo, args.issue)
     risk = risk_of(payload.get("body") or "")
     record = load_evidence(args.evidence)
-    record["gate_level"] = args.gate_level
     errors = validate_record(record, args.issue, args.cp, risk, repo)
     if errors:
         for error in errors:
@@ -213,6 +212,8 @@ def main() -> int:
         return 1
 
     command = gate_command(args.issue, args.cp, args.gate_level)
+    if "gate.sh" in command:
+        record["gate_level"] = args.gate_level
     plan = {
         "issue": args.issue,
         "cp_id": args.cp,

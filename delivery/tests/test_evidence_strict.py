@@ -33,6 +33,16 @@ class StrictReviewerTests(unittest.TestCase):
             evidence.placeholder_review_error("ses_e4a706487ffefaiRa22s7arUc5", "2026-11-09T00:00:00+00:00")
         )
 
+    def test_offset_is_compared_as_time(self) -> None:
+        # 08:26:59Z = 11:26:59+03:00 → kesmeden ÖNCE
+        self.assertIsNone(
+            evidence.placeholder_review_error("reviewer_a", "2026-11-08T11:26:59+03:00")
+        )
+        # 10:00:00Z = 05:00:00-05:00 → kesmeden SONRA
+        self.assertIsNotNone(
+            evidence.placeholder_review_error("reviewer_a", "2026-11-08T05:00:00-05:00")
+        )
+
     def test_missing_timestamp_is_legacy(self) -> None:
         self.assertIsNone(evidence.placeholder_review_error("reviewer_a", ""))
 
