@@ -58,6 +58,12 @@ class EpicSealTests(unittest.TestCase):
     def test_leaf_issues_are_ignored(self) -> None:
         self.assertEqual(lint.validate_epic_record("", ["bug"]), [])
 
+    def test_unreadable_child_is_an_error(self) -> None:
+        body = block([10])
+        labels = lint.child_labels_for("owner/repo", body, lambda url: "")
+        errors = lint.validate_epic_record(body, ["epic"], labels)
+        self.assertTrue(any("child #10 okunamadı" in item for item in errors))
+
 
 if __name__ == "__main__":
     unittest.main()
