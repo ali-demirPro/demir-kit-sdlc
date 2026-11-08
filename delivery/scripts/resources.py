@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Machine budget guard: measure the box, report it, refuse when it is saturated.
+"""Machine budget report: measure the box and report it. Never gates a command.
 
 A 16 GB laptop with two simulators, three heavy workers and an Electron shell
 freezes; the agents then look "slow". This guard turns that into a signal:
 
-  exit 0 healthy · 2 degraded (warn) · 3 blocked (do not start heavy work)
+  exit 0 always; state 0 healthy · 2 degraded · 3 saturated is reported
 
 Thresholds live in ``.kit/resources.yaml`` (optional); the defaults below are
 the documented baseline.
@@ -202,20 +202,12 @@ def check(project: Path | None = None, log: bool = True) -> dict:
     return result
 
 
-def blocked(project: Path | None = None) -> str | None:
-    """Reason string when the machine is blocked, else None."""
-    if os.environ.get("DEMIR_KIT_RESOURCES") == "off":
-        return None
-    result = check(project)
-    return "; ".join(result["reasons"]) if result["state"] == 3 else None
-
-
 def report(result: dict) -> str:
     metrics = result["metrics"]
     head = {
         0: "Makine hazır",
         2: "Makine zorlanıyor",
-        3: "Makine bloke — ağır iş başlatma",
+        3: "Makine zorlanıyor — bilgi amaçlı",
     }[result["state"]]
     lines = [
         head,
@@ -230,7 +222,7 @@ def report(result: dict) -> str:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="machine budget guard")
-    parser.add_argument("--check", action="store_true", help="exit 0/2/3")
+    parser.add_argument("--check", action="store_true", help="print state; exit is always 0")
     parser.add_argument("--report", action="store_true", help="human summary")
     parser.add_argument("--json", action="store_true")
     parser.add_argument("--no-log", action="store_true")
@@ -251,8 +243,8 @@ def main() -> int:
     elif args.report:
         print(report(result))
     elif result["reasons"]:
-        print("; ".join(result["reasons"]))
-    return result["state"]
+        print("; ".join(result["reasons"]), file=sys.stderr)
+    return 0
 
 
 if __name__ == "__main__":

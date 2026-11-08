@@ -22,7 +22,6 @@ ROOT = Path(__file__).resolve().parents[2]
 SCRIPTS = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPTS))
 import budget  # noqa: E402
-import resources  # noqa: E402
 import usage  # noqa: E402
 import worker_reaper  # noqa: E402
 import routing  # noqa: E402
@@ -771,10 +770,6 @@ def main() -> int:
     args = parser.parse_args()
     if args.execute:
         args.dry_run = False
-        reason = resources.blocked(routing.project_root(ROOT))
-        if reason:
-            print(f"orca_wave: makine bloke — {reason}", file=sys.stderr)
-            return 3
     if not args.execute and not args.dry_run:
         args.dry_run = True
 

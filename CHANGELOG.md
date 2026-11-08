@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.61.0 — 2026-11-08
+
+- **Orca'ya devret (Epic N, #277)** — kit makine kapısı olmaktan çıktı:
+  `next-leaf --claim`, `orca_wave` ve `review_wave` artık `resources.blocked`
+  yüzünden exit 3 vermez; `resources.py` yalnız rapor üretir, `--check` her
+  durumda 0 döner. Orca hep var sayılır, kaynak yönetimi Orca'nındır.
+- Sürüm 2.61.0; `brief.py` makine satırı bilgilendirme olarak güncellendi.
+
 ## 2.60.0 — 2026-11-08
 
 - **Makine bütçesi (Epic A)** — paylaşılan `DerivedData` (`detect.py` + skill'ler),

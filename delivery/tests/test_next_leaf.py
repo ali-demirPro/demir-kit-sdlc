@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import importlib.util
-import os
 import io
 import json
 import sys
@@ -14,7 +13,6 @@ from pathlib import Path
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
-os.environ.setdefault("DEMIR_KIT_RESOURCES", "off")
 SCRIPTS = ROOT / "delivery" / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
@@ -286,6 +284,13 @@ class OrderTests(unittest.TestCase):
         self.assertEqual(
             [item["number"] for item in first], [item["number"] for item in second]
         )
+
+
+class NoResourceGatingTests(unittest.TestCase):
+    def test_control_plane_does_not_gate_on_machine_pressure(self) -> None:
+        for name in ("next-leaf.py", "orca_wave.py", "review_wave.py"):
+            source = (SCRIPTS / name).read_text(encoding="utf-8")
+            self.assertNotIn("resources.blocked", source, name)
 
 
 if __name__ == "__main__":
