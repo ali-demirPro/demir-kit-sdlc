@@ -8,6 +8,10 @@
   durumda 0 döner. Orca hep var sayılır, kaynak yönetimi Orca'nındır.
 - Otomatik reaper ve `worker_cleanup` kaldırıldı; worker kapatma yalnız
   `orca orchestration worker-release` ile, `retained` kaydına dokunmadan.
+- `hygiene.py` artık simülatör silmez/`simctl` ayrıştırmaz; yalnız DerivedData
+  temizler. `--simulators` bayrağı kaldırıldı; simülatör yaşam döngüsü
+  `orca emulator` komutlarında.
+- `resources.py` simülatör sayımını bıraktı; simülatör ölçümü Orca'ya ait.
 - Sürüm 2.61.0; `brief.py` makine satırı bilgilendirme olarak güncellendi.
 
 ## 2.60.0 — 2026-11-08

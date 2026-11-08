@@ -197,3 +197,17 @@ evidence and labels apply; only the worker transport changes.
   a human gate.
 - A worker must not approve its own work; reviewers stay isolated.
 - If a worker edits outside its CP, stop it and open a follow-up issue.
+
+## Simülatör yaşam döngüsü
+
+Simülatör açma/kapatma kit'in işi değildir; Orca worktree kapsamlı emülatör
+köprüsünü kullan:
+
+```bash
+orca emulator list --worktree active --json
+orca emulator attach "<device-name-or-udid>" --worktree active --json
+orca emulator shutdown --worktree active --json
+```
+
+Kit hiçbir cihazı silmez; `simctl` yalnız teşhis için doğrudan çağrılabilir.
+Disk geri kazanımı için cihaz silme gerekirse Xcode Devices penceresi kullanılır.

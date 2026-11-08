@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Machine budget report: measure the box and report it. Never gates a command.
 
-A 16 GB laptop with two simulators, three heavy workers and an Electron shell
+A 16 GB laptop with three heavy workers and an Electron shell
 freezes; the agents then look "slow". This guard turns that into a signal:
 
   exit 0 always; state 0 healthy · 2 degraded · 3 saturated is reported
@@ -31,7 +31,6 @@ DEFAULTS = {
     "compressor_block_mb": 3000,
     "load_warn_factor": 1.5,
     "load_block_factor": 2.5,
-    "max_simulators": 1,
     "max_heavy_workers": 2,
 }
 
@@ -94,16 +93,6 @@ def _vm_stat() -> tuple[float, float, bool]:
     return (free * page / 1024 / 1024, compressor * page / 1024 / 1024, bool(values))
 
 
-def _booted_simulators() -> int:
-    try:
-        output = subprocess.check_output(
-            ["xcrun", "simctl", "list", "devices", "booted"], text=True
-        )
-    except (OSError, subprocess.CalledProcessError):
-        return 0
-    return sum(1 for line in output.splitlines() if "(Booted)" in line)
-
-
 def _heavy_workers() -> int:
     try:
         output = subprocess.check_output(["ps", "-Ao", "comm"], text=True)
@@ -127,7 +116,6 @@ def measure() -> dict:
         "compressor_mb": round(compressor_mb),
         "load1": round(load1, 2),
         "cpus": os.cpu_count() or 1,
-        "booted_simulators": _booted_simulators(),
         "heavy_workers": _heavy_workers(),
         "vm_measured": measured,
     }
@@ -169,10 +157,6 @@ def evaluate(metrics: dict, limits: dict | None = None) -> dict:
     elif factor > limits["load_warn_factor"]:
         warn(f"yük {factor:.1f}x çekirdek")
 
-    sims = int(metrics.get("booted_simulators") or 0)
-    if sims > int(limits["max_simulators"]):
-        block(f"{sims} simülatör açık (bütçe {int(limits['max_simulators'])})")
-
     heavy = int(metrics.get("heavy_workers") or 0)
     if heavy > int(limits["max_heavy_workers"]):
         block(f"{heavy} ağır iş koşuyor (bütçe {int(limits['max_heavy_workers'])})")
@@ -213,8 +197,7 @@ def report(result: dict) -> str:
         head,
         f"RAM boş {int(metrics['free_ram_mb'])} MB · compressor "
         f"{int(metrics['compressor_mb'])} MB · load {metrics['load1']} "
-        f"({metrics['cpus']} çekirdek) · simülatör "
-        f"{metrics['booted_simulators']} · ağır iş {metrics['heavy_workers']}",
+        f"({metrics['cpus']} çekirdek) · ağır iş {metrics['heavy_workers']}",
     ]
     lines += [f"- {reason}" for reason in result["reasons"]]
     return "\n".join(lines)

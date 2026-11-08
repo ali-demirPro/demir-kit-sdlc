@@ -24,7 +24,6 @@ HEALTHY = {
     "compressor_mb": 300,
     "load1": 1.2,
     "cpus": 8,
-    "booted_simulators": 0,
     "heavy_workers": 0,
 }
 
@@ -53,8 +52,7 @@ class EvaluateTests(unittest.TestCase):
         self.assertEqual(resources.evaluate(metrics(load1=13.0))["state"], 2)
         self.assertEqual(resources.evaluate(metrics(load1=21.0))["state"], 3)
 
-    def test_simulator_and_worker_budget_blocks(self) -> None:
-        self.assertEqual(resources.evaluate(metrics(booted_simulators=2))["state"], 3)
+    def test_worker_budget_blocks(self) -> None:
         self.assertEqual(resources.evaluate(metrics(heavy_workers=3))["state"], 3)
 
     def test_limits_override_merges_with_defaults(self) -> None:
