@@ -264,6 +264,38 @@ def cycle_row(
     return cycle.make_row(issue, stage, actor=actor, reason=reason, epic=epic)
 
 
+def branch_name(project: Path) -> str:
+    result = subprocess.run(
+        ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+        cwd=str(project),
+        capture_output=True,
+        text=True,
+    )
+    return result.stdout.strip() if result.returncode == 0 else ""
+
+
+def push_needed(branch: str) -> bool:
+    return bool(branch) and branch not in {"HEAD", "main", "master"}
+
+
+def push_branch(project: Path) -> tuple[bool, str]:
+    """Push the epic branch so evidence commits exist on origin."""
+    branch = branch_name(project)
+    if not push_needed(branch):
+        return True, "push gerekmez"
+    try:
+        result = subprocess.run(
+            ["git", "push", "-u", "origin", "HEAD"],
+            cwd=str(project),
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return False, str(exc)
+    return result.returncode == 0, (result.stderr or result.stdout).strip()
+
+
 def validate(issue: dict, target: str, args) -> tuple[bool, str]:
     epic = is_epic(issue)
     state = current_state(issue, epic)
@@ -430,6 +462,11 @@ def main() -> int:
         "--write-cycle", action="store_true", help="dry-run olsa da cycle satırını yaz"
     )
     parser.add_argument("--no-cycle", action="store_true", help="cycle satırı yazma")
+    parser.add_argument(
+        "--no-push",
+        action="store_true",
+        help="leaf-done'da dalı push etme (--reason ile degrade kaydı)",
+    )
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
@@ -484,6 +521,19 @@ def main() -> int:
             cycle.record(cycle.project_root(ROOT), row)
         print(json.dumps(plan, ensure_ascii=False) if args.json else f"#{args.issue}: {state} -> {args.to} (dry-run)")
         return 0
+
+    if args.to == "leaf-done":
+        if args.no_push:
+            if not (args.reason or "").strip():
+                sys.exit("transition: --no-push için --reason gerekli")
+            post_comment(
+                args.issue,
+                f"run degrade: issue #{args.issue}\nreason: {args.reason}",
+            )
+        else:
+            pushed, message = push_branch(Path.cwd())
+            if not pushed:
+                sys.exit(f"transition: epic dalı push edilemedi — {message}")
 
     run_id = datetime.now(timezone.utc).strftime("run-%Y%m%dT%H%M%SZ")
     transition_comment = (
