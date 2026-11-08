@@ -644,8 +644,6 @@ def main() -> int:
     )
     plan["cycle"] = row
     if args.dry_run:
-        if args.to == "leaf-done" and not args.json:
-            print("reaper: dry-run")
         if args.write_cycle and not args.no_cycle:
             cycle.record(cycle.project_root(ROOT), row)
         print(json.dumps(plan, ensure_ascii=False) if args.json else f"#{args.issue}: {state} -> {args.to} (dry-run)")
@@ -683,34 +681,6 @@ def main() -> int:
         cycle.close_wait(cycle.project_root(ROOT), args.issue, ts=row.get("ts"))
         cycle.record(cycle.project_root(ROOT), row)
 
-    released = 0
-    if args.to == "leaf-done" and os.environ.get("DEMIR_KIT_REAPER", "on") != "off":
-        try:
-            reaper = subprocess.run(
-                [
-                    sys.executable,
-                    str(SCRIPTS / "worker_reaper.py"),
-                    "--apply",
-                    "--json",
-                    "--project",
-                    str(Path.cwd()),
-                ],
-                capture_output=True,
-                text=True,
-                timeout=120,
-            )
-            released = int(json.loads(reaper.stdout).get("released", 0))
-        except (
-            subprocess.TimeoutExpired,
-            subprocess.SubprocessError,
-            OSError,
-            json.JSONDecodeError,
-            AttributeError,
-            ValueError,
-        ):
-            released = 0
-        if not args.json:
-            print(f"reaper: {released} boşta worker kapatıldı")
 
     if not args.no_orca:
         seal = parse_seal(issue.get("body") or "")
@@ -773,7 +743,6 @@ def main() -> int:
         "remove": applied["remove"],
         "run_id": run_id,
         "cycle": row,
-        "released": released,
     }
     print(json.dumps(result, ensure_ascii=False) if args.json else f"#{args.issue}: {state} -> {args.to}")
     return 0

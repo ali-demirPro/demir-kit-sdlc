@@ -13,7 +13,6 @@ from pathlib import Path
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
-os.environ.setdefault("DEMIR_KIT_REAPER", "off")
 SCRIPTS = ROOT / "delivery" / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
@@ -136,7 +135,7 @@ class ReviewWaveTests(unittest.TestCase):
         ]
         with patch.object(review_wave, "orca", side_effect=responses) as orca, patch.object(
             review_wave, "read_output", return_value="no verdict"
-        ), patch.object(review_wave.worker_cleanup, "release"):
+        ), patch.object(review_wave, "release_worker"):
             result = review_wave.collect(workers, "run_1")
         self.assertTrue(result[0]["verdict"])
         self.assertEqual(orca.call_args.args[0][-1], "d1")
@@ -149,7 +148,7 @@ class ReviewWaveTests(unittest.TestCase):
         with patch.object(
             review_wave, "read_output", side_effect=["approved: true", "no verdict"]
         ), patch.object(
-            review_wave.worker_cleanup, "release"
+            review_wave, "release_worker"
         ) as release:
             result = review_wave.collect(workers)
         self.assertTrue(result[0]["verdict"])
@@ -220,6 +219,25 @@ class ReviewWaveCliTests(unittest.TestCase):
                 ["--issue", "156", "--cp", "CP-1", "--run", "run_1", "--apply"]
             )
         self.assertEqual(code, 1)
+
+class ReleaseWorkerTests(unittest.TestCase):
+    def test_release_uses_orca_worker_release(self) -> None:
+        with patch.object(review_wave, "orca", return_value="{}") as orca:
+            review_wave.release_worker("ctx_1")
+        self.assertEqual(
+            orca.call_args.args[0],
+            ["orchestration", "worker-release", "--dispatch", "ctx_1", "--json"],
+        )
+
+    def test_release_never_raises(self) -> None:
+        with patch.object(review_wave, "orca", side_effect=RuntimeError("boom")):
+            review_wave.release_worker("ctx_1")
+
+    def test_no_reaper_references_remain(self) -> None:
+        for name in ("orca_wave.py", "review_wave.py", "transition.py"):
+            source = (ROOT / "delivery" / "scripts" / name).read_text(encoding="utf-8")
+            self.assertNotIn("worker_reaper", source, name)
+            self.assertNotIn("worker_cleanup", source, name)
 
 
 if __name__ == "__main__":

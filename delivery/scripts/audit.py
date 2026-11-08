@@ -370,7 +370,7 @@ def recommend(data: dict) -> list[str]:
     tips: list[str] = []
     summary = data["global"]
     if summary["zombies"]:
-        tips.append(f"{summary['zombies']} oturum boşta (3 saatten uzun) — reaper çalıştır.")
+        tips.append(f"{summary['zombies']} oturum boşta (3 saatten uzun) — `orca orchestration worker-list --run <id> --terminal-state active` ile incele, gerekirse worker-abandon.")
     if summary["simulators"] > 1:
         tips.append(f"{summary['simulators']} simülatör cihazı var — tek cihaz yeter.")
     if summary["derived_bytes"] > 20_000_000_000:

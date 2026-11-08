@@ -26,10 +26,8 @@ import closure  # noqa: E402
 import model_policy  # noqa: E402
 import review_packet  # noqa: E402
 import budget  # noqa: E402
-import worker_reaper  # noqa: E402
 import routing  # noqa: E402
 import usage  # noqa: E402
-import worker_cleanup  # noqa: E402
 
 SETTLED = {"succeeded", "failed", "stopped"}
 
@@ -242,6 +240,22 @@ def read_output(dispatch_id: str) -> str:
     return "\n".join(str(line) for line in terminal.get("tail") or [])
 
 
+def release_worker(dispatch_id: str) -> None:
+    """Archive the reviewer's output and close its terminal via Orca."""
+    try:
+        orca(
+            [
+                "orchestration",
+                "worker-release",
+                "--dispatch",
+                dispatch_id,
+                "--json",
+            ]
+        )
+    except Exception:
+        return
+
+
 def collect(workers: list[dict], run_id: str | None = None) -> list[dict]:
     check = (
         orca(["orchestration", "check", "--run", run_id, "--json"])
@@ -275,7 +289,7 @@ def collect(workers: list[dict], run_id: str | None = None) -> list[dict]:
             output += "\n" + texts[handle]
         item["verdict"] = parse_verdict(output)
         item["summary"] = "\n".join(output.splitlines()[-25:])
-        worker_cleanup.release(str(item["dispatch_id"]))
+        release_worker(str(item["dispatch_id"]))
     delivery = str(check.get("deliveryId") or "")
     if run_id and delivery:
         orca(
@@ -362,7 +376,6 @@ def main() -> int:
         for item in workers
     }
     approved = all(value is True for value in verdicts.values())
-    worker_reaper.reap_idle(worktree)
     result = {
         **plan,
         "run_id": run_id,

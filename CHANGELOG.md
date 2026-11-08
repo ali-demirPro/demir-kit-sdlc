@@ -6,6 +6,8 @@
   `next-leaf --claim`, `orca_wave` ve `review_wave` artık `resources.blocked`
   yüzünden exit 3 vermez; `resources.py` yalnız rapor üretir, `--check` her
   durumda 0 döner. Orca hep var sayılır, kaynak yönetimi Orca'nındır.
+- Otomatik reaper ve `worker_cleanup` kaldırıldı; worker kapatma yalnız
+  `orca orchestration worker-release` ile, `retained` kaydına dokunmadan.
 - Sürüm 2.61.0; `brief.py` makine satırı bilgilendirme olarak güncellendi.
 
 ## 2.60.0 — 2026-11-08

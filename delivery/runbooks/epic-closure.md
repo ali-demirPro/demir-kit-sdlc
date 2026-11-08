@@ -83,7 +83,7 @@ ready_for_human_qa: true
 - Blok: `python3 delivery/scripts/closure.py --issue <epic> --post` (leaf/cp,
   lead time, worker ve koordinatör sayıları otomatik; `--gate-retries` vb. flag).
 - Worker sayıları: `python3 delivery/scripts/usage.py --run <run_id> --json`.
-- Biten terminaller: `python3 delivery/scripts/worker_cleanup.py --run <run_id> --apply`
+- Biten terminaller: `orca orchestration worker-release --dispatch <dispatchId>`; `retained` görülen dispatch serbest bırakılmaz.
   (closure'dan sonra; worker metrikleri worktree silinmeden ölçülür).
 - Koordinatör sayıları claim snapshot'larından gelir; oturum değiştiyse
   `unavailable` sayılır. Kısmi worker ölçümünde `worker_partial: true` yazılır;

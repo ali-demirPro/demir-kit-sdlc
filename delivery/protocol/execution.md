@@ -107,13 +107,16 @@ comment; ayrı bir olay yoktur.
 orca orchestration send --type worker_done --outcome succeeded   # veya failed
 ```
 
-`worker_done` sonrası biten worker pencerelerini serbest bırak; `user_takeover`
-kaydına dokunma:
+`worker_done` sonrası biten worker penceresi serbest bırakılır; `retained` /
+insan devraldı kaydına dokunulmaz:
 
 ```bash
-python3 delivery/scripts/worker_cleanup.py --run <run_id>          # plan
-python3 delivery/scripts/worker_cleanup.py --run <run_id> --apply  # serbest bırak
+orca orchestration worker-release --dispatch <dispatchId> --json      # arşivle, terminali kapat
+orca orchestration worker-keep-open --dispatch <dispatchId> --json    # hata ayıklama / insan devraldı
 ```
+
+`retained` kaydı görürsen (`worker-list --run <id> --terminal-state retained`)
+**release çağırma**; koruma Orca'nın kaydındadır ve açık release onu temizler.
 
 Token/maliyet sayısı aynı run için:
 

@@ -23,7 +23,6 @@ SCRIPTS = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPTS))
 import budget  # noqa: E402
 import usage  # noqa: E402
-import worker_reaper  # noqa: E402
 import routing  # noqa: E402
 import epic_worktree  # noqa: E402
 
@@ -74,7 +73,7 @@ def worker_worktree(value: str) -> str:
 def map_worker_session(
     dispatch_id: str, worktree: str, known: set[str], started_ms: int
 ) -> None:
-    """Record dispatch→session so the reaper can tell idle from busy."""
+    """Record dispatch→session so cost and inactivity read the right session."""
     try:
         if usage.capture_session(dispatch_id, worktree, known, started_ms, timeout=1.0):
             return
@@ -82,7 +81,7 @@ def map_worker_session(
         print(f"orca_wave: oturum eşlemesi yazılamadı — {exc}", file=sys.stderr)
         return
     print(
-        f"orca_wave: {dispatch_id} için oturum eşlemesi yok; reaper onu koruyacak",
+        f"orca_wave: {dispatch_id} için oturum eşlemesi yok; eşlemesiz dispatch maliyet raporunda sayılmaz",
         file=sys.stderr,
     )
 
@@ -811,9 +810,7 @@ def main() -> int:
                     + (result.stderr.strip() or result.stdout.strip())
                 )
 
-    reaped = worker_reaper.reap_idle(worktree) if args.execute else 0
     if args.json:
-        summary["reaped"] = reaped
         print(json.dumps(summary, ensure_ascii=False, indent=2))
     else:
         print(f"run: {summary['run_id'] or '(dry-run)'}")
