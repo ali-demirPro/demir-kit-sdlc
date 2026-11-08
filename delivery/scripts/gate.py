@@ -209,6 +209,44 @@ def cache_store(project: Path, key: str, code: int, output: str) -> None:
     save_cache(project, dict(fresh))
 
 
+def product_behavior(project: Path, checkpoint: str) -> list[str]:
+    """Behavior commands declared by a product's ecosystem surfaces.
+
+    The kit's own repository is skipped: its ecosystem points back at gate.sh and
+    would recurse. Installed products run their real gate command.
+    """
+    if project.resolve() == KIT_ROOT.resolve():
+        return []
+    path = project / "ecosystem.yaml"
+    if not path.is_file():
+        return []
+    try:
+        import yaml
+
+        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except (OSError, yaml.YAMLError):
+        return []
+    commands: list[str] = []
+    products = data.get("products") if isinstance(data, dict) else None
+    if not isinstance(products, dict):
+        return []
+    for product in products.values():
+        surfaces = (product or {}).get("surfaces") if isinstance(product, dict) else None
+        if not isinstance(surfaces, dict):
+            continue
+        for surface in surfaces.values():
+            gates = (surface or {}).get("gates") if isinstance(surface, dict) else None
+            if not isinstance(gates, dict):
+                continue
+            command = str(gates.get("behavior") or "").strip()
+            if not command or "gate.sh" in command:
+                continue
+            command = command.replace("{checkpoint}", checkpoint)
+            if command not in commands:
+                commands.append(command)
+    return commands
+
+
 def suites_for(paths: list[str]) -> list[str]:
     """Suites selected by changed paths, in run order."""
     normalized = [_normalize(path) for path in paths]
@@ -296,6 +334,7 @@ def main(argv: list[str] | None = None) -> int:
                     file=sys.stderr,
                     flush=True,
                 )
+    behavior = [] if args.fast else product_behavior(project, args.checkpoint)
     steps = ["doctor"] if args.fast else ["doctor", *suites_for(paths)]
     if not args.fast:
         print("[gate] level full", flush=True)
@@ -303,6 +342,8 @@ def main(argv: list[str] | None = None) -> int:
         print("[gate] level fast", flush=True)
 
     if args.plan:
+        for command in behavior:
+            print(f"[gate] plan behavior: {command}", flush=True)
         for step in steps:
             command = step_command(step, project, args.issue, args.checkpoint)
             print(f"[gate] plan {step}: {' '.join(command)}", flush=True)
@@ -318,6 +359,12 @@ def main(argv: list[str] | None = None) -> int:
 
     before = tracked_changes(project)
     failed = False
+    for command in behavior:
+        print(f"[gate] behavior: {command}", flush=True)
+        code = _run(command, project)
+        print(f"[gate] behavior exit {code}", flush=True)
+        if code != 0:
+            failed = True
     for step in steps:
         if step == "plugin":
             if not shutil.which("orca"):
