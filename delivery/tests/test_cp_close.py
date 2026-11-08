@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 import io
+import json
 import sys
 import tempfile
 import unittest
@@ -62,10 +63,15 @@ def run_main(argv: list[str]) -> tuple[int, str, str]:
         cp_close, "load_evidence", return_value=RECORD
     ), patch.object(cp_close, "validate_record", return_value=[]), patch.object(
         cp_close, "gate_command", return_value="gate"
-    ), patch.object(sys, "argv", ["cp_close.py", *argv]), redirect_stdout(
+    ), patch.object(
+        cp_close, "record_evidence_index", return_value=True
+    ) as index_write, patch.object(
+        sys, "argv", ["cp_close.py", *argv]
+    ), redirect_stdout(
         out
     ), redirect_stderr(err):
         code = cp_close.main()
+    run_main.index_write = index_write
     return code, out.getvalue(), err.getvalue()
 
 
@@ -79,6 +85,49 @@ class CpCloseTests(unittest.TestCase):
         self.assertIn("CP close planı", out)
         gate.assert_not_called()
         post.assert_not_called()
+        run_main.index_write.assert_not_called()
+
+    def test_apply_writes_evidence_index(self) -> None:
+        with patch.object(cp_close, "run_gate", return_value=(0, "")), patch.object(
+            cp_close, "post_comment", return_value="c1"
+        ), patch.object(cp_close, "verify_issue", return_value=(0, "")), patch.object(
+            cp_close, "checkpoint", return_value=True
+        ):
+            code, _, _ = run_main(
+                ["--issue", "148", "--cp", "CP-1", "--evidence", "e", "--apply"]
+            )
+        self.assertEqual(code, 0)
+        writer = run_main.index_write
+        writer.assert_called_once()
+        _, record, issue, cp_id = writer.call_args.args
+        self.assertEqual(issue, 148)
+        self.assertEqual(cp_id, "CP-1")
+        self.assertEqual(
+            cp_close.index_row(record, issue, cp_id)["reviewers"], ["ses_reviewer"]
+        )
+
+    def test_evidence_index_appends_jsonl(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            self.assertTrue(
+                cp_close.record_evidence_index(project, RECORD, 148, "CP-1")
+            )
+            self.assertTrue(
+                cp_close.record_evidence_index(project, RECORD, 149, "CP-1")
+            )
+            lines = (
+                project / ".kit" / "evidence.jsonl"
+            ).read_text(encoding="utf-8").splitlines()
+        self.assertEqual(len(lines), 2)
+        self.assertEqual(json.loads(lines[0])["reviewers"], ["ses_reviewer"])
+
+    def test_evidence_index_row_skips_unnamed_reviewers(self) -> None:
+        row = cp_close.index_row(RECORD, 148, "CP-1")
+        self.assertEqual(row["cp"], "CP-1")
+        self.assertEqual(row["issue"], 148)
+        self.assertIsNone(row["gate_level"])
+        blank = {**RECORD, "verification": {"reviewers": [{"role": "adversarial"}]}}
+        self.assertEqual(cp_close.index_row(blank, 1, "CP-1")["reviewers"], [])
 
     def test_apply_runs_gate_post_verify_checkpoint(self) -> None:
         calls: list[str] = []

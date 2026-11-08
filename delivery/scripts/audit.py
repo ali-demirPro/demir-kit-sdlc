@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sqlite3
 import statistics
 import subprocess
@@ -25,6 +26,7 @@ DEFAULT_PROJECTS = Path.home() / "Projects"
 DEFAULT_DERIVED = Path.home() / "Library/Developer/Xcode/DerivedData"
 SIMULATORS = Path.home() / "Library/Developer/CoreSimulator/Devices"
 ZOMBIE_MINUTES = 180
+PLACEHOLDER_RE = re.compile(r"^reviewer[_-][a-z]$", re.I)
 
 
 def now_ms() -> int:
@@ -90,19 +92,59 @@ def session_rows(db_path: Path, since_ms: int) -> list[dict]:
         conn.close()
 
 
-def cycle_stats(project: Path, since: datetime) -> dict:
-    """Review rounds, gate runs and leaf median from `.kit/cycle.jsonl`.
+def evidence_reviews(project: Path, since: datetime) -> int | None:
+    """Verified review rounds from `.kit/evidence.jsonl`.
 
-    Counts are windowed; the leaf median selects issues whose ``leaf-done`` falls
-    inside the window and measures ``executing -> leaf-done`` so approval waiting
-    does not inflate the leaf time.
+    ``None`` means the project has no index yet, so the caller keeps the legacy
+    cycle-log count. A round counts only when the evidence names at least one
+    reviewer id; a placeholder (``reviewer_a``) is not a review.
     """
-    empty = {"review_rounds": 0, "gates": 0, "leaf_median_minutes": None}
-    path = Path(project) / ".kit" / "cycle.jsonl"
+    path = Path(project) / ".kit" / "evidence.jsonl"
     if not path.is_file():
-        return empty
+        return None
+    rounds = 0
+    for line in path.read_text(encoding="utf-8").splitlines():
+        try:
+            row = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(row, dict):
+            continue
+        stamp = parse_ts(row.get("ts") or "")
+        if not stamp or stamp < since:
+            continue
+        raw = row.get("reviewers")
+        ids = [str(item).strip() for item in raw] if isinstance(raw, list) else []
+        if [item for item in ids if item and not PLACEHOLDER_RE.match(item)]:
+            rounds += 1
+    return rounds
+
+
+def cycle_stats(project: Path, since: datetime) -> dict:
+    """Review rounds, gate runs and leaf median from `.kit/`.
+
+    Review rounds come from `.kit/evidence.jsonl` (real reviewer ids) when that
+    index exists; projects without it keep the legacy `.kit/cycle.jsonl` count.
+    The leaf median selects issues whose ``leaf-done`` falls inside the window
+    and measures ``executing -> leaf-done`` so approval waiting does not inflate
+    the leaf time.
+    """
+    empty = {
+        "review_rounds": 0,
+        "reviews_measured": False,
+        "gates": 0,
+        "leaf_median_minutes": None,
+    }
+    path = Path(project) / ".kit" / "cycle.jsonl"
+    indexed = evidence_reviews(Path(project), since)
+    if not path.is_file():
+        return {
+            **empty,
+            "review_rounds": indexed or 0,
+            "reviews_measured": indexed is not None,
+        }
     by_issue: dict[int, list[dict]] = {}
-    reviews = 0
+    legacy = 0
     gates = 0
     for line in path.read_text(encoding="utf-8").splitlines():
         try:
@@ -122,7 +164,7 @@ def cycle_stats(project: Path, since: datetime) -> dict:
         if stamp < since:
             continue
         if row.get("stage") == "review":
-            reviews += 1
+            legacy += 1
         elif row.get("stage") == "gate":
             gates += 1
 
@@ -155,7 +197,8 @@ def cycle_stats(project: Path, since: datetime) -> dict:
         if minutes > 0:
             durations.append(minutes)
     return {
-        "review_rounds": reviews,
+        "review_rounds": legacy if indexed is None else indexed,
+        "reviews_measured": indexed is not None,
         "gates": gates,
         "leaf_median_minutes": round(statistics.median(durations)) if durations else None,
     }
@@ -200,6 +243,7 @@ def blank_project() -> dict:
         "minutes": 0,
         "zombies": 0,
         "review_rounds": 0,
+        "reviews_measured": False,
         "gates": 0,
         "leaf_median_minutes": None,
         "derived_data": 0,
@@ -258,6 +302,7 @@ def collect(
         project["derived_bytes"] = size
         stats = cycle_stats(Path(projects_root) / name, since)
         project["review_rounds"] = stats["review_rounds"]
+        project["reviews_measured"] = stats["reviews_measured"]
         project["gates"] = stats["gates"]
         project["leaf_median_minutes"] = stats["leaf_median_minutes"]
 
@@ -293,11 +338,16 @@ def render(data: dict) -> str:
         data["projects"].items(), key=lambda item: -item[1]["cache_read"]
     ):
         leaf = project["leaf_median_minutes"]
+        reviews = (
+            f"{project['review_rounds']:6}"
+            if project.get("reviews_measured")
+            else f"{'—':>6}"
+        )
         lines.append(
             f"{name[:14]:14}  {project['sessions']:6}  {project['subagents']:3}  "
             f"{_mb(project['cache_read']):>5}  ${project['cost']:>6.2f}  "
             f"{(str(leaf) + ' dk') if leaf is not None else '—':>6}  "
-            f"{project['review_rounds']:6}  {project['gates']:4}  "
+            f"{reviews}  {project['gates']:4}  "
             f"{project['zombies']:5}  {project['derived_data']:5}  "
             f"{_size(project['derived_bytes']):>5}"
         )
@@ -331,6 +381,15 @@ def recommend(data: dict) -> list[str]:
             tips.append(f"{name}: leaf medyanı {leaf} dk — review turlarını azalt.")
         if project["review_rounds"] > project["sessions"]:
             tips.append(f"{name}: {project['review_rounds']} review turu — tur bütçesini uygula.")
+        if (
+            project.get("reviews_measured")
+            and project["gates"]
+            and not project["review_rounds"]
+        ):
+            tips.append(
+                f"{name}: {project['gates']} kapı ama doğrulanmış review yok — "
+                "kanıta gerçek reviewer id'si yaz."
+            )
     if not tips:
         tips.append("Eşik aşan kalem yok.")
     return tips

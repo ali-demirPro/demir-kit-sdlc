@@ -20,6 +20,7 @@ import yaml
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import cycle  # noqa: E402
 import doctor  # noqa: E402
 import evidence as evidence_lib  # noqa: E402
 import routing  # noqa: E402
@@ -27,6 +28,8 @@ import update as update_mod  # noqa: E402
 
 SCHEMA = ROOT / "delivery" / "schemas" / "evidence.schema.json"
 DEFAULT_GATE_LEVEL = "fast"
+INDEX_DIR = ".kit"
+INDEX_NAME = "evidence.jsonl"
 
 
 def gh(args: list[str], stdin: str | None = None) -> str:
@@ -191,6 +194,47 @@ def checkpoint(issue: int, cp_id: str) -> bool:
     return bool(result and result.get("ok"))
 
 
+def index_row(record: dict, issue: int, cp_id: str) -> dict:
+    """One evidence-index line: only the reviewers this evidence really names."""
+    verification = record.get("verification")
+    verification = verification if isinstance(verification, dict) else {}
+    raw = verification.get("reviewers")
+    raw = raw if isinstance(raw, list) else []
+    reviewers = [
+        str(item.get("id")).strip()
+        for item in raw
+        if isinstance(item, dict) and str(item.get("id") or "").strip()
+    ]
+    reviews = record.get("reviews")
+    reviews = reviews if isinstance(reviews, dict) else {}
+    return {
+        "ts": cycle.now(),
+        "issue": int(issue),
+        "cp": str(cp_id),
+        "reviewers": reviewers,
+        "risk": reviews.get("risk"),
+        "gate_level": record.get("gate_level"),
+        "commit": verification.get("commit"),
+    }
+
+
+def record_evidence_index(project: Path, record: dict, issue: int, cp_id: str) -> bool:
+    """Append this CP's real reviewer ids to `.kit/evidence.jsonl`.
+
+    The fleet audit counts review rounds from here. A placeholder id or a commit
+    count is not evidence that somebody reviewed the diff.
+    """
+    path = Path(project) / INDEX_DIR / INDEX_NAME
+    row = index_row(record, issue, cp_id)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n")
+    except OSError:
+        return False
+    return True
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="close one checkpoint")
     parser.add_argument("--issue", type=int, required=True)
@@ -266,7 +310,18 @@ def main() -> int:
     synced = checkpoint(args.issue, args.cp)
     if not synced:
         print("cp_close: Orca checkpoint yazılamadı (issue/PR yine de geçerli)", file=sys.stderr)
-    result = {**plan, "comment_id": comment_id, "checkpoint": synced, "status": "pass"}
+    indexed = record_evidence_index(
+        cycle.project_root(ROOT), record, args.issue, args.cp
+    )
+    if not indexed:
+        print("cp_close: kanıt indeksi yazılamadı (CP yine de kapandı)", file=sys.stderr)
+    result = {
+        **plan,
+        "comment_id": comment_id,
+        "checkpoint": synced,
+        "indexed": indexed,
+        "status": "pass",
+    }
     if args.json:
         print(json.dumps(result, ensure_ascii=False, indent=2))
     else:
