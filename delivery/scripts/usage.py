@@ -229,10 +229,11 @@ def worktree_path(value: str) -> str:
     return value.split("::", 1)[1] if "::" in value else value
 
 
-def dispatch_record(dispatch_id: str) -> dict:
-    result = orca_result(
-        ["orchestration", "worker-show", "--dispatch", dispatch_id, "--json"]
-    )
+def dispatch_record(dispatch_id: str, full: bool = False) -> dict:
+    args = ["orchestration", "worker-show", "--dispatch", dispatch_id, "--json"]
+    if full:
+        args.append("--full")
+    result = orca_result(args)
     dispatch = result.get("dispatch") or {}
     worker = result.get("worker") or {}
     raw_path = str(worker.get("worktreeId") or "")
@@ -462,6 +463,7 @@ def run_workers(run_id: str) -> list[dict]:
             run_id,
             "--limit",
             "100",
+            "--full",
             "--json",
         ]
         if cursor:

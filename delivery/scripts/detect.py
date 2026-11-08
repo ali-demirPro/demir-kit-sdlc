@@ -47,6 +47,32 @@ def xcode_platform(base: Path) -> str:
     return "ios"
 
 
+def xcode_project_name(base: Path) -> str:
+    """Project label used for the shared DerivedData directory."""
+    for pattern in ("*.xcodeproj", "*.xcworkspace"):
+        for path in sorted(base.glob(pattern)):
+            return path.stem
+    return base.name or "kit"
+
+
+def xcode_behavior(base: Path) -> str:
+    """xcodebuild with one shared DerivedData per project (A1).
+
+    Every worktree gets its own DerivedData hash by default, so parallel workers
+    rebuild from scratch. One shared path per project keeps the build incremental
+    and keeps the machine cool.
+    """
+    shared = (
+        f"$HOME/Library/Developer/Xcode/DerivedData/"
+        f"{xcode_project_name(base)}-shared"
+    )
+    return (
+        "xcodebuild test"
+        f' -derivedDataPath "{shared}"'
+        f' -clonedSourcePackagesDirPath "{shared}/SourcePackages"'
+    )
+
+
 def detect(project: Path) -> dict:
     root = project.resolve()
     stacks: dict[str, dict] = {}
@@ -198,7 +224,10 @@ def detect(project: Path) -> dict:
             swift_sources[0],
         )
         tests.setdefault(
-            "behavior", "swift test" if (root / "Package.swift").is_file() else "xcodebuild test"
+            "behavior",
+            "swift test"
+            if (root / "Package.swift").is_file()
+            else xcode_behavior(root),
         )
 
     # Android: a root build.gradle alone is not enough (JVM/Spring is common).
@@ -514,7 +543,11 @@ def detect(project: Path) -> dict:
                 add_test(
                     "behavior",
                     prefix
-                    + ("swift test" if (base / "Package.swift").is_file() else "xcodebuild test")
+                    + (
+                        "swift test"
+                        if (base / "Package.swift").is_file()
+                        else xcode_behavior(base)
+                    )
                     + suffix,
                 )
             if (base / "go.mod").is_file():

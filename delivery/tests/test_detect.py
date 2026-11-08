@@ -91,7 +91,13 @@ class DetectTests(unittest.TestCase):
             self.assertNotIn("ios", platforms)
             self.assertEqual(data["suggested_profile"], "macos-app")
             self.assertIn("swiftui", [item["name"] for item in data["stacks"]])
-            self.assertEqual(data["test_commands"]["behavior"], "xcodebuild test")
+            command = data["test_commands"]["behavior"]
+            self.assertTrue(command.startswith("xcodebuild test "))
+            self.assertIn(
+                '-derivedDataPath "$HOME/Library/Developer/Xcode/DerivedData/Ornek-shared"',
+                command,
+            )
+            self.assertIn("-clonedSourcePackagesDirPath", command)
 
     def test_ios_pbxproj_stays_ios(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -289,9 +295,10 @@ class DetectTests(unittest.TestCase):
             )
             self.assertEqual(surface["platforms"], ["ios"])
             self.assertIn("swift", surface["stacks"])
-            self.assertEqual(
-                data["test_commands"]["behavior"], "(cd apps/ios && xcodebuild test)"
-            )
+            command = data["test_commands"]["behavior"]
+            self.assertTrue(command.startswith("(cd apps/ios && xcodebuild test "))
+            self.assertTrue(command.endswith(")"))
+            self.assertIn("App-shared", command)
 
     def test_nested_path_with_space_is_quoted(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

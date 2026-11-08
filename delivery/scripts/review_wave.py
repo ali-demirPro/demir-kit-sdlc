@@ -25,6 +25,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import closure  # noqa: E402
 import model_policy  # noqa: E402
 import review_packet  # noqa: E402
+import budget  # noqa: E402
+import resources  # noqa: E402
+import worker_reaper  # noqa: E402
 import routing  # noqa: E402
 import usage  # noqa: E402
 import worker_cleanup  # noqa: E402
@@ -76,13 +79,38 @@ def reviewer_spec(name: str, packet: str, issue: int, cp_id: str) -> str:
     )
 
 
+SEVERITY_RE = re.compile(r"^\s*severity:\s*(blocking|nit)\s*$", re.I | re.M)
+
+
+def parse_findings(text: str) -> list[dict]:
+    """Split the reviewer's findings by severity; unlabelled findings block."""
+    findings: list[dict] = []
+    current: dict | None = None
+    for line in (text or "").splitlines():
+        match = re.match(r"^\s*-?\s*severity:\s*(blocking|nit)\s*$", line, re.I)
+        if match:
+            current = {"severity": match.group(1).lower(), "text": ""}
+            findings.append(current)
+            continue
+        if current is not None and line.strip().startswith(("file:", "problem:", "fix:")):
+            current["text"] = (current["text"] + " " + line.strip()).strip()
+    return findings
+
+
+def blocking_count(text: str) -> int:
+    return sum(1 for item in parse_findings(text) if item["severity"] == "blocking")
+
+
 def parse_verdict(text: str) -> bool | None:
     value = text or ""
     matches = re.findall(
         r"^\s*approved:\s*(true|false)\s*$", value, re.I | re.M
     )
     if matches:
-        return matches[-1].lower() == "true"
+        approved = matches[-1].lower() == "true"
+        if approved and blocking_count(value):
+            return False
+        return approved
     if "true|false" in value.lower():
         return None
     if re.search(
@@ -280,12 +308,20 @@ def main() -> int:
     packet = review_packet.packet_for(
         args.issue, args.cp, args.commit, args.delta, args.max_chars, args.base
     )
+    limits = budget.load(routing.project_root(ROOT))
+    if limits.get("reviewers") and len(names) > int(limits["reviewers"]):
+        print(
+            "review_wave: uyarı — reviewers bütçesi kalite kapısının altında; "
+            "gerekli reviewer sayısı korunuyor",
+            file=sys.stderr,
+        )
     specs = {name: reviewer_spec(name, packet, args.issue, args.cp) for name in names}
     plan = {
         "issue": args.issue,
         "cp_id": args.cp,
         "commit": args.commit,
         "reviewers": names,
+        "budget": limits,
         "packet_chars": len(packet.encode("utf-8")),
         "spec_chars": {name: len(spec.encode("utf-8")) for name, spec in specs.items()},
     }
@@ -311,6 +347,10 @@ def main() -> int:
     if not run_id:
         raise SystemExit("review_wave: Orca run bulunamadı (--run ver)")
     worktree = str(routing.project_root(ROOT))
+    reason = resources.blocked(routing.project_root(ROOT))
+    if reason:
+        print(f"review_wave: makine bloke — {reason}", file=sys.stderr)
+        return 3
 
     model = model_policy.role_launch(
         routing.project_root(ROOT), "reviewer"
@@ -327,6 +367,7 @@ def main() -> int:
         for item in workers
     }
     approved = all(value is True for value in verdicts.values())
+    worker_reaper.reap_idle(worktree)
     result = {
         **plan,
         "run_id": run_id,

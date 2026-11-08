@@ -266,6 +266,7 @@ def render_cp_brief(
             "önce seal'i düzelt."
         )
     lines += [
+        "Makine: başlamadan `delivery/scripts/resources.py --check`; exit 3 ise başlama.",
         f"Komut: `{gate_command}`",
         "Okuma: bu brief yeterli; ek dosyayı yalnız ilgili satır için aç "
         "(`rg -n`), CONTRACT.md ve quality-gates.md tamamını okuma.",

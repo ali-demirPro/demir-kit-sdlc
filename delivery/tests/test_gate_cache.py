@@ -1,0 +1,63 @@
+"""Tests for the gate result cache."""
+
+from __future__ import annotations
+
+import importlib.util
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+from unittest import mock
+
+ROOT = Path(__file__).resolve().parents[2]
+SCRIPTS = ROOT / "delivery" / "scripts"
+sys.path.insert(0, str(SCRIPTS))
+
+spec = importlib.util.spec_from_file_location("gate_cache", SCRIPTS / "gate.py")
+gate = importlib.util.module_from_spec(spec)
+assert spec.loader is not None
+spec.loader.exec_module(gate)
+
+
+class CacheTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.project = Path(self.tmp.name)
+
+    def tearDown(self) -> None:
+        self.tmp.cleanup()
+
+    def test_store_and_lookup(self) -> None:
+        with mock.patch.object(gate, "tree_state", return_value="abc"):
+            key = gate.cache_key(self.project, ["doctor"], "CP-1")
+        gate.cache_store(self.project, key, 0, "ok")
+        hit = gate.cache_lookup(self.project, key)
+        self.assertIsNotNone(hit)
+        self.assertEqual(hit["code"], 0)
+
+    def test_expired_entry_is_ignored(self) -> None:
+        gate.cache_store(self.project, "k", 0, "ok")
+        self.assertIsNone(gate.cache_lookup(self.project, "k", now=10**12))
+
+    def test_key_changes_with_tree_and_checkpoint(self) -> None:
+        with mock.patch.object(gate, "tree_state", return_value="one"):
+            first = gate.cache_key(self.project, ["doctor"], "CP-1")
+        with mock.patch.object(gate, "tree_state", return_value="two"):
+            second = gate.cache_key(self.project, ["doctor"], "CP-1")
+        third = gate.cache_key(self.project, ["doctor"], "CP-2")
+        self.assertNotEqual(first, second)
+        self.assertNotEqual(first, third)
+
+    def test_cache_is_capped(self) -> None:
+        for index in range(gate.CACHE_MAX + 5):
+            gate.cache_store(self.project, f"k{index}", 0, "")
+        self.assertEqual(len(gate.load_cache(self.project)), gate.CACHE_MAX)
+
+    def test_cache_file_lives_under_kit(self) -> None:
+        gate.cache_store(self.project, "k", 0, "")
+        self.assertEqual(gate.cache_path(self.project), self.project / ".kit" / "gate-cache.json")
+        self.assertTrue(gate.cache_path(self.project).is_file())
+
+
+if __name__ == "__main__":
+    unittest.main()

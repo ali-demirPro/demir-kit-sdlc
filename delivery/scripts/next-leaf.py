@@ -15,7 +15,9 @@ import yaml
 
 SCRIPTS = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPTS))
+import budget  # noqa: E402
 import epic_worktree  # noqa: E402
+import resources  # noqa: E402
 import process_gate  # noqa: E402
 
 SKIP_LABELS = {"executing", "blocked", "deferred", "leaf-done", "epic-done"}
@@ -229,6 +231,13 @@ def prepare_worktree(number: int, epic: int | None) -> int:
             f"`guard.sh --issue {number} --degrade --reason \"...\"` ile kaydet.",
             file=sys.stderr,
         )
+    limits = budget.load(epic_worktree.project_root())
+    if any(limits.values()):
+        print(
+            f"[budget] ağır iş {limits['heavy_workers'] or 'sınırsız'} · "
+            f"reviewer {limits['reviewers'] or 'sınırsız'}",
+            file=sys.stderr,
+        )
     try:
         here = Path.cwd().resolve()
         there = Path(path).resolve()
@@ -337,21 +346,125 @@ def release(number: int, force: bool, reason: str) -> int:
     return 0
 
 
+DEFAULT_MAX_PARALLEL = 2
+
+
+def seal_paths(seal: dict) -> set[str]:
+    reference = seal.get("reference") or {}
+    return {str(path) for path in reference.get("paths") or [] if str(path)}
+
+
+def conflicts(seal: dict, active: list[dict]) -> bool:
+    """Same file touched by an executing leaf blocks a second claim."""
+    mine = seal_paths(seal)
+    if not mine:
+        return False
+    return any(mine & seal_paths(other) for other in active)
+
+
+def select_eligible(
+    open_issues: list[dict],
+    all_issues: list[dict],
+    max_parallel: int = DEFAULT_MAX_PARALLEL,
+) -> tuple[list[dict], list[dict]]:
+    done: set[int] = set()
+    for item in all_issues:
+        labels = {label["name"] for label in item.get("labels", [])}
+        if item["state"] == "CLOSED" or labels & {"leaf-done", "epic-done", "deferred"}:
+            done.add(item["number"])
+
+    active: dict[int, list[dict]] = {}
+    for issue in open_issues:
+        labels = {label["name"] for label in issue["labels"]}
+        if "executing" not in labels:
+            continue
+        seal = parse_seal(issue.get("body", ""))
+        epic = seal.get("epic")
+        if epic:
+            active.setdefault(int(epic), []).append(seal)
+
+    eligible: list[dict] = []
+    skipped: list[dict] = []
+    for issue in open_issues:
+        labels = {label["name"] for label in issue["labels"]}
+        if "agent-approved" not in labels or labels & SKIP_LABELS:
+            continue
+        seal = parse_seal(issue.get("body", ""))
+        if not seal:
+            continue
+        deps = [
+            dep
+            for dep in seal.get("dependencies") or []
+            if isinstance(dep, dict) and dep.get("kind", "blocks") == "blocks"
+        ]
+        if any(dep.get("issue") not in done for dep in deps):
+            skipped.append({"number": issue["number"], "reason": "bağımlılık bekliyor"})
+            continue
+        epic = seal.get("epic")
+        if epic:
+            running = active.get(int(epic), [])
+            if len(running) >= max_parallel:
+                skipped.append(
+                    {"number": issue["number"], "reason": f"epic bütçesi dolu ({max_parallel})"}
+                )
+                continue
+            if conflicts(seal, running):
+                shared = sorted(
+                    mine
+                    for mine in seal_paths(seal)
+                    if any(mine in seal_paths(other) for other in running)
+                )
+                skipped.append(
+                    {
+                        "number": issue["number"],
+                        "reason": "dosya kesişimi: " + ", ".join(shared),
+                    }
+                )
+                continue
+        eligible.append(
+            {
+                "number": issue["number"],
+                "title": issue["title"],
+                "epic": epic,
+                "risk": (seal.get("risk") or {}).get("level", "low"),
+                "createdAt": issue["createdAt"],
+            }
+        )
+        if epic:
+            active.setdefault(int(epic), []).append(seal)
+    eligible.sort(key=lambda item: item["createdAt"])
+    return eligible, skipped
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="pick the next executable leaf")
     parser.add_argument("--list", action="store_true", help="all eligible leaves")
     parser.add_argument("--claim", action="store_true", help="claim the first leaf")
+    parser.add_argument(
+        "--max-parallel",
+        type=int,
+        default=DEFAULT_MAX_PARALLEL,
+        help="aynı epic'te eşzamanlı leaf üst sınırı",
+    )
     parser.add_argument("--release", action="store_true", help="release a lease")
     parser.add_argument("--issue", type=int, help="issue for --release")
     parser.add_argument("--force", action="store_true", help="force a release")
     parser.add_argument("--reason", default="stale claim", help="release reason")
     parser.add_argument("--json", action="store_true", help="machine output")
     args = parser.parse_args()
+    if args.max_parallel < 1:
+        parser.error("--max-parallel en az 1 olmalı")
 
     if args.release:
         if not args.issue:
             sys.exit("next-leaf: --release requires --issue N")
         return release(args.issue, args.force, args.reason)
+
+    if args.claim:
+        reason = resources.blocked(epic_worktree.project_root())
+        if reason:
+            print(f"next-leaf: makine bloke — {reason}", file=sys.stderr)
+            return 3
 
     open_issues = json.loads(
         gh(
@@ -381,49 +494,7 @@ def main() -> int:
             ]
         )
     )
-    done: set[int] = set()
-    for item in all_issues:
-        labels = {label["name"] for label in item.get("labels", [])}
-        if item["state"] == "CLOSED" or labels & {"leaf-done", "epic-done", "deferred"}:
-            done.add(item["number"])
-
-    executing_epics: set[int] = set()
-    for issue in open_issues:
-        labels = {label["name"] for label in issue["labels"]}
-        if "executing" in labels:
-            seal = parse_seal(issue.get("body", ""))
-            if seal.get("epic"):
-                executing_epics.add(seal["epic"])
-
-    eligible = []
-    for issue in open_issues:
-        labels = {label["name"] for label in issue["labels"]}
-        if "agent-approved" not in labels or labels & SKIP_LABELS:
-            continue
-        seal = parse_seal(issue.get("body", ""))
-        if not seal:
-            continue
-        deps = [
-            dep
-            for dep in seal.get("dependencies") or []
-            if isinstance(dep, dict) and dep.get("kind", "blocks") == "blocks"
-        ]
-        if any(dep.get("issue") not in done for dep in deps):
-            continue
-        epic = seal.get("epic")
-        if epic and epic in executing_epics:
-            continue
-        eligible.append(
-            {
-                "number": issue["number"],
-                "title": issue["title"],
-                "epic": epic,
-                "risk": (seal.get("risk") or {}).get("level", "low"),
-                "createdAt": issue["createdAt"],
-            }
-        )
-
-    eligible.sort(key=lambda item: item["createdAt"])
+    eligible, skipped = select_eligible(open_issues, all_issues, args.max_parallel)
     root = epic_worktree.project_root()
     try:
         dirty = process_gate.dirty_sources(root)
@@ -446,9 +517,20 @@ def main() -> int:
             )
             return 1
         if args.json:
-            print("[]")
+            print(
+                json.dumps(
+                    {
+                        "eligible": [],
+                        "skipped": skipped,
+                        "budget": budget.load(epic_worktree.project_root()),
+                    },
+                    indent=2,
+                )
+            )
         else:
             print("no work")
+            for item in skipped:
+                print(f"  - #{item['number']}: {item['reason']}", file=sys.stderr)
         return 0
     if dirty:
         print(
@@ -458,12 +540,23 @@ def main() -> int:
         )
 
     if args.json and not args.claim:
-        print(json.dumps(eligible, indent=2))
+        print(
+            json.dumps(
+                {
+                    "eligible": eligible,
+                    "skipped": skipped,
+                    "budget": budget.load(epic_worktree.project_root()),
+                },
+                indent=2,
+            )
+        )
         return 0
 
     if args.list and not args.claim:
         for item in eligible:
             print(f"#{item['number']}  {item['title']}  [{item['risk']}]")
+        for item in skipped:
+            print(f"  - #{item['number']}: {item['reason']}", file=sys.stderr)
         return 0
 
     if args.claim:

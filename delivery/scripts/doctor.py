@@ -1332,6 +1332,20 @@ def check_issue(
             for message in validate_schema(record, schema, "epic"):
                 error(message)
 
+    timeout_blocks = re.findall(
+        r"```yaml\s+demir-kit-accept\s*\n(.*?)```",
+        "\n".join([payload.get("body", "")] + bodies),
+        re.S,
+    )
+    for raw in timeout_blocks:
+        try:
+            record = yaml.safe_load(raw) or {}
+        except yaml.YAMLError:
+            continue
+        if isinstance(record, dict) and record.get("via") == "timeout":
+            if not str(record.get("note") or "").strip():
+                error(f"issue #{number}: via timeout onayı notesuz")
+
     closure_blocks = re.findall(
         r"```yaml\s+demir-kit-closure\s*\n(.*?)```",
         "\n".join([payload.get("body", "")] + bodies),

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import subprocess
 import sys
@@ -426,9 +427,7 @@ def main() -> int:
     parser.add_argument("--resolution", default="approved", help="gate çözümü")
     parser.add_argument("--no-orca", action="store_true", help="Orca metadata yazma")
     parser.add_argument(
-        "--write-cycle",
-        action="store_true",
-        help="dry-run olsa da cycle satırını yaz",
+        "--write-cycle", action="store_true", help="dry-run olsa da cycle satırını yaz"
     )
     parser.add_argument("--no-cycle", action="store_true", help="cycle satırı yazma")
     parser.add_argument("--dry-run", action="store_true")
@@ -479,13 +478,11 @@ def main() -> int:
     )
     plan["cycle"] = row
     if args.dry_run:
+        if args.to == "leaf-done" and not args.json:
+            print("reaper: dry-run")
         if args.write_cycle and not args.no_cycle:
             cycle.record(cycle.project_root(ROOT), row)
-        print(
-            json.dumps(plan, ensure_ascii=False)
-            if args.json
-            else f"#{args.issue}: {state} -> {args.to} (dry-run)"
-        )
+        print(json.dumps(plan, ensure_ascii=False) if args.json else f"#{args.issue}: {state} -> {args.to} (dry-run)")
         return 0
 
     run_id = datetime.now(timezone.utc).strftime("run-%Y%m%dT%H%M%SZ")
@@ -514,6 +511,35 @@ def main() -> int:
 
     if not args.no_cycle:
         cycle.record(cycle.project_root(ROOT), row)
+
+    released = 0
+    if args.to == "leaf-done" and os.environ.get("DEMIR_KIT_REAPER", "on") != "off":
+        try:
+            reaper = subprocess.run(
+                [
+                    sys.executable,
+                    str(SCRIPTS / "worker_reaper.py"),
+                    "--apply",
+                    "--json",
+                    "--project",
+                    str(Path.cwd()),
+                ],
+                capture_output=True,
+                text=True,
+                timeout=120,
+            )
+            released = int(json.loads(reaper.stdout).get("released", 0))
+        except (
+            subprocess.TimeoutExpired,
+            subprocess.SubprocessError,
+            OSError,
+            json.JSONDecodeError,
+            AttributeError,
+            ValueError,
+        ):
+            released = 0
+        if not args.json:
+            print(f"reaper: {released} boşta worker kapatıldı")
 
     if not args.no_orca:
         seal = parse_seal(issue.get("body") or "")
@@ -576,6 +602,7 @@ def main() -> int:
         "remove": applied["remove"],
         "run_id": run_id,
         "cycle": row,
+        "released": released,
     }
     print(json.dumps(result, ensure_ascii=False) if args.json else f"#{args.issue}: {state} -> {args.to}")
     return 0

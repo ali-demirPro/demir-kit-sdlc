@@ -13,9 +13,12 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import hashlib
+import json
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 # Kit root: the directory that holds ``delivery/``. In a vendored product this
@@ -26,6 +29,10 @@ STEP_TIMEOUT = 900
 TEST_ROOT = "delivery/tests"
 PLUGIN_ROOT = "plugins"
 PLUGIN_PATH = "plugins/orca"
+
+CACHE_NAME = "gate-cache.json"
+CACHE_TTL = 86_400
+CACHE_MAX = 50
 
 
 def _git(args: list[str], project: Path) -> str | None:
@@ -104,6 +111,103 @@ def tracked_changes(project: Path) -> set[str]:
         if line.strip() and not line.startswith("??")
     }
 
+def tree_state(project: Path) -> str:
+    """HEAD + dirty diff + untracked list, hashed."""
+    names = [
+        name
+        for name in _git_text(
+            ["ls-files", "--others", "--exclude-standard"], project
+        ).splitlines()
+        if name.strip()
+    ]
+    untracked = []
+    for name in names:
+        path = project / name
+        try:
+            data = path.read_bytes()[:200_000]
+        except OSError:
+            data = b""
+        untracked.append(name + "\0" + hashlib.sha256(data).hexdigest())
+    payload = [
+        _git_text(["rev-parse", "HEAD"], project),
+        _git_text(["diff", "--binary", "HEAD"], project),
+        "\n".join(untracked),
+    ]
+    return hashlib.sha256("\0".join(payload).encode("utf-8")).hexdigest()
+
+
+def tool_version() -> str:
+    version = Path(__file__).resolve().parents[2] / "VERSION"
+    try:
+        return version.read_text(encoding="utf-8").strip()
+    except OSError:
+        return "?"
+
+
+def cache_path(project: Path) -> Path:
+    return Path(project) / ".kit" / CACHE_NAME
+
+
+def load_cache(project: Path) -> dict:
+    path = cache_path(project)
+    if not path.is_file():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def save_cache(project: Path, data: dict) -> None:
+    path = cache_path(project)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
+
+
+def cache_key(
+    project: Path, steps: list[str], checkpoint: str, issue: int | None = None
+) -> str:
+    payload = json.dumps(
+        {
+            "tree": tree_state(project),
+            "steps": steps,
+            "checkpoint": checkpoint,
+            "issue": issue,
+            "version": tool_version(),
+        },
+        sort_keys=True,
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def cache_lookup(project: Path, key: str, now: float | None = None) -> dict | None:
+    data = load_cache(project)
+    entry = data.get(key)
+    if not isinstance(entry, dict):
+        return None
+    if now is None:
+        now = time.time()
+    try:
+        stamp = float(entry.get("ts") or 0)
+    except (TypeError, ValueError):
+        return None
+    if now - stamp > CACHE_TTL:
+        return None
+    return entry
+
+
+def cache_store(project: Path, key: str, code: int, output: str) -> None:
+    data = load_cache(project)
+    now = time.time()
+    data[key] = {"ts": now, "code": int(code), "output": output[-4000:]}
+    fresh = sorted(
+        ((k, v) for k, v in data.items() if isinstance(v, dict)),
+        key=lambda item: float(item[1].get("ts") or 0),
+        reverse=True,
+    )[:CACHE_MAX]
+    save_cache(project, dict(fresh))
+
 
 def suites_for(paths: list[str]) -> list[str]:
     """Suites selected by changed paths, in run order."""
@@ -162,6 +266,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--issue", type=int, help="seal + evidence doğrula (opsiyonel)")
     parser.add_argument("--checkpoint", required=True)
     parser.add_argument("--plan", action="store_true", help="adımları yaz, çalıştırma")
+    parser.add_argument("--fast", action="store_true", help="yalnız statik doctor (CP)")
+    parser.add_argument("--cached", action="store_true", help="tree hash cache'ini kullan")
+    parser.add_argument("--no-cache", action="store_true", help="cache'i baypas et")
+    parser.add_argument("--fix", action="store_true", help="düzeltici adımlara izin ver")
     parser.add_argument("--project", type=Path, default=None, help="proje kökü")
     parser.add_argument(
         "--changed",
@@ -188,13 +296,25 @@ def main(argv: list[str] | None = None) -> int:
                     file=sys.stderr,
                     flush=True,
                 )
-    steps = ["doctor", *suites_for(paths)]
+    steps = ["doctor"] if args.fast else ["doctor", *suites_for(paths)]
+    if not args.fast:
+        print("[gate] level full", flush=True)
+    else:
+        print("[gate] level fast", flush=True)
 
     if args.plan:
         for step in steps:
             command = step_command(step, project, args.issue, args.checkpoint)
             print(f"[gate] plan {step}: {' '.join(command)}", flush=True)
         return 0
+
+    key = None
+    if args.cached and not args.no_cache:
+        key = cache_key(project, steps, args.checkpoint, args.issue)
+        hit = cache_lookup(project, key)
+        if hit is not None:
+            print(f"[gate] cache hit {key[:12]} (exit {hit['code']})", flush=True)
+            return int(hit["code"])
 
     before = tracked_changes(project)
     failed = False
@@ -212,6 +332,17 @@ def main(argv: list[str] | None = None) -> int:
         if code != 0:
             failed = True
 
+    touched = sorted(tracked_changes(project) - before)
+    if touched and not args.fix:
+        print(
+            "[gate] depo değişti: " + ", ".join(touched[:5])
+            + " — kapı salt-okur olmalı; düzeltme ayrı adım (--fix).",
+            flush=True,
+        )
+        failed = True
+
+    if key is not None:
+        cache_store(project, key, 1 if failed else 0, "")
     if args.issue is not None:
         try:
             import cycle

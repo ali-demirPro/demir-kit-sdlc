@@ -29,7 +29,8 @@ Start from the packet instead of the whole repo:
 python3 delivery/scripts/review_packet.py --issue <N> --cp CP-1 --commit <sha>
 ```
 
-- Packet: CP brief, AC/test rows, open findings, diff (max 12 KB).
+- Packet: CP brief, AC/test rows, open findings, gate result, diff (max 12 KB).
+- Kapıyı yeniden koşma; paketteki `Kapı:` satırındaki sonucu doğrula.
 - After a fix: `--delta <base>`; re-check only changed hunks and open findings.
 - Script: [review_packet.py](../../delivery/scripts/review_packet.py).
 
@@ -49,7 +50,9 @@ python3 delivery/scripts/review_wave.py --issue <N> --cp CP-1 --commit <sha> \
 
 ## Loop
 
-- Open finding → fixer → re-run the required reviewers.
+- Her bulgu `severity: blocking|nit` taşır; alan yoksa verdict reddedilir.
+- Tur 1: tüm bulgular. Tur 2: yalnız `blocking`. Tur 3: aynı 60 dakikalık
+  onay süresi; yanıt gelmezse not düşülür ve `risk-accepted` ile devam edilir.
 - Max 5 rounds, then `blocked` + one human-language question.
 
 ## Approval
