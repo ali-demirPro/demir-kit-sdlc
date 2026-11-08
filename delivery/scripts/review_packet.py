@@ -161,17 +161,25 @@ def gate_summary(project: Path) -> dict:
             data = json.loads(cache.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             data = {}
-        if isinstance(data, dict) and data:
-            key, entry = max(
-                data.items(),
-                key=lambda item: float((item[1] or {}).get("ts") or 0),
-            )
-            entry = entry if isinstance(entry, dict) else {}
+        entries = []
+        if isinstance(data, dict):
+            for key, entry in data.items():
+                if not isinstance(entry, dict):
+                    continue
+                try:
+                    stamp = float(entry.get("ts") or 0)
+                except (TypeError, ValueError):
+                    continue
+                entries.append((stamp, str(key), entry))
+        if entries:
+            stamp, key, entry = max(entries, key=lambda item: item[0])
+            code = entry.get("code")
             return {
                 "source": "cache",
-                "key": str(key)[:12],
-                "exit": entry.get("code"),
-                "ts": entry.get("ts"),
+                "command": str(entry.get("command") or "-"),
+                "exit": int(code) if isinstance(code, (int, float)) else None,
+                "tree": key[:12],
+                "ts": stamp,
             }
     cycle = Path(project) / ".kit" / "cycle.jsonl"
     if cycle.is_file():
@@ -184,13 +192,29 @@ def gate_summary(project: Path) -> dict:
             if isinstance(row, dict) and row.get("stage") == "gate":
                 last = row
         if last:
+            reason = str(last.get("reason") or "")
+            command, _, exit_part = reason.partition(" exit=")
+            try:
+                code = int(exit_part)
+            except ValueError:
+                code = None
             return {
                 "source": "cycle",
-                "exit": None,
+                "command": command or "-",
+                "exit": code,
+                "tree": "-",
                 "ts": last.get("ts"),
-                "reason": last.get("reason"),
             }
-    return {"source": "none"}
+    return {"source": "none", "command": "-", "exit": None, "tree": "-", "ts": None}
+
+
+def gate_line(gate: dict) -> str:
+    code = gate.get("exit")
+    return (
+        f"Kapı: {gate.get('source')} · {gate.get('command')} · "
+        f"exit {code if code is not None else '-'} · tree {gate.get('tree')} · "
+        f"{gate.get('ts') or '-'}"
+    )
 
 
 def packet_for(
@@ -250,7 +274,7 @@ def packet_for(
     header = [
         f"## Review packet — #{issue_number} {cp_id}",
         f"Commit: {commit[:12]} · Aralık: {range_label}",
-        f"Kapı: {gate['source']} · exit {gate.get('exit')} · {gate.get('ts') or '-'}",
+        gate_line(gate),
         f"Boyut sınırı: {max_chars} bayt",
         "Değişen dosyalar:",
     ]
