@@ -441,7 +441,7 @@ def select_eligible(
         )
         if epic:
             active.setdefault(int(epic), []).append(seal)
-    eligible.sort(key=lambda item: item["createdAt"])
+    eligible.sort(key=lambda item: (str(item["createdAt"]), int(item["number"])))
     return eligible, skipped
 
 
@@ -456,7 +456,7 @@ def main() -> int:
         help="aynı epic'te eşzamanlı leaf üst sınırı",
     )
     parser.add_argument("--release", action="store_true", help="release a lease")
-    parser.add_argument("--issue", type=int, help="issue for --release")
+    parser.add_argument("--issue", type=int, help="claim/release için issue")
     parser.add_argument("--force", action="store_true", help="force a release")
     parser.add_argument("--reason", default="stale claim", help="release reason")
     parser.add_argument("--json", action="store_true", help="machine output")
@@ -504,6 +504,17 @@ def main() -> int:
         )
     )
     eligible, skipped = select_eligible(open_issues, all_issues, args.max_parallel)
+    if args.issue is not None:
+        chosen = [item for item in eligible if int(item["number"]) == args.issue]
+        if not chosen:
+            reason = next(
+                (item["reason"] for item in skipped if int(item["number"]) == args.issue),
+                "leaf uygun değil (agent-approved/dependency/bütçe)",
+            )
+            print(f"next-leaf: #{args.issue} claim edilemez — {reason}", file=sys.stderr)
+            return 1
+        eligible = chosen
+
     root = epic_worktree.project_root()
     try:
         dirty = process_gate.dirty_sources(root)
