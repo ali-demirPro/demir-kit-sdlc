@@ -44,7 +44,12 @@ class WaitTests(unittest.TestCase):
     def test_close_wait_marks_the_open_wait_once(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             project = Path(directory)
-            cycle.record(project, cycle.make_row(240, "wait", actor="human-qa"))
+            cycle.record(
+                project,
+                cycle.make_row(
+                    240, "wait", actor="human-qa", ts="2020-01-01T00:00:00+00:00"
+                ),
+            )
             self.assertTrue(cycle.close_wait(project, 240, ts="2026-11-08T11:00:00+00:00"))
             self.assertFalse(cycle.close_wait(project, 240))
             stages = [row["stage"] for row in cycle.read(project, 240)]

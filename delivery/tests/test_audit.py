@@ -128,6 +128,50 @@ class CollectTests(unittest.TestCase):
         self.assertEqual(data["projects"]["votum"]["review_rounds"], 1)
         self.assertEqual(data["projects"]["votum"]["gates"], 1)
 
+    def test_review_rounds_come_from_evidence_index(self) -> None:
+        kit = self.projects / "votum" / ".kit"
+        kit.mkdir(parents=True)
+        cycles = [
+            {"ts": "2026-11-07T10:00:00+00:00", "issue": 1, "stage": "executing"},
+            {"ts": "2026-11-07T10:05:00+00:00", "issue": 1, "stage": "review"},
+            {"ts": "2026-11-07T10:10:00+00:00", "issue": 1, "stage": "gate"},
+            {"ts": "2026-11-07T10:20:00+00:00", "issue": 1, "stage": "leaf-done"},
+        ]
+        (kit / "cycle.jsonl").write_text(
+            "\n".join(json.dumps(row) for row in cycles) + "\n", encoding="utf-8"
+        )
+        index = [
+            {"ts": "2026-11-07T10:06:00+00:00", "issue": 1, "cp": "CP-1",
+             "reviewers": ["ses_real123", None]},
+            {"ts": "2026-11-07T10:07:00+00:00", "issue": 1, "cp": "CP-2",
+             "reviewers": ["reviewer_a"]},
+            {"ts": "2026-11-07T10:08:00+00:00", "issue": 1, "cp": "CP-3",
+             "reviewers": []},
+        ]
+        (kit / "evidence.jsonl").write_text(
+            "\n".join(json.dumps(row) for row in index) + "\n", encoding="utf-8"
+        )
+        data = audit.collect(self.projects, days=7, db_path=self.db, derived_root=self.derived)
+        votum = data["projects"]["votum"]
+        self.assertTrue(votum["reviews_measured"])
+        self.assertEqual(votum["review_rounds"], 1)  # yalnız gerçek kimlik
+        self.assertEqual(votum["gates"], 1)
+
+    def test_evidence_index_outside_window_is_ignored(self) -> None:
+        kit = self.projects / "votum" / ".kit"
+        kit.mkdir(parents=True)
+        index = [
+            {"ts": "2026-10-01T10:00:00+00:00", "issue": 1, "cp": "CP-1",
+             "reviewers": ["ses_old"]},
+        ]
+        (kit / "evidence.jsonl").write_text(
+            "\n".join(json.dumps(row) for row in index) + "\n", encoding="utf-8"
+        )
+        data = audit.collect(self.projects, days=7, db_path=self.db, derived_root=self.derived)
+        votum = data["projects"]["votum"]
+        self.assertTrue(votum["reviews_measured"])
+        self.assertEqual(votum["review_rounds"], 0)
+
     def test_render_table_and_recommendations(self) -> None:
         data = audit.collect(self.projects, days=7, db_path=self.db, derived_root=self.derived)
         text = audit.render(data)
