@@ -78,7 +78,23 @@ def _record(dispatch_id: str) -> dict:
         return {}
 
 
-def _activity(dispatch_id: str, record: dict) -> datetime | None:
+def mapped(dispatch_id: str, record: dict, persist: bool = False) -> dict | None:
+    """Session for this dispatch; map it lazily if the dispatch missed it."""
+    found = usage.mapped_session(dispatch_id)
+    if found:
+        return found
+    path = str(record.get("path") or "")
+    dispatch = record.get("dispatch")
+    dispatch = dispatch if isinstance(dispatch, dict) else {}
+    started = parse_ts(dispatch.get("dispatchedAt"))
+    if not path or not started:
+        return None
+    if not persist:
+        return None
+    return usage.map_new_session(dispatch_id, path, int(started.timestamp() * 1000))
+
+
+def _activity(dispatch_id: str, record: dict, persist: bool = False) -> datetime | None:
     """Latest proof of work: heartbeat or *this worker's* session update.
 
     Only the mapped session counts; the coordinator and other workers share the
@@ -88,8 +104,8 @@ def _activity(dispatch_id: str, record: dict) -> datetime | None:
     dispatch = record.get("dispatch")
     dispatch = dispatch if isinstance(dispatch, dict) else {}
     stamps = [parse_ts(dispatch.get("lastHeartbeatAt"))]
-    mapped = usage.mapped_session(dispatch_id) or {}
-    session_id = str(mapped.get("id") or "")
+    mapped_session = mapped(dispatch_id, record, persist) or {}
+    session_id = str(mapped_session.get("id") or "")
     path = str(record.get("path") or "")
     if session_id and path:
         for session in usage.sessions_in(path):
@@ -109,6 +125,7 @@ def plan_for(
     run_id: str,
     idle_minutes: int = DEFAULT_IDLE,
     now: datetime | None = None,
+    persist: bool = False,
 ) -> list[dict]:
     now = now or datetime.now(timezone.utc)
     rows: list[dict] = []
@@ -117,7 +134,7 @@ def plan_for(
         if not dispatch_id:
             continue
         record = _record(dispatch_id)
-        heartbeat = _activity(dispatch_id, record)
+        heartbeat = _activity(dispatch_id, record, persist)
         idle = int((now - heartbeat).total_seconds() // 60) if heartbeat else -1
 
         state = str(worker.get("workerState") or "")
@@ -131,6 +148,8 @@ def plan_for(
             reason = "insan devraldı"
         elif idle < 0:
             reason = "zaman bilgisi yok"
+        elif mapped(dispatch_id, record, persist) is None:
+            reason = "oturum eşlemesi yok; serbest bırakma için kanıt yetersiz"
         elif idle < idle_minutes:
             reason = f"aktif ({idle} dk)"
 
@@ -166,7 +185,7 @@ def reap_idle(project: Path | str | None, apply_release: bool = True) -> int:
     try:
         total = 0
         for run_id in runs(Path(project)):
-            rows = plan_for(run_id)
+            rows = plan_for(run_id, persist=True)
             if apply_release:
                 rows = apply(rows)
             total += sum(1 for row in rows if row.get("released") or row.get("action") == "release")
@@ -196,7 +215,7 @@ def main() -> int:
 
     rows: list[dict] = []
     for run_id in targets:
-        rows.extend(plan_for(run_id, args.idle_minutes))
+        rows.extend(plan_for(run_id, args.idle_minutes, persist=args.apply))
     if args.apply and not args.dry_run:
         rows = apply(rows)
 

@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -33,6 +34,7 @@ PLUGIN_PATH = "plugins/orca"
 CACHE_NAME = "gate-cache.json"
 CACHE_TTL = 86_400
 CACHE_MAX = 50
+CHECKPOINT_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 
 
 def _git(args: list[str], project: Path) -> str | None:
@@ -110,6 +112,12 @@ def tracked_changes(project: Path) -> set[str]:
         for line in lines
         if line.strip() and not line.startswith("??")
     }
+
+def working_tree_changes(project: Path) -> set[str]:
+    """Tracked *and* untracked paths that differ from HEAD."""
+    lines = _git_text(["status", "--porcelain"], project).splitlines()
+    return {line[3:].strip() for line in lines if line.strip()}
+
 
 def tree_state(project: Path) -> str:
     """HEAD + dirty diff + untracked list, hashed."""
@@ -197,10 +205,17 @@ def cache_lookup(project: Path, key: str, now: float | None = None) -> dict | No
     return entry
 
 
-def cache_store(project: Path, key: str, code: int, output: str) -> None:
+def cache_store(
+    project: Path, key: str, code: int, output: str, command: str = ""
+) -> None:
     data = load_cache(project)
     now = time.time()
-    data[key] = {"ts": now, "code": int(code), "output": output[-4000:]}
+    data[key] = {
+        "ts": now,
+        "code": int(code),
+        "output": output[-4000:],
+        "command": command,
+    }
     fresh = sorted(
         ((k, v) for k, v in data.items() if isinstance(v, dict)),
         key=lambda item: float(item[1].get("ts") or 0),
@@ -239,6 +254,40 @@ def product_behavior(project: Path, checkpoint: str) -> list[str]:
             if not isinstance(gates, dict):
                 continue
             command = str(gates.get("behavior") or "").strip()
+            if not command or "gate.sh" in command:
+                continue
+            command = command.replace("{checkpoint}", checkpoint)
+            if command not in commands:
+                commands.append(command)
+    return commands
+
+
+def product_fix(project: Path, checkpoint: str) -> list[str]:
+    """Corrective commands a product surface declares under ``gates.fix``."""
+    if project.resolve() == KIT_ROOT.resolve():
+        return []
+    path = project / "ecosystem.yaml"
+    if not path.is_file():
+        return []
+    try:
+        import yaml
+
+        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except (OSError, yaml.YAMLError):
+        return []
+    commands: list[str] = []
+    products = data.get("products") if isinstance(data, dict) else None
+    if not isinstance(products, dict):
+        return []
+    for product in products.values():
+        surfaces = (product or {}).get("surfaces") if isinstance(product, dict) else None
+        if not isinstance(surfaces, dict):
+            continue
+        for surface in surfaces.values():
+            gates = (surface or {}).get("gates") if isinstance(surface, dict) else None
+            if not isinstance(gates, dict):
+                continue
+            command = str(gates.get("fix") or "").strip()
             if not command or "gate.sh" in command:
                 continue
             command = command.replace("{checkpoint}", checkpoint)
@@ -287,10 +336,13 @@ def step_command(
     raise ValueError(f"bilinmeyen adım: {step}")
 
 
-def _run(command: list[str], project: Path) -> int:
+def _run(command: list[str] | str, project: Path, shell: bool = False) -> int:
     try:
         return subprocess.run(
-            command, cwd=str(project), timeout=STEP_TIMEOUT
+            command,
+            cwd=str(project),
+            timeout=STEP_TIMEOUT,
+            shell=shell,
         ).returncode
     except subprocess.TimeoutExpired:
         print(f"[gate] timeout: {STEP_TIMEOUT}s aşıldı", flush=True)
@@ -317,6 +369,10 @@ def main(argv: list[str] | None = None) -> int:
         help="git yerine bu değişen dosyaları kullan (tekrarlanabilir)",
     )
     args = parser.parse_args(argv)
+    if not CHECKPOINT_RE.fullmatch(args.checkpoint or ""):
+        parser.error(
+            "--checkpoint yalnız harf, rakam, nokta, alt çizgi ve tire içerir"
+        )
     if args.changed is not None and not args.plan:
         parser.error("--changed yalnız --plan ile kullanılabilir")
 
@@ -350,18 +406,29 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     key = None
-    if args.cached and not args.no_cache:
+    if args.cached and not args.no_cache and not args.fix:
         key = cache_key(project, steps, args.checkpoint, args.issue)
         hit = cache_lookup(project, key)
         if hit is not None:
             print(f"[gate] cache hit {key[:12]} (exit {hit['code']})", flush=True)
             return int(hit["code"])
 
-    before = tracked_changes(project)
+    if args.fix:
+        for command in product_fix(project, args.checkpoint):
+            print(f"[gate] fix: {command}", flush=True)
+            code = _run(command, project, shell=True)
+            print(f"[gate] fix exit {code}", flush=True)
+            if code != 0:
+                print("[gate] düzeltme adımı düştü", flush=True)
+                return 1
+
+    before = working_tree_changes(project)
     failed = False
+    executed: list[str] = []
     for command in behavior:
         print(f"[gate] behavior: {command}", flush=True)
-        code = _run(command, project)
+        executed.append(command)
+        code = _run(command, project, shell=True)
         print(f"[gate] behavior exit {code}", flush=True)
         if code != 0:
             failed = True
@@ -374,13 +441,14 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"[gate] plugin skip: {PLUGIN_PATH} yok", flush=True)
                 continue
         command = step_command(step, project, args.issue, args.checkpoint)
+        executed.append(" ".join(command))
         code = _run(command, project)
         print(f"[gate] {step} exit {code}", flush=True)
         if code != 0:
             failed = True
 
-    touched = sorted(tracked_changes(project) - before)
-    if touched and not args.fix:
+    touched = sorted(working_tree_changes(project) - before)
+    if touched:
         print(
             "[gate] depo değişti: " + ", ".join(touched[:5])
             + " — kapı salt-okur olmalı; düzeltme ayrı adım (--fix).",
@@ -389,7 +457,7 @@ def main(argv: list[str] | None = None) -> int:
         failed = True
 
     if key is not None:
-        cache_store(project, key, 1 if failed else 0, "")
+        cache_store(project, key, 1 if failed else 0, "", " && ".join(executed))
     if args.issue is not None:
         try:
             import cycle

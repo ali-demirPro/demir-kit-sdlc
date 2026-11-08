@@ -84,6 +84,61 @@ class PlanTests(unittest.TestCase):
         self.assertFalse(old.exists())
         self.assertTrue(new.exists())
 
+BOOTED_OUTPUT = """== Devices ==
+-- iOS 18.0 --
+    iPhone 15 (11111111-2222-3333-4444-555555555555) (Booted)
+"""
+
+
+class BootedTests(unittest.TestCase):
+    def test_booted_returns_uuids(self) -> None:
+        import subprocess
+        from unittest import mock
+
+        with mock.patch.object(
+            hygiene.subprocess, "check_output", return_value=BOOTED_OUTPUT
+        ):
+            booted = hygiene._booted()
+        self.assertEqual(booted, {"11111111-2222-3333-4444-555555555555"})
+
+    def test_booted_simulator_is_not_planned(self) -> None:
+        import subprocess
+        from unittest import mock
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            sims = root / "Devices"
+            sims.mkdir()
+            device = sims / "11111111-2222-3333-4444-555555555555"
+            device.mkdir()
+            aged(device, 40)
+            with mock.patch.object(
+                hygiene, "_booted", return_value={"11111111-2222-3333-4444-555555555555"}
+            ):
+                result = hygiene.plan(root / "none", sims, sim_days=14)
+        self.assertEqual(result["items"], [])
+
+
+class ApplyTests(unittest.TestCase):
+    def test_failed_simctl_delete_is_not_counted(self) -> None:
+        from unittest import mock
+
+        items = [{"kind": "simulator", "path": "/tmp/DEVICE-UUID", "bytes": 1}]
+        failed = mock.Mock(returncode=1, stdout="", stderr="boom")
+        with mock.patch.object(hygiene.subprocess, "run", return_value=failed):
+            result = hygiene.apply({"items": items})
+        self.assertEqual(result["deleted"], 0)
+        self.assertEqual(result["failed"], 1)
+
+    def test_successful_simctl_delete_is_counted(self) -> None:
+        from unittest import mock
+
+        items = [{"kind": "simulator", "path": "/tmp/DEVICE-UUID", "bytes": 1}]
+        done = mock.Mock(returncode=0, stdout="", stderr="")
+        with mock.patch.object(hygiene.subprocess, "run", return_value=done):
+            result = hygiene.apply({"items": items})
+        self.assertEqual(result["deleted"], 1)
+
 
 if __name__ == "__main__":
     unittest.main()

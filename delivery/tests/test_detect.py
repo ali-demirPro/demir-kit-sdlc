@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import shlex
 import json
 import sys
 import tempfile
@@ -81,7 +82,11 @@ class DetectTests(unittest.TestCase):
             root = Path(directory)
             write(root, "Ornek.xcodeproj/project.pbxproj", "SDKROOT = macosx;\n")
             write(root, "App/MainView.swift", "import SwiftUI\n")
-            data = detect_mod.detect(root)
+            import os
+            from unittest.mock import patch
+
+            with patch.dict(os.environ, {}, clear=True):
+                data = detect_mod.detect(root)
             platforms = [
                 platform
                 for item in data["surfaces"]
@@ -94,7 +99,7 @@ class DetectTests(unittest.TestCase):
             command = data["test_commands"]["behavior"]
             self.assertTrue(command.startswith("xcodebuild test "))
             self.assertIn(
-                '-derivedDataPath "$HOME/Library/Developer/Xcode/DerivedData/Ornek-shared"',
+                '-derivedDataPath "$HOME"/Library/Developer/Xcode/DerivedData/Ornek-shared',
                 command,
             )
             self.assertIn("-clonedSourcePackagesDirPath", command)
@@ -381,6 +386,58 @@ class DetectTests(unittest.TestCase):
             detect_mod.detect(root)
             after = sorted(str(path.relative_to(root)) for path in root.rglob("*"))
             self.assertEqual(before, after)
+
+class SharedDerivedDataTests(unittest.TestCase):
+    def base(self, name: str) -> Path:
+        holder = tempfile.TemporaryDirectory()
+        self.addCleanup(holder.cleanup)
+        root = Path(holder.name)
+        (root / f"{name}.xcodeproj").mkdir()
+        return root
+
+    def test_derived_data_root_is_overridable(self) -> None:
+        import os
+        from unittest.mock import patch
+
+        base = self.base("Ornek")
+        with patch.dict(os.environ, {"KIT_DERIVED_DATA": "/tmp/kit cache"}):
+            command = detect_mod.xcode_behavior(base)
+        self.assertIn("-derivedDataPath '/tmp/kit cache/Ornek-shared'", command)
+
+    def test_tilde_in_override_is_expanded(self) -> None:
+        import os
+        from unittest.mock import patch
+
+        base = self.base("Ornek")
+        with patch.dict(os.environ, {"KIT_DERIVED_DATA": "~/dd"}):
+            command = detect_mod.xcode_behavior(base)
+        expected = shlex.quote(str(Path.home() / "dd" / "Ornek-shared"))
+        self.assertIn(f"-derivedDataPath {expected}", command)
+
+    def test_default_path_keeps_home_portable(self) -> None:
+        import os
+        from unittest.mock import patch
+
+        base = self.base("Ornek")
+        with patch.dict(os.environ, {}, clear=True):
+            command = detect_mod.xcode_behavior(base)
+        self.assertIn('"$HOME"', command)
+        self.assertNotIn(str(Path.home()), command)
+
+    def test_project_name_is_escaped(self) -> None:
+        import os
+        from unittest.mock import patch
+
+        base = self.base("Votum's App")
+        with patch.dict(os.environ, {}, clear=True):
+            command = detect_mod.xcode_behavior(base)
+        tokens = shlex.split(command)
+        path = tokens[tokens.index("-derivedDataPath") + 1]
+        expected = (
+            "$HOME/Library/Developer/Xcode/DerivedData/Votum's App-shared"
+        )
+        self.assertEqual(path, expected)
+        self.assertIn("Votum'\"'\"'s App-shared", command)
 
 
 if __name__ == "__main__":

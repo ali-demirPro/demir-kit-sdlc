@@ -247,9 +247,12 @@ def validate_epic_record(
             continue
         if child_labels is None:
             continue
+        if child not in child_labels:
+            errors.append(f"epic seal: child #{child} yok")
+            continue
         labels_c = child_labels.get(child)
         if labels_c is None:
-            errors.append(f"epic seal: child #{child} yok")
+            errors.append(f"epic seal: child #{child} okunamadı")
         elif "epic" in set(labels_c):
             errors.append(f"epic seal: child #{child} epic olamaz")
     return errors
@@ -257,7 +260,7 @@ def validate_epic_record(
 
 
 
-def child_labels_for(repo, body: str, fetch) -> dict[int, list[str]] | None:
+def child_labels_for(repo, body: str, fetch) -> dict[int, list[str] | None] | None:
     """Labels of the epic's children, fetched once for seal validation."""
     import json
 
@@ -270,18 +273,18 @@ def child_labels_for(repo, body: str, fetch) -> dict[int, list[str]] | None:
         data = yaml.safe_load(match.group(1)) or {}
     except yaml.YAMLError:
         return {}
-    labels: dict[int, list[str]] = {}
+    labels: dict[int, list[str] | None] = {}
     for child in data.get("children") or []:
         if not isinstance(child, int):
             continue
         raw = fetch(f"repos/{repo}/issues/{child}")
         if not raw:
-            labels[child] = []
+            labels[child] = None
             continue
         try:
             payload = json.loads(raw)
         except json.JSONDecodeError:
-            labels[child] = []
+            labels[child] = None
             continue
         labels[child] = [item.get("name") for item in payload.get("labels", [])]
     return labels

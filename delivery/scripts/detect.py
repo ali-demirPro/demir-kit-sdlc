@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shlex
 import sys
 from pathlib import Path
@@ -62,14 +63,23 @@ def xcode_behavior(base: Path) -> str:
     rebuild from scratch. One shared path per project keeps the build incremental
     and keeps the machine cool.
     """
-    shared = (
-        f"$HOME/Library/Developer/Xcode/DerivedData/"
-        f"{xcode_project_name(base)}-shared"
-    )
+    name = f"{xcode_project_name(base)}-shared"
+    root = os.environ.get("KIT_DERIVED_DATA")
+    if root:
+        # An explicit override is a real path for this machine.
+        shared = Path(root).expanduser() / name
+        derived = shlex.quote(str(shared))
+        packages = shlex.quote(str(shared / "SourcePackages"))
+    else:
+        # Generated gate scripts are committed: ``$HOME`` must expand on the
+        # machine that runs the build, not on the one that wrote the file.
+        rel = f"/Library/Developer/Xcode/DerivedData/{name}"
+        derived = '"$HOME"' + shlex.quote(rel)
+        packages = '"$HOME"' + shlex.quote(rel + "/SourcePackages")
     return (
         "xcodebuild test"
-        f' -derivedDataPath "{shared}"'
-        f' -clonedSourcePackagesDirPath "{shared}/SourcePackages"'
+        f" -derivedDataPath {derived}"
+        f" -clonedSourcePackagesDirPath {packages}"
     )
 
 

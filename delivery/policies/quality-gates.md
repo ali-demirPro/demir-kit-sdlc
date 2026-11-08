@@ -55,6 +55,8 @@ gates:
 - `ecosystem.yaml` surface komutu (`gate.sh`), `{checkpoint}` yerine CP id.
 - `tests_plan` case'leri test edilir; exit `0` zorunlu.
 - Test önce yazılır (red), sonra uygulama (green).
+- Kapı salt-okurdur: izlenen veya yeni dosya değişirse kapı düşer. Düzeltici
+  komutlar yüzeyin `gates.fix` alanında durur ve yalnız `--fix` ile koşar.
 
 ### architect
 

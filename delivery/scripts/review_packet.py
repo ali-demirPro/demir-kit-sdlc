@@ -177,7 +177,7 @@ def gate_summary(project: Path) -> dict:
             code = entry.get("code")
             return {
                 "source": "cache",
-                "command": str(entry.get("command") or "-"),
+                "command": str(entry.get("command") or "kayıt yok"),
                 "exit": int(code) if isinstance(code, (int, float)) else None,
                 "tree": key[:12],
                 "ts": stamp,
@@ -206,7 +206,7 @@ def gate_summary(project: Path) -> dict:
                 "tree": "-",
                 "ts": last.get("ts"),
             }
-    return {"source": "none", "command": "-", "exit": None, "tree": "-", "ts": None}
+    return {"source": "none", "command": "kayıt yok", "exit": None, "tree": "-", "ts": None}
 
 
 def gate_line(gate: dict) -> str:

@@ -209,6 +209,35 @@ class ReviewPacketCliTests(unittest.TestCase):
             self.assertTrue(path.is_file())
             self.assertIn("BRIEF", path.read_text(encoding="utf-8"))
 
+class GateSummaryTests(unittest.TestCase):
+    def write_cache(self, entry: dict) -> Path:
+        holder = tempfile.TemporaryDirectory(prefix="kit-gate-")
+        self.addCleanup(holder.cleanup)
+        directory = Path(holder.name)
+        (directory / ".kit").mkdir()
+        (directory / ".kit" / "gate-cache.json").write_text(
+            json.dumps({"key": entry}), encoding="utf-8"
+        )
+        return directory
+
+    def test_cached_command_is_reported(self) -> None:
+        project = self.write_cache(
+            {
+                "ts": 1_700_000_000,
+                "code": 0,
+                "command": "gate.sh --issue 1 --checkpoint CP-1",
+            }
+        )
+        summary = review_packet.gate_summary(project)
+        self.assertEqual(summary["source"], "cache")
+        self.assertEqual(summary["command"], "gate.sh --issue 1 --checkpoint CP-1")
+        self.assertIn("gate.sh --issue 1", review_packet.gate_line(summary))
+
+    def test_missing_command_is_not_invented(self) -> None:
+        project = self.write_cache({"ts": 1_700_000_000, "code": 0})
+        summary = review_packet.gate_summary(project)
+        self.assertEqual(summary["command"], "kayıt yok")
+
 
 if __name__ == "__main__":
     unittest.main()

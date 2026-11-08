@@ -58,6 +58,29 @@ class CacheTests(unittest.TestCase):
         self.assertEqual(gate.cache_path(self.project), self.project / ".kit" / "gate-cache.json")
         self.assertTrue(gate.cache_path(self.project).is_file())
 
+    def test_cache_records_the_real_command(self) -> None:
+        gate.cache_store(
+            self.project, "k", 0, "ok", "gate.sh --issue 1 --checkpoint CP-1"
+        )
+        entry = gate.load_cache(self.project)["k"]
+        self.assertEqual(entry["command"], "gate.sh --issue 1 --checkpoint CP-1")
+
+    def test_main_stores_the_executed_command(self) -> None:
+        from unittest import mock
+
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            with mock.patch.object(gate, "changed_files", return_value=[]), \
+                 mock.patch.object(
+                     gate, "doctor_command", return_value=["echo", "gate-ran"]
+                 ):
+                code = gate.main(
+                    ["--checkpoint", "CP-1", "--project", directory, "--cached"]
+                )
+            self.assertEqual(code, 0)
+            entry = next(iter(gate.load_cache(project).values()))
+            self.assertEqual(entry["command"], "echo gate-ran")
+
 
 if __name__ == "__main__":
     unittest.main()
