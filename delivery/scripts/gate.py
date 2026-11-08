@@ -199,10 +199,17 @@ def cache_lookup(project: Path, key: str, now: float | None = None) -> dict | No
     return entry
 
 
-def cache_store(project: Path, key: str, code: int, output: str) -> None:
+def cache_store(
+    project: Path, key: str, code: int, output: str, command: str = ""
+) -> None:
     data = load_cache(project)
     now = time.time()
-    data[key] = {"ts": now, "code": int(code), "output": output[-4000:]}
+    data[key] = {
+        "ts": now,
+        "code": int(code),
+        "output": output[-4000:],
+        "command": command,
+    }
     fresh = sorted(
         ((k, v) for k, v in data.items() if isinstance(v, dict)),
         key=lambda item: float(item[1].get("ts") or 0),
@@ -368,8 +375,10 @@ def main(argv: list[str] | None = None) -> int:
 
     before = tracked_changes(project)
     failed = False
+    executed: list[str] = []
     for command in behavior:
         print(f"[gate] behavior: {command}", flush=True)
+        executed.append(command)
         code = _run(command, project, shell=True)
         print(f"[gate] behavior exit {code}", flush=True)
         if code != 0:
@@ -383,6 +392,7 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"[gate] plugin skip: {PLUGIN_PATH} yok", flush=True)
                 continue
         command = step_command(step, project, args.issue, args.checkpoint)
+        executed.append(" ".join(command))
         code = _run(command, project)
         print(f"[gate] {step} exit {code}", flush=True)
         if code != 0:
@@ -398,7 +408,7 @@ def main(argv: list[str] | None = None) -> int:
         failed = True
 
     if key is not None:
-        cache_store(project, key, 1 if failed else 0, "")
+        cache_store(project, key, 1 if failed else 0, "", " && ".join(executed))
     if args.issue is not None:
         try:
             import cycle
