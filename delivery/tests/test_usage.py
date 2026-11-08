@@ -427,5 +427,21 @@ class WorkerUsageTests(unittest.TestCase):
         self.assertEqual([row["dispatchId"] for row in rows], ["ctx_a", "ctx_b"])
 
 
+class ContextBudgetTests(unittest.TestCase):
+    def test_warn_and_hard_limits(self) -> None:
+        self.assertEqual(usage.context_state(120_000), (0, ""))
+        warn_code, warn_text = usage.context_state(250_000)
+        self.assertEqual(warn_code, 0)
+        self.assertIn("200,000", warn_text)
+        hard_code, hard_text = usage.context_state(320_000)
+        self.assertEqual(hard_code, 1)
+        self.assertIn("300,000", hard_text)
+
+    def test_policy_matches_the_limits(self) -> None:
+        text = (ROOT / "delivery" / "policies" / "context-budget.md").read_text(encoding="utf-8")
+        self.assertIn("300k token", text)
+        self.assertIn("200k token", text)
+
+
 if __name__ == "__main__":
     unittest.main()

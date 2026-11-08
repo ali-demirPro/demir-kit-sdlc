@@ -10,7 +10,7 @@ sıfırla, bir dosyayı bir kez ve yalnız gereken dilimde oku.
 
 | Ölçü | Uyarı | Sert sınır |
 |------|-------|------------|
-| Oturum bağlamı | 120k token | 200k token |
+| Oturum bağlamı | 200k token | 300k token |
 | Tek araç çıktısı | 2k token | 8k token |
 | Worker başına okunan doküman | 3 dosya | 5 dosya |
 

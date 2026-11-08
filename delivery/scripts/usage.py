@@ -105,6 +105,19 @@ def api_session_info(session_id: str) -> dict:
     return data
 
 
+CONTEXT_WARN = 200_000
+CONTEXT_HARD = 300_000
+
+
+def context_state(tokens: int, warn: int = CONTEXT_WARN, hard: int = CONTEXT_HARD) -> tuple[int, str]:
+    """(exit code, message) for one session context size."""
+    if tokens >= hard:
+        return (1, f"bağlam {tokens:,} token ≥ {hard:,} — yeni oturum aç")
+    if tokens >= warn:
+        return (0, f"bağlam {tokens:,} token ≥ {warn:,} — özet yaz, yeni oturuma geç")
+    return (0, "")
+
+
 def snapshot_path(issue: int, project: Path | None = None) -> Path:
     project = project or project_root()
     return project / ".orchestration" / f"usage-{issue}.json"
@@ -662,9 +675,19 @@ def main() -> int:
     parser.add_argument("--snapshot", action="store_true")
     parser.add_argument("--delta", action="store_true")
     parser.add_argument("--issue", type=int)
+    parser.add_argument("--check", action="store_true", help="bağlam bütçesi kontrolü")
+    parser.add_argument("--context", type=int, help="oturum bağlamı (token)")
     parser.add_argument("--dispatch", help="one supervised worker dispatch id")
     parser.add_argument("--run", help="aggregate all workers of an Orca run")
     args = parser.parse_args()
+
+    if args.check:
+        if args.context is None:
+            sys.exit("usage: --check için --context <token> gerekli")
+        code, message = context_state(int(args.context))
+        if message:
+            print(message)
+        return code
 
     if args.dispatch:
         data = dispatch_usage(args.dispatch)
