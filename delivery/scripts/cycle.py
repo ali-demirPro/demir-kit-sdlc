@@ -253,6 +253,41 @@ def section(
     return f"**{label}:** toplam {data['total_minutes']} dk · " + " · ".join(parts) + suffix
 
 
+def close_wait(project: Path, issue: int, ts: str | None = None) -> bool:
+    """Mark an open approval wait as finished."""
+    rows = read(project, issue)
+    if not any(row.get("stage") == "wait" for row in rows):
+        return False
+    if any(row.get("stage") == "wait-done" for row in rows):
+        return False
+    record(project, make_row(issue, "wait-done", actor="human", ts=ts))
+    return True
+
+
+STAGE_LABELS = {
+    "scope-confirmed": "scope-confirmed",
+    "agent-approved": "agent-approved",
+    "executing": "executing",
+    "leaf-done": "leaf-done",
+    "epic-done": "epic-done",
+}
+
+
+def replay_rows(events: list[dict], existing: list[dict]) -> list[dict]:
+    """Rows for label events the log does not have yet; nothing is invented."""
+    seen = {str(row.get("stage")) for row in existing}
+    rows: list[dict] = []
+    for event in events:
+        label = (event.get("label") or {}).get("name")
+        stage = STAGE_LABELS.get(str(label or ""))
+        stamp = event.get("created_at")
+        if not stage or not stamp or stage in seen:
+            continue
+        seen.add(stage)
+        rows.append(make_row(int(event.get("issue") or 0), stage, actor="replay", ts=stamp))
+    return rows
+
+
 def main() -> int:
     import argparse
 
@@ -260,9 +295,32 @@ def main() -> int:
     parser.add_argument("--project", default=".")
     parser.add_argument("--issue", type=int)
     parser.add_argument("--json", action="store_true")
+    parser.add_argument("--replay", action="store_true", help="GitHub timeline'dan eksik satırları yaz")
+    parser.add_argument("--repo", help="owner/repo (replay)")
     args = parser.parse_args()
 
-    rows = read(Path(args.project), args.issue)
+    project = Path(args.project)
+    if args.replay:
+        if not args.issue or not args.repo:
+            sys.exit("cycle: --replay için --issue ve --repo gerekli")
+        import subprocess
+
+        raw = subprocess.check_output(
+            ["gh", "api", f"repos/{args.repo}/issues/{args.issue}/timeline?per_page=100"],
+            text=True,
+        )
+        events = json.loads(raw)
+        for event in events:
+            event.setdefault("issue", args.issue)
+        existing = read(project, args.issue)
+        added = 0
+        for row in replay_rows(events, existing):
+            record(project, row)
+            added += 1
+        print(f"cycle: {added} satır eklendi")
+        return 0
+
+    rows = read(project, args.issue)
     if args.json:
         print(json.dumps({"rows": rows, "summary": summary(rows)}, ensure_ascii=False, indent=2))
     else:

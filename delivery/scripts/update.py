@@ -231,6 +231,17 @@ def main() -> int:
         post_comment(repo, args.issue, body)
         if args.approval == "yes":
             request_approval(repo, args.issue)
+            try:
+                import cycle
+
+                cycle.record(
+                    cycle.project_root(ROOT),
+                    cycle.make_row(
+                        args.issue, "wait", actor="human-qa", reason=args.ask or ""
+                    ),
+                )
+            except Exception:
+                pass
         if not args.no_orca:
             synced = orca_checkpoint(
                 args.kind,

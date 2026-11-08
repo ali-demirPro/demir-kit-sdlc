@@ -16,6 +16,7 @@ import yaml
 SCRIPTS = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPTS))
 import budget  # noqa: E402
+import cycle  # noqa: E402
 import epic_worktree  # noqa: E402
 import resources  # noqa: E402
 import process_gate  # noqa: E402
@@ -307,6 +308,14 @@ def claim(number: int, epic: int | None, risk: str) -> int:
         return 1
 
     write_snapshot(number)
+    try:
+        cycle.record(
+            cycle.project_root(ROOT),
+            cycle.make_row(number, "executing", actor="claim", reason=run_id,
+                           epic=epic),
+        )
+    except Exception:
+        pass
     print(f"claimed #{number} ({run_id})", file=sys.stderr)
     return 0
 

@@ -510,6 +510,7 @@ def main() -> int:
         applied = {"add": added, "remove": removed}
 
     if not args.no_cycle:
+        cycle.close_wait(cycle.project_root(ROOT), args.issue, ts=row.get("ts"))
         cycle.record(cycle.project_root(ROOT), row)
 
     released = 0
