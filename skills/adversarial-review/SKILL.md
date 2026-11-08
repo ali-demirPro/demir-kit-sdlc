@@ -50,7 +50,9 @@ python3 delivery/scripts/review_wave.py --issue <N> --cp CP-1 --commit <sha> \
 
 ## Loop
 
-- Open finding → fixer → re-run the required reviewers.
+- Her bulgu `severity: blocking|nit` taşır; alan yoksa verdict reddedilir.
+- Tur 1: tüm bulgular. Tur 2: yalnız `blocking`. Tur 3: aynı 60 dakikalık
+  onay süresi; yanıt gelmezse not düşülür ve `risk-accepted` ile devam edilir.
 - Max 5 rounds, then `blocked` + one human-language question.
 
 ## Approval
