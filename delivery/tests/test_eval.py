@@ -143,6 +143,52 @@ def write_session(
     return session
 
 
+def write_batch_session(
+    root: Path,
+    name: str,
+    *,
+    status: str | None = None,
+    criteria: dict | None = None,
+    result: str | None = None,
+) -> Path:
+    session = root / "sessions" / name
+    session.mkdir(parents=True, exist_ok=True)
+    if result is not None:
+        payload = result
+    else:
+        data: dict = {}
+        if status is not None:
+            data["status"] = status
+        if criteria is not None:
+            data["criteria"] = criteria
+        payload = json.dumps(data)
+    (session / "result.json").write_text(payload, encoding="utf-8")
+    return session
+
+
+def write_batch_manifest(
+    root: Path,
+    batch_id: str,
+    sessions: list,
+    *,
+    nested: bool = False,
+    **extra,
+) -> Path:
+    manifest = {
+        "demir_kit_version": "2",
+        "batch": batch_id,
+        "sessions": sessions,
+    }
+    manifest.update(extra)
+    if nested:
+        path = root / batch_id / "batch.json"
+    else:
+        path = root / f"{batch_id}.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(manifest), encoding="utf-8")
+    return path
+
+
 class EvalTests(unittest.TestCase):
     def test_real_evals_pass(self) -> None:
         self.assertEqual(eval_mod.check_all(), [])
@@ -936,6 +982,204 @@ class DiscoveryTests(unittest.TestCase):
             skill["description_sha256"],
             "sha256:" + hashlib.sha256(description.encode("utf-8")).hexdigest(),
         )
+
+
+class CompareTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self._directory = tempfile.TemporaryDirectory()
+        self.root = Path(self._directory.name)
+        self.batches = self.root / "batches"
+        self.batches.mkdir()
+
+    def tearDown(self) -> None:
+        self._directory.cleanup()
+
+    def run_compare(self, *arguments: str) -> tuple[int, str, str]:
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+            code = eval_mod.main(
+                [
+                    "compare",
+                    "--batch-root",
+                    str(self.batches),
+                    *arguments,
+                ]
+            )
+        return code, stdout.getvalue(), stderr.getvalue()
+
+    def test_t1_selectors_reject_missing_empty_duplicate_and_unknown(self) -> None:
+        write_batch_manifest(self.batches, "base", [])
+        write_batch_manifest(self.batches, "cand", [])
+
+        code, _, errors = self.run_compare("--candidate", "batch=cand")
+        self.assertEqual(code, 2)
+        self.assertIn("--baseline", errors)
+
+        code, _, errors = self.run_compare(
+            "--baseline", "batch=", "--candidate", "batch=cand"
+        )
+        self.assertEqual(code, 2)
+        self.assertIn("boş", errors)
+
+        code, _, errors = self.run_compare(
+            "--baseline", "batch=base", "--candidate", "batch=base"
+        )
+        self.assertEqual(code, 2)
+        self.assertIn("aynı batch", errors)
+
+        code, _, errors = self.run_compare(
+            "--baseline", "batch=base", "--candidate", "batch=missing"
+        )
+        self.assertEqual(code, 2)
+        self.assertIn("bulunamadı", errors)
+
+        code, stdout, _ = self.run_compare(
+            "--baseline", "batch=base", "--candidate", "batch=cand", "-o", "json"
+        )
+        self.assertEqual(code, 0)
+        self.assertEqual(json.loads(stdout)["mode"], "compare")
+
+    def test_t2_rates_use_judged_denominator_and_exclude_unassessable(self) -> None:
+        write_batch_session(
+            self.batches,
+            "base-1",
+            status="pass",
+            criteria={"AC-1": "pass"},
+        )
+        write_batch_session(
+            self.batches,
+            "base-2",
+            status="fail",
+            criteria={"AC-1": "pass", "AC-2": "fail"},
+        )
+        write_batch_session(
+            self.batches,
+            "base-3",
+            status="blocked",
+            criteria={"AC-1": "unknown"},
+        )
+        write_batch_manifest(
+            self.batches,
+            "base",
+            ["sessions/base-1", "sessions/base-2", "sessions/base-3"],
+        )
+
+        write_batch_session(
+            self.batches,
+            "cand-1",
+            status="pass",
+            criteria={"AC-1": "pass"},
+        )
+        write_batch_session(
+            self.batches,
+            "cand-2",
+            status="pass",
+            criteria={"AC-2": "pass", "AC-3": "unassessable"},
+        )
+        write_batch_manifest(
+            self.batches,
+            "cand",
+            [
+                str(self.batches / "sessions" / "cand-1"),
+                str(self.batches / "sessions" / "cand-2"),
+            ],
+            nested=True,
+        )
+
+        code, stdout, _ = self.run_compare(
+            "--baseline", "batch=base", "--candidate", "batch=cand", "--json"
+        )
+        self.assertEqual(code, 0)
+        payload = json.loads(stdout)
+        baseline = payload["baseline"]
+        candidate = payload["candidate"]
+
+        self.assertEqual(baseline["sessions"], 3)
+        self.assertEqual(baseline["completed"], 2)
+        self.assertEqual(
+            baseline["pass_rate"], {"pass": 2, "judged": 3, "value": 0.6667}
+        )
+        self.assertEqual(baseline["criteria"]["AC-1"]["pass"], 2)
+        self.assertEqual(baseline["criteria"]["AC-1"]["unknown"], 1)
+        self.assertEqual(baseline["criteria"]["AC-1"]["judged"], 2)
+        self.assertEqual(baseline["criteria"]["AC-1"]["value"], 1.0)
+        self.assertEqual(baseline["criteria"]["AC-2"]["fail"], 1)
+        self.assertEqual(baseline["criteria"]["AC-2"]["judged"], 1)
+        self.assertEqual(baseline["criteria"]["AC-2"]["value"], 0.0)
+
+        self.assertEqual(candidate["sessions"], 2)
+        self.assertEqual(candidate["completed"], 2)
+        self.assertEqual(
+            candidate["pass_rate"], {"pass": 2, "judged": 2, "value": 1.0}
+        )
+        self.assertEqual(candidate["criteria"]["AC-3"]["unassessable"], 1)
+        self.assertEqual(candidate["criteria"]["AC-3"]["judged"], 0)
+        self.assertIsNone(candidate["criteria"]["AC-3"]["value"])
+        self.assertEqual(candidate["criteria"]["AC-2"]["value"], 1.0)
+
+    def test_t3_completion_is_not_judgement(self) -> None:
+        write_batch_session(
+            self.batches,
+            "done-unknown",
+            status="pass",
+            criteria={"AC-1": "unknown"},
+        )
+        write_batch_session(
+            self.batches,
+            "done-unassessable",
+            status="pass",
+            criteria={"AC-1": "unassessable"},
+        )
+        write_batch_manifest(
+            self.batches,
+            "base",
+            [
+                "sessions/done-unknown",
+                "sessions/done-unassessable",
+            ],
+        )
+        write_batch_manifest(self.batches, "cand", [])
+
+        code, stdout, _ = self.run_compare(
+            "--baseline", "batch=base", "--candidate", "batch=cand", "-o", "json"
+        )
+        self.assertEqual(code, 0)
+        baseline = json.loads(stdout)["baseline"]
+        self.assertEqual(baseline["sessions"], 2)
+        self.assertEqual(baseline["completed"], 2)
+        self.assertEqual(
+            baseline["pass_rate"], {"pass": 0, "judged": 0, "value": None}
+        )
+        self.assertEqual(baseline["criteria"]["AC-1"]["unknown"], 1)
+        self.assertEqual(baseline["criteria"]["AC-1"]["unassessable"], 1)
+        self.assertEqual(baseline["criteria"]["AC-1"]["judged"], 0)
+        self.assertIsNone(baseline["criteria"]["AC-1"]["value"])
+
+    def test_missing_or_broken_result_is_unknown_and_does_not_crash(self) -> None:
+        missing = self.batches / "sessions" / "missing"
+        missing.mkdir(parents=True)
+        write_batch_session(self.batches, "broken", result="{bozuk")
+        write_batch_manifest(
+            self.batches,
+            "base",
+            [
+                "sessions/missing",
+                "sessions/broken",
+                {"session": "sessions/broken", "criteria": {"AC-1": "pass"}},
+            ],
+        )
+        write_batch_manifest(self.batches, "cand", [])
+
+        code, stdout, _ = self.run_compare(
+            "--baseline", "batch=base", "--candidate", "batch=cand", "-o", "json"
+        )
+        self.assertEqual(code, 0)
+        baseline = json.loads(stdout)["baseline"]
+        self.assertEqual(baseline["sessions"], 3)
+        self.assertEqual(baseline["completed"], 0)
+        self.assertEqual(baseline["criteria"]["AC-1"]["pass"], 1)
+        self.assertEqual(baseline["criteria"]["AC-1"]["judged"], 1)
 
 
 class NoCopiedSourceTests(unittest.TestCase):

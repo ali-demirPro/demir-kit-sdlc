@@ -921,6 +921,257 @@ def _discovery_command(argv: list[str]) -> int:
     return 0
 
 
+# Batch comparison (CP-1: batch selection, judged denominator, rates)
+
+BATCH_ROOT = ROOT / ".kit" / "eval-batches"
+CRITERION_STATES = ("pass", "fail", "unknown", "unassessable")
+COMPLETED_STATES = ("pass", "fail")
+
+
+class CompareError(ValueError):
+    """Raised when a batch selector or manifest cannot be compared."""
+
+
+def _batch_id(flag: str, value: str | None) -> str:
+    if value is None:
+        raise CompareError(f"{flag} zorunlu; değer 'batch=<id>' olmalı")
+    if not value.startswith("batch="):
+        raise CompareError(f"{flag} 'batch=<id>' biçiminde olmalı: {value}")
+    batch_id = value[len("batch=") :]
+    if not batch_id:
+        raise CompareError(f"{flag} batch id boş olamaz")
+    if batch_id in {".", ".."} or "/" in batch_id or "\\" in batch_id:
+        raise CompareError(f"{flag} batch id geçersiz: {batch_id}")
+    return batch_id
+
+
+def resolve_batch(root: Path, batch_id: str) -> Path:
+    """Return the manifest path for ``batch_id`` under ``root``."""
+    for candidate in (root / f"{batch_id}.json", root / batch_id / "batch.json"):
+        if candidate.is_file():
+            return candidate
+    raise CompareError(f"batch bulunamadı: {batch_id} ({root})")
+
+
+def load_batch_manifest(path: Path) -> dict:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise CompareError(f"batch manifest okunamadı: {path}: {exc}") from exc
+    if not isinstance(data, dict):
+        raise CompareError(f"batch manifest nesne değil: {path}")
+    version = data.get("demir_kit_version")
+    if version is not None and str(version) != "2":
+        raise CompareError(f"batch manifest sürümü '2' değil: {path}")
+    if not isinstance(data.get("sessions"), list):
+        raise CompareError(f"batch manifest 'sessions' listesi taşımıyor: {path}")
+    return data
+
+
+def _session_entry(entry: object) -> tuple[str, dict]:
+    if isinstance(entry, str):
+        return entry, {}
+    if isinstance(entry, dict):
+        raw = entry.get("session")
+        if isinstance(raw, str):
+            return raw, entry
+    return "", {}
+
+
+def _session_path(raw: str, manifest_dir: Path) -> Path | None:
+    if not raw:
+        return None
+    path = Path(raw)
+    if path.is_absolute():
+        return path
+    local = manifest_dir / path
+    if local.exists():
+        return local.resolve()
+    canonical = ROOT / path
+    if canonical.exists():
+        return canonical.resolve()
+    return local.resolve()
+
+
+def _read_result(session: Path | None) -> dict:
+    if session is None:
+        return {}
+    try:
+        payload = json.loads((session / "result.json").read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _normalize_criteria(value: object) -> dict[str, str]:
+    if not isinstance(value, dict):
+        return {}
+    return {
+        str(key): item if isinstance(item, str) and item in CRITERION_STATES else "unknown"
+        for key, item in value.items()
+    }
+
+
+def _session_record(entry: object, manifest_dir: Path) -> dict:
+    raw, overrides = _session_entry(entry)
+    path = _session_path(raw, manifest_dir)
+    result = _read_result(path)
+
+    status = overrides.get("status", result.get("status", "unknown"))
+    if not isinstance(status, str) or status not in {"pass", "fail", "blocked"}:
+        status = "unknown"
+
+    criteria = _normalize_criteria(result.get("criteria"))
+    if isinstance(overrides.get("criteria"), dict):
+        criteria.update(_normalize_criteria(overrides["criteria"]))
+
+    return {
+        "path": path,
+        "status": status,
+        "criteria": criteria,
+        "turns": overrides.get("turns", result.get("turns")),
+        "duration_ms": overrides.get("duration_ms", result.get("duration_ms")),
+        "revision": overrides.get("revision", result.get("revision")),
+    }
+
+
+def _rate(passed: int, judged: int) -> float | None:
+    return None if judged == 0 else round(passed / judged, 4)
+
+
+def build_compare_side(batch_id: str, manifest_path: Path) -> dict:
+    manifest = load_batch_manifest(manifest_path)
+    manifest_dir = manifest_path.parent
+    records = [
+        _session_record(entry, manifest_dir) for entry in manifest["sessions"]
+    ]
+    records.sort(key=lambda record: str(record["path"] or ""))
+
+    criteria: dict[str, dict] = {}
+    for record in records:
+        for name, state in record["criteria"].items():
+            counts = criteria.setdefault(
+                name,
+                {"pass": 0, "fail": 0, "unknown": 0, "unassessable": 0},
+            )
+            counts[state] += 1
+
+    criterion_output: dict[str, dict] = {}
+    total_pass = 0
+    total_judged = 0
+    for name in sorted(criteria):
+        counts = criteria[name]
+        judged = counts["pass"] + counts["fail"]
+        value = _rate(counts["pass"], judged)
+        total_pass += counts["pass"]
+        total_judged += judged
+        criterion_output[name] = {
+            "pass": counts["pass"],
+            "fail": counts["fail"],
+            "unknown": counts["unknown"],
+            "unassessable": counts["unassessable"],
+            "judged": judged,
+            "pass_rate": value,
+            "value": value,
+        }
+
+    label = manifest.get("batch")
+    if not isinstance(label, str) or not label:
+        label = batch_id
+
+    return {
+        "batch": label,
+        "sessions": len(records),
+        "completed": sum(1 for record in records if record["status"] in COMPLETED_STATES),
+        "pass_rate": {
+            "pass": total_pass,
+            "judged": total_judged,
+            "value": _rate(total_pass, total_judged),
+        },
+        "criteria": criterion_output,
+    }
+
+
+def build_compare(
+    baseline_id: str,
+    candidate_id: str,
+    batch_root: Path | None = None,
+    revision: str | None = None,
+) -> dict:
+    """Build the deterministic CP-1 comparison of two batches.
+
+    Median/delta/revision handling arrives with CP-2; ``revision`` is accepted
+    here so the command line stays stable.
+    """
+    root = BATCH_ROOT if batch_root is None else batch_root
+    baseline_path = resolve_batch(root, baseline_id)
+    candidate_path = resolve_batch(root, candidate_id)
+    return {
+        "mode": "compare",
+        "baseline": build_compare_side(baseline_id, baseline_path),
+        "candidate": build_compare_side(candidate_id, candidate_path),
+        "warnings": [],
+    }
+
+
+def _format_rate(rate: dict) -> str:
+    value = "-" if rate["value"] is None else f"{rate['value']:.4f}"
+    return f"{rate['pass']}/{rate['judged']} ({value})"
+
+
+def _compare_command(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(
+        prog="eval.py compare", description="baseline/candidate batch comparison"
+    )
+    parser.add_argument("--baseline")
+    parser.add_argument("--candidate")
+    parser.add_argument("--batch-root", type=Path, default=BATCH_ROOT)
+    parser.add_argument("--revision")
+    parser.add_argument("--json", action="store_true")
+    parser.add_argument("-o", "--output", choices=("text", "json"))
+    try:
+        args = parser.parse_args(argv)
+    except SystemExit as exc:
+        return int(exc.code) if exc.code else 0
+
+    as_json = args.json or args.output == "json"
+    try:
+        baseline_id = _batch_id("--baseline", args.baseline)
+        candidate_id = _batch_id("--candidate", args.candidate)
+        if baseline_id == candidate_id:
+            raise CompareError(
+                f"--baseline ve --candidate aynı batch olamaz: {baseline_id}"
+            )
+        report = build_compare(
+            baseline_id,
+            candidate_id,
+            batch_root=args.batch_root,
+            revision=args.revision,
+        )
+    except CompareError as exc:
+        print(f"eval: {exc}", file=sys.stderr)
+        return 2
+
+    if as_json:
+        _emit_json(report)
+        return 0
+
+    for side in ("baseline", "candidate"):
+        data = report[side]
+        print(
+            f"{side} ({data['batch']}): {data['sessions']} oturum, "
+            f"{data['completed']} tamamlanan; pass rate {_format_rate(data['pass_rate'])}"
+        )
+        for name in sorted(data["criteria"]):
+            counts = data["criteria"][name]
+            print(
+                f"  {name}: pass {counts['pass']}, fail {counts['fail']}, "
+                f"unknown {counts['unknown']}, unassessable {counts['unassessable']} "
+                f"→ {_format_rate(counts)}"
+            )
+    return 0
+
+
 def agent_variants() -> list[dict]:
     records: list[dict] = []
     for path in sorted(AGENTS.rglob("agent.yaml")):
@@ -1065,6 +1316,8 @@ def _run_command(paths: list[Path], log: Path | None, as_json: bool) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     args_list = list(sys.argv[1:] if argv is None else argv)
+    if args_list and args_list[0] == "compare":
+        return _compare_command(args_list[1:])
     if args_list and args_list[0] == "discovery":
         return _discovery_command(args_list[1:])
 
