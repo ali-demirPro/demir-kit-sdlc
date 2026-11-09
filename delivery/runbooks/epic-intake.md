@@ -9,7 +9,7 @@ Sözleşme: [CONTRACT.md](../CONTRACT.md) · Akış: [FLOW.md](../FLOW.md)
 4. **Onay:** label yeterli; HITL sorma ([approval](../policies/approval.md)).
 5. Architect: CP sırası + `depends_on`; boundary riski varsa gate işaretle.
 6. Analist: AC netliği; gap varsa follow-up issue.
-7. Her **leaf:** [seal](../protocol/seal.md) → `agent-approved` → [health-check](../protocol/health-check.md)
+7. Her **leaf:** [seal](../protocol/seal.md) → insan `demir-kit-accept` → `agent-approved` → [health-check](../protocol/health-check.md)
    → `next-leaf --claim` → `executing`.
 8. CP döngüsü: behavior → review → [evidence](../protocol/evidence.md)
    ([execution](../protocol/execution.md)).
