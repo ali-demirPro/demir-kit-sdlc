@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import importlib.util
 import io
 import json
@@ -80,8 +81,10 @@ def write_eval(root: Path, rows: list[str]) -> Path:
     return path
 
 
-def write_case(root: Path, frontmatter: dict, body: str = "Case istemi.") -> Path:
-    path = root / "case.md"
+def write_case(
+    root: Path, frontmatter: dict, body: str = "Case istemi.", name: str = "case.md"
+) -> Path:
+    path = root / name
     path.write_text(
         "---\n"
         + yaml.safe_dump(frontmatter, allow_unicode=True, sort_keys=False)
@@ -181,6 +184,150 @@ class CaseContractTests(unittest.TestCase):
             self.assertEqual(eval_mod.check_case_file(path), [])
             with contextlib.redirect_stdout(io.StringIO()):
                 self.assertEqual(eval_mod.main(["--check", str(path)]), 0)
+
+
+class EvalModeTests(unittest.TestCase):
+    def test_verify_reports_yes_no_and_unknown(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            valid = write_case(
+                Path(directory),
+                case_record(targets=["delivery/scripts/eval.py"], tools=[]),
+                name="valid.md",
+            )
+            result = eval_mod.verify_case(valid)
+            self.assertEqual(result["status"], "passed")
+            self.assertGreaterEqual(result["summary"]["yes"], 1)
+            self.assertEqual(result["summary"]["no"], 0)
+
+            unresolved = write_case(
+                Path(directory),
+                case_record(
+                    targets=["${{ env.TARGET }}"],
+                    tools=[],
+                    inputs=[],
+                ),
+                name="unresolved.md",
+            )
+            result = eval_mod.verify_case(unresolved)
+            self.assertEqual(result["status"], "incomplete")
+            self.assertEqual(result["summary"]["no"], 0)
+            self.assertGreaterEqual(result["summary"]["unknown"], 1)
+
+            missing = write_case(
+                Path(directory),
+                case_record(targets=["delivery/does-not-exist.md"], tools=[], inputs=[]),
+                name="missing.md",
+            )
+            result = eval_mod.verify_case(missing)
+            self.assertEqual(result["status"], "failed")
+            self.assertGreaterEqual(result["summary"]["no"], 1)
+
+    def test_verify_exits_one_only_for_definite_no(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            unresolved = write_case(
+                Path(directory),
+                case_record(targets=["${{ env.TARGET }}"], tools=[], inputs=[]),
+                name="unresolved.md",
+            )
+            missing = write_case(
+                Path(directory),
+                case_record(targets=["delivery/does-not-exist.md"], tools=[], inputs=[]),
+                name="missing.md",
+            )
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(eval_mod.main(["--verify", str(unresolved)]), 0)
+                self.assertEqual(eval_mod.main(["--verify", str(missing)]), 1)
+
+    def test_verify_json_output_is_machine_readable(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = write_case(
+                Path(directory),
+                case_record(targets=["delivery/scripts/eval.py"], tools=[]),
+            )
+            stream = io.StringIO()
+            with contextlib.redirect_stdout(stream):
+                self.assertEqual(
+                    eval_mod.main(["--verify", str(path), "-o", "json"]),
+                    0,
+                )
+            payload = json.loads(stream.getvalue())
+            self.assertEqual(payload["mode"], "verify")
+            self.assertIn("summary", payload["cases"][0])
+            self.assertIn("checks", payload["cases"][0])
+
+    def test_dry_run_writes_case_and_input_hashes_without_executing(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "input.txt").write_text("girdi\n", encoding="utf-8")
+            path = write_case(
+                root,
+                case_record(
+                    targets=["delivery/scripts/eval.py"],
+                    tools=[],
+                    inputs=["input.txt"],
+                ),
+            )
+            with mock.patch("subprocess.run") as run:
+                result = eval_mod.dry_run_case(path)
+                run.assert_not_called()
+            self.assertFalse(result["executed"])
+            expected = "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
+            self.assertEqual(result["sha256"], expected)
+            self.assertEqual(
+                result["inputs"][0]["sha256"],
+                "sha256:" + hashlib.sha256(b"girdi\n").hexdigest(),
+            )
+
+            stream = io.StringIO()
+            with contextlib.redirect_stdout(stream):
+                self.assertEqual(
+                    eval_mod.main(["--dry-run", str(path), "-o", "json"]),
+                    0,
+                )
+            payload = json.loads(stream.getvalue())
+            self.assertEqual(payload["mode"], "dry-run")
+            self.assertFalse(payload["executed"])
+            self.assertEqual(payload["cases"][0]["sha256"], expected)
+
+    def test_same_identity_keeps_revisions_separate_and_warns(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            log = Path(directory) / "revisions.jsonl"
+            first, warnings = eval_mod.record_revision(
+                "case-1", "sha256:" + "a" * 64, log=log, at="2026-11-09T10:00:00+00:00"
+            )
+            self.assertEqual(warnings, [])
+            second, warnings = eval_mod.record_revision(
+                "case-1", "sha256:" + "b" * 64, log=log, at="2026-11-09T10:05:00+00:00"
+            )
+            self.assertTrue(any("farklı revision" in item for item in warnings))
+            rows = eval_mod.read_revisions(log)
+            self.assertEqual(len(rows), 2)
+            self.assertEqual(
+                {row["revision"] for row in rows},
+                {first["revision"], second["revision"]},
+            )
+            self.assertEqual({row["id"] for row in rows}, {"case-1"})
+
+    def test_run_command_records_selected_case_revision(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            path = write_case(
+                root,
+                case_record(targets=["delivery/scripts/eval.py"], tools=[], inputs=[]),
+            )
+            log = root / "revisions.jsonl"
+            stream = io.StringIO()
+            with contextlib.redirect_stdout(stream):
+                self.assertEqual(
+                    eval_mod.main(
+                        ["--run", str(path), "--revision-log", str(log), "-o", "json"]
+                    ),
+                    0,
+                )
+            payload = json.loads(stream.getvalue())
+            self.assertEqual(payload["mode"], "run")
+            self.assertEqual(payload["records"][0]["id"], "case-1")
+            self.assertEqual(len(eval_mod.read_revisions(log)), 1)
 
 
 class NoCopiedSourceTests(unittest.TestCase):
