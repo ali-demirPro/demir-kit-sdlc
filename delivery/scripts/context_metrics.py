@@ -6,10 +6,12 @@ Definitions (single source of truth, see ``delivery/policies/context-budget.md``
 - ``miss_rate = |missed_docs| / (|brief_docs| + |missed_docs|)`` — brief docs
   here are the *used* ones; an unused brief doc is over-read, not missed.
 - ``over_read_rate = (extra_docs_token + unused_brief_token) / tokens`` — the
-  denominator is the session token delta from ``.kit/usage-<issue>.json``.
-- A zero denominator, a missing usage file or a missing document yields
+  denominator is the session token delta: ``.kit/usage-<issue>.json`` wins,
+  otherwise ``usage.session_delta`` is called; neither means ``unknown``.
+- A zero denominator, a missing usage delta or a missing document yields
   ``unknown``; a zero is never invented. Rates above 1 are clamped to 1.0 and
-  the row records ``clamped: true``.
+  the row records ``clamped: true``. The ``method`` field names the source as
+  ``usage-delta`` (session delta) or ``usage-total`` (explicit snapshot file).
 
 One deterministic JSON line is appended to ``.kit/context-metrics.jsonl`` so a
 leaf-done transition can tell whether the CP was measured.
@@ -24,6 +26,8 @@ import os
 import re
 import sys
 from pathlib import Path
+
+import usage
 
 UNKNOWN = "unknown"
 METRICS_PATH = Path(".kit") / "context-metrics.jsonl"
@@ -82,12 +86,32 @@ def token_total(data: dict) -> int:
     return total
 
 
-def usage_candidates(issue: int, root: Path | None = None) -> list[Path]:
-    base = resolve_root(root)
-    return [
-        base / ".kit" / f"usage-{issue}.json",
-        base / ".orchestration" / f"usage-{issue}.json",
-    ]
+def load_usage(path: Path) -> dict | None:
+    """Parsed usage JSON, or ``None`` when missing or invalid."""
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def usage_kind(data: dict | None) -> str:
+    """``usage-delta`` for a session delta, ``usage-total`` for a snapshot."""
+    if not isinstance(data, dict):
+        return "usage-total"
+    if "duration_seconds" in data or data.get("delta") is True:
+        return "usage-delta"
+    if "time" in data or "created_at" in data:
+        return "usage-total"
+    return "usage-delta"
+
+
+def session_delta(issue: int) -> dict | None:
+    """Session delta from ``usage.py``; ``None`` when unavailable."""
+    try:
+        return usage.session_delta(issue)
+    except Exception:  # noqa: BLE001 - missing snapshot/session is ``unknown``
+        return None
 
 
 def resolve_tokens(
@@ -96,23 +120,35 @@ def resolve_tokens(
     usage_file: str | Path | None,
     root: Path | None = None,
 ) -> tuple[int | str, str]:
-    """``(tokens | unknown, method flag)`` for the session delta."""
+    """``(tokens | unknown, method flag)`` for the session delta.
+
+    ``.kit/usage-<issue>.json`` (delta) wins, then ``usage.session_delta``.
+    A claim-time ``.orchestration/usage-<issue>.json`` is a session total, so it
+    is only read when passed explicitly and is labelled ``usage-total``.
+    """
     if explicit is not None:
         return (explicit if explicit > 0 else UNKNOWN, "tokens:explicit")
-    candidates = (
-        [Path(usage_file)] if usage_file else usage_candidates(issue, root)
-    )
-    for path in candidates:
-        if not path.is_file():
-            continue
-        try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            return UNKNOWN, "tokens:unknown"
-        total = token_total(data)
+    base = resolve_root(root)
+    if usage_file:
+        path = Path(usage_file)
+        if not path.is_absolute():
+            path = base / path
+        data = load_usage(path)
+        total = token_total(data) if data is not None else 0
         if total > 0:
-            return total, f"tokens:{display_path(path, root)}"
+            return total, f"tokens:{usage_kind(data)}:{display_path(path, root)}"
         return UNKNOWN, "tokens:unknown"
+    delta_path = base / ".kit" / f"usage-{issue}.json"
+    if delta_path.is_file():
+        data = load_usage(delta_path)
+        total = token_total(data) if data is not None else 0
+        if total > 0:
+            return total, f"tokens:usage-delta:{display_path(delta_path, root)}"
+        return UNKNOWN, "tokens:unknown"
+    data = session_delta(issue)
+    total = token_total(data) if data is not None else 0
+    if total > 0:
+        return total, "tokens:usage-delta:session"
     return UNKNOWN, "tokens:unknown"
 
 
@@ -261,7 +297,10 @@ def record(
     return row, line
 
 
-def check(issue: int, root: Path | None = None) -> tuple[bool, str]:
+def check(
+    issue: int, cp: str | None = None, root: Path | None = None
+) -> tuple[bool, str]:
+    """A metrics row exists for ``issue`` and, when given, the same ``cp``."""
     path = metrics_path(root)
     if not path.is_file():
         return False, "uyari: context-metrics satiri yok"
@@ -276,8 +315,12 @@ def check(issue: int, root: Path | None = None) -> tuple[bool, str]:
             row = json.loads(raw)
         except json.JSONDecodeError:
             continue
-        if isinstance(row, dict) and row.get("issue") == issue:
-            return True, f"context-metrics: #{issue} satiri var"
+        if not isinstance(row, dict) or row.get("issue") != issue:
+            continue
+        if cp and row.get("cp") != cp:
+            continue
+        label = f"#{issue}" + (f" {cp}" if cp else "")
+        return True, f"context-metrics: {label} satiri var"
     return False, "uyari: context-metrics satiri yok"
 
 
@@ -308,12 +351,13 @@ def main(argv: list[str] | None = None) -> int:
 
     check_parser = sub.add_parser("check", help="verify a line exists for an issue")
     check_parser.add_argument("--issue", type=int, required=True)
+    check_parser.add_argument("--cp", help="ayni issue ve cp satirini ara")
 
     args = parser.parse_args(argv)
     root = resolve_root(args.project)
 
     if args.command == "check":
-        ok, message = check(args.issue, root)
+        ok, message = check(args.issue, args.cp, root)
         print(message, file=sys.stdout if ok else sys.stderr)
         return 0 if ok else 1
 

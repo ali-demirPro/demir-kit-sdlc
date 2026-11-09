@@ -641,9 +641,9 @@ def run_gate_in_orca(
     return code, output[-4000:]
 
 
-def warn_context_metrics(number: int) -> None:
+def warn_context_metrics(number: int, cp: str | None = None) -> None:
     """Leaf-done is not blocked, but a missing metrics line must be visible."""
-    ok, message = context_metrics.check(number)
+    ok, message = context_metrics.check(number, cp)
     if not ok:
         print(message, file=sys.stderr)
 
@@ -725,6 +725,9 @@ def main() -> int:
     parser.add_argument("--issue", type=int, required=True)
     parser.add_argument("--to", required=True, choices=sorted(TARGETS))
     parser.add_argument("--by", default="coordinator")
+    parser.add_argument(
+        "--cp", help="leaf-done context-metrics kontrolü için CP kimliği (ör. CP-1)"
+    )
     parser.add_argument("--reason", default="")
     parser.add_argument("--issue-link", default="")
     parser.add_argument(
@@ -811,7 +814,7 @@ def main() -> int:
         return 0
 
     if args.to == "leaf-done":
-        warn_context_metrics(args.issue)
+        warn_context_metrics(args.issue, args.cp)
         close_leaf_gate(issue, args)
         check_push(args)
 

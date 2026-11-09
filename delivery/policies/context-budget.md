@@ -57,9 +57,12 @@ aç ve özetle devam et. Sessizce devam etmek yasak.
   kullanılan brief dokümanlarıdır; kullanılmayan brief dokümanı kaçırılan
   değil, fazla okumadır.
 - `over_read_rate = (brief dışı token + kullanılmayan brief token) / toplam bağlam token`.
-  Payda `.kit/usage-<issue>.json` oturum deltasıdır
-  (`input + output + reasoning + cache.read + cache.write`); dosya yoksa
-  `.orchestration/usage-<issue>.json` okunur. Doküman maliyeti `bayt / 4`.
+  Payda oturum deltasıdır: önce `.kit/usage-<issue>.json`
+  (`input + output + reasoning + cache.read + cache.write`), yoksa
+  `usage.py --delta` (`usage.session_delta`); ikisi de yoksa `unknown`.
+  Claim anındaki `.orchestration/usage-<issue>.json` toplamdır, delta yerine
+  kullanılmaz; yalnız açıkça verilirse `method` alanında `usage-total` olarak
+  işaretlenir. Doküman maliyeti `bayt / 4`.
 - Oranlar `0..1` aralığındadır. Payda sıfırsa, usage dosyası yoksa veya
   doküman bulunamazsa `unknown` yazılır; sıfır uydurulmaz. `1.0` üstü değer
   `1.0`'a kırpılır ve satır `clamped: true` taşır.
@@ -67,7 +70,7 @@ aç ve özetle devam et. Sessizce devam etmek yasak.
 `leaf-done` öncesi `.kit/context-metrics.jsonl` dosyasına tek satır yazılır:
 
 ```json
-{"brief_docs":[],"clamped":false,"config_digest":"sha256:…","cp":"CP-1","extra_docs":[],"issue":314,"method":"tokens:unknown","miss_rate":0.0,"missed_docs":[],"over_read_rate":"unknown","tokens":"unknown","unused_brief_docs":[]}
+{"brief_docs":[],"clamped":false,"config_digest":"sha256:…","cp":"CP-1","extra_docs":[],"issue":314,"method":"tokens:unknown","miss_rate":"unknown","missed_docs":[],"over_read_rate":"unknown","tokens":"unknown","unused_brief_docs":[]}
 ```
 
 Satır `issue, cp, brief_docs, unused_brief_docs, extra_docs, missed_docs,

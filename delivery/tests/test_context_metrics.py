@@ -120,8 +120,12 @@ class RecordTests(unittest.TestCase):
             self.assertTrue(path.is_file())
             self.assertEqual(path.read_text(encoding="utf-8"), line + "\n")
             self.assertEqual(json.loads(line), row)
-            self.assertTrue(context_metrics.check(314, root)[0])
-            ok, message = context_metrics.check(999, root)
+            self.assertTrue(context_metrics.check(314, "CP-1", root)[0])
+            self.assertTrue(context_metrics.check(314, root=root)[0])
+            ok, message = context_metrics.check(314, "CP-2", root)
+            self.assertFalse(ok)
+            self.assertEqual(message, "uyari: context-metrics satiri yok")
+            ok, message = context_metrics.check(999, root=root)
             self.assertFalse(ok)
             self.assertEqual(message, "uyari: context-metrics satiri yok")
 
@@ -130,9 +134,10 @@ class RecordTests(unittest.TestCase):
             transition.context_metrics,
             "check",
             return_value=(False, "uyari: context-metrics satiri yok"),
-        ):
+        ) as check:
             with contextlib.redirect_stderr(stderr):
-                transition.warn_context_metrics(999)
+                transition.warn_context_metrics(999, "CP-1")
+        check.assert_called_once_with(999, "CP-1")
         self.assertIn("uyari: context-metrics satiri yok", stderr.getvalue())
 
         stdout = io.StringIO()
@@ -142,6 +147,77 @@ class RecordTests(unittest.TestCase):
             with contextlib.redirect_stderr(stdout):
                 transition.warn_context_metrics(314)
         self.assertEqual(stdout.getvalue(), "")
+
+
+class TokenTests(unittest.TestCase):
+    def test_dot_kit_delta_wins_over_session_delta(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            write_usage(root, 314, {"input": 300, "output": 0, "reasoning": 0})
+            with patch.object(
+                context_metrics,
+                "session_delta",
+                side_effect=AssertionError("session delta okunmamali"),
+            ):
+                row = context_metrics.build_row(314, "CP-1", root=root)
+        self.assertEqual(row["tokens"], 300)
+        self.assertTrue(row["method"].startswith("tokens:usage-delta:"))
+        self.assertIn(".kit/usage-314.json", row["method"])
+
+    def test_session_delta_is_called_when_dot_kit_is_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            delta = {
+                "tokens": {
+                    "input": 120,
+                    "output": 30,
+                    "reasoning": 0,
+                    "cache_read": 50,
+                    "cache_write": 0,
+                }
+            }
+            with patch.object(context_metrics, "session_delta", return_value=delta):
+                row = context_metrics.build_row(314, "CP-1", root=root)
+        self.assertEqual(row["tokens"], 200)
+        self.assertEqual(row["method"], "tokens:usage-delta:session")
+
+    def test_no_delta_source_is_unknown(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with patch.object(
+                context_metrics.usage, "session_delta", side_effect=ValueError("no snapshot")
+            ):
+                row = context_metrics.build_row(314, "CP-1", root=root)
+        self.assertEqual(row["tokens"], "unknown")
+        self.assertEqual(row["method"], "tokens:unknown")
+        self.assertEqual(row["over_read_rate"], "unknown")
+
+    def test_explicit_snapshot_file_is_labelled_total(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / ".orchestration").mkdir()
+            snapshot = root / ".orchestration" / "usage-314.json"
+            snapshot.write_text(
+                json.dumps(
+                    {
+                        "issue": 314,
+                        "session_id": "ses_test",
+                        "cost": 0,
+                        "tokens": {"input": 400},
+                        "time": {"updated": 0},
+                        "created_at": "2026-11-09T00:00:00+00:00",
+                    }
+                ),
+                encoding="utf-8",
+            )
+            row = context_metrics.build_row(
+                314,
+                "CP-1",
+                usage_file=snapshot,
+                root=root,
+            )
+        self.assertEqual(row["tokens"], 400)
+        self.assertTrue(row["method"].startswith("tokens:usage-total:"))
 
 
 class FixtureTests(unittest.TestCase):
