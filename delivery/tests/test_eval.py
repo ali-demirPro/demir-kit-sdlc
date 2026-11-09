@@ -629,6 +629,27 @@ class DiscoveryTests(unittest.TestCase):
         self.assertEqual(sessions_both, [])
         self.assertEqual(empty_both, [str(case_a), str(case_b)])
 
+    def test_normalized_basename_variants_are_ambiguous(self) -> None:
+        (self.root / "cases" / "a").mkdir(parents=True)
+        (self.root / "cases" / "b").mkdir(parents=True)
+        case_a = write_case(self.root, case_record(), name="cases/a/demo.md")
+        case_b = write_case(self.root, case_record(), name="cases/b/demo.md")
+        write_session(
+            self.runs,
+            "16-dot-prefix",
+            ['{"seq": 0, "payload": {"skill": "behavior-gate"}}'],
+            case="./demo.md",
+        )
+        write_session(
+            self.runs,
+            "17-trailing-slash",
+            ['{"seq": 0, "payload": {"tool": "read"}}'],
+            case="demo.md/",
+        )
+        sessions, empty = eval_mod.discovery_sessions([case_a, case_b], self.runs)
+        self.assertEqual(sessions, [])
+        self.assertEqual(empty, [str(case_a), str(case_b)])
+
     def test_unexpandable_or_null_case_value_does_not_crash_discovery(self) -> None:
         case = write_case(self.root, case_record(), name="edge.md")
         write_session(

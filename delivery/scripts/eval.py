@@ -577,7 +577,8 @@ def _matches_case_value(
     """Match only the resolved case path or the case id, never a shared file name.
 
     A bare file name is ambiguous when more than one supplied case carries it, so
-    such evidence does not match any of them.
+    such evidence does not match any of them. The comparison uses the normalized
+    base name, so variants such as ``./demo.md`` and ``demo.md/`` count as bare.
     """
     value = value.strip()
     if not value:
@@ -585,10 +586,12 @@ def _matches_case_value(
     if case_id and value == case_id:
         return True
     try:
-        basename_only = Path(value).parent == Path(".")
+        value_path = Path(value)
+        basename_only = value_path.parent == Path(".")
+        basename = value_path.name.casefold()
     except (OSError, RuntimeError, ValueError):
         return False
-    if basename_only and value in shared_basenames:
+    if basename_only and basename in shared_basenames:
         return False
     try:
         target = case_path.resolve()
@@ -615,7 +618,8 @@ def _shared_basenames(cases: list[Path]) -> frozenset[str]:
         if key in seen:
             continue
         seen.add(key)
-        counts[path.name] = counts.get(path.name, 0) + 1
+        name = path.name.casefold()
+        counts[name] = counts.get(name, 0) + 1
     return frozenset(name for name, count in counts.items() if count > 1)
 
 
