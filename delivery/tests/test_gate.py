@@ -59,14 +59,14 @@ class PlanTests(unittest.TestCase):
             ["unittest:delivery.tests.test_orca_plugin", "plugin"],
         )
         self.assertEqual(
+            gate.suites_for(["plugins/orca/index.ts"], ROOT, full=True),
+            ["unittest", "plugin"],
+        )
+        self.assertEqual(
             gate.suites_for(
-                ["plugins/orca/index.ts", "delivery/tests/test_gate.py"], ROOT
+                ["plugins/orca/index.ts", "delivery/tests/test_orca_plugin.py"], ROOT
             ),
-            [
-                "unittest:delivery.tests.test_gate",
-                "unittest:delivery.tests.test_orca_plugin",
-                "plugin",
-            ],
+            ["unittest:delivery.tests.test_orca_plugin", "plugin"],
         )
         self.assertEqual(gate.suites_for(["README.md"], ROOT), [])
 

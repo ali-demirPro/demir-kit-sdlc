@@ -310,18 +310,21 @@ def suites_for(
     """
     normalized = [_normalize(path) for path in paths]
     suites: list[str] = []
+
+    def add(step: str) -> None:
+        if step not in suites:
+            suites.append(step)
+
     if full:
-        suites.append("unittest")
+        add("unittest")
     else:
-        suites.extend(
-            f"unittest:{module}"
-            for module in selected_test_modules(normalized, project)
-        )
+        for module in selected_test_modules(normalized, project):
+            add(f"unittest:{module}")
     if any(_under(path, PLUGIN_ROOT) for path in normalized):
         project = project or Path.cwd()
-        if (project / TEST_ROOT / "test_orca_plugin.py").is_file():
-            suites.append(f"unittest:{TEST_MODULE_PREFIX}test_orca_plugin")
-        suites.append("plugin")
+        if not full and (project / TEST_ROOT / "test_orca_plugin.py").is_file():
+            add(f"unittest:{TEST_MODULE_PREFIX}test_orca_plugin")
+        add("plugin")
     return suites
 
 
@@ -476,13 +479,21 @@ def main(argv: list[str] | None = None) -> int:
         if args.changed is not None
         else changed_files(project)
     )
-    if not args.fast and not (project / TEST_ROOT).is_dir():
+    if not args.fast:
+        code_roots = [SCRIPT_ROOT, TEST_ROOT]
+        if project != KIT_ROOT:
+            try:
+                prefix = KIT_ROOT.relative_to(project).as_posix() + "/"
+            except ValueError:
+                prefix = ""
+            if prefix:
+                code_roots += [prefix + SCRIPT_ROOT, prefix + TEST_ROOT]
         code_changes = any(
-            _under(_normalize(path), SCRIPT_ROOT)
-            or _under(_normalize(path), TEST_ROOT)
+            _under(_normalize(path), root)
             for path in paths
+            for root in code_roots
         )
-        if code_changes:
+        if code_changes and not (project / TEST_ROOT).is_dir():
             print(
                 "[gate] hata: delivery/tests yok — kapıyı repo kökünden koş",
                 file=sys.stderr,

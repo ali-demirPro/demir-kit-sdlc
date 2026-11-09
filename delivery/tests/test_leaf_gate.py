@@ -70,6 +70,9 @@ class LeafGateTests(unittest.TestCase):
         self.assertIn("--fast", cp_close.gate_command(251, "CP-1"))
         self.assertNotIn("--fast", cp_close.gate_command(251, "CP-1", "full"))
         self.assertIn("--full", cp_close.gate_command(251, "CP-1", "full"))
+        selected = cp_close.gate_command(251, "CP-1", "selected")
+        self.assertNotIn("--fast", selected)
+        self.assertNotIn("--full", selected)
 
 class CloseLeafGateTests(unittest.TestCase):
     def args(self, **overrides) -> argparse.Namespace:

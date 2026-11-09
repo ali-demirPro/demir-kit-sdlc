@@ -24,7 +24,9 @@ import routing
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPTS = Path(__file__).resolve().parent
-GATE_TIMEOUT_MS = 900_000
+GATE_TIMEOUT_MS = int(
+    os.environ.get("DEMIR_KIT_GATE_TIMEOUT_MS", str(30 * 60 * 1000))
+)
 
 TARGETS = {
     "scope-confirmed",
@@ -569,15 +571,19 @@ def run_gate_in_orca(
             timeout=60,
         )
     except (OSError, subprocess.TimeoutExpired):
+        shutil.rmtree(directory, ignore_errors=True)
         return 1, "terminal create tamamlanmadı"
     if created.returncode != 0:
+        shutil.rmtree(directory, ignore_errors=True)
         return None, ""
     try:
         payload = json.loads(created.stdout)
     except json.JSONDecodeError:
+        shutil.rmtree(directory, ignore_errors=True)
         return 1, "terminal create yanıtı okunamadı"
     handle = terminal_handle(payload)
     if not handle:
+        shutil.rmtree(directory, ignore_errors=True)
         return 1, "terminal handle yok"
     try:
         subprocess.run(
@@ -619,7 +625,10 @@ def run_gate_in_orca(
     except (OSError, ValueError):
         shutil.rmtree(directory, ignore_errors=True)
         return 1, (output or "gate sonucu dosyadan okunamadı")[-4000:]
-    shutil.rmtree(directory, ignore_errors=True)
+    if code != 0:
+        output = f"{output}\n[gate] log: {log}"
+    else:
+        shutil.rmtree(directory, ignore_errors=True)
     return code, output[-4000:]
 
 
