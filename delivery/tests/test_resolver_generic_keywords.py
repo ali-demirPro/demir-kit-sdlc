@@ -31,12 +31,12 @@ def docs_signal() -> dict:
 
 class GenericKeywordTests(unittest.TestCase):
     def test_generic_tokens_do_not_match_domain_data(self) -> None:
-        matched = resolver.match_capabilities(
-            REGISTRY,
-            [docs_signal()],
-            "Salt-okur doküman leaf'i: şema ve tablo incelendi.",
-        )
-        self.assertNotIn("domain.data", matched)
+        for text in ("şema", "finding.schema.json"):
+            with self.subTest(text=text):
+                matched = resolver.match_capabilities(
+                    REGISTRY, [docs_signal()], f"Salt-okur doküman leaf'i: {text}."
+                )
+                self.assertNotIn("domain.data", matched)
 
     def test_real_data_signals_still_match_domain_data(self) -> None:
         for text in ("migration", "database", "backfill"):
