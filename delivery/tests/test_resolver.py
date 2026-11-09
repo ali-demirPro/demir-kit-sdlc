@@ -288,11 +288,38 @@ class LocalOverrideTests(unittest.TestCase):
         local = data["local"]
         self.assertEqual(local["values"], {})
         self.assertNotEqual(local["docs"]["density"]["value"], "deep")
-        self.assertEqual(local["docs"]["density"]["source"], "default")
+        self.assertEqual(local["docs"]["density"]["source"], "rigor:standard")
         warnings = "\n".join(local["warnings"])
         self.assertIn("'docs.density' geçersiz — beklenen: terse, balanced, thorough", warnings)
         self.assertIn("'theme.name' beyaz listede değil", warnings)
         self.assertIn("'gates.human' kilitli", warnings)
+
+    def test_density_source_keeps_real_origin(self) -> None:
+        """T-3: local yoksa kaynak rigor düğmesinin gerçek kaynağıdır."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = self.make_project(directory)
+            (root / "kit.config.yaml").write_text(
+                "process:\n  docs:\n    density: terse\n", encoding="utf-8"
+            )
+            from_config = self.resolve_in(root)
+        self.assertEqual(
+            from_config["local"]["docs"]["density"],
+            {"value": "terse", "source": "kit.config.yaml"},
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            empty = self.make_project(directory)
+            from_rigor = self.resolve_in(empty)
+        effective = resolver.rigor_lib.load_effective(empty)
+        self.assertEqual(
+            from_rigor["local"]["docs"]["density"],
+            {
+                "value": effective["knobs"]["docs.density"]["value"],
+                "source": f"rigor:{effective['level']}",
+            },
+        )
+        self.assertNotEqual(
+            from_rigor["local"]["docs"]["density"]["source"], "default"
+        )
 
     def test_locked_keys_cannot_change_risk_reviewers_or_gates(self) -> None:
         locked = {

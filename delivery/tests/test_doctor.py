@@ -1717,21 +1717,57 @@ class LocalOverridesTests(DoctorTestCase):
         )
 
     def test_required_locked_keys_cannot_be_dropped(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            data = yaml.safe_load(self.POLICY.read_text(encoding="utf-8"))
-            data["locked"] = [
-                key for key in data["locked"] if key != "risk.level"
-            ]
-            path = Path(directory) / "local-overrides.yaml"
-            path.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
-            doctor.check_local_overrides(ROOT, policy_path=path)
-        self.assertTrue(
-            any(
-                "zorunlu kilitli anahtar eksik" in item and "risk.level" in item
-                for item in doctor.ERRORS
-            ),
-            doctor.ERRORS,
-        )
+        for dropped in (
+            "risk.level",
+            "modes.review_mode",
+            "team.size",
+            "process.rigor",
+        ):
+            with (
+                self.subTest(dropped=dropped),
+                tempfile.TemporaryDirectory() as directory,
+            ):
+                doctor.ERRORS.clear()
+                data = yaml.safe_load(self.POLICY.read_text(encoding="utf-8"))
+                data["locked"] = [
+                    key for key in data["locked"] if key != dropped
+                ]
+                path = Path(directory) / "local-overrides.yaml"
+                path.write_text(
+                    yaml.safe_dump(data, sort_keys=False), encoding="utf-8"
+                )
+                doctor.check_local_overrides(ROOT, policy_path=path)
+                self.assertTrue(
+                    any(
+                        "zorunlu kilitli anahtar eksik" in item
+                        and dropped in item
+                        for item in doctor.ERRORS
+                    ),
+                    doctor.ERRORS,
+                )
+
+    def test_nested_locked_key_cannot_enter_whitelist(self) -> None:
+        """T-1: resolver semantiği — nested alt-anahtar da kilitlidir."""
+        for nested in ("risk.auto_escalate.high", "gates.human.force"):
+            with self.subTest(key=nested), tempfile.TemporaryDirectory() as directory:
+                doctor.ERRORS.clear()
+                path = self.policy_copy(
+                    directory,
+                    read=["docs.density", nested],
+                    write=["docs.density", nested],
+                    values={
+                        "docs.density": ["terse", "balanced", "thorough"],
+                        nested: ["x"],
+                    },
+                )
+                doctor.check_local_overrides(ROOT, policy_path=path)
+                self.assertTrue(
+                    any(
+                        "kilitli ama read/write" in item and nested in item
+                        for item in doctor.ERRORS
+                    ),
+                    doctor.ERRORS,
+                )
 
     def test_missing_reason_is_error(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

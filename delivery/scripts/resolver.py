@@ -95,22 +95,34 @@ def _flatten_local(data: dict, prefix: str = "") -> dict:
     return flat
 
 
-def _locked_reason(key: str, policy: dict) -> str | None:
+def locked_reason(
+    key: str, policy: dict | None = None, required: tuple[str, ...] | list[str] = ()
+) -> str | None:
     """Kilitli anahtar gerekçesi; nested alt-anahtar da kilitlidir.
 
     Tam eşleşme, `fnmatch` globu veya `pattern + "."` ile başlayan alt-anahtar
     kilitli sayılır: `risk.auto_escalate` iken `risk.auto_escalate.high` de
-    kişisel dosyaya açılmaz.
+    kişisel dosyaya açılmaz. `required` daima kilitli kabul edilir; politika
+    dosyası tek başına zorunlu anahtarı kaldıramaz.
     """
-    for pattern in policy.get("locked") or []:
+    policy = policy if policy is not None else load_local_policy()
+    locked = [str(item) for item in policy.get("locked") or []]
+    locked += [str(item) for item in required if str(item) not in locked]
+    reasons = policy.get("reasons") or {}
+    for pattern in locked:
         if (
             key == pattern
             or fnmatch.fnmatchcase(key, pattern)
             or key.startswith(pattern + ".")
         ):
-            reason = (policy.get("reasons") or {}).get(pattern)
+            reason = reasons.get(pattern)
             return str(reason or "kilitli anahtar")
     return None
+
+
+def _locked_reason(key: str, policy: dict) -> str | None:
+    """Geriye dönük iç ad: `locked_reason` ile aynı semantik."""
+    return locked_reason(key, policy)
 
 
 def load_local(project: Path) -> dict:
@@ -162,18 +174,23 @@ def load_local(project: Path) -> dict:
 
 
 def effective_docs_density(project: Path | None, local: dict) -> dict:
-    """Etkin doküman derinliği: kişisel override varsa o, yoksa varsayılan."""
+    """Etkin doküman derinliği: kişisel override varsa o, yoksa rigor kaynağı.
+
+    Kişisel değer yoksa kaynak uydurulmaz: değer `kit.config.yaml` içinden
+    geldiyse `kit.config.yaml`, rigor seviyesinden türetildiyse `rigor:<level>`.
+    """
     if "docs.density" in (local.get("values") or {}):
         return {
             "value": local["values"]["docs.density"],
             "source": local["sources"]["docs.density"],
         }
     try:
-        knobs = rigor_lib.load_effective(project)["knobs"]
-        value = knobs["docs.density"]["value"]
+        knob = rigor_lib.load_effective(project)["knobs"]["docs.density"]
+        return {"value": knob["value"], "source": knob["source"]}
     except (ValueError, OSError, KeyError, TypeError):
-        value = "balanced"
-    return {"value": value, "source": "default"}
+        fallback = rigor_lib.fallback_effective()
+        knob = fallback["knobs"]["docs.density"]
+        return {"value": knob["value"], "source": knob["source"]}
 
 
 

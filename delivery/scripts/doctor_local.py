@@ -9,7 +9,6 @@ izleniyorsa da hata verilir; depoya kişisel tercih girmemeli.
 
 from __future__ import annotations
 
-import fnmatch
 import subprocess
 import sys
 from pathlib import Path
@@ -25,9 +24,14 @@ ROOT = SCRIPTS.parents[1]
 
 # Politika dosyası tek başına kaldırılamaz: bu anahtarlar her zaman kilitli
 # olmalı. Kanıt, reviewer, risk ve insan kapıları kişisel dosyaya açılmaz.
+# `docs.density` bilinçli olarak dışarıda: kişisel dosyaya açılan tek düğme o.
 REQUIRED_LOCKED = (
     "process.rigor",
     "qa.level",
+    "modes.workflow",
+    "modes.story_granularity",
+    "modes.review_mode",
+    "team.size",
     "routing.evidence_reviewers",
     "risk.level",
     "risk.auto_escalate",
@@ -89,13 +93,22 @@ def check_local_overrides(
             f"{rel(path)}: values anahtarları read listesiyle aynı değil — "
             f"values={sorted(values)} read={sorted(read_keys)}"
         )
+    # Kilit semantiği resolver ile ortak: nested alt-anahtar (ör.
+    # `risk.auto_escalate.high`) da kilitli sayılır ve zorunlu set her zaman
+    # geçerlidir; politika dosyası tek başına anahtarı açamaz.
+    locked_policy = {
+        "locked": locked,
+        "reasons": reasons if isinstance(reasons, dict) else {},
+    }
     for key in sorted(set(read_keys) | set(write_keys)):
-        for pattern in locked:
-            if fnmatch.fnmatchcase(key, pattern):
-                error(
-                    f"{rel(path)}: '{key}' kilitli ama read/write içinde "
-                    f"({pattern})"
-                )
+        reason = resolver.locked_reason(
+            key, locked_policy, required=REQUIRED_LOCKED
+        )
+        if reason is not None:
+            error(
+                f"{rel(path)}: '{key}' kilitli ama read/write içinde "
+                f"({reason})"
+            )
     if not isinstance(reasons, dict):
         error(f"{rel(path)}: reasons mapping değil")
         reasons = {}
