@@ -796,6 +796,147 @@ class DiscoveryTests(unittest.TestCase):
         self.report()
         self.assertEqual(skill_path.read_bytes(), before)
 
+    def test_t4_multi_skill_report_has_rates_evidence_and_totals(self) -> None:
+        names = ["behavior-gate", "health-check", "work-package"]
+        for name in names:
+            write_skill(self.skills, name, description=f"Use {name} when testing.")
+        write_session(
+            self.runs,
+            "20-health",
+            ['{"seq": 0, "payload": {"skill": "health-check"}}'],
+        )
+        write_session(
+            self.runs,
+            "21-work",
+            ['{"seq": 0, "payload": {"skill": "work-package"}}'],
+        )
+        report = eval_mod.build_discovery(
+            names, [self.runs], runs=self.runs, skills_root=self.skills
+        )
+        self.assertEqual([skill["name"] for skill in report["skills"]], names)
+        expected = {
+            "behavior-gate": (1, 4),
+            "health-check": (1, 4),
+            "work-package": (1, 4),
+        }
+        for skill in report["skills"]:
+            numerator, denominator = expected[skill["name"]]
+            self.assertGreater(skill["rate"]["denominator"], 0)
+            self.assertEqual(skill["rate"]["numerator"], numerator)
+            self.assertEqual(skill["rate"]["denominator"], denominator)
+            self.assertAlmostEqual(skill["rate"]["value"], numerator / denominator)
+            self.assertTrue(skill["description_sha256"].startswith("sha256:"))
+            self.assertTrue(skill["source"].endswith("SKILL.md"))
+            self.assertTrue(any(row["evidence"] for row in skill["sessions"]))
+            counts = skill["counts"]
+            self.assertEqual(
+                counts["triggered"] + counts["not_triggered"] + counts["unknown"],
+                counts["total"],
+            )
+            self.assertEqual(
+                counts["analyzable"], counts["total"] - counts["unknown"]
+            )
+        totals = report["totals"]
+        for key in (
+            "triggered",
+            "not_triggered",
+            "unknown",
+            "total",
+            "analyzable",
+        ):
+            self.assertEqual(
+                totals[key],
+                sum(skill["counts"][key] for skill in report["skills"]),
+                key,
+            )
+
+    def _discovery_json(self, args: list[str]) -> str:
+        stream = io.StringIO()
+        with mock.patch.object(eval_mod, "SKILLS", self.skills), contextlib.redirect_stdout(
+            stream
+        ):
+            code = eval_mod.main(
+                ["discovery", *args, "--runs", str(self.runs), "-o", "json"]
+            )
+        self.assertEqual(code, 0)
+        return stream.getvalue()
+
+    def test_t5_argument_order_is_byte_stable(self) -> None:
+        (self.root / "cases").mkdir()
+        case_a = write_case(self.root, case_record(id="case-a"), name="cases/a.md")
+        case_b = write_case(self.root, case_record(id="case-b"), name="cases/b.md")
+        write_skill(self.skills, "health-check")
+        write_session(
+            self.runs,
+            "20-a",
+            ['{"seq": 0, "payload": {"skill": "behavior-gate"}}'],
+            case="cases/a.md",
+        )
+        write_session(
+            self.runs,
+            "21-b",
+            ['{"seq": 0, "payload": {"skill": "health-check"}}'],
+            case="cases/b.md",
+        )
+        first = self._discovery_json(
+            [
+                "--skill",
+                "health-check",
+                "--skill",
+                "behavior-gate",
+                "--skill",
+                "health-check",
+                "--case",
+                str(case_b),
+                "--case",
+                str(case_a),
+            ]
+        )
+        second = self._discovery_json(
+            [
+                "--skill",
+                "behavior-gate",
+                "--skill",
+                "health-check",
+                "--case",
+                str(case_a),
+                "--case",
+                str(case_b),
+            ]
+        )
+        self.assertEqual(first, second)
+        payload = json.loads(first)
+        self.assertEqual(
+            [skill["name"] for skill in payload["skills"]],
+            ["behavior-gate", "health-check"],
+        )
+        for skill in payload["skills"]:
+            sessions = [row["session"] for row in skill["sessions"]]
+            self.assertEqual(sessions, sorted(sessions))
+        self.assertEqual(payload["cases_without_sessions"], [])
+
+    def test_t6_real_skill_description_is_read_only(self) -> None:
+        skill_path = ROOT / "skills" / "behavior-gate" / "SKILL.md"
+        before = skill_path.read_bytes()
+        before_sha = hashlib.sha256(before).hexdigest()
+        report = eval_mod.build_discovery(
+            ["behavior-gate"], [self.runs], runs=self.runs
+        )
+        after = skill_path.read_bytes()
+        self.assertEqual(hashlib.sha256(after).hexdigest(), before_sha)
+        skill = report["skills"][0]
+        self.assertEqual(skill["source"], "skills/behavior-gate/SKILL.md")
+        frontmatter, _body, error = eval_mod.split_frontmatter(
+            before.decode("utf-8").lstrip("\ufeff")
+        )
+        self.assertIsNone(error)
+        description = frontmatter["description"].strip()
+        self.assertTrue(description)
+        self.assertEqual(
+            skill["description_sha256"],
+            "sha256:" + hashlib.sha256(description.encode("utf-8")).hexdigest(),
+        )
+
 
 class NoCopiedSourceTests(unittest.TestCase):
     def test_eval_imports_stay_stdlib_and_yaml(self) -> None:

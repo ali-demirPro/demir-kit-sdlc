@@ -702,7 +702,9 @@ def discovery_sessions(
             except OSError:
                 resolved = item
             found[str(resolved)] = resolved
-    return [found[key] for key in sorted(found)], empty_cases
+    # Dedupe and sort so the same case set yields the same report regardless of
+    # the order the arguments were supplied in.
+    return [found[key] for key in sorted(found)], sorted(set(empty_cases))
 
 
 def _load_events(path: Path) -> tuple[list[tuple[int, object]], str]:
@@ -851,13 +853,17 @@ def build_discovery(
     runs: Path | None = None,
     skills_root: Path | None = None,
 ) -> dict:
-    """Build the deterministic discovery report for one or more skills."""
+    """Build the deterministic discovery report for one or more skills.
+
+    Skill names are deduplicated and emitted in name order, so neither a
+    repeated ``--skill`` nor a different argument order changes the report.
+    """
     sessions, empty_cases = discovery_sessions(cases, runs)
     reports: list[dict] = []
     totals = {status: 0 for status in DISCOVERY_STATES}
     totals["total"] = 0
     totals["analyzable"] = 0
-    for name in dict.fromkeys(skills):
+    for name in sorted(set(skills)):
         meta = read_skill_description(name, skills_root)
         rows = [classify_session(session, name) for session in sessions]
         counts = _tally(rows)
