@@ -192,7 +192,7 @@ def _keyword_hit(text: str, keyword: str) -> bool:
     )
 
 
-GENERIC_KEYWORDS = {"oturum", "session", "checkout", "izin", "şema", "schema"}
+GENERIC_KEYWORDS = {"oturum", "session", "checkout", "izin", "şema", "schema", "tablo"}
 
 
 def match_capabilities(

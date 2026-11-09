@@ -31,7 +31,7 @@ def docs_signal() -> dict:
 
 class GenericKeywordTests(unittest.TestCase):
     def test_generic_tokens_do_not_match_domain_data(self) -> None:
-        for text in ("şema", "finding.schema.json"):
+        for text in ("şema", "finding.schema.json", "tablo.json"):
             with self.subTest(text=text):
                 matched = resolver.match_capabilities(
                     REGISTRY, [docs_signal()], f"Salt-okur doküman leaf'i: {text}."
