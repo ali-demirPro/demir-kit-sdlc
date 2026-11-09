@@ -499,7 +499,9 @@ def record_from_brief(
         )
         return None
     except OSError:
-        # Metadata is optional; a read-only project keeps its leaf-done.
+        # Metadata is optional; a read-only project keeps its leaf-done, but
+        # the missing row must still be visible on stderr.
+        print("uyari: context-metrics yazilamadi; satir yok", file=sys.stderr)
         return None
 
 

@@ -144,8 +144,12 @@ used/unused ayrımıdır.
 Yazma `.kit/context-metrics.lock` üzerinde `fcntl.flock` ile serileşir; okuma
 hatasında dosya değiştirilmez ve hata bildirilir (`ContextMetricsError`).
 `.kit/context-metrics.jsonl.tmp` ve `.kit/brief-*.json` `.gitignore`
-kapsamındadır; depoya girmez. Satır yoksa `transition.py`
-`uyari: context-metrics satiri yok` yazar ve geçişi engellemez.
+kapsamındadır; depoya girmez. `transition.py` leaf-done öncesi önce
+`.kit/brief-<issue>-<cp>.json` metadata'sından satır üretmeyi dener; satır zaten
+varsa dokunmaz (usage kanıtıyla yazılmış satır ezilmez). Satır yine yoksa
+`uyari: context-metrics satiri yok` yazar ve geçişi engellemez — varsayılan
+leaf-done davranışı budur. `transition.sh --require-metrics` seçildiğinde satır
+yoksa geçiş durur; bu bayrak leaf sahibinin açık tercihidir, varsayılan değildir.
 
 ## Done when
 

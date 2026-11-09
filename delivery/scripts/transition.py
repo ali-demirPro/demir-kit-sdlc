@@ -678,11 +678,20 @@ def ensure_context_metrics(
 ) -> None:
     """Auto-record the CP row from the brief metadata, then check it.
 
+    An existing ``(issue, cp)`` row always wins: ``record_from_brief`` only
+    runs when the check found nothing, so a usage-evidenced row is never
+    replaced by the ``split:unknown`` brief row (AC-1: "write when absent").
+
     ``require`` turns a still-missing row into a hard stop; otherwise the
     warning is printed and the leaf-done transition continues.
     """
-    root = root or cycle.project_root(ROOT)
+    if root is None:
+        override = os.environ.get("DEMIR_KIT_CONTEXT_ROOT")
+        root = Path(override) if override else cycle.project_root(ROOT)
     if cp:
+        ok, _ = context_metrics.check(number, cp, root)
+        if ok:
+            return
         context_metrics.record_from_brief(number, cp, root)
     ok, message = context_metrics.check(number, cp, root)
     if ok:

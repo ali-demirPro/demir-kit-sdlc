@@ -6,6 +6,7 @@ import contextlib
 import importlib.util
 import io
 import json
+import os
 import sys
 import tempfile
 import threading
@@ -226,6 +227,37 @@ class EnsureMetricsTests(unittest.TestCase):
         self.assertEqual(row["armed"], True)
         self.assertEqual(row["fallback_count"], 1)
         self.assertEqual(row["tokens"], 250)
+
+    def test_existing_row_is_not_overwritten(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            context_metrics.record(
+                321, "CP-1", tokens=1000, brief_docs=["a.md"], root=root
+            )
+            self.write_brief(root, 321, "CP-1")
+            transition.ensure_context_metrics(321, "CP-1", root=root)
+            path = root / ".kit" / "context-metrics.jsonl"
+            lines = path.read_text(encoding="utf-8").splitlines()
+        self.assertEqual(len(lines), 1)
+        row = json.loads(lines[0])
+        self.assertEqual(row["tokens"], 1000)
+        self.assertNotIn("split:unknown", row["method"])
+
+    def test_context_root_override_scopes_the_row(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            tmp = Path(directory)
+            self.write_brief(tmp, 321, "CP-1")
+            with patch.dict(os.environ, {"DEMIR_KIT_CONTEXT_ROOT": str(tmp)}):
+                transition.ensure_context_metrics(321, "CP-1")
+            path = tmp / ".kit" / "context-metrics.jsonl"
+            self.assertTrue(path.is_file())
+            rows = [
+                json.loads(raw)
+                for raw in path.read_text(encoding="utf-8").splitlines()
+            ]
+        self.assertEqual(len(rows), 1)
+        self.assertEqual((rows[0]["issue"], rows[0]["cp"]), (321, "CP-1"))
+        self.assertIn("split:unknown", rows[0]["method"])
 
     def test_missing_row_stops_only_with_require_metrics(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
