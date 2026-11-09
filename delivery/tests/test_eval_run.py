@@ -195,6 +195,66 @@ class NormalizationTests(unittest.TestCase):
         self.assertEqual(events[0]["turn"], 2)
         self.assertTrue(events[0]["observedAt"].startswith("2026-11-09T10:00:00"))
 
+    def test_event_contract_rejects_missing_and_extra_fields(self) -> None:
+        valid = eval_run.normalize_events(
+            [{"payload": {"type": "x"}}], FIXED_TIME
+        )[0]
+        self.assertEqual(eval_run.validate_event(valid), [])
+
+        missing = dict(valid)
+        del missing["turn"]
+        self.assertTrue(eval_run.validate_event(missing))
+
+        extra = dict(valid)
+        extra["index"] = 0
+        self.assertTrue(eval_run.validate_event(extra))
+
+        bad_seq = dict(valid)
+        bad_seq["seq"] = -1
+        self.assertTrue(eval_run.validate_event(bad_seq))
+
+        bad_payload = dict(valid)
+        bad_payload["payload"] = "text"
+        self.assertTrue(eval_run.validate_event(bad_payload))
+
+    def test_duplicate_seq_is_flagged(self) -> None:
+        events = eval_run.normalize_events(
+            [
+                {"seq": 7, "payload": {"type": "a"}},
+                {"seq": 7, "payload": {"type": "b"}},
+            ],
+            FIXED_TIME,
+        )
+        self.assertEqual(
+            eval_run.normalize_events(
+                [
+                    {"seq": 7, "payload": {"type": "a"}},
+                    {"seq": 8, "payload": {"type": "b"}},
+                ],
+                FIXED_TIME,
+            )[1]["seq"],
+            8,
+        )
+        errors = eval_run.validate_events(events)
+        self.assertTrue(any("tekrarlı seq" in message for message in errors))
+
+    def test_run_level_events_are_byte_identical(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            first = eval_run.run_session(base_spec(), out_dir=root / "one")
+            second = eval_run.run_session(base_spec(), out_dir=root / "two")
+            self.assertEqual(first["event_count"], second["event_count"])
+            self.assertEqual(
+                (root / "one" / "session" / "events.ndjson").read_bytes(),
+                (root / "two" / "session" / "events.ndjson").read_bytes(),
+            )
+
+    def test_input_normalization_keeps_source_seq(self) -> None:
+        records = eval_run.normalize_inputs(
+            [{"seq": 3, "turn": 1, "text": "a"}, {"text": "b"}, {"id": "8", "text": "c"}]
+        )
+        self.assertEqual([record["seq"] for record in records], [3, 4, 8])
+
 
 class EvidenceReferenceTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -229,6 +289,39 @@ class EvidenceReferenceTests(unittest.TestCase):
             1,
         )
         self.assertEqual(errors, [])
+
+    def test_reference_factories_produce_valid_references(self) -> None:
+        trace = eval_run.trace_reference(1)
+        artifact = eval_run.artifact_reference("session/events.ndjson")
+        self.assertEqual(
+            eval_run.validate_evidence(
+                trace, self.events, self.session_dir, 1
+            ),
+            [],
+        )
+        self.assertEqual(
+            eval_run.validate_evidence(
+                artifact, self.events, self.session_dir, 1
+            ),
+            [],
+        )
+        with self.assertRaises(eval_run.SessionError):
+            eval_run.trace_reference(-1)
+        with self.assertRaises(eval_run.SessionError):
+            eval_run.artifact_reference("session/events.ndjson", attempt=0)
+        with self.assertRaises(eval_run.SessionError):
+            eval_run.artifact_reference("", line=1)
+
+    def test_artifact_zero_attempt_and_line_are_rejected(self) -> None:
+        for reference in (
+            {"kind": "artifact", "artifact": "session/events.ndjson", "attempt": 0, "line": 1},
+            {"kind": "artifact", "artifact": "session/events.ndjson", "attempt": 1, "line": 0},
+        ):
+            self.assertTrue(
+                eval_run.validate_evidence(
+                    reference, self.events, self.session_dir, 1
+                )
+            )
 
     def test_trace_must_exist(self) -> None:
         errors = eval_run.validate_evidence(

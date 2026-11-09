@@ -35,6 +35,7 @@ EVIDENCE_FILES = (
     "session/events.ndjson",
     "session/diff.patch",
 )
+EVENT_FIELDS = {"seq", "turn", "observedAt", "payload"}
 
 STATES = ("preparing", "running", "waiting", "blocked", "terminal")
 TRANSITIONS = {
@@ -249,6 +250,69 @@ def filter_events(
 ) -> list[dict]:
     """Filter normalized events without renumbering; gaps stay visible."""
     return [event for event in events if predicate(event)]
+
+
+def validate_event(event: dict) -> list[str]:
+    """Check the normalized event contract ``{seq, turn, observedAt, payload}``."""
+    if not isinstance(event, dict):
+        return ["olay mapping değil"]
+    errors: list[str] = []
+    missing = EVENT_FIELDS - set(event)
+    if missing:
+        errors.append("eksik alanlar: " + ",".join(sorted(missing)))
+    extra = set(event) - EVENT_FIELDS
+    if extra:
+        errors.append("fazla alanlar: " + ",".join(sorted(extra)))
+    seq = event.get("seq")
+    if not isinstance(seq, int) or isinstance(seq, bool) or seq < 0:
+        errors.append("seq negatif olmayan tam sayı olmalı")
+    turn = event.get("turn")
+    if not isinstance(turn, int) or isinstance(turn, bool) or turn < 0:
+        errors.append("turn negatif olmayan tam sayı olmalı")
+    observed = event.get("observedAt")
+    if not isinstance(observed, str) or not observed:
+        errors.append("observedAt boş olmayan ISO zaman damgası olmalı")
+    if not isinstance(event.get("payload"), dict):
+        errors.append("payload mapping olmalı")
+    return errors
+
+
+def validate_events(events: Iterable[dict]) -> list[str]:
+    """Validate a normalized event stream, including unique trace seq values."""
+    errors: list[str] = []
+    seen: set[int] = set()
+    for index, event in enumerate(events):
+        for message in validate_event(event):
+            errors.append(f"event[{index}]: {message}")
+        seq = event.get("seq") if isinstance(event, dict) else None
+        if isinstance(seq, int) and not isinstance(seq, bool):
+            if seq in seen:
+                errors.append(f"event[{index}]: tekrarlı seq {seq}")
+            seen.add(seq)
+    return errors
+
+
+def trace_reference(seq: int) -> dict:
+    """Build a trace reference without hiding a bad seq value."""
+    if not isinstance(seq, int) or isinstance(seq, bool) or seq < 0:
+        raise SessionError("trace seq negatif olmayan tam sayı olmalı")
+    return {"kind": "trace", "seq": seq}
+
+
+def artifact_reference(artifact: str, attempt: int = 1, line: int = 1) -> dict:
+    """Build an artifact reference; validate_evidence checks the target."""
+    if not isinstance(artifact, str) or not artifact:
+        raise SessionError("artifact yolu boş olamaz")
+    if not isinstance(attempt, int) or isinstance(attempt, bool) or attempt < 1:
+        raise SessionError("artifact attempt pozitif tam sayı olmalı")
+    if not isinstance(line, int) or isinstance(line, bool) or line < 1:
+        raise SessionError("artifact line pozitif tam sayı olmalı")
+    return {
+        "kind": "artifact",
+        "artifact": artifact,
+        "attempt": attempt,
+        "line": line,
+    }
 
 
 def normalize_inputs(raw_inputs: Iterable[object]) -> list[dict]:
