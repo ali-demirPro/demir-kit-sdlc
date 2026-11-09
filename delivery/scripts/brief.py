@@ -964,7 +964,7 @@ def main() -> int:
                 docs=data["docs"],
                 route=cp_route,
                 meta_path=context_metrics.brief_meta_path(
-                    data["issue"], args.cp
+                    data["issue"], args.cp, root=project
                 ),
             )
         except ValueError as exc:

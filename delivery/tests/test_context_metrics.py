@@ -421,6 +421,9 @@ class BriefMetaTests(unittest.TestCase):
             context_metrics.record(
                 321, "CP-2", brief_docs=["c.md"], tokens=300, root=root
             )
+            self.assertFalse(
+                (path.parent / "context-metrics.jsonl.tmp").exists()
+            )
             raw_lines = path.read_text(encoding="utf-8").splitlines()
         self.assertEqual(raw_lines[0], "bozuk satir")
         rows = [json.loads(raw) for raw in raw_lines[1:]]
@@ -430,7 +433,6 @@ class BriefMetaTests(unittest.TestCase):
         )
         self.assertEqual(rows[0]["brief_docs"], ["b.md"])
         self.assertEqual(rows[1]["brief_docs"], ["c.md"])
-        self.assertFalse((path.parent / "context-metrics.jsonl.tmp").exists())
 
     def test_invalid_utf8_metrics_file_is_preserved_and_raises(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
