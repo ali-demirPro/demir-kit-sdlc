@@ -1,7 +1,7 @@
 # Seal protocol
 
 Leaf'i yürütülebilir hale getirme. Şema: [leaf.schema.json](../schemas/leaf.schema.json).
-Durum geçişi: `scope-confirmed` → `agent-approved` (T2).
+Durum geçişi: `intake` / `scope-confirmed` → `agent-approved` (T2; parent epic `scope-confirmed`).
 
 Yeni leaf'ler `package_version: 4` ile mühürlenir. Bu sürüm önceki
 zorunlulukları devralır ve her `tests_plan` case'inde `check` alanı ister:

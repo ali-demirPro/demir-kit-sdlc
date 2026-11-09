@@ -99,7 +99,7 @@ def human_acceptance_for(comments: list[dict], issue: int | str) -> dict | None:
         if decision not in {"accepted", "rejected"}:
             continue
         try:
-            if int(block.get("issue", block.get("epic"))) != int(issue):
+            if int(block.get("issue")) != int(issue):
                 continue
         except (TypeError, ValueError):
             continue
