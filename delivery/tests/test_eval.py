@@ -496,7 +496,7 @@ class DiscoveryTests(unittest.TestCase):
         self.assertEqual(rows[0]["case"], "behavior.md")
         self.assertEqual(rows[0]["status"], "triggered")
 
-    def test_case_without_sessions_is_unknown_not_an_error(self) -> None:
+    def test_case_without_sessions_is_reported_separately(self) -> None:
         case = write_case(self.root, case_record(), name="unused.md")
         stream = io.StringIO()
         with contextlib.redirect_stdout(stream):
@@ -515,11 +515,161 @@ class DiscoveryTests(unittest.TestCase):
             )
         self.assertEqual(code, 0)
         payload = json.loads(stream.getvalue())
-        rows = payload["skills"][0]["sessions"]
+        self.assertEqual(payload["skills"][0]["sessions"], [])
+        self.assertEqual(payload["skills"][0]["counts"]["unknown"], 0)
+        self.assertEqual(payload["cases_without_sessions"], [str(case)])
+
+    def test_partially_corrupt_ndjson_is_unknown(self) -> None:
+        session = write_session(
+            self.runs,
+            "05-corrupt",
+            [
+                '{"payload": {"skill": "behavior-gate"}',
+                '{"payload": {"tool": "read"}}',
+            ],
+        )
+        row = eval_mod.classify_session(session, "behavior-gate")
+        self.assertEqual(row["status"], "unknown")
+        self.assertFalse(row["analyzable"])
+        self.assertEqual(row["event_count"], 1)
+        self.assertIn("bozuk NDJSON", row["reason"])
+        self.assertEqual(row["evidence"], [])
+        self.assertEqual(row["matching_lines"], 0)
+
+    def test_non_utf8_events_are_unknown_and_command_exits_zero(self) -> None:
+        session = write_session(self.runs, "06-bytes", ['{"seq": 0}'])
+        (session / "session" / "events.ndjson").write_bytes(
+            b'{"seq": 0}\n\xff\xfe'
+        )
+        stream = io.StringIO()
+        with contextlib.redirect_stdout(stream):
+            code = eval_mod.main(
+                [
+                    "discovery",
+                    "--skill",
+                    "behavior-gate",
+                    "--case",
+                    str(session),
+                    "--runs",
+                    str(self.runs),
+                    "-o",
+                    "json",
+                ]
+            )
+        self.assertEqual(code, 0)
+        rows = json.loads(stream.getvalue())["skills"][0]["sessions"]
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["status"], "unknown")
-        self.assertEqual(rows[0]["reason"], "oturum yok")
-        self.assertEqual(rows[0]["evidence"], [])
+        self.assertIn("okunamadı", rows[0]["reason"])
+
+    def test_non_utf8_skill_description_exits_two(self) -> None:
+        skill = write_skill(self.skills, "broken-skill")
+        skill.write_bytes(b"---\nname: broken-skill\ndescription: \xff\xfe\n---\n")
+        errors = io.StringIO()
+        with mock.patch.object(eval_mod, "SKILLS", self.skills), contextlib.redirect_stderr(
+            errors
+        ):
+            code = eval_mod.main(
+                [
+                    "discovery",
+                    "--skill",
+                    "broken-skill",
+                    "--case",
+                    str(self.runs),
+                    "--runs",
+                    str(self.runs),
+                    "-o",
+                    "json",
+                ]
+            )
+        self.assertEqual(code, 2)
+        self.assertIn("encoding", errors.getvalue())
+
+    def test_same_named_cases_do_not_share_sessions(self) -> None:
+        (self.root / "cases" / "a").mkdir(parents=True)
+        (self.root / "cases" / "b").mkdir(parents=True)
+        case_a = write_case(self.root, case_record(), name="cases/a/demo.md")
+        case_b = write_case(self.root, case_record(), name="cases/b/demo.md")
+        write_session(
+            self.runs,
+            "07-a",
+            ['{"seq": 0, "payload": {"skill": "behavior-gate"}}'],
+            case="cases/a/demo.md",
+        )
+        write_session(
+            self.runs,
+            "08-b",
+            ['{"seq": 0, "payload": {"tool": "read"}}'],
+            case="cases/b/demo.md",
+        )
+        sessions_a, empty_a = eval_mod.discovery_sessions([case_a], self.runs)
+        sessions_b, empty_b = eval_mod.discovery_sessions([case_b], self.runs)
+        self.assertEqual(empty_a + empty_b, [])
+        self.assertEqual([path.name for path in sessions_a], ["07-a"])
+        self.assertEqual([path.name for path in sessions_b], ["08-b"])
+
+    def test_missing_case_path_exits_two(self) -> None:
+        missing = self.root / "does-not-exist.md"
+        errors = io.StringIO()
+        with contextlib.redirect_stderr(errors):
+            code = eval_mod.main(
+                [
+                    "discovery",
+                    "--skill",
+                    "behavior-gate",
+                    "--case",
+                    str(missing),
+                    "--runs",
+                    str(self.runs),
+                    "-o",
+                    "json",
+                ]
+            )
+        self.assertEqual(code, 2)
+        self.assertIn("case yok", errors.getvalue())
+
+    def test_stdout_and_exit_mentions_do_not_trigger(self) -> None:
+        stdout_session = write_session(
+            self.runs,
+            "09-stdout",
+            [
+                '{"seq": 0, "payload": {"type": "stdout", '
+                '"text": "behavior-gate çıktısı"}}'
+            ],
+        )
+        exit_session = write_session(
+            self.runs,
+            "10-exit",
+            ['{"seq": 0, "payload": {"type": "process.exit", "text": "behavior-gate"}}'],
+        )
+        start_session = write_session(
+            self.runs,
+            "11-start",
+            [
+                '{"seq": 0, "payload": {"type": "process.start", '
+                '"command": ["cat", "skills/behavior-gate/SKILL.md"]}}'
+            ],
+        )
+        cases = (
+            (stdout_session, "not_triggered"),
+            (exit_session, "not_triggered"),
+            (start_session, "triggered"),
+        )
+        for session, expected in cases:
+            row = eval_mod.classify_session(session, "behavior-gate")
+            self.assertEqual(row["status"], expected, session.name)
+
+    def test_evidence_truncation_is_reported(self) -> None:
+        events = [
+            '{"seq": %d, "payload": {"skill": "behavior-gate"}}' % index
+            for index in range(25)
+        ]
+        session = write_session(self.runs, "12-many", events)
+        row = eval_mod.classify_session(session, "behavior-gate")
+        self.assertEqual(row["status"], "triggered")
+        self.assertEqual(row["matching_lines"], 25)
+        self.assertEqual(len(row["evidence"]), eval_mod.MAX_EVIDENCE)
+        self.assertTrue(row["evidence_truncated"])
 
     def test_missing_skill_exits_two_without_touching_files(self) -> None:
         skill_path = self.skills / "behavior-gate" / "SKILL.md"

@@ -6,7 +6,6 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -496,8 +495,10 @@ def read_skill_description(name: str, skills_root: Path | None = None) -> dict:
         raise DiscoveryError(f"skill yok: {name}")
     try:
         text = path.read_text(encoding="utf-8").lstrip("\ufeff")
-    except OSError as exc:
-        raise DiscoveryError(f"{name}: SKILL.md okunamadı ({exc})") from exc
+    except (OSError, UnicodeDecodeError) as exc:
+        raise DiscoveryError(
+            f"{name}: SKILL.md okunamadı, encoding geçersiz ({exc})"
+        ) from exc
     frontmatter, _body, error = split_frontmatter(text)
     if error:
         raise DiscoveryError(f"{name}: {error}")
@@ -530,7 +531,7 @@ def _looks_like_session(path: Path) -> bool:
 def _read_mapping(path: Path) -> dict:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
         return {}
     return data if isinstance(data, dict) else {}
 
@@ -543,16 +544,36 @@ def _session_case(session_dir: Path) -> str:
     return ""
 
 
-def _matches_case_value(value: str, case_path: Path) -> bool:
-    if value == str(case_path) or value == case_path.name:
-        return True
-    candidate = Path(value)
-    if candidate.name == case_path.name:
-        return True
-    if not candidate.is_absolute():
-        candidate = case_path.parent / candidate
+def _case_id(case_path: Path) -> str:
+    if not case_path.is_file():
+        return ""
     try:
-        return candidate.resolve() == case_path.resolve()
+        return str(parse_case(case_path).get("id") or "")
+    except (OSError, UnicodeDecodeError, CaseError):
+        return ""
+
+
+def _candidate_paths(value: str, case_path: Path) -> list[Path]:
+    """Relative values resolve against the case's ancestors, never by name alone."""
+    candidate = Path(value).expanduser()
+    if candidate.is_absolute():
+        return [candidate]
+    return [base / candidate for base in (case_path.parent, *case_path.parent.parents)]
+
+
+def _matches_case_value(value: str, case_path: Path, case_id: str = "") -> bool:
+    """Match only the resolved case path or the case id; names alone never match."""
+    value = value.strip()
+    if not value:
+        return False
+    if case_id and value == case_id:
+        return True
+    try:
+        target = case_path.resolve()
+        return any(
+            candidate.resolve() == target
+            for candidate in _candidate_paths(value, case_path)
+        )
     except OSError:
         return False
 
@@ -560,11 +581,12 @@ def _matches_case_value(value: str, case_path: Path) -> bool:
 def _runs_for_case(case_path: Path, runs_dir: Path) -> list[Path]:
     if not runs_dir.is_dir():
         return []
+    case_id = _case_id(case_path)
     matched: list[Path] = []
     for entry in sorted(runs_dir.iterdir()):
         if not entry.is_dir() or not _looks_like_session(entry):
             continue
-        if _matches_case_value(_session_case(entry), case_path):
+        if _matches_case_value(_session_case(entry), case_path, case_id):
             matched.append(entry)
     return matched
 
@@ -586,12 +608,18 @@ def _case_sessions(path: Path, runs_dir: Path) -> list[Path]:
 def discovery_sessions(
     cases: list[Path], runs: Path | None = None
 ) -> tuple[list[Path], list[str]]:
-    """Resolve case arguments to unique sessions, sorted by resolved path."""
+    """Resolve case arguments to unique sessions, sorted by resolved path.
+
+    A case path that does not exist is an error; an existing case without any
+    matching run is returned separately instead of becoming a fake session.
+    """
     runs_dir = RUNS_DIR if runs is None else Path(runs)
     found: dict[str, Path] = {}
     empty_cases: list[str] = []
     for raw in cases:
         path = Path(raw).expanduser()
+        if not path.exists():
+            raise DiscoveryError(f"case yok: {path}")
         matched = _case_sessions(path, runs_dir)
         if not matched:
             empty_cases.append(str(path))
@@ -609,16 +637,19 @@ def _load_events(path: Path) -> tuple[list[tuple[int, object]], str]:
         return [], "session/events.ndjson yok"
     try:
         text = path.read_text(encoding="utf-8")
-    except OSError as exc:
+    except (OSError, UnicodeDecodeError) as exc:
         return [], f"session/events.ndjson okunamadı ({exc})"
     events: list[tuple[int, object]] = []
+    corrupt = 0
     for number, line in enumerate(text.splitlines(), 1):
         if not line.strip():
             continue
         try:
             events.append((number, json.loads(line)))
         except json.JSONDecodeError:
-            continue
+            corrupt += 1
+    if corrupt:
+        return events, f"bozuk NDJSON: {corrupt} satır"
     if not events:
         return [], "geçerli olay yok"
     return events, ""
@@ -629,7 +660,7 @@ def _result_readable(path: Path) -> tuple[bool, str]:
         return False, "result.json yok"
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
-    except OSError as exc:
+    except (OSError, UnicodeDecodeError) as exc:
         return False, f"result.json okunamadı ({exc})"
     except json.JSONDecodeError:
         return False, "result.json geçersiz JSON"
@@ -644,15 +675,41 @@ def _event_payload(event: object) -> object:
     return event
 
 
-def event_matches_skill(event: object, skill: str) -> bool:
-    """Deterministic match: explicit field, tool name, or a word-boundary hit."""
-    payload = _event_payload(event)
-    if isinstance(payload, dict):
-        if payload.get("skill") == skill or payload.get("name") == skill:
+def _command_tokens(payload: dict) -> list[str]:
+    command = payload.get("command")
+    if isinstance(command, str):
+        return [command]
+    if isinstance(command, (list, tuple)):
+        return [str(item) for item in command]
+    return []
+
+
+def _command_mentions_skill(tokens: list[str], skill: str) -> bool:
+    marker = f"skills/{skill}"
+    for token in tokens:
+        normalized = token.replace("\\", "/")
+        if normalized == skill or marker in normalized:
             return True
-    text = json.dumps(payload, sort_keys=True, ensure_ascii=False)
-    pattern = r"(?<![\w-])" + re.escape(skill) + r"(?![\w-])"
-    return bool(re.search(pattern, text)) or f"skills/{skill}" in text
+        if any(part == skill for part in normalized.split("/")):
+            return True
+    return False
+
+
+def event_matches_skill(event: object, skill: str) -> bool:
+    """Structural trigger match; stdout and process.exit text never counts.
+
+    A skill is triggered by an explicit ``payload.skill``/``payload.name``
+    field or by a ``process.start`` command whose tokens invoke the skill
+    directory.  Mentioning the name in output or exit text is not a trigger.
+    """
+    payload = _event_payload(event)
+    if not isinstance(payload, dict):
+        return False
+    if payload.get("skill") == skill or payload.get("name") == skill:
+        return True
+    if payload.get("type") != "process.start":
+        return False
+    return _command_mentions_skill(_command_tokens(payload), skill)
 
 
 def _artifact_evidence(line: int) -> dict:
@@ -663,7 +720,7 @@ def classify_session(session_dir: Path, skill: str) -> dict:
     """Classify one session; missing evidence is ``unknown``, never ``not_triggered``."""
     session_dir = Path(session_dir)
     events, events_error = _load_events(session_dir / "session" / "events.ndjson")
-    analyzable = bool(events)
+    analyzable = bool(events) and not events_error
     reason = "" if analyzable else events_error
     if analyzable:
         readable, result_error = _result_readable(session_dir / "result.json")
@@ -676,6 +733,8 @@ def classify_session(session_dir: Path, skill: str) -> dict:
         "status": "unknown",
         "analyzable": analyzable,
         "event_count": len(events),
+        "matching_lines": 0,
+        "evidence_truncated": False,
         "evidence": [],
         "reason": reason,
     }
@@ -688,25 +747,15 @@ def classify_session(session_dir: Path, skill: str) -> dict:
             if event_matches_skill(event, skill)
         }
     )
+    record["matching_lines"] = len(lines)
     if lines:
         record["status"] = "triggered"
         record["evidence"] = [_artifact_evidence(line) for line in lines[:MAX_EVIDENCE]]
+        record["evidence_truncated"] = len(lines) > MAX_EVIDENCE
     else:
         record["status"] = "not_triggered"
         record["evidence"] = [_artifact_evidence(events[0][0])]
     return record
-
-
-def _missing_session_record(case: str) -> dict:
-    return {
-        "session": case,
-        "case": case,
-        "status": "unknown",
-        "analyzable": False,
-        "event_count": 0,
-        "evidence": [],
-        "reason": "oturum yok",
-    }
 
 
 def _ratio(numerator: int, denominator: int) -> dict:
@@ -738,7 +787,6 @@ def build_discovery(
     for name in dict.fromkeys(skills):
         meta = read_skill_description(name, skills_root)
         rows = [classify_session(session, name) for session in sessions]
-        rows.extend(_missing_session_record(case) for case in empty_cases)
         counts = _tally(rows)
         for key in totals:
             totals[key] += counts[key]
@@ -757,6 +805,7 @@ def build_discovery(
         "mode": "discovery",
         "executed": True,
         "skills": reports,
+        "cases_without_sessions": empty_cases,
         "totals": totals,
     }
 
@@ -788,6 +837,8 @@ def _discovery_command(argv: list[str]) -> int:
                 f"{skill['name']}: triggered {rate['numerator']}/{rate['denominator']} "
                 f"({value}); bilinmiyor {unknown['numerator']}/{unknown['denominator']}"
             )
+        if report["cases_without_sessions"]:
+            print(f"koşusuz case: {len(report['cases_without_sessions'])}")
     return 0
 
 
