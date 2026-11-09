@@ -639,7 +639,7 @@
   glob'ları eklenebilir (yalnız ekleme sınıfı); `guard.sh` ve `risk_filter`
   overlay'i okur, `doctor --product` biçimini doğrular. Vendor sync'ten
   etkilenmez.
-- **Proje öncelikleri (I14)** — `policies/project-priorities.md`: design system
+- **Proje öncelikleri (I23)** — `policies/project-priorities.md`: design system
   uyumu, mimari koruma, plana sadakat, kalite zemini ve "uydurma yok" kuralı
   bağlayıcı. `kit.config.yaml product.priorities` beyanı `brief.py` ile her
   agent brief'ine taşınır; `seal.md` referans zorunluluğu getirir;
