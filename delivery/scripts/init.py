@@ -286,6 +286,9 @@ RUNTIME_IGNORES = (
     ".kit/cycle.jsonl",
     ".kit/resources.jsonl",
     ".kit/gate-cache.json",
+    ".kit/context-metrics.jsonl",
+    ".kit/brief-*.json",
+    ".kit/evidence.jsonl",
 )
 
 

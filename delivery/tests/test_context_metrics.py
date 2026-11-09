@@ -263,6 +263,43 @@ class BriefMetaTests(unittest.TestCase):
                     context_metrics.record_from_brief(321, "CP-1", root)
                 )
 
+    def test_present_meta_without_keys_is_unknown_not_false_zero(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            row = context_metrics.build_row(
+                321,
+                "CP-1",
+                tokens=100,
+                brief_meta={"issue": 321, "cp": "CP-1"},
+                root=root,
+            )
+        self.assertEqual(row["armed"], "unknown")
+        self.assertEqual(row["fallback_count"], "unknown")
+
+    def test_present_keys_keep_their_meaning(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            row = context_metrics.build_row(
+                321,
+                "CP-1",
+                tokens=100,
+                brief_meta={"issue": 321, "cp": "CP-1", "armed": [], "fallbacks": []},
+                root=root,
+            )
+        self.assertEqual(row["armed"], False)
+        self.assertEqual(row["fallback_count"], 0)
+
+    def test_invalid_utf8_brief_meta_is_ignored(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            path = context_metrics.brief_meta_path(321, "CP-1", root)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(b'{"issue": 321, "cp": "CP-1", "armed": "\xff\xfe"}')
+            self.assertIsNone(context_metrics.read_brief_meta(321, "CP-1", root))
+            self.assertIsNone(
+                context_metrics.record_from_brief(321, "CP-1", root)
+            )
+
     def test_mismatched_metadata_is_ignored(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -297,6 +334,19 @@ class BriefMetaTests(unittest.TestCase):
         )
         self.assertEqual(rows[0]["brief_docs"], ["b.md"])
         self.assertEqual(rows[1]["brief_docs"], ["c.md"])
+        self.assertFalse((path.parent / "context-metrics.jsonl.tmp").exists())
+
+    def test_invalid_utf8_metrics_file_is_replaced_not_fatal(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            path = root / ".kit" / "context-metrics.jsonl"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(b"\xff\xfe bozuk\n")
+            row, line = context_metrics.record(
+                321, "CP-1", brief_docs=["a.md"], tokens=100, root=root
+            )
+            self.assertEqual(path.read_text(encoding="utf-8"), line + "\n")
+        self.assertEqual(row["issue"], 321)
 
 
 class TokenTests(unittest.TestCase):

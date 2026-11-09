@@ -77,7 +77,7 @@ def read_brief_meta(
         data = json.loads(
             brief_meta_path(issue, cp, root).read_text(encoding="utf-8")
         )
-    except (OSError, json.JSONDecodeError):
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
         return None
     if not isinstance(data, dict):
         return None
@@ -278,8 +278,18 @@ def build_row(
     method = [token_method]
     method += [f"doc-missing:{value}" for value in missing]
     if brief_meta is not None:
-        armed_value: bool | str = bool(brief_meta.get("armed"))
-        fallback_count: int | str = len(brief_meta.get("fallbacks") or [])
+        # A present key keeps its meaning; an absent key is unmeasured, never
+        # a fabricated False/0 from bool(None)/len([]).
+        armed_value = (
+            bool(brief_meta.get("armed"))
+            if "armed" in brief_meta
+            else UNKNOWN
+        )
+        fallback_count = (
+            len(brief_meta.get("fallbacks") or [])
+            if "fallbacks" in brief_meta
+            else UNKNOWN
+        )
     else:
         # No metadata means unmeasured, never a fabricated False/0.
         armed_value = UNKNOWN
@@ -341,7 +351,7 @@ def record(
         kept: list[str] = []
         try:
             existing = path.read_text(encoding="utf-8").splitlines()
-        except OSError:
+        except (OSError, UnicodeDecodeError):
             existing = []
         for raw in existing:
             if not raw.strip():
@@ -360,7 +370,11 @@ def record(
                 continue
             kept.append(raw)
         kept.append(line)
-        path.write_text("\n".join(kept) + "\n", encoding="utf-8")
+        # Write to a sibling temp file and atomically replace, so a crash
+        # mid-write cannot truncate the existing metrics file.
+        tmp = path.with_name(path.name + ".tmp")
+        tmp.write_text("\n".join(kept) + "\n", encoding="utf-8")
+        os.replace(tmp, path)
     return row, line
 
 
