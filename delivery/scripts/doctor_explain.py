@@ -37,6 +37,7 @@ CHECK_NAMES = (
     "role-contracts",
     "mcp",
     "compat",
+    "local-overrides",
     "worktree",
     "installed-skills",
     "model-policy",
@@ -67,6 +68,10 @@ SUMMARIES = {
     "role-contracts": "Rol sözleşmelerinin registry sırasıyla uyumunu doğrular.",
     "mcp": "MCP sunucusunu başlatır ve araç listesini doğrular.",
     "compat": "Orca komut, flag ve yanıt şekillerini denetler.",
+    "local-overrides": (
+        "Kişisel override beyaz listesini ve .kit/local.yaml'ın depo dışı "
+        "olduğunu doğrular."
+    ),
     "worktree": "Checkout'un Orca tarafından açıldığını doğrular.",
     "installed-skills": "Kurulu skill kopyalarının kaynakla aynı olduğunu doğrular.",
     "model-policy": "kit.config orca model/effort politikasını doğrular.",

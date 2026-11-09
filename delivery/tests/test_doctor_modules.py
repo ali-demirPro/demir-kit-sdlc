@@ -32,6 +32,7 @@ class ModuleSplitTest(unittest.TestCase):
             "doctor_explain.py",
             "doctor_compat.py",
             "doctor_version.py",
+            "doctor_local.py",
         ):
             self.assertTrue((SCRIPTS / name).is_file(), name)
 
@@ -69,7 +70,9 @@ class ModuleSplitTest(unittest.TestCase):
         # 1800 + 2: frequency.yaml şema kontrolü (issue 315) doctor.py'ye
         # bir import ve bir report çağrısı ekledi; payda tek satır bırakıldı.
         # +30: rigor.yaml denetimi (issue 325) import, check_rigor ve main çağrısı.
-        self.assertLess(lines, 1833, lines)
+        # +10: local-overrides denetimi (issue 328); gövde doctor_local.py'de,
+        # doctor.py'de yalnız import, ince sarmalayıcı ve main çağrısı kaldı.
+        self.assertLess(lines, 1843, lines)
 
     def test_skill_lint_behaviour_is_unchanged(self) -> None:
         path = ROOT / "skills" / "demo" / "SKILL.md"

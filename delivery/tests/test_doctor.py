@@ -1660,6 +1660,120 @@ class ExplainTests(DoctorTestCase):
         self.assertIn("bilinmeyen kontrol: nope", unknown.stderr + unknown.stdout)
 
 
+class LocalOverridesTests(DoctorTestCase):
+    """T-2/T-4: beyaz liste tek kaynak; .kit/local.yaml depo dışı kalır."""
+
+    POLICY = ROOT / "delivery" / "local-overrides.yaml"
+
+    def policy_copy(self, directory: str, **overrides) -> Path:
+        data = yaml.safe_load(self.POLICY.read_text(encoding="utf-8"))
+        data.update(overrides)
+        path = Path(directory) / "local-overrides.yaml"
+        path.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
+        return path
+
+    def test_canonical_policy_passes(self) -> None:
+        doctor.check_local_overrides(ROOT)
+        self.assertEqual(doctor.ERRORS, [], doctor.ERRORS)
+
+    def test_read_write_divergence_is_error(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = self.policy_copy(directory, write=["docs.density", "docs.notes"])
+            doctor.check_local_overrides(ROOT, policy_path=path)
+        self.assertTrue(
+            any("read ve write listeleri ayrışıyor" in item for item in doctor.ERRORS),
+            doctor.ERRORS,
+        )
+
+    def test_values_must_match_read(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = self.policy_copy(
+                directory,
+                values={"docs.density": ["terse"]},  # read'de docs.notes yok
+                read=["docs.density", "docs.notes"],
+                write=["docs.density", "docs.notes"],
+            )
+            doctor.check_local_overrides(ROOT, policy_path=path)
+        self.assertTrue(
+            any("values anahtarları" in item for item in doctor.ERRORS),
+            doctor.ERRORS,
+        )
+
+    def test_locked_key_cannot_enter_whitelist(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = self.policy_copy(
+                directory,
+                read=["docs.density", "process.rigor"],
+                write=["docs.density", "process.rigor"],
+                values={
+                    "docs.density": ["terse", "balanced", "thorough"],
+                    "process.rigor": ["minimal", "standard", "full"],
+                },
+            )
+            doctor.check_local_overrides(ROOT, policy_path=path)
+        self.assertTrue(
+            any("kilitli ama read/write" in item for item in doctor.ERRORS),
+            doctor.ERRORS,
+        )
+
+    def test_missing_reason_is_error(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            data = yaml.safe_load(self.POLICY.read_text(encoding="utf-8"))
+            data["reasons"].pop("gates.*")
+            path = Path(directory) / "local-overrides.yaml"
+            path.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
+            doctor.check_local_overrides(ROOT, policy_path=path)
+        self.assertTrue(
+            any("gerekçe yok" in item for item in doctor.ERRORS), doctor.ERRORS
+        )
+
+    def test_gitignore_covers_personal_file(self) -> None:
+        lines = (ROOT / ".gitignore").read_text(encoding="utf-8").splitlines()
+        self.assertIn(".kit/local.yaml", lines)
+
+    def test_tracked_personal_file_is_error(self) -> None:
+        def git_stub(root, *args):
+            if args == ("rev-parse", "--is-inside-work-tree"):
+                return "true"
+            if args[:1] == ("ls-files",):
+                return ".kit/local.yaml"
+            return None
+
+        with patch.object(
+            doctor.doctor_local, "_git_output", side_effect=git_stub
+        ), patch.object(
+            doctor.doctor_local.subprocess,
+            "run",
+            return_value=subprocess.CompletedProcess([], 0),
+        ):
+            doctor.check_local_overrides(ROOT)
+        self.assertTrue(
+            any("git'te izleniyor" in item for item in doctor.ERRORS), doctor.ERRORS
+        )
+
+    def test_resolution_shows_density_change(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / ".kit").mkdir()
+            (root / ".kit" / "local.yaml").write_text(
+                "docs:\n  density: terse\n", encoding="utf-8"
+            )
+            data = doctor.resolver_lib.resolve(
+                doctor.resolver_lib.load_capabilities(),
+                doctor.resolver_lib.load_matrix(),
+                doctor.resolver_lib.load_agent_variants(),
+                "full_product",
+                [],
+                project=root,
+            )
+        self.assertEqual(
+            data["local"]["docs"]["density"],
+            {"value": "terse", "source": ".kit/local.yaml"},
+        )
+        # Doküman yolu listesi kişisel dosyadan etkilenmez.
+        self.assertTrue(all(isinstance(item, str) for item in data["docs"]))
+
+
 class RiskBaselineInvariantTest(unittest.TestCase):
     """I24: rigor seviyesi risk tabanını, reviewer sayısını ve insan kapısını düşüremez."""
 

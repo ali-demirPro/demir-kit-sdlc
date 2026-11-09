@@ -22,6 +22,7 @@ import capabilities as capabilities_lib  # noqa: E402
 import context_metrics  # noqa: E402
 import delivery_block  # noqa: E402
 import doctor_compat  # noqa: E402
+import doctor_local  # noqa: E402
 import doctor_mcp  # noqa: E402
 import doctor_explain  # noqa: E402
 import doctor_skills  # noqa: E402
@@ -944,6 +945,7 @@ def check_issue_body(
         signals,
         f"{title}\n{data.get('intent', '')}\n{routing.strip_seal(body)}",
         declared=declared_for_issue,
+        project=root,
     )
     resolution = resolver_lib.resolve(
         capability_registry,
@@ -953,6 +955,7 @@ def check_issue_body(
         signals,
         f"{title}\n{data.get('intent', '')}\n{routing.strip_seal(body)}",
         declared=declared,
+        project=root,
     )
     for capability in resolution_for_evidence["capabilities"]:
         allowed_agents.update(
@@ -1734,6 +1737,12 @@ def check_product(root: Path) -> None:
                 error(f".kit/capabilities.yaml: bilinmeyen capability — {cap_id}")
 
 
+def check_local_overrides(root: Path = ROOT, policy_path: Path | None = None) -> None:
+    doctor_local.check_local_overrides(
+        root, policy_path, error, check, load_yaml, rel
+    )
+
+
 EXPLAIN_CHECKS = doctor_explain.checks(globals())
 
 
@@ -1794,6 +1803,7 @@ def main() -> int:
         check_role_contracts()
         check_mcp()
         check_compat()
+        check_local_overrides(ROOT)
 
     if args.checkpoint and args.checkpoint != "CP-HEALTH" and not re.match(
         r"^CP-[0-9]+$", args.checkpoint
