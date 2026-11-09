@@ -86,7 +86,15 @@ def storage_root(root: Path | None = None) -> Path:
     (``cycle.jsonl`` lives there and survives the epic worktree).
     """
     if root is not None:
-        return Path(root).resolve()
+        target = Path(root).resolve()
+        # An explicit epic worktree still owns state in its main checkout:
+        # .kit runtime files must survive the worktree's removal.
+        import cycle
+
+        common = cycle.git_root(target)
+        if common and (common / "kit.config.yaml").is_file():
+            return common
+        return target
     override = os.environ.get("DEMIR_KIT_CONTEXT_ROOT")
     if override:
         return Path(override).resolve()
@@ -520,7 +528,7 @@ def record_from_brief(
         # the missing row must still be visible on stderr.
         print("uyari: context-metrics yazilamadi; satir yok", file=sys.stderr)
         return None
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, OverflowError):
         # A malformed usage snapshot must not turn a measurement into a stop.
         print("uyari: context-metrics okunamadi; satir yazilmadi", file=sys.stderr)
         return None
@@ -830,7 +838,11 @@ def main(argv: list[str] | None = None) -> int:
     learn_parser.add_argument("--dry-run", action="store_true")
 
     args = parser.parse_args(argv)
-    root = resolve_root(args.project)
+    root = (
+        resolve_root(args.project)
+        if args.command == "learn"
+        else storage_root(args.project)
+    )
 
     if args.command == "learn":
         document, target = learn(

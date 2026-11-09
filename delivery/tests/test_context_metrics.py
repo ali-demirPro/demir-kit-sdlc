@@ -334,6 +334,21 @@ class StorageRootTests(unittest.TestCase):
                     context_metrics.storage_root(), Path(directory)
                 )
 
+    def test_explicit_worktree_maps_to_the_main_checkout(self) -> None:
+        import cycle
+
+        with tempfile.TemporaryDirectory() as main_dir, tempfile.TemporaryDirectory() as worktree_dir:
+            main = Path(main_dir).resolve()
+            worktree = Path(worktree_dir).resolve()
+            (main / "kit.config.yaml").write_text("kit:\n  root: .\n", encoding="utf-8")
+            with patch.object(cycle, "git_root", return_value=main):
+                self.assertEqual(context_metrics.storage_root(worktree), main)
+                context_metrics.record(321, "CP-1", tokens=100, root=worktree)
+                ok, _ = context_metrics.check(321, "CP-1", root=worktree)
+            self.assertTrue(ok)
+            self.assertTrue((main / ".kit" / "context-metrics.jsonl").is_file())
+            self.assertFalse((worktree / ".kit").exists())
+
 
 class MalformedUsageTests(unittest.TestCase):
     def test_string_token_is_a_warning_not_a_stop(self) -> None:
@@ -362,6 +377,33 @@ class MalformedUsageTests(unittest.TestCase):
                 transition.ensure_context_metrics(321, "CP-1", root=root)
             metrics = root / ".kit" / "context-metrics.jsonl"
             self.assertFalse(metrics.exists())
+        self.assertIn("uyari", stderr.getvalue())
+
+    def test_infinite_token_is_a_warning_not_a_stop(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            usage = root / ".kit" / "usage-321.json"
+            usage.parent.mkdir(parents=True, exist_ok=True)
+            usage.write_text('{"tokens": {"input": 1e999}}', encoding="utf-8")
+            meta = root / ".kit" / "brief-321-CP-1.json"
+            meta.write_text(
+                json.dumps(
+                    {
+                        "issue": 321,
+                        "cp": "CP-1",
+                        "armed": [],
+                        "fallbacks": [],
+                        "selected_docs": [],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            stderr = io.StringIO()
+            with contextlib.redirect_stderr(stderr):
+                transition.ensure_context_metrics(321, "CP-1", root=root)
+            self.assertFalse(
+                (root / ".kit" / "context-metrics.jsonl").exists()
+            )
         self.assertIn("uyari", stderr.getvalue())
 
 
