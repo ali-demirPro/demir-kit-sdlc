@@ -9,6 +9,11 @@ capabilities:
   matrix: delivery/capabilities/role-matrix.yaml
   levels: delivery/capabilities/levels.md
 
+rigor:
+  config: delivery/rigor.yaml
+  schema: delivery/schemas/rigor.schema.json
+  resolver: delivery/scripts/rigor.py
+
 agent_variants:
   schema: delivery/schemas/agent.schema.json
   roles: [designer, tester, architect, devops, security, developer, marketing/stores, marketing/landing]

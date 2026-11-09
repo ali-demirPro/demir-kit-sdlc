@@ -1,0 +1,76 @@
+# delivery/rigor.yaml — process.rigor tek kapısı ve altı düğme yayma tablosu.
+#
+# Kaynak plan: delivery/plans/P3.yaml (knobs.levels). Değerler oradan birebir
+# kopyalanır; bu dosya tek çalışma zamanı kaynağıdır. Risk tabanı ve insan
+# kapıları değişmez: gating reviewer sayısı yalnız riskten gelir.
+#
+# Seviye seçimi `kit.config.yaml` → `process.rigor` ile yapılır. Alan yoksa
+# `standard` etkin olur (kaynak: default). Canlı düğmelerde açık proje değeri
+# yaymayı ezer; `modes.review_mode` yalnız saklanır, hiçbir düğmeyi etkilemez.
+
+version: 1
+
+levels:
+  minimal:
+    modes.workflow: minimal
+    docs.density: terse
+    qa.level: minimal
+    modes.story_granularity: coarse
+    modes.review_mode: solo
+    team.size: individual
+  standard:
+    modes.workflow: standard
+    docs.density: balanced
+    qa.level: standard
+    modes.story_granularity: balanced
+    modes.review_mode: lean
+    team.size: individual
+  full:
+    modes.workflow: full
+    docs.density: thorough
+    qa.level: full
+    modes.story_granularity: fine
+    modes.review_mode: full
+    team.size: studio
+
+# Gating reviewer sayısı risk-only: rigor seviyesi bu sayıyı değiştirmez.
+# Değerler quality-gates.md risk matrisiyle aynıdır.
+gating:
+  reviewer_count_source: risk
+  reviewer_count:
+    low: 1
+    medium: 1
+    high: 2
+    critical: 2
+
+# Düğmelerin anlamı. Tören ağırlığı değişir; kalite kapıları ve insan kapısı
+# sabit kalır.
+mapping:
+  modes.workflow: >-
+    Zorunlu kanıt ve doküman kümesi; minimal'de yalnız brief/CP kanıtı, full'de
+    tam kanıt zinciri. Kalite kapıları sabit kalır.
+  docs.density: >-
+    Doküman ve yorum derinliği; context-budget sınıfları ve "dilim oku" kuralı
+    korunur.
+  qa.level: >-
+    Fazladan test kanıtı ayrıntısı; behavior gate her seviyede zorunlu, minimal
+    yalnız ek kanıtı kısar.
+  modes.story_granularity: >-
+    Leaf/CP boyutu; minimal coarse (daha büyük CP), full fine (daha küçük CP).
+  modes.review_mode: >-
+    Kit'te kaldıraç yok: değer yalnız CCGS eşlemesi için saklanır. Gating
+    reviewer sayısı risk-only kalır; `gate_level` CP'ye özel açık seçimdir,
+    rigor'dan türetilmez.
+  team.size: >-
+    Aktif agent/varyant kümesi; risk tabanı ve insan kapısı değişmez.
+
+kit_semantics:
+  reviewer_count: >-
+    Gating reviewer sayısı yalnız riskten gelir: low/medium 1, high/critical 2
+    (quality-gates.md + CONTRACT; değişmez). `modes.review_mode` bu sayıyı
+    değiştirmez; rigor gating reviewer sayısını değiştirmez.
+  review_mode: >-
+    Kit'te uygulanmaz. Bugün `cp_close` varsayılanı `fast`; leaf kapanışında
+    `--gate-level selected|full` açıkça verilir.
+  story_granularity: >-
+    Yön sabittir: minimal coarse (daha büyük CP), full fine (daha küçük CP).

@@ -21,6 +21,11 @@ orca:
   orchestration_readme: delivery/protocol/execution.md
   epic_worktree: true
 
+process:
+  # Tören ağırlığı: minimal | standard | full. Risk tabanı ve insan kapıları
+  # değişmez. Yayma tablosu: delivery/rigor.yaml.
+  rigor: standard
+
 factory:
   default_profile: kit-internal
 

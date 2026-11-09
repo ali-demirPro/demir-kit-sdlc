@@ -17,6 +17,16 @@ Risk tabanlı gate matrisi. Sözleşme: [CONTRACT.md](../CONTRACT.md) · Risk ve
 `entry.kind: refactor` leaf'lerinde `architect` gate'i riskten bağımsız olarak
 her checkpoint'te zorunludur; `verification.refactor` olmadan `leaf-done` geçmez.
 
+## Rigor
+
+Tören ağırlığı `kit.config.yaml` → `process.rigor` ile bir kez seçilir
+(`minimal` | `standard` | `full`; alan yoksa `standard`). Yayma tablosu:
+[rigor.yaml](../rigor.yaml). Rigor yalnız doküman derinliğini, kanıt kümesini,
+leaf/CP granülerliğini, aktif roster'ı ve ek test kanıtını değiştirir; bu
+matristeki risk tabanı ve insan kapısı değişmez. Gating reviewer sayısı
+risk-only kalır (`low`/`medium` 1, `high`/`critical` 2). `modes.review_mode`
+saklanır, sayıyı ve `gate_level`'ı değiştirmez.
+
 ## Yüzey kanıtı
 
 Bir ürünün `ecosystem.yaml` yüzeyi kendi kanıt seviyesini bildirir:
