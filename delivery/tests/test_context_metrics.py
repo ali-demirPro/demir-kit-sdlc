@@ -455,8 +455,14 @@ class BriefMetaTests(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
-            self.assertIsNone(
-                context_metrics.record_from_brief(321, "CP-1", root)
+            stderr = io.StringIO()
+            with contextlib.redirect_stderr(stderr):
+                self.assertIsNone(
+                    context_metrics.record_from_brief(321, "CP-1", root)
+                )
+            self.assertIn(
+                "uyari: context-metrics okunamadi; satir yazilmadi",
+                stderr.getvalue(),
             )
             self.assertEqual(path.read_bytes(), original)
 

@@ -491,8 +491,15 @@ def record_from_brief(
             brief_meta=meta,
             root=root,
         )
-    except (ContextMetricsError, OSError):
+    except ContextMetricsError:
         # A leaf-done must not crash because the metrics file is unreadable.
+        print(
+            "uyari: context-metrics okunamadi; satir yazilmadi",
+            file=sys.stderr,
+        )
+        return None
+    except OSError:
+        # Metadata is optional; a read-only project keeps its leaf-done.
         return None
 
 

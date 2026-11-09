@@ -490,6 +490,15 @@ def evidence_skeleton(reviewers: list[str], risk: str) -> list[str]:
     return lines
 
 
+def _string_list(value) -> list[str] | None:
+    """Copy of a ``list[str]``; any other value is ``None`` (not coerced)."""
+    if not isinstance(value, list) or not all(
+        isinstance(item, str) for item in value
+    ):
+        return None
+    return list(value)
+
+
 def write_brief_meta(
     path: Path,
     issue: int,
@@ -498,16 +507,25 @@ def write_brief_meta(
     brief_docs: list[str],
     unarmed: list[str] | None = None,
 ) -> None:
-    """Write the machine-readable CP brief metadata (deterministic JSON)."""
+    """Write the machine-readable CP brief metadata (deterministic JSON).
+
+    Only ``list[str]`` control values become keys; a wrongly typed value is
+    omitted entirely so the reader yields ``unknown`` instead of a fabricated
+    False/0 (``list("no")`` must never turn a string into characters).
+    """
     control = control or {}
-    payload = {
-        "issue": issue,
-        "cp": cp_id,
-        "armed": list(control.get("armed") or []),
-        "unarmed": list(unarmed or control.get("unarmed") or []),
-        "fallbacks": list(control.get("fallbacks") or []),
-        "selected_docs": list(brief_docs),
-    }
+    payload: dict = {"issue": issue, "cp": cp_id}
+    armed = _string_list(control.get("armed"))
+    if armed is not None:
+        payload["armed"] = armed
+    unarmed_value = unarmed if unarmed is not None else control.get("unarmed")
+    unarmed_list = _string_list(unarmed_value)
+    if unarmed_list is not None:
+        payload["unarmed"] = unarmed_list
+    fallbacks = _string_list(control.get("fallbacks"))
+    if fallbacks is not None:
+        payload["fallbacks"] = fallbacks
+    payload["selected_docs"] = [str(item) for item in brief_docs]
     path.parent.mkdir(parents=True, exist_ok=True)
     # Temp + atomic replace: a crash mid-write leaves the previous metadata
     # intact instead of a half-written JSON file.
@@ -594,7 +612,13 @@ def render_cp_brief(
         window=window_docs(docs, role),
         route=cp_route_items(route),
     )
-    brief_docs = sorted({str(item["path"]) for item in reading})
+    brief_docs = sorted(
+        {
+            str(item["path"])
+            for item in reading
+            if item.get("class") in READ_CLASSES
+        }
+    )
     if meta_path is not None:
         try:
             write_brief_meta(

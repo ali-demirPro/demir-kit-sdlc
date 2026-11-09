@@ -267,6 +267,7 @@ class GitignoreRuntimeTests(unittest.TestCase):
                 ".kit/context-metrics.jsonl",
                 ".kit/context-metrics.jsonl.tmp",
                 ".kit/brief-*.json",
+                ".kit/brief-*.json.tmp",
                 ".kit/evidence.jsonl",
             ):
                 self.assertEqual(text.splitlines().count(line), 1)

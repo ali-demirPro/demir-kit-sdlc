@@ -493,6 +493,10 @@ class BriefMetaTests(unittest.TestCase):
             "unarmed": ["route tuketilmedi"],
             "fallbacks": ["ecosystem yok", "index yok"],
         }
+        route = [
+            {"class": "unknown", "path": "delivery/tests"},
+            {"class": "retrieved", "path": "delivery/scripts/gate.py"},
+        ]
         with tempfile.TemporaryDirectory() as tmp:
             meta = Path(tmp) / ".kit" / "brief-321-CP-1.json"
             brief.render_cp_brief(
@@ -500,6 +504,7 @@ class BriefMetaTests(unittest.TestCase):
                 SEAL,
                 "CP-1",
                 control=control,
+                route=route,
                 meta_path=meta,
             )
             self.assertTrue(meta.is_file())
@@ -510,6 +515,7 @@ class BriefMetaTests(unittest.TestCase):
                 SEAL,
                 "CP-1",
                 control=control,
+                route=route,
                 meta_path=meta,
             )
             second = meta.read_text(encoding="utf-8")
@@ -526,6 +532,38 @@ class BriefMetaTests(unittest.TestCase):
             payload["selected_docs"], sorted(set(payload["selected_docs"]))
         )
         self.assertIn("delivery/scripts/brief.py", payload["selected_docs"])
+        self.assertIn("delivery/scripts/gate.py", payload["selected_docs"])
+        self.assertNotIn("delivery/tests", payload["selected_docs"])
+
+    def test_non_list_control_values_are_omitted(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            meta = context_metrics.brief_meta_path(321, "CP-1", root)
+            brief.render_cp_brief(
+                {"issue": 321, "risk": "medium"},
+                SEAL,
+                "CP-1",
+                control={
+                    "armed": "no",
+                    "unarmed": "route tuketilmedi",
+                    "fallbacks": "index yok",
+                },
+                meta_path=meta,
+            )
+            payload = json.loads(meta.read_text(encoding="utf-8"))
+            read = context_metrics.read_brief_meta(321, "CP-1", root)
+            row = context_metrics.build_row(
+                321, "CP-1", tokens=100, brief_meta=read, root=root
+            )
+        self.assertNotIn("armed", payload)
+        self.assertNotIn("unarmed", payload)
+        self.assertNotIn("fallbacks", payload)
+        self.assertIsInstance(payload["selected_docs"], list)
+        self.assertTrue(
+            all(isinstance(item, str) for item in payload["selected_docs"])
+        )
+        self.assertEqual(row["armed"], "unknown")
+        self.assertEqual(row["fallback_count"], "unknown")
 
     def test_unwritable_meta_path_still_returns_the_brief(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

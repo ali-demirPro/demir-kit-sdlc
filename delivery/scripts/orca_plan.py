@@ -24,6 +24,7 @@ import resolver  # noqa: E402
 import profiles as profiles_mod  # noqa: E402
 import routing  # noqa: E402
 import brief as brief_mod  # noqa: E402
+import context_metrics  # noqa: E402
 import model_policy  # noqa: E402
 
 
@@ -213,6 +214,9 @@ def build_plan(
                 gates=effective_gates,
                 risk=effective_risk,
                 profile_gates=profile_gates,
+                meta_path=context_metrics.brief_meta_path(
+                    issue, str(cp_id), routing.project_root(ROOT)
+                ),
             )
         except ValueError:
             cp_brief = ""
