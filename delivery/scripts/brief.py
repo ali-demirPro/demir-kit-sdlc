@@ -657,6 +657,8 @@ def render(data: dict) -> str:
             f"docs density: {density.get('value')} "
             f"(source: {density.get('source')})"
         )
+        if density.get("warning"):
+            lines.append(f"  uyarı: {density['warning']}")
     lines += [
         f"risk floor: {data['risk_floor']}",
         f"next: {data['next_action']}",

@@ -321,6 +321,21 @@ class LocalOverrideTests(unittest.TestCase):
             from_rigor["local"]["docs"]["density"]["source"], "default"
         )
 
+    def test_invalid_rigor_falls_back_with_warning(self) -> None:
+        """T-2: geçersiz process.rigor sessiz düşmez; kaynak fallback + uyarı."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = self.make_project(directory)
+            (root / "kit.config.yaml").write_text(
+                "process:\n  rigor: turbo\n", encoding="utf-8"
+            )
+            data = self.resolve_in(root)
+        density = data["local"]["docs"]["density"]
+        self.assertEqual(density["source"], "fallback")
+        self.assertNotEqual(density["source"], "rigor:standard")
+        self.assertTrue(density.get("warning"), density)
+        self.assertIn("turbo", density["warning"])
+        self.assertEqual(density["value"], "balanced")
+
     def test_locked_keys_cannot_change_risk_reviewers_or_gates(self) -> None:
         locked = {
             "process": {"rigor": "minimal"},

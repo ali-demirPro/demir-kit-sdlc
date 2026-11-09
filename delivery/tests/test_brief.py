@@ -384,6 +384,26 @@ class LocalDensityTests(unittest.TestCase):
             brief.routing.evidence_reviewers({"behavior": True}, baseline["risk"]),
         )
 
+    def test_invalid_rigor_warning_reaches_json_and_markdown(self) -> None:
+        """T-2: fallback docs.density uyarısı brief JSON ve markdown'da görünür."""
+        body = config_body(self.SEAL)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "kit.config.yaml").write_text(
+                "process:\n  rigor: turbo\n", encoding="utf-8"
+            )
+            with patch.object(brief.routing, "project_root", return_value=root):
+                json_code, json_out = self.run_main(["328", "--json"], body)
+                plain_code, plain_out = self.run_main(["328"], body)
+        self.assertEqual((json_code, plain_code), (0, 0))
+        density = json.loads(json_out)["docs_density"]
+        self.assertEqual(density["source"], "fallback")
+        self.assertTrue(density.get("warning"), density)
+        self.assertIn("turbo", density["warning"])
+        self.assertIn("docs density: balanced (source: fallback)", plain_out)
+        self.assertIn("uyarı:", plain_out)
+        self.assertIn("turbo", plain_out)
+
 
 class CpBriefTests(unittest.TestCase):
     def test_brief_is_compact_and_scoped(self) -> None:

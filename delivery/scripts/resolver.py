@@ -178,6 +178,8 @@ def effective_docs_density(project: Path | None, local: dict) -> dict:
 
     Kişisel değer yoksa kaynak uydurulmaz: değer `kit.config.yaml` içinden
     geldiyse `kit.config.yaml`, rigor seviyesinden türetildiyse `rigor:<level>`.
+    Geçersiz `process.rigor` gibi bir hata kanonik tabloya düşürür; bu düşüş
+    sessiz olmaz: `source` `fallback` olur ve `warning` rigor hatasını taşır.
     """
     if "docs.density" in (local.get("values") or {}):
         return {
@@ -187,10 +189,17 @@ def effective_docs_density(project: Path | None, local: dict) -> dict:
     try:
         knob = rigor_lib.load_effective(project)["knobs"]["docs.density"]
         return {"value": knob["value"], "source": knob["source"]}
-    except (ValueError, OSError, KeyError, TypeError):
+    except (ValueError, OSError, KeyError, TypeError) as exc:
         fallback = rigor_lib.fallback_effective()
         knob = fallback["knobs"]["docs.density"]
-        return {"value": knob["value"], "source": knob["source"]}
+        return {
+            "value": knob["value"],
+            "source": "fallback",
+            "warning": (
+                f"rigor yapılandırması okunamadı — {exc} "
+                f"(fallback: rigor:{fallback['level']})"
+            ),
+        }
 
 
 

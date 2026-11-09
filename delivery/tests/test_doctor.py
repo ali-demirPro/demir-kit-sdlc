@@ -1746,6 +1746,35 @@ class LocalOverridesTests(DoctorTestCase):
                     doctor.ERRORS,
                 )
 
+    def test_required_locked_key_may_be_covered_by_glob(self) -> None:
+        """T-2: `gates.human` yerine `gates.*` yeterli; ikisi de yoksa hata."""
+        data = yaml.safe_load(self.POLICY.read_text(encoding="utf-8"))
+        covered = [key for key in data["locked"] if key != "gates.human"]
+        self.assertIn("gates.*", covered)
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "local-overrides.yaml"
+            path.write_text(
+                yaml.safe_dump({**data, "locked": covered}, sort_keys=False),
+                encoding="utf-8",
+            )
+            doctor.check_local_overrides(ROOT, policy_path=path)
+        self.assertEqual(doctor.ERRORS, [], doctor.ERRORS)
+        with tempfile.TemporaryDirectory() as directory:
+            doctor.ERRORS.clear()
+            data["locked"] = [key for key in covered if key != "gates.*"]
+            path = Path(directory) / "local-overrides.yaml"
+            path.write_text(
+                yaml.safe_dump(data, sort_keys=False), encoding="utf-8"
+            )
+            doctor.check_local_overrides(ROOT, policy_path=path)
+        self.assertTrue(
+            any(
+                "zorunlu kilitli anahtar eksik" in item and "gates.human" in item
+                for item in doctor.ERRORS
+            ),
+            doctor.ERRORS,
+        )
+
     def test_nested_locked_key_cannot_enter_whitelist(self) -> None:
         """T-1: resolver semantiği — nested alt-anahtar da kilitlidir."""
         for nested in ("risk.auto_escalate.high", "gates.human.force"):

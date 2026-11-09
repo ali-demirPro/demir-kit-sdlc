@@ -66,7 +66,13 @@ def check_local_overrides(
     values = data.get("values") or {}
     locked = [str(item) for item in data.get("locked") or []]
     reasons = data.get("reasons") or {}
-    missing_locked = [key for key in REQUIRED_LOCKED if key not in locked]
+    # Zorunlu anahtar birebir yoksa da bir glob ile kapsanıyorsa yeterli:
+    # `gates.*` varken `gates.human` literalini aramak yanlış pozitif üretir.
+    missing_locked = [
+        key
+        for key in REQUIRED_LOCKED
+        if resolver.locked_reason(key, {"locked": locked}) is None
+    ]
     if missing_locked:
         error(
             f"{rel(path)}: zorunlu kilitli anahtar eksik — "
