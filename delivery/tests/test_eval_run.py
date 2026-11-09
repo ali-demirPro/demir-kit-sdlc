@@ -663,6 +663,50 @@ class UnexpectedDeathTests(unittest.TestCase):
             ]
             self.assertLess(exits[0], 0)
 
+    def test_closed_stream_child_still_times_out(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            session_dir = Path(directory) / "session"
+            command = [
+                sys.executable,
+                "-c",
+                (
+                    "import sys, time; sys.stdout.close(); sys.stderr.close();"
+                    " time.sleep(5)"
+                ),
+            ]
+            started = time.monotonic()
+            result = eval_run.run_session(
+                base_spec(command=command, timeout=0.5, attempts=2),
+                out_dir=session_dir,
+            )
+            self.assertLess(time.monotonic() - started, 3)
+            self.assertEqual(result["status"], "blocked")
+            self.assertTrue(result["timed_out"])
+            self.assertIn("zaman aşımı", result["recovery"]["reason"])
+            self.assertIn("resume_command", result["recovery"])
+            for relative in eval_run.EVIDENCE_FILES:
+                self.assertTrue(
+                    (session_dir / relative).is_file(), f"eksik kanıt: {relative}"
+                )
+
+    def test_endless_child_times_out_and_keeps_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            session_dir = Path(directory) / "session"
+            command = [sys.executable, "-c", "while True: pass"]
+            started = time.monotonic()
+            result = eval_run.run_session(
+                base_spec(command=command, timeout=0.4, attempts=1),
+                out_dir=session_dir,
+            )
+            self.assertLess(time.monotonic() - started, 3)
+            self.assertEqual(result["status"], "blocked")
+            self.assertTrue(result["timed_out"])
+            self.assertEqual(result["recovery"]["reason"], "zaman aşımı")
+            for relative in eval_run.EVIDENCE_FILES:
+                self.assertTrue(
+                    (session_dir / relative).is_file(), f"eksik kanıt: {relative}"
+                )
+
 
 class SpecValidationTests(unittest.TestCase):
     def test_shell_string_command_is_rejected(self) -> None:

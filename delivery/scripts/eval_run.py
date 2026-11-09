@@ -545,7 +545,8 @@ def capture_process(
             for line in buffer.split(b"\n"):
                 if line:
                     emit(line)
-        returncode = process.wait()
+        remaining = max(0.0, deadline - time.monotonic())
+        returncode = process.wait(timeout=remaining)
     except subprocess.TimeoutExpired:
         timed_out = True
         process.kill()
