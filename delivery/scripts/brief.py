@@ -495,6 +495,7 @@ def write_brief_meta(
     cp_id: str,
     control: dict | None,
     brief_docs: list[str],
+    unarmed: list[str] | None = None,
 ) -> None:
     """Write the machine-readable CP brief metadata (deterministic JSON)."""
     control = control or {}
@@ -502,8 +503,9 @@ def write_brief_meta(
         "issue": issue,
         "cp": cp_id,
         "armed": list(control.get("armed") or []),
+        "unarmed": list(unarmed or control.get("unarmed") or []),
         "fallbacks": list(control.get("fallbacks") or []),
-        "brief_docs": list(brief_docs),
+        "selected_docs": list(brief_docs),
     }
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
@@ -590,7 +592,12 @@ def render_cp_brief(
     brief_docs = sorted({str(item["path"]) for item in reading})
     if meta_path is not None:
         write_brief_meta(
-            meta_path, data["issue"], cp_id, control, brief_docs
+            meta_path,
+            data["issue"],
+            cp_id,
+            control,
+            brief_docs,
+            (control or {}).get("unarmed"),
         )
     if sink_paths:
         lines.append("Yollar:")

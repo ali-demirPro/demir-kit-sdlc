@@ -265,6 +265,7 @@ class GitignoreRuntimeTests(unittest.TestCase):
             )
             for line in (
                 ".kit/context-metrics.jsonl",
+                ".kit/context-metrics.jsonl.tmp",
                 ".kit/brief-*.json",
                 ".kit/evidence.jsonl",
             ):

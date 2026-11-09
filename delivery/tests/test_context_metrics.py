@@ -203,20 +203,32 @@ class BriefMetaTests(unittest.TestCase):
         cp: str,
         armed: list[str],
         fallbacks: list[str],
-        brief_docs: list[str],
+        selected_docs: list[str],
+        unarmed: list[str] | None = None,
+    ) -> Path:
+        return self.write_raw_meta(
+            root,
+            issue,
+            cp,
+            {
+                "armed": armed,
+                "unarmed": unarmed if unarmed is not None else [],
+                "fallbacks": fallbacks,
+                "selected_docs": selected_docs,
+            },
+        )
+
+    def write_raw_meta(
+        self,
+        root: Path,
+        issue: int,
+        cp: str,
+        payload: dict,
     ) -> Path:
         path = context_metrics.brief_meta_path(issue, cp, root)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(
-            json.dumps(
-                {
-                    "issue": issue,
-                    "cp": cp,
-                    "armed": armed,
-                    "fallbacks": fallbacks,
-                    "brief_docs": brief_docs,
-                }
-            ),
+            json.dumps({"issue": issue, "cp": cp, **payload}),
             encoding="utf-8",
         )
         return path
@@ -236,17 +248,45 @@ class BriefMetaTests(unittest.TestCase):
                 ["path pure_technical", "cp CP-1"],
                 ["ecosystem yok", "index yok"],
                 docs,
+                ["route tuketilmedi"],
             )
             result = context_metrics.record_from_brief(321, "CP-1", root)
         self.assertIsNotNone(result)
         row, line = result
         self.assertEqual(row["armed"], True)
         self.assertEqual(row["fallback_count"], 2)
-        self.assertEqual(row["brief_docs"], docs)
+        self.assertEqual(row["selected_docs"], docs)
+        self.assertEqual(row["brief_docs"], [])
         self.assertEqual(row["tokens"], 100)
-        self.assertEqual(row["miss_rate"], 0.0)
-        self.assertEqual(row["over_read_rate"], 0.0)
+        self.assertEqual(row["miss_rate"], "unknown")
+        self.assertEqual(row["over_read_rate"], "unknown")
+        self.assertIn("usage:unknown", row["method"])
         self.assertEqual(json.loads(line), row)
+
+    def test_non_list_metadata_is_ignored(self) -> None:
+        cases = (
+            {"armed": "no"},
+            {"fallbacks": "index yok"},
+            {"selected_docs": "a.md"},
+            {"unarmed": "route tuketilmedi"},
+        )
+        for bad in cases:
+            with self.subTest(bad=bad), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                payload = {
+                    "armed": [],
+                    "unarmed": [],
+                    "fallbacks": [],
+                    "selected_docs": [],
+                    **bad,
+                }
+                self.write_raw_meta(root, 321, "CP-1", payload)
+                self.assertIsNone(
+                    context_metrics.read_brief_meta(321, "CP-1", root)
+                )
+                self.assertIsNone(
+                    context_metrics.record_from_brief(321, "CP-1", root)
+                )
 
     def test_missing_metadata_is_unknown_not_zero(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -342,10 +382,16 @@ class BriefMetaTests(unittest.TestCase):
             path = root / ".kit" / "context-metrics.jsonl"
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(b"\xff\xfe bozuk\n")
-            row, line = context_metrics.record(
-                321, "CP-1", brief_docs=["a.md"], tokens=100, root=root
-            )
+            stderr = io.StringIO()
+            with contextlib.redirect_stderr(stderr):
+                row, line = context_metrics.record(
+                    321, "CP-1", brief_docs=["a.md"], tokens=100, root=root
+                )
             self.assertEqual(path.read_text(encoding="utf-8"), line + "\n")
+            self.assertIn(
+                "uyari: context-metrics dosyasi UTF-8 degil",
+                stderr.getvalue(),
+            )
         self.assertEqual(row["issue"], 321)
 
 

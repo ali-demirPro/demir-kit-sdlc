@@ -490,6 +490,7 @@ class BriefMetaTests(unittest.TestCase):
     def test_meta_path_writes_deterministic_metadata(self) -> None:
         control = {
             "armed": ["path pure_technical", "cp CP-1"],
+            "unarmed": ["route tuketilmedi"],
             "fallbacks": ["ecosystem yok", "index yok"],
         }
         with tempfile.TemporaryDirectory() as tmp:
@@ -516,12 +517,14 @@ class BriefMetaTests(unittest.TestCase):
         self.assertEqual(payload["issue"], 321)
         self.assertEqual(payload["cp"], "CP-1")
         self.assertEqual(payload["armed"], control["armed"])
+        self.assertEqual(payload["unarmed"], control["unarmed"])
         self.assertEqual(payload["fallbacks"], control["fallbacks"])
-        self.assertTrue(payload["brief_docs"])
+        self.assertNotIn("brief_docs", payload)
+        self.assertTrue(payload["selected_docs"])
         self.assertEqual(
-            payload["brief_docs"], sorted(set(payload["brief_docs"]))
+            payload["selected_docs"], sorted(set(payload["selected_docs"]))
         )
-        self.assertIn("delivery/scripts/brief.py", payload["brief_docs"])
+        self.assertIn("delivery/scripts/brief.py", payload["selected_docs"])
 
 
 class ReadClassTests(unittest.TestCase):

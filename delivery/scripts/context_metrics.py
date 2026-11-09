@@ -12,6 +12,10 @@ Definitions (single source of truth, see ``delivery/policies/context-budget.md``
   ``unknown``; a zero is never invented. Rates above 1 are clamped to 1.0 and
   the row records ``clamped: true``. The ``method`` field names the source as
   ``usage-delta`` (session delta) or ``usage-total`` (explicit snapshot file).
+- ``selected_docs`` is what the CP brief chose. When use evidence is absent
+  (``usage_known=False``, the ``record_from_brief`` path) the used/unused split
+  stays empty, both rates are ``unknown`` and ``method`` carries
+  ``usage:unknown``; the selection is never reported as used.
 
 One deterministic JSON line is written per ``(issue, cp)`` to
 ``.kit/context-metrics.jsonl`` so a leaf-done transition can tell whether the CP
@@ -72,7 +76,11 @@ def brief_meta_path(issue: int, cp: str, root: Path | None = None) -> Path:
 def read_brief_meta(
     issue: int, cp: str, root: Path | None = None
 ) -> dict | None:
-    """Brief metadata for ``issue``/``cp``; ``None`` when absent or mismatched."""
+    """Brief metadata for ``issue``/``cp``; ``None`` when absent or mismatched.
+
+    A known list key whose value is not a ``list[str]`` marks the whole file as
+    corrupt (hand-edited or wrongly written), so it is not trusted at all.
+    """
     try:
         data = json.loads(
             brief_meta_path(issue, cp, root).read_text(encoding="utf-8")
@@ -83,6 +91,13 @@ def read_brief_meta(
         return None
     if data.get("issue") != issue or data.get("cp") != cp:
         return None
+    for key in ("armed", "unarmed", "fallbacks", "selected_docs"):
+        if key in data:
+            value = data[key]
+            if not isinstance(value, list) or not all(
+                isinstance(item, str) for item in value
+            ):
+                return None
     return data
 
 
@@ -263,20 +278,46 @@ def build_row(
     config: str | None = None,
     brief_meta: dict | None = None,
     root: Path | None = None,
+    selected_docs: list[str] | None = None,
+    usage_known: bool = True,
 ) -> dict:
     base = resolve_root(root)
-    brief_sorted = sorted(display_path(value, base) for value in brief_docs or [])
-    unused_sorted = sorted(
-        display_path(value, base) for value in unused_brief_docs or []
+    selected_sorted = sorted(
+        display_path(value, base) for value in selected_docs or []
     )
-    extra_sorted = sorted(display_path(value, base) for value in extra_docs or [])
-    missed_sorted = sorted(display_path(value, base) for value in missed_docs or [])
+    if usage_known:
+        brief_sorted = sorted(
+            display_path(value, base) for value in brief_docs or []
+        )
+        unused_sorted = sorted(
+            display_path(value, base) for value in unused_brief_docs or []
+        )
+        extra_sorted = sorted(
+            display_path(value, base) for value in extra_docs or []
+        )
+        missed_sorted = sorted(
+            display_path(value, base) for value in missed_docs or []
+        )
+    else:
+        # Selection is known but there is no use evidence: never fabricate a
+        # used/unused split or a zero rate.
+        brief_sorted = []
+        unused_sorted = []
+        extra_sorted = []
+        missed_sorted = []
     token_value, token_method = resolve_tokens(issue, tokens, usage_file, base)
-    rate, clamped, missing = over_read_rate(
-        extra_sorted, unused_sorted, token_value, base
-    )
+    if usage_known:
+        rate, clamped, missing = over_read_rate(
+            extra_sorted, unused_sorted, token_value, base
+        )
+        miss_value = miss_rate(brief_sorted, missed_sorted)
+    else:
+        rate, clamped, missing = UNKNOWN, False, []
+        miss_value = UNKNOWN
     method = [token_method]
     method += [f"doc-missing:{value}" for value in missing]
+    if not usage_known:
+        method.append("usage:unknown")
     if brief_meta is not None:
         # A present key keeps its meaning; an absent key is unmeasured, never
         # a fabricated False/0 from bool(None)/len([]).
@@ -297,12 +338,13 @@ def build_row(
     row = {
         "issue": issue,
         "cp": cp,
+        "selected_docs": selected_sorted,
         "brief_docs": brief_sorted,
         "unused_brief_docs": unused_sorted,
         "extra_docs": extra_sorted,
         "missed_docs": missed_sorted,
         "tokens": token_value,
-        "miss_rate": miss_rate(brief_sorted, missed_sorted),
+        "miss_rate": miss_value,
         "over_read_rate": rate,
         "clamped": clamped,
         "armed": armed_value,
@@ -330,6 +372,8 @@ def record(
     brief_meta: dict | None = None,
     root: Path | None = None,
     write: bool = True,
+    selected_docs: list[str] | None = None,
+    usage_known: bool = True,
 ) -> tuple[dict, str]:
     row = build_row(
         issue,
@@ -343,6 +387,8 @@ def record(
         config=config,
         brief_meta=brief_meta,
         root=root,
+        selected_docs=selected_docs,
+        usage_known=usage_known,
     )
     line = line_of(row)
     if write:
@@ -351,7 +397,13 @@ def record(
         kept: list[str] = []
         try:
             existing = path.read_text(encoding="utf-8").splitlines()
-        except (OSError, UnicodeDecodeError):
+        except UnicodeDecodeError:
+            print(
+                "uyari: context-metrics dosyasi UTF-8 degil; yeniden yaziliyor",
+                file=sys.stderr,
+            )
+            existing = []
+        except OSError:
             existing = []
         for raw in existing:
             if not raw.strip():
@@ -381,15 +433,21 @@ def record(
 def record_from_brief(
     issue: int, cp: str, root: Path | None = None
 ) -> tuple[dict, str] | None:
-    """Record a row from the CP brief metadata; ``None`` when it is missing."""
+    """Record a row from the CP brief metadata; ``None`` when it is missing.
+
+    The brief only knows which documents it *selected*, not which were used, so
+    the row carries ``selected_docs`` with ``usage_known=False`` instead of
+    claiming the selection was used (which would fabricate 0.0 rates).
+    """
     meta = read_brief_meta(issue, cp, root)
     if meta is None:
         return None
-    brief_docs = meta.get("brief_docs")
+    selected = meta.get("selected_docs")
     return record(
         issue,
         cp,
-        brief_docs=brief_docs if isinstance(brief_docs, list) else [],
+        selected_docs=selected if isinstance(selected, list) else [],
+        usage_known=False,
         brief_meta=meta,
         root=root,
     )
@@ -670,7 +728,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--project", type=Path, help="project root (default: cwd)")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    record_parser = sub.add_parser("record", help="append one metrics line")
+    record_parser = sub.add_parser(
+        "record",
+        help="write/replace the metrics line for one issue + checkpoint",
+    )
     record_parser.add_argument("--issue", type=int, required=True)
     record_parser.add_argument("--cp", required=True)
     record_parser.add_argument("--brief-doc", action="append", default=[])

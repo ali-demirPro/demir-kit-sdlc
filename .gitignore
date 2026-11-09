@@ -9,6 +9,7 @@
 .kit/resources.jsonl
 .kit/gate-cache.json
 .kit/context-metrics.jsonl
+.kit/context-metrics.jsonl.tmp
 .kit/brief-*.json
 # install.sh → npx skills add çıktısı: makineye özel, kaynaktan türetilir
 .agents/
