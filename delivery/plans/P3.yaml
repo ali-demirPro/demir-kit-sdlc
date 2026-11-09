@@ -15,9 +15,10 @@ mechanisms:
     ours: >-
       Süreç ağırlığı tek bir soru değil, dağınık varsayımlar: path routing
       (registry.paths), profil kompozisyonu (profiles.py) ve risk matrisi
-      (quality-gates.md) ayrı ayrı karar veriyor. Aynı leaf her riskte aynı
-      töreni görüyor; landing page ile payments arasındaki fark yalnız risk
-      seviyesinde.
+      (quality-gates.md) ayrı ayrı karar veriyor. Landing ile payments
+      arasındaki fark profil gate'lerinde (payments `architect` + `commercial`
+      taşır) ve risk glob'unda; doküman derinliği, kanıt ayrıntısı ve reviewer
+      paneli ikisinde de aynı.
     gap: >-
       `process.rigor` diye tek bir kapı yok; "ne kadar tören" sorusu bir kez
       sorulup altı düğmeye yayılmıyor. Bugünkü davranışın adı bile yok.
@@ -49,9 +50,9 @@ mechanisms:
 
   - name: personal-override
     ours: >-
-      `.kit/` bugün yalnız makine durumu taşıyor (usage, evidence, metrics);
-      kişisel yapılandırma dosyası yok. Bir geliştiricinin kendi tercihini
-      takım ayarından ayırma yolu bulunmuyor.
+      `.kit/` makine durumu (usage, evidence, metrics) ve risk overlay'i
+      (`.kit/risk.yaml`) taşıyor; kişisel yapılandırma dosyası yok. Bir
+      geliştiricinin kendi tercihini takım ayarından ayırma yolu bulunmuyor.
     gap: >-
       `project.local.yaml` deseninin karşılığı yok: beyaz liste, kilitli
       anahtarın sessizce yutulmaması ve "artifact üreten ayar kilitli"
@@ -185,7 +186,7 @@ children:
     ac:
       - "`delivery/rigor.yaml` üç seviyeyi ve altı düğme için yayma tablosunu taşır; şema bilinmeyen seviyeyi ve eksik düğmeyi reddeder."
       - "`kit.config.yaml` `process.rigor` alanını taşır; alan yoksa `standard` etkin olur ve kaynak `default` olarak raporlanır."
-      - "Açık düğme değeri yaymayı iki yönde de ezer; kaynak `project.yaml`, türetilmiş değer için `rigor:<level>` yazılır."
+      - "Açık düğme değeri yaymayı iki yönde de ezer; kaynak `kit.config.yaml`, türetilmiş değer için `rigor:<level>` yazılır."
       - "`./delivery/scripts/doctor.sh --strict` 0 uyarı verir; şema testi geçersiz seviyeyi exit 1 ile reddeder."
 
   - slug: p3-3-effective-matrix
