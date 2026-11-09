@@ -1716,6 +1716,23 @@ class LocalOverridesTests(DoctorTestCase):
             doctor.ERRORS,
         )
 
+    def test_required_locked_keys_cannot_be_dropped(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            data = yaml.safe_load(self.POLICY.read_text(encoding="utf-8"))
+            data["locked"] = [
+                key for key in data["locked"] if key != "risk.level"
+            ]
+            path = Path(directory) / "local-overrides.yaml"
+            path.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
+            doctor.check_local_overrides(ROOT, policy_path=path)
+        self.assertTrue(
+            any(
+                "zorunlu kilitli anahtar eksik" in item and "risk.level" in item
+                for item in doctor.ERRORS
+            ),
+            doctor.ERRORS,
+        )
+
     def test_missing_reason_is_error(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             data = yaml.safe_load(self.POLICY.read_text(encoding="utf-8"))

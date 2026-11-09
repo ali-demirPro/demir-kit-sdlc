@@ -23,6 +23,18 @@ import resolver  # noqa: E402
 
 ROOT = SCRIPTS.parents[1]
 
+# Politika dosyası tek başına kaldırılamaz: bu anahtarlar her zaman kilitli
+# olmalı. Kanıt, reviewer, risk ve insan kapıları kişisel dosyaya açılmaz.
+REQUIRED_LOCKED = (
+    "process.rigor",
+    "qa.level",
+    "routing.evidence_reviewers",
+    "risk.level",
+    "risk.auto_escalate",
+    "gates.human",
+    "gates.*",
+)
+
 
 def check_local_overrides(
     root: Path,
@@ -50,6 +62,12 @@ def check_local_overrides(
     values = data.get("values") or {}
     locked = [str(item) for item in data.get("locked") or []]
     reasons = data.get("reasons") or {}
+    missing_locked = [key for key in REQUIRED_LOCKED if key not in locked]
+    if missing_locked:
+        error(
+            f"{rel(path)}: zorunlu kilitli anahtar eksik — "
+            + ", ".join(missing_locked)
+        )
     if not isinstance(read, list) or not read:
         error(f"{rel(path)}: read listesi boş")
         read = []

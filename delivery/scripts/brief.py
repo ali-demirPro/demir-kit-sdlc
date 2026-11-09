@@ -262,6 +262,7 @@ def build_brief(
         else resolver.project_signals(ecosystem or {})
     )
     text = f"{title}\n{seal.get('intent', '')}\n{routing.strip_seal(body)}"
+    project = routing.project_root(ROOT)
     resolution = resolver.resolve(
         resolver.load_capabilities(),
         resolver.load_matrix(),
@@ -269,7 +270,8 @@ def build_brief(
         path_id,
         signals,
         text,
-        declared=resolver.load_declared(routing.project_root(ROOT)),
+        declared=resolver.load_declared(project),
+        project=project,
     )
     docs = [f"{prefix}{doc}" for doc in resolution["docs"]]
     config = routing.config_snapshot(
@@ -309,6 +311,7 @@ def build_brief(
         "variant_gaps": resolution["variant_gaps"],
         "risk": risk,
         "risk_floor": resolution["risk_floor"],
+        "docs_density": resolution["local"]["docs"]["density"],
         "priorities": priorities or {},
         "next_action": routing.next_action(labels, epic),
         "human_gates": routing.human_gates(risk, epic),
@@ -648,6 +651,12 @@ def render(data: dict) -> str:
     lines.append("variant gaps:")
     for item in data["variant_gaps"]:
         lines.append(f"  - {item['role']} / {item['capability']}: {item['reason']}")
+    density = data.get("docs_density") or {}
+    if density:
+        lines.append(
+            f"docs density: {density.get('value')} "
+            f"(source: {density.get('source')})"
+        )
     lines += [
         f"risk floor: {data['risk_floor']}",
         f"next: {data['next_action']}",

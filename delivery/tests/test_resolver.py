@@ -335,6 +335,23 @@ class LocalOverrideTests(unittest.TestCase):
         for key in ("process.rigor", "qa.level", "risk.level", "gates.human"):
             self.assertIn(f"'{key}' kilitli", warnings)
 
+    def test_nested_locked_keys_are_locked(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = self.make_project(
+                directory,
+                {
+                    "risk": {"auto_escalate": {"high": ["security"]}},
+                    "gates": {"human": {"force": True}},
+                },
+            )
+            data = self.resolve_in(root)
+        local = data["local"]
+        self.assertEqual(local["values"], {})
+        warnings = "\n".join(local["warnings"])
+        self.assertIn("'risk.auto_escalate.high' kilitli", warnings)
+        self.assertIn("'gates.human.force' kilitli", warnings)
+        self.assertNotIn("beyaz listede değil", warnings)
+
     def test_set_local_writes_allowed_and_rejects_locked(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = self.make_project(

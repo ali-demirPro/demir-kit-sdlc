@@ -96,8 +96,18 @@ def _flatten_local(data: dict, prefix: str = "") -> dict:
 
 
 def _locked_reason(key: str, policy: dict) -> str | None:
+    """Kilitli anahtar gerekçesi; nested alt-anahtar da kilitlidir.
+
+    Tam eşleşme, `fnmatch` globu veya `pattern + "."` ile başlayan alt-anahtar
+    kilitli sayılır: `risk.auto_escalate` iken `risk.auto_escalate.high` de
+    kişisel dosyaya açılmaz.
+    """
     for pattern in policy.get("locked") or []:
-        if fnmatch.fnmatchcase(key, pattern):
+        if (
+            key == pattern
+            or fnmatch.fnmatchcase(key, pattern)
+            or key.startswith(pattern + ".")
+        ):
             reason = (policy.get("reasons") or {}).get(pattern)
             return str(reason or "kilitli anahtar")
     return None
