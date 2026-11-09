@@ -1,8 +1,9 @@
-"""Tests for eval scenario enforcement."""
+"""Tests for eval scenario enforcement and finding records."""
 
 from __future__ import annotations
 
 import importlib.util
+import json
 import sys
 import tempfile
 import unittest
@@ -10,12 +11,47 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPTS = ROOT / "delivery" / "scripts"
+SCHEMAS = ROOT / "delivery" / "schemas"
 sys.path.insert(0, str(SCRIPTS))
 
 spec = importlib.util.spec_from_file_location("eval", SCRIPTS / "eval.py")
 eval_mod = importlib.util.module_from_spec(spec)
 assert spec.loader is not None
 spec.loader.exec_module(eval_mod)
+
+from schema_lite import validate_schema  # noqa: E402
+
+
+def finding_schema() -> dict:
+    return json.loads((SCHEMAS / "finding.schema.json").read_text(encoding="utf-8"))
+
+
+def finding(**overrides) -> dict:
+    record = {
+        "demir_kit_version": "2",
+        "id": "FND-1",
+        "kind": "FRICTION",
+        "basis": "OBSERVED",
+        "effect": "EXTRA_WORK",
+        "cause": "PRODUCT",
+        "label": "Eksik kurulum adımı",
+        "detail": "Agent kurulum adımını bulamadı ve kendisi tamamladı.",
+        "evidence": [{"kind": "trace", "seq": 7}],
+    }
+    record.update(overrides)
+    return record
+
+
+# Fixture: kanıt yetersiz olduğu için etki ve neden UNKNOWN kalır.
+FIXTURE_UNKNOWN_EVIDENCE = finding(
+    id="FND-UNKNOWN",
+    basis="INFERRED",
+    effect="UNKNOWN",
+    cause="UNKNOWN",
+    label="Okuma erişimi belirsiz",
+    detail="Oturum kaydında sayfanın okunup okunmadığını gösteren iz yok.",
+    evidence=[{"kind": "artifact", "artifact": "session/events.ndjson", "line": 2}],
+)
 
 
 def write_eval(root: Path, rows: list[str]) -> Path:
@@ -65,6 +101,51 @@ class EvalTests(unittest.TestCase):
             {"results": [{"id": "A", "result": "skip"}]}, ["A"]
         )
         self.assertTrue(any("A: skip" in item for item in errors))
+
+
+class FindingSchemaTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.schema = finding_schema()
+
+    def test_valid_record_passes(self) -> None:
+        self.assertEqual(validate_schema(finding(), self.schema), [])
+
+    def test_unknown_evidence_stays_unknown(self) -> None:
+        record = dict(FIXTURE_UNKNOWN_EVIDENCE)
+        self.assertEqual(validate_schema(record, self.schema), [])
+        self.assertEqual(record["effect"], "UNKNOWN")
+        self.assertEqual(record["cause"], "UNKNOWN")
+
+    def test_unknown_effect_is_not_a_fail_value(self) -> None:
+        errors = validate_schema(
+            finding(effect="FAIL"), self.schema
+        )
+        self.assertTrue(any("effect" in item and "enum dışında" in item for item in errors))
+
+    def test_invalid_kind_rejected(self) -> None:
+        errors = validate_schema(finding(kind="BUG"), self.schema)
+        self.assertTrue(any("kind" in item and "enum dışında" in item for item in errors))
+
+    def test_missing_evidence_rejected(self) -> None:
+        record = finding()
+        record.pop("evidence")
+        errors = validate_schema(record, self.schema)
+        self.assertTrue(any("evidence: eksik" in item for item in errors))
+
+    def test_empty_evidence_rejected(self) -> None:
+        errors = validate_schema(finding(evidence=[]), self.schema)
+        self.assertTrue(any("en az 1 öğe" in item for item in errors))
+
+    def test_trace_evidence_needs_seq(self) -> None:
+        errors = validate_schema(finding(evidence=[{"kind": "trace"}]), self.schema)
+        self.assertTrue(any("seq: eksik" in item for item in errors))
+
+    def test_artifact_evidence_needs_path_and_line(self) -> None:
+        errors = validate_schema(
+            finding(evidence=[{"kind": "artifact"}]), self.schema
+        )
+        self.assertTrue(any("artifact: eksik" in item for item in errors))
+        self.assertTrue(any("line: eksik" in item for item in errors))
 
 
 if __name__ == "__main__":
