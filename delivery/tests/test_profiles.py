@@ -29,10 +29,31 @@ resolver = importlib.util.module_from_spec(spec_resolver)
 assert spec_resolver.loader is not None
 spec_resolver.loader.exec_module(resolver)
 
+spec_rigor = importlib.util.spec_from_file_location("rigor", SCRIPTS / "rigor.py")
+rigor = importlib.util.module_from_spec(spec_rigor)
+assert spec_rigor.loader is not None
+spec_rigor.loader.exec_module(rigor)
+
+spec_routing = importlib.util.spec_from_file_location("routing", SCRIPTS / "routing.py")
+routing = importlib.util.module_from_spec(spec_routing)
+assert spec_routing.loader is not None
+spec_routing.loader.exec_module(routing)
+
 
 def project(root: Path, factory: str) -> Path:
     (root / "kit.config.yaml").write_text(
         "kit:\n  root: demir-kit\n  protocol: \"2\"\nfactory:\n" + factory,
+        encoding="utf-8",
+    )
+    return root
+
+
+def rigor_project(root: Path, process: str) -> Path:
+    """kit.config with a `process:` block plus a valid profile selection."""
+    (root / "kit.config.yaml").write_text(
+        "kit:\n  root: demir-kit\n  protocol: \"2\"\nprocess:\n"
+        + process
+        + "factory:\n  default_profile: web-app\n  profiles: [web-app]\n",
         encoding="utf-8",
     )
     return root
@@ -314,6 +335,88 @@ class ResolveTests(unittest.TestCase):
             data = profiles.resolve(root)
         skills = {item["value"]: item["source"] for item in data["required_skills"]}
         self.assertEqual(skills["work-package"], "delivery/profiles/web-app.yaml:8")
+
+
+class RigorProfileTests(unittest.TestCase):
+    def test_compose_carries_effective_rigor(self) -> None:
+        """T-1: compose/resolve rigor bloğu load_effective ile birebir aynı."""
+        expected = rigor.load_effective(ROOT)
+        for data in (profiles.compose(ROOT), profiles.resolve(ROOT)):
+            block = data["rigor"]
+            self.assertEqual(block["level"], expected["level"])
+            self.assertEqual(block["source"], expected["source"])
+            self.assertEqual(sorted(block["knobs"]), sorted(rigor.KNOBS))
+            self.assertEqual(len(block["knobs"]), 6)
+            for name, item in expected["knobs"].items():
+                self.assertEqual(block["knobs"][name]["value"], item["value"], name)
+                self.assertEqual(block["knobs"][name]["source"], item["source"], name)
+            self.assertEqual(block["warnings"], [])
+            self.assertIsNone(block["fallback"])
+
+    def test_invalid_rigor_warns_and_falls_back(self) -> None:
+        """T-3: geçersiz seviye ve çözülemeyen düğme sessizce yutulmaz."""
+        cases = {
+            "geçersiz seviye": "  rigor: extreme\n",
+            "çözülemeyen düğme": "  qa.level: extreme\n",
+        }
+        fallback = rigor.fallback_effective()
+        for label, process in cases.items():
+            with self.subTest(case=label), tempfile.TemporaryDirectory() as directory:
+                root = rigor_project(Path(directory), process)
+                block = profiles.compose(root)["rigor"]
+            self.assertEqual(block["level"], "standard")
+            self.assertEqual(block["source"], "fallback")
+            self.assertEqual(len(block["warnings"]), 1)
+            self.assertTrue(block["warnings"][0].startswith("uyarı: "))
+            self.assertIn("geçersiz", block["warnings"][0])
+            self.assertTrue(block["fallback"].startswith("standard ("))
+            self.assertIn("geçersiz", block["fallback"])
+            for name, item in fallback["knobs"].items():
+                self.assertEqual(block["knobs"][name], item, name)
+
+    def test_matrix_levels_and_off_diagonals(self) -> None:
+        """T-4: standart, açık minimal/full ve iki off-diagonal vakası."""
+        cases = {
+            "standard": ("  rigor: standard\n", "standard", "kit.config.yaml", {}),
+            "minimal": ("  rigor: minimal\n", "minimal", "kit.config.yaml", {}),
+            "full": ("  rigor: full\n", "full", "kit.config.yaml", {}),
+            "full+terse": (
+                "  rigor: full\n  docs.density: terse\n",
+                "full",
+                "kit.config.yaml",
+                {"docs.density": "terse"},
+            ),
+            "minimal+qa-full": (
+                "  rigor: minimal\n  qa.level: full\n",
+                "minimal",
+                "kit.config.yaml",
+                {"qa.level": "full"},
+            ),
+        }
+        table = rigor.load_rigor()["levels"]
+        reviewers: dict[str, set[tuple[str, ...]]] = {}
+        for label, (process, level, source, overrides) in cases.items():
+            with self.subTest(case=label), tempfile.TemporaryDirectory() as directory:
+                root = rigor_project(Path(directory), process)
+                block = profiles.compose(root)["rigor"]
+            self.assertEqual(block["level"], level)
+            self.assertEqual(block["source"], source)
+            self.assertEqual(block["warnings"], [])
+            for name in rigor.KNOBS:
+                expected_value = overrides.get(name, table[level][name])
+                expected_source = (
+                    "kit.config.yaml" if name in overrides else f"rigor:{level}"
+                )
+                self.assertEqual(block["knobs"][name]["value"], expected_value, name)
+                self.assertEqual(block["knobs"][name]["source"], expected_source, name)
+            for risk in ("medium", "high"):
+                roles = tuple(
+                    routing.evidence_reviewers({"behavior": True}, risk, {})
+                )
+                reviewers.setdefault(risk, set()).add(roles)
+        # Reviewer sayısı rigor seviyesinden bağımsız: her risk tek küme üretir.
+        self.assertEqual(len(reviewers["medium"]), 1, reviewers["medium"])
+        self.assertEqual(len(reviewers["high"]), 1, reviewers["high"])
 
 
 class ResolverMergeTests(unittest.TestCase):

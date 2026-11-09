@@ -165,6 +165,27 @@ def load_effective(project: Path | str | None = None, rigor_path: Path | None = 
     return {"level": level, "source": source, "knobs": knobs}
 
 
+def fallback_effective(level: str = DEFAULT_LEVEL) -> dict:
+    """Effective matrix for `level` from the canonical table, no overrides.
+
+    Fallback path for invalid ``process`` configuration. Callers must attach
+    the warning and the reason, so the drop to the default is never silent.
+    """
+    data = load_rigor()
+    levels = data.get("levels") or {}
+    table = levels.get(level) if isinstance(levels, dict) else None
+    if not isinstance(table, dict):
+        raise RigorError(f"rigor.yaml: seviye '{level}' yok")
+    knobs = {
+        name: {
+            "value": _knob_value(name, table.get(name)),
+            "source": f"rigor:{level}",
+        }
+        for name in KNOBS
+    }
+    return {"level": level, "source": "fallback", "knobs": knobs}
+
+
 def reviewer_count(risk: str, data: dict | None = None) -> int:
     """Gating reviewer count is risk-only; rigor never changes it."""
     data = data if data is not None else load_rigor()

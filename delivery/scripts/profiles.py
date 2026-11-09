@@ -14,6 +14,7 @@ import yaml
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import risk_filter as risk_filter_lib  # noqa: E402
+import rigor as rigor_lib  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
 PROFILE_DIR = ROOT / "delivery" / "profiles"
@@ -181,6 +182,37 @@ def profile_names(project: Path) -> list[str]:
     return [str(default)] if default else []
 
 
+def rigor_block(project: Path) -> dict:
+    """Etkin rigor matrisi; geçersiz yapılandırmada uyarı ve nedeni taşır.
+
+    Değerler her zaman `rigor.load_effective`'ten gelir. Çözülemeyen
+    `process` yapılandırması sessizce yutulmaz: `standard` seviyesine düşer,
+    `warnings` satırı ve `fallback` nedeni çıktıya eklenir.
+    """
+    try:
+        block = rigor_lib.load_effective(project)
+    except rigor_lib.RigorError as exc:
+        reason = str(exc)
+        try:
+            block = rigor_lib.fallback_effective()
+        except rigor_lib.RigorError as fallback_exc:
+            raise ValueError(f"rigor: {fallback_exc}") from fallback_exc
+        return {
+            "level": block["level"],
+            "source": block["source"],
+            "knobs": block["knobs"],
+            "warnings": [f"uyarı: {reason}"],
+            "fallback": f"{block['level']} ({reason})",
+        }
+    return {
+        "level": block["level"],
+        "source": block["source"],
+        "knobs": block["knobs"],
+        "warnings": [],
+        "fallback": None,
+    }
+
+
 def compose(project: Path) -> dict:
     names = profile_names(project)
     if not names:
@@ -195,6 +227,7 @@ def compose(project: Path) -> dict:
             "required_skills": [],
             "architecture_baseline_required": False,
             "commercial_baseline_required": False,
+            "rigor": rigor_block(project),
         }
     config = project_config(project)
     factory = config.get("factory") or {}
@@ -228,6 +261,7 @@ def compose(project: Path) -> dict:
         "required_skills": sorted(skills),
         "architecture_baseline_required": architecture,
         "commercial_baseline_required": commercial,
+        "rigor": rigor_block(project),
     }
 
 
@@ -375,6 +409,7 @@ def resolve(project: Path, paths: list[str] | None = None) -> dict:
             ordered, "commercial_baseline_required"
         ),
         "risk": risk_stage(project, paths),
+        "rigor": rigor_block(project),
         "order": list(ORDER),
     }
 
