@@ -98,3 +98,28 @@ class ApplyTests(unittest.TestCase):
 
     def test_version_bump(self) -> None:
         self.assertEqual(learnings.bump_patch("2.27.0"), "2.27.1")
+
+
+class ContractReferenceTests(unittest.TestCase):
+    """T-2: self-improvement lane atfı I22'yi, I13 ise rebase'i anlatır."""
+
+    def contract_rows(self, anchor: str) -> list[str]:
+        text = (ROOT / "delivery" / "CONTRACT.md").read_text(encoding="utf-8")
+        return [line for line in text.splitlines() if line.startswith(f"| {anchor} |")]
+
+    def test_learnings_docstring_cites_i22_not_i13(self) -> None:
+        docstring = learnings.__doc__ or ""
+        self.assertIn("I22", docstring)
+        self.assertNotIn("I13 kapsamı", docstring)
+
+    def test_contract_i22_is_epic_done_human_acceptance(self) -> None:
+        rows = self.contract_rows("I22")
+        self.assertEqual(len(rows), 1)
+        self.assertIn("epic-done", rows[0])
+        self.assertIn("demir-kit-accept", rows[0])
+
+    def test_contract_i13_stays_rebase_only(self) -> None:
+        rows = self.contract_rows("I13")
+        self.assertEqual(len(rows), 1)
+        self.assertIn("rebase", rows[0])
+        self.assertNotIn("kapsam", rows[0])

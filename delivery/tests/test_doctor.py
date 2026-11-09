@@ -1661,9 +1661,33 @@ class ExplainTests(DoctorTestCase):
 
 
 class RiskBaselineInvariantTest(unittest.TestCase):
-    """I24: rigor seviyesi risk tabanını ve insan kapısını düşüremez."""
+    """I24: rigor seviyesi risk tabanını, reviewer sayısını ve insan kapısını düşüremez."""
 
+    LEVELS = ("minimal", "standard", "full")
+    RISKS = ("low", "medium", "high", "critical")
     COUNTS = {"low": 1, "medium": 1, "high": 2, "critical": 2}
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.registry = doctor.resolver_lib.load_capabilities()
+        cls.matrix = doctor.resolver_lib.load_matrix()
+        cls.variants = doctor.resolver_lib.load_agent_variants()
+
+    def make_project(self, root: Path, level: str) -> Path:
+        """Rigor seviyesi dışında her şeyi aynı olan gerçek proje."""
+        (root / "kit.config.yaml").write_text(
+            "kit:\n  root: .\n  protocol: \"2\"\n"
+            f"process:\n  rigor: {level}\n"
+            "factory:\n  default_profile: web-app\n"
+            "  profiles: [web-app, payments]\n",
+            encoding="utf-8",
+        )
+        (root / "ecosystem.yaml").write_text(
+            "products:\n  app:\n    surfaces:\n      web.app:\n"
+            "        platforms: [web]\n        stacks: [next]\n",
+            encoding="utf-8",
+        )
+        return root
 
     def test_reviewer_count_is_risk_only(self) -> None:
         for risk, count in self.COUNTS.items():
@@ -1673,53 +1697,109 @@ class RiskBaselineInvariantTest(unittest.TestCase):
         for risk in ("high", "critical"):
             reviewers = doctor.routing.evidence_reviewers({}, risk)
             self.assertIn("human", reviewers, risk)
-            self.assertFalse(
-                reviewer_count_breach(risk, reviewers),
-                f"{risk}: gating reviewer sayısı risk tabanının altında",
+            adversarial = [
+                role for role in reviewers if role.startswith("adversarial")
+            ]
+            self.assertEqual(
+                len(adversarial), doctor.rigor_lib.reviewer_count(risk), risk
             )
             self.assertTrue(doctor.routing.human_gates(risk, False), risk)
 
     def test_rigor_level_cannot_lower_baseline(self) -> None:
-        for level in ("minimal", "standard", "full"):
+        floors: dict[str, str] = {}
+        roles: dict[str, tuple[str, ...]] = {}
+        matrices: dict[str, tuple] = {}
+        reviewer_sets: dict[str, set[tuple[str, ...]]] = {
+            risk: set() for risk in self.RISKS
+        }
+        gate_sets: dict[str, set[tuple[str, ...]]] = {
+            risk: set() for risk in self.RISKS
+        }
+        for level in self.LEVELS:
             with tempfile.TemporaryDirectory() as raw:
-                root = Path(raw)
-                (root / "kit.config.yaml").write_text(
-                    f"process:\n  rigor: {level}\n", encoding="utf-8"
+                root = self.make_project(Path(raw), level)
+                block = doctor.profiles_lib.compose(root)["rigor"]
+                gates = doctor.profiles_lib.gates_for(root)
+                declared = doctor.resolver_lib.load_declared(root)
+                ecosystem = yaml.safe_load(
+                    (root / "ecosystem.yaml").read_text(encoding="utf-8")
                 )
-                effective = doctor.rigor_lib.load_effective(root)
-            # Seviye gerçekten uygulandı; test boş bir yapılandırmayı ölçmüyor.
-            self.assertEqual(effective["level"], level)
-            self.assertEqual(
-                effective["knobs"]["modes.workflow"]["value"], level, level
+                resolution = doctor.resolver_lib.resolve(
+                    self.registry,
+                    self.matrix,
+                    self.variants,
+                    "full_product",
+                    doctor.resolver_lib.project_signals(ecosystem),
+                    declared=declared,
+                )
+                reviewers = {
+                    risk: doctor.routing.evidence_reviewers({}, risk, gates)
+                    for risk in self.RISKS
+                }
+                human = {
+                    risk: doctor.routing.human_gates(risk, False)
+                    for risk in self.RISKS
+                }
+            # Seviye gerçekten uygulandı: fallback değil, kit.config kazandı.
+            self.assertEqual(block["level"], level)
+            self.assertEqual(block["source"], "kit.config.yaml", level)
+            self.assertEqual(block["warnings"], [], level)
+            self.assertEqual(block["knobs"]["modes.workflow"]["value"], level)
+            matrices[level] = tuple(
+                (name, block["knobs"][name]["value"])
+                for name in doctor.rigor_lib.KNOBS
             )
-            for risk, count in self.COUNTS.items():
+            # Çözümleme rigor'dan bağımsız: aynı risk tabanı ve aktif roller.
+            self.assertIn("domain.payments", resolution["capabilities"], level)
+            self.assertEqual(
+                resolution["risk_floor"],
+                self.registry["capabilities"]["domain.payments"]["risk_floor"],
+                level,
+            )
+            floors[level] = resolution["risk_floor"]
+            roles[level] = tuple(resolution["active_roles"])
+            for risk in self.RISKS:
                 label = f"{level}/{risk}"
-                self.assertEqual(
-                    doctor.rigor_lib.reviewer_count(risk), count, label
-                )
-                reviewers = doctor.routing.evidence_reviewers({}, risk)
-                gates = doctor.routing.human_gates(risk, False)
+                count = doctor.rigor_lib.reviewer_count(risk)
+                self.assertEqual(count, self.COUNTS[risk], label)
+                adversarial = [
+                    role for role in reviewers[risk] if role.startswith("adversarial")
+                ]
+                self.assertEqual(len(adversarial), count, label)
                 if risk in {"high", "critical"}:
-                    self.assertIn("human", reviewers, label)
-                    self.assertFalse(
-                        reviewer_count_breach(risk, reviewers),
-                        f"{label}: gating reviewer sayısı risk tabanının altında",
-                    )
-                    self.assertTrue(gates, label)
+                    self.assertIn("human", reviewers[risk], label)
+                    self.assertTrue(human[risk], label)
                 else:
-                    self.assertNotIn("human", reviewers, label)
-                    self.assertEqual(
-                        len(reviewers),
-                        1,
-                        f"{label}: full ikinci gating reviewer üretti",
+                    self.assertNotIn("human", reviewers[risk], label)
+                reviewer_sets[risk].add(tuple(reviewers[risk]))
+                gate_sets[risk].add(tuple(human[risk]))
+            # full low/medium için ikinci gating reviewer üretmemeli.
+            if level == "full":
+                for risk in ("low", "medium"):
+                    self.assertNotIn(
+                        "adversarial-b", reviewers[risk], f"full/{risk}"
                     )
-                    self.assertEqual(len(reviewers), count, label)
-
-
-def reviewer_count_breach(risk: str, reviewers: list[str]) -> bool:
-    """Gating rolleri (human hariç) risk tabanının altına düştü mü."""
-    gating = [role for role in reviewers if not role.startswith("human")]
-    return len(gating) < RiskBaselineInvariantTest.COUNTS[risk]
+            # minimal high/critical insan kapısını düşürmemeli.
+            if level == "minimal":
+                for risk in ("high", "critical"):
+                    self.assertIn("human", reviewers[risk], f"minimal/{risk}")
+                    self.assertTrue(human[risk], f"minimal/{risk}")
+        # Seviyeler gerçekten ayrışıyor; yoksa test üç kez aynı şeyi ölçer.
+        self.assertEqual(len(set(matrices.values())), len(self.LEVELS), matrices)
+        # Rigor seviyesi ne risk tabanını ne rolleri ne de kapıları değiştirir.
+        self.assertEqual(len(set(floors.values())), 1, floors)
+        self.assertEqual(len(set(roles.values())), 1, roles)
+        for risk in self.RISKS:
+            self.assertEqual(
+                len(reviewer_sets[risk]),
+                1,
+                f"{risk}: rigor reviewer kümesini değiştirdi: {reviewer_sets[risk]}",
+            )
+            self.assertEqual(
+                len(gate_sets[risk]),
+                1,
+                f"{risk}: rigor insan kapısını değiştirdi: {gate_sets[risk]}",
+            )
 
 
 if __name__ == "__main__":

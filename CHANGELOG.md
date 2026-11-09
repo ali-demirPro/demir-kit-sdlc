@@ -665,7 +665,7 @@
 ## 2.27.0 — 2026-10-28
 
 - **Self-improvement lane** — kit kendi kendini geliştirmede insan kapısı
-  kalktı: `I13` "agent kendi kabulünü yazamaz" kuralının kapsamı ürün
+  kalktı: `I22` "agent kendi kabulünü yazamaz" kuralının kapsamı ürün
   teslimatına daraltıldı; kit self-improvement'ta kabul `doctor --strict` +
   testler yeşilidir.
 - **Öğrenim federasyonu** — `learnings.py` filo repolarından `learning`
