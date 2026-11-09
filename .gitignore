@@ -8,6 +8,7 @@
 .kit/evidence.jsonl
 .kit/resources.jsonl
 .kit/gate-cache.json
+.kit/context-metrics.jsonl
 # install.sh → npx skills add çıktısı: makineye özel, kaynaktan türetilir
 .agents/
 .claude/

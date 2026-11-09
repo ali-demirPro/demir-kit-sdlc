@@ -49,6 +49,34 @@ aç ve özetle devam et. Sessizce devam etmek yasak.
 - Bütçe ihlali bir kalite bulgusu değil, **duruş** nedenidir: özet yaz, yeni
   oturum aç, işi kaybetme.
 
+## Ölçüm
+
+İki oran tek anlamlıdır; `delivery/scripts/context_metrics.py` bunları üretir.
+
+- `miss_rate = |kaçırılan zorunlu| / (|brief| + |kaçırılan|)`. `brief` yalnız
+  kullanılan brief dokümanlarıdır; kullanılmayan brief dokümanı kaçırılan
+  değil, fazla okumadır.
+- `over_read_rate = (brief dışı token + kullanılmayan brief token) / toplam bağlam token`.
+  Payda `.kit/usage-<issue>.json` oturum deltasıdır
+  (`input + output + reasoning + cache.read + cache.write`); dosya yoksa
+  `.orchestration/usage-<issue>.json` okunur. Doküman maliyeti `bayt / 4`.
+- Oranlar `0..1` aralığındadır. Payda sıfırsa, usage dosyası yoksa veya
+  doküman bulunamazsa `unknown` yazılır; sıfır uydurulmaz. `1.0` üstü değer
+  `1.0`'a kırpılır ve satır `clamped: true` taşır.
+
+`leaf-done` öncesi `.kit/context-metrics.jsonl` dosyasına tek satır yazılır:
+
+```json
+{"brief_docs":[],"clamped":false,"config_digest":"sha256:…","cp":"CP-1","extra_docs":[],"issue":314,"method":"tokens:unknown","miss_rate":0.0,"missed_docs":[],"over_read_rate":"unknown","tokens":"unknown","unused_brief_docs":[]}
+```
+
+Satır `issue, cp, brief_docs, unused_brief_docs, extra_docs, missed_docs,
+tokens, miss_rate, over_read_rate, clamped, config_digest, method` alanlarını
+taşır ve deterministiktir (yol artan sıralı, zaman damgası yok). `config_digest`
+`delivery/registry.yaml` sha256'sı ile `delivery/context/index.yaml` sürümüdür.
+Dosya `.gitignore` içindedir; depoya girmez. Satır yoksa `transition.py`
+`uyari: context-metrics satiri yok` yazar ve geçişi engellemez.
+
 ## Done when
 
 Yeni bir leaf'te worker bağlamı 200k token'ı geçmez; her CP `brief.py --cp`

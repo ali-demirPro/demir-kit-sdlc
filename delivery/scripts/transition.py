@@ -18,6 +18,7 @@ from pathlib import Path
 import yaml
 
 import approvals
+import context_metrics
 import cycle
 import epic_worktree
 import routing
@@ -640,6 +641,13 @@ def run_gate_in_orca(
     return code, output[-4000:]
 
 
+def warn_context_metrics(number: int) -> None:
+    """Leaf-done is not blocked, but a missing metrics line must be visible."""
+    ok, message = context_metrics.check(number)
+    if not ok:
+        print(message, file=sys.stderr)
+
+
 def close_leaf_gate(issue: dict, args) -> None:
     """Full leaf gate before leaf-done, or an explicit, recorded degrade."""
     if args.no_gate:
@@ -803,6 +811,7 @@ def main() -> int:
         return 0
 
     if args.to == "leaf-done":
+        warn_context_metrics(args.issue)
         close_leaf_gate(issue, args)
         check_push(args)
 
