@@ -608,6 +608,61 @@ class DiscoveryTests(unittest.TestCase):
         self.assertEqual([path.name for path in sessions_a], ["07-a"])
         self.assertEqual([path.name for path in sessions_b], ["08-b"])
 
+    def test_basename_only_evidence_matches_only_a_unique_case_name(self) -> None:
+        (self.root / "cases" / "a").mkdir(parents=True)
+        (self.root / "cases" / "b").mkdir(parents=True)
+        case_a = write_case(self.root, case_record(), name="cases/a/demo.md")
+        case_b = write_case(self.root, case_record(), name="cases/b/demo.md")
+        write_session(
+            self.runs,
+            "15-bare",
+            ['{"seq": 0, "payload": {"skill": "behavior-gate"}}'],
+            case="demo.md",
+        )
+        sessions_one, empty_one = eval_mod.discovery_sessions([case_a], self.runs)
+        self.assertEqual(empty_one, [])
+        self.assertEqual([path.name for path in sessions_one], ["15-bare"])
+
+        sessions_both, empty_both = eval_mod.discovery_sessions(
+            [case_a, case_b], self.runs
+        )
+        self.assertEqual(sessions_both, [])
+        self.assertEqual(empty_both, [str(case_a), str(case_b)])
+
+    def test_unexpandable_or_null_case_value_does_not_crash_discovery(self) -> None:
+        case = write_case(self.root, case_record(), name="edge.md")
+        write_session(
+            self.runs,
+            "13-tilde",
+            ['{"seq": 0, "payload": {"skill": "behavior-gate"}}'],
+            case="~olmayankullanici/x.md",
+        )
+        write_session(
+            self.runs,
+            "14-nul",
+            ['{"seq": 0, "payload": {"skill": "behavior-gate"}}'],
+            case="bad\x00name.md",
+        )
+        stream = io.StringIO()
+        with contextlib.redirect_stdout(stream):
+            code = eval_mod.main(
+                [
+                    "discovery",
+                    "--skill",
+                    "behavior-gate",
+                    "--case",
+                    str(case),
+                    "--runs",
+                    str(self.runs),
+                    "-o",
+                    "json",
+                ]
+            )
+        self.assertEqual(code, 0)
+        payload = json.loads(stream.getvalue())
+        self.assertEqual(payload["skills"][0]["sessions"], [])
+        self.assertEqual(payload["cases_without_sessions"], [str(case)])
+
     def test_missing_case_path_exits_two(self) -> None:
         missing = self.root / "does-not-exist.md"
         errors = io.StringIO()

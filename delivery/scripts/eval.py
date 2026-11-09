@@ -554,31 +554,76 @@ def _case_id(case_path: Path) -> str:
 
 
 def _candidate_paths(value: str, case_path: Path) -> list[Path]:
-    """Relative values resolve against the case's ancestors, never by name alone."""
-    candidate = Path(value).expanduser()
+    """Resolve a session's case value against the case's ancestors.
+
+    Expansion may fail for values such as ``~unknown/x.md``; that is reported as
+    "no candidate" instead of aborting the whole discovery command.
+    """
+    try:
+        candidate = Path(value).expanduser()
+    except (OSError, RuntimeError, ValueError):
+        return []
     if candidate.is_absolute():
         return [candidate]
     return [base / candidate for base in (case_path.parent, *case_path.parent.parents)]
 
 
-def _matches_case_value(value: str, case_path: Path, case_id: str = "") -> bool:
-    """Match only the resolved case path or the case id; names alone never match."""
+def _matches_case_value(
+    value: str,
+    case_path: Path,
+    case_id: str = "",
+    shared_basenames: frozenset[str] = frozenset(),
+) -> bool:
+    """Match only the resolved case path or the case id, never a shared file name.
+
+    A bare file name is ambiguous when more than one supplied case carries it, so
+    such evidence does not match any of them.
+    """
     value = value.strip()
     if not value:
         return False
     if case_id and value == case_id:
         return True
     try:
+        basename_only = Path(value).parent == Path(".")
+    except (OSError, RuntimeError, ValueError):
+        return False
+    if basename_only and value in shared_basenames:
+        return False
+    try:
         target = case_path.resolve()
         return any(
             candidate.resolve() == target
             for candidate in _candidate_paths(value, case_path)
         )
-    except OSError:
+    except (OSError, RuntimeError, ValueError):
         return False
 
 
-def _runs_for_case(case_path: Path, runs_dir: Path) -> list[Path]:
+def _shared_basenames(cases: list[Path]) -> frozenset[str]:
+    """Return case file names that more than one distinct case path carries."""
+    counts: dict[str, int] = {}
+    seen: set[str] = set()
+    for raw in cases:
+        path = Path(raw).expanduser()
+        if not path.is_file():
+            continue
+        try:
+            key = str(path.resolve())
+        except (OSError, RuntimeError, ValueError):
+            key = str(path)
+        if key in seen:
+            continue
+        seen.add(key)
+        counts[path.name] = counts.get(path.name, 0) + 1
+    return frozenset(name for name, count in counts.items() if count > 1)
+
+
+def _runs_for_case(
+    case_path: Path,
+    runs_dir: Path,
+    shared_basenames: frozenset[str] = frozenset(),
+) -> list[Path]:
     if not runs_dir.is_dir():
         return []
     case_id = _case_id(case_path)
@@ -586,12 +631,18 @@ def _runs_for_case(case_path: Path, runs_dir: Path) -> list[Path]:
     for entry in sorted(runs_dir.iterdir()):
         if not entry.is_dir() or not _looks_like_session(entry):
             continue
-        if _matches_case_value(_session_case(entry), case_path, case_id):
+        if _matches_case_value(
+            _session_case(entry), case_path, case_id, shared_basenames
+        ):
             matched.append(entry)
     return matched
 
 
-def _case_sessions(path: Path, runs_dir: Path) -> list[Path]:
+def _case_sessions(
+    path: Path,
+    runs_dir: Path,
+    shared_basenames: frozenset[str] = frozenset(),
+) -> list[Path]:
     if path.is_dir():
         if _looks_like_session(path):
             return [path]
@@ -601,7 +652,7 @@ def _case_sessions(path: Path, runs_dir: Path) -> list[Path]:
             if entry.is_dir() and _looks_like_session(entry)
         )
     if path.is_file():
-        return _runs_for_case(path, runs_dir)
+        return _runs_for_case(path, runs_dir, shared_basenames)
     return []
 
 
@@ -612,15 +663,18 @@ def discovery_sessions(
 
     A case path that does not exist is an error; an existing case without any
     matching run is returned separately instead of becoming a fake session.
+    Evidence that carries only a bare file name cannot be assigned when several
+    supplied cases share that name.
     """
     runs_dir = RUNS_DIR if runs is None else Path(runs)
+    shared_basenames = _shared_basenames(cases)
     found: dict[str, Path] = {}
     empty_cases: list[str] = []
     for raw in cases:
         path = Path(raw).expanduser()
         if not path.exists():
             raise DiscoveryError(f"case yok: {path}")
-        matched = _case_sessions(path, runs_dir)
+        matched = _case_sessions(path, runs_dir, shared_basenames)
         if not matched:
             empty_cases.append(str(path))
         for item in matched:
