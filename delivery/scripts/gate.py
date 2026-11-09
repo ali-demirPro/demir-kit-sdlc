@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Run the suites a checkpoint's changed files require.
 
-Doctor is always run. The changed-file set decides the rest: a change under
-``delivery/tests/`` needs the unittest suite, a change under ``plugins/`` needs
-the Orca plugin suite.
+Doctor is always run. By default a changed file selects the test modules that
+cover it; ``--full`` runs the whole unittest package (closure/CI) and ``--fast``
+runs doctor only. A change under ``plugins/`` also runs the Orca plugin suite.
 
 Usage:
   bash delivery/scripts/gate.sh --issue 208 --checkpoint CP-1
@@ -318,6 +318,9 @@ def suites_for(
             for module in selected_test_modules(normalized, project)
         )
     if any(_under(path, PLUGIN_ROOT) for path in normalized):
+        project = project or Path.cwd()
+        if (project / TEST_ROOT / "test_orca_plugin.py").is_file():
+            suites.append(f"unittest:{TEST_MODULE_PREFIX}test_orca_plugin")
         suites.append("plugin")
     return suites
 
@@ -429,6 +432,11 @@ def _run(command: list[str] | str, project: Path, shell: bool = False) -> int:
         return 127
 
 
+def gate_reason(checkpoint: str, level: str, failed: bool) -> str:
+    """Cycle-ledger reason: checkpoint, gate level and outcome."""
+    return f"{checkpoint or '-'} {level} exit={1 if failed else 0}"
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="checkpoint gate")
     parser.add_argument("--issue", type=int, help="seal + evidence doğrula (opsiyonel)")
@@ -468,6 +476,19 @@ def main(argv: list[str] | None = None) -> int:
         if args.changed is not None
         else changed_files(project)
     )
+    if not args.fast and not (project / TEST_ROOT).is_dir():
+        code_changes = any(
+            _under(_normalize(path), SCRIPT_ROOT)
+            or _under(_normalize(path), TEST_ROOT)
+            for path in paths
+        )
+        if code_changes:
+            print(
+                "[gate] hata: delivery/tests yok — kapıyı repo kökünden koş",
+                file=sys.stderr,
+                flush=True,
+            )
+            return 2
     if args.changed is not None:
         for path in paths:
             if not (project / path).exists():
@@ -573,11 +594,7 @@ def main(argv: list[str] | None = None) -> int:
                     args.issue,
                     "gate",
                     actor="gate",
-                    reason=(
-                        f"{args.checkpoint or '-'} "
-                        f"{level_name} "
-                        f"exit={1 if failed else 0}"
-                    ),
+                    reason=gate_reason(args.checkpoint, level_name, failed),
                 ),
             )
         except Exception:

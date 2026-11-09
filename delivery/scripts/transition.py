@@ -527,9 +527,9 @@ def run_gate_in_orca(
 ) -> tuple[int | None, str]:
     """Run the gate in an Orca terminal and read the exit code from a file.
 
-    Returns ``(None, "")`` only when Orca cannot create the terminal, so the
-    caller may fall back to a direct run. A created terminal that never writes
-    its result file is a gate failure, not a fallback.
+    Returns ``(None, "")`` only when Orca is missing or ``terminal create``
+    itself fails. Once a terminal exists the gate must not run a second time:
+    handle/JSON/timeout problems are gate failures.
     """
     if not shutil.which("orca"):
         return None, ""
@@ -546,7 +546,8 @@ def run_gate_in_orca(
             pass
     shell = (
         f"{shlex.join(command)} > {shlex.quote(str(log))} 2>&1; "
-        f"printf '%s' $? > {shlex.quote(str(code_file))}"
+        f"c=$?; printf '%s' \"$c\" > {shlex.quote(str(code_file))}; "
+        f'exit "$c"'
     )
     try:
         created = subprocess.run(
@@ -568,16 +569,16 @@ def run_gate_in_orca(
             timeout=60,
         )
     except (OSError, subprocess.TimeoutExpired):
-        return None, ""
+        return 1, "terminal create tamamlanmadı"
     if created.returncode != 0:
         return None, ""
     try:
         payload = json.loads(created.stdout)
     except json.JSONDecodeError:
-        return None, ""
+        return 1, "terminal create yanıtı okunamadı"
     handle = terminal_handle(payload)
     if not handle:
-        return None, ""
+        return 1, "terminal handle yok"
     try:
         subprocess.run(
             [
@@ -598,8 +599,16 @@ def run_gate_in_orca(
             timeout=timeout_ms / 1000 + 60,
         )
     except subprocess.TimeoutExpired:
+        subprocess.run(
+            ["orca", "terminal", "close", "--terminal", handle, "--json"],
+            cwd=str(project),
+            capture_output=True,
+            text=True,
+        )
+        shutil.rmtree(directory, ignore_errors=True)
         return 124, "terminal wait timeout"
     except OSError as exc:
+        shutil.rmtree(directory, ignore_errors=True)
         return 127, str(exc)
     try:
         output = log.read_text(encoding="utf-8", errors="replace")
@@ -608,7 +617,9 @@ def run_gate_in_orca(
     try:
         code = int(code_file.read_text(encoding="utf-8").strip())
     except (OSError, ValueError):
+        shutil.rmtree(directory, ignore_errors=True)
         return 1, (output or "gate sonucu dosyadan okunamadı")[-4000:]
+    shutil.rmtree(directory, ignore_errors=True)
     return code, output[-4000:]
 
 
@@ -635,6 +646,11 @@ def close_leaf_gate(issue: dict, args) -> None:
     print(f"gate: {' '.join(command)}", flush=True)
     code, output = run_gate_in_orca(Path.cwd(), command)
     if code is None:
+        post_comment(
+            args.issue,
+            f"run degrade: issue #{args.issue}\n"
+            "reason: Orca terminali açılamadı; leaf kapısı koordinatörde koştu",
+        )
         try:
             result = subprocess.run(
                 command, cwd=str(Path.cwd()), capture_output=True, text=True
@@ -646,6 +662,9 @@ def close_leaf_gate(issue: dict, args) -> None:
         sys.exit(
             "transition: leaf tam kapısı düştü — " + (output or "").strip()[-400:]
         )
+    if (output or "").strip():
+        tail = "\n".join(output.strip().splitlines()[-20:])
+        print(tail, flush=True)
     print("gate: exit 0", flush=True)
 
 

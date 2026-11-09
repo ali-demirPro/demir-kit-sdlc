@@ -69,6 +69,7 @@ class LeafGateTests(unittest.TestCase):
         self.assertEqual(cp_close.DEFAULT_GATE_LEVEL, "fast")
         self.assertIn("--fast", cp_close.gate_command(251, "CP-1"))
         self.assertNotIn("--fast", cp_close.gate_command(251, "CP-1", "full"))
+        self.assertIn("--full", cp_close.gate_command(251, "CP-1", "full"))
 
 class CloseLeafGateTests(unittest.TestCase):
     def args(self, **overrides) -> argparse.Namespace:
@@ -135,6 +136,9 @@ class CloseLeafGateTests(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertIn("gate ok", output)
         self.assertEqual(calls[0][:3], ["orca", "terminal", "create"])
+        command_text = calls[0][calls[0].index("--command") + 1]
+        self.assertIn('exit "$c"', command_text)
+        self.assertIn("gate.exit", command_text)
         self.assertEqual(calls[1][:3], ["orca", "terminal", "wait"])
 
     def test_missing_orca_falls_back_to_a_direct_run(self) -> None:

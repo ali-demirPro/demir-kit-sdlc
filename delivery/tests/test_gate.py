@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import contextlib
 import importlib.util
+import io
 import subprocess
 import sys
 import tempfile
@@ -52,12 +54,19 @@ class PlanTests(unittest.TestCase):
             gate.suites_for(["delivery/tests/test_gate.py"], ROOT, full=True),
             ["unittest"],
         )
-        self.assertEqual(gate.suites_for(["plugins/orca/index.ts"], ROOT), ["plugin"])
+        self.assertEqual(
+            gate.suites_for(["plugins/orca/index.ts"], ROOT),
+            ["unittest:delivery.tests.test_orca_plugin", "plugin"],
+        )
         self.assertEqual(
             gate.suites_for(
                 ["plugins/orca/index.ts", "delivery/tests/test_gate.py"], ROOT
             ),
-            ["unittest:delivery.tests.test_gate", "plugin"],
+            [
+                "unittest:delivery.tests.test_gate",
+                "unittest:delivery.tests.test_orca_plugin",
+                "plugin",
+            ],
         )
         self.assertEqual(gate.suites_for(["README.md"], ROOT), [])
 
@@ -78,6 +87,23 @@ class PlanTests(unittest.TestCase):
             ["delivery/tests/test_worker_reaper.py"], ROOT
         )
         self.assertNotIn("delivery.tests.test_worker_reaper", modules)
+
+    def test_missing_test_root_with_code_change_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            with contextlib.redirect_stderr(io.StringIO()) as stderr:
+                code = gate.main(
+                    [
+                        "--plan",
+                        "--changed",
+                        "delivery/scripts/gate.py",
+                        "--checkpoint",
+                        "CP-1",
+                        "--project",
+                        directory,
+                    ]
+                )
+        self.assertEqual(code, 2)
+        self.assertIn("delivery/tests yok", stderr.getvalue())
 
     def test_plan_lists_steps(self) -> None:
         result = plan("delivery/tests/test_gate.py")

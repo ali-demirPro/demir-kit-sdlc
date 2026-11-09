@@ -102,7 +102,7 @@ def gate_command(issue: int, cp_id: str, level: str = DEFAULT_GATE_LEVEL) -> str
     project = routing.project_root(ROOT)
     gate = project / prefix / "delivery" / "scripts" / "gate.sh"
     if gate.is_file():
-        suffix = " --fast" if level == "fast" else ""
+        suffix = " --fast" if level == "fast" else " --full"
         return f"./{prefix}delivery/scripts/gate.sh --issue {issue} --checkpoint {cp_id}{suffix}"
     command = f"./{prefix}delivery/scripts/doctor.sh --issue {issue} --checkpoint {cp_id}"
     if prefix:
