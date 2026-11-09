@@ -17,10 +17,12 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import select
 import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Callable, Iterable
@@ -457,29 +459,49 @@ def capture_process(
     cwd: Path,
     timeout: float | int | None,
     waiting_marker: str = "demir-kit:waiting",
+    on_waiting: Callable[[], None] | None = None,
 ) -> dict:
-    """Run a command list without a shell and turn its output into raw events."""
+    """Run a command list and stream its combined output into raw events.
+
+    The waiting marker is observed while the process is alive, so the caller
+    can record ``waiting`` at that moment rather than reconstructing it after
+    the process ends.  Output is merged into one pipe to keep event order and
+    ``events.ndjson`` reproducible.
+    """
     raw: list[dict] = [
         {"payload": {"type": "process.start", "command": list(command)}}
     ]
-    timed_out = False
     waiting = False
+    timed_out = False
+    marker = (waiting_marker or "").strip()
+    line_number = 0
+
+    def emit(line: bytes) -> None:
+        nonlocal waiting, line_number
+        text = line.decode("utf-8", "replace").rstrip("\r")
+        if marker and text.strip() == marker:
+            waiting = True
+            if on_waiting is not None:
+                on_waiting()
+        line_number += 1
+        raw.append(
+            {
+                "payload": {
+                    "type": "stdout",
+                    "line": line_number,
+                    "text": text,
+                }
+            }
+        )
+
     try:
-        result = subprocess.run(
+        process = subprocess.Popen(
             list(command),
             cwd=str(cwd),
-            capture_output=True,
-            text=True,
-            timeout=timeout,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            bufsize=0,
         )
-        returncode: int | None = result.returncode
-        stdout = result.stdout or ""
-        stderr = result.stderr or ""
-    except subprocess.TimeoutExpired as exc:
-        timed_out = True
-        returncode = None
-        stdout = _text(exc.stdout)
-        stderr = _text(exc.stderr)
     except (FileNotFoundError, OSError) as exc:
         raw.append(
             {"payload": {"type": "process.error", "error": type(exc).__name__}}
@@ -494,24 +516,50 @@ def capture_process(
             "reason": "süreç başlatılamadı",
         }
 
-    marker = (waiting_marker or "").strip()
-    for stream, text in (("stdout", stdout), ("stderr", stderr)):
-        for number, line in enumerate(text.splitlines(), 1):
-            if marker and line.strip() == marker:
-                waiting = True
-            raw.append(
-                {
-                    "payload": {
-                        "type": stream,
-                        "line": number,
-                        "text": line,
-                    }
-                }
-            )
+    deadline = time.monotonic() + float(timeout or 0)
+    buffer = b""
+    stream = process.stdout
+    try:
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                timed_out = True
+                process.kill()
+                break
+            ready, _, _ = select.select([stream], [], [], min(remaining, 0.2))
+            if not ready:
+                if process.poll() is not None:
+                    continue
+                continue
+            chunk = os.read(stream.fileno(), 65536)
+            if not chunk:
+                break
+            buffer += chunk
+            while b"\n" in buffer:
+                line, buffer = buffer.split(b"\n", 1)
+                emit(line)
+        if not timed_out:
+            rest = stream.read() or b""
+            buffer += rest
+        if buffer:
+            for line in buffer.split(b"\n"):
+                if line:
+                    emit(line)
+        returncode = process.wait()
+    except subprocess.TimeoutExpired:
+        timed_out = True
+        process.kill()
+        returncode = process.wait()
+    finally:
+        if stream is not None:
+            stream.close()
+
     raw.append({"payload": {"type": "process.exit", "returncode": returncode}})
     unexpected = timed_out or (returncode is not None and returncode < 0)
     if timed_out:
-        reason = "zaman aşımı"
+        reason = (
+            "zaman aşımı: girdi sağlanmadı" if waiting else "zaman aşımı"
+        )
     elif unexpected:
         reason = f"beklenmedik ölüm (signal {-returncode})"
     else:
@@ -524,18 +572,6 @@ def capture_process(
         "waiting": waiting,
         "reason": reason,
     }
-
-
-def _text(value: object) -> str:
-    if value is None:
-        return ""
-    if isinstance(value, bytes):
-        return value.decode("utf-8", "replace")
-    return str(value)
-
-
-# ---------------------------------------------------------------------------
-# evidence references
 
 
 def _artifact_root(session_dir: Path, attempt: int) -> Path:
@@ -791,14 +827,18 @@ def run_session(
             sandbox,
             normalized["timeout"],
             normalized["waiting_marker"],
+            lambda: (
+                machine.transition("waiting", "agent girdi istedi")
+                if machine.state == "running"
+                else None
+            ),
         )
         if capture["unexpected_death"]:
             blocked_reason = capture["reason"] or "beklenmedik süreç sonu"
             machine.transition("blocked", blocked_reason)
         else:
-            if capture.get("waiting"):
-                machine.transition("waiting", "agent girdi bekledi")
-                machine.transition("running", "girdi sağlandı")
+            if machine.state == "waiting":
+                machine.transition("running", "süreç çıktı üretmeye devam etti")
             machine.transition("terminal", "süreç bitti")
     except SessionError as exc:
         blocked_reason = str(exc)

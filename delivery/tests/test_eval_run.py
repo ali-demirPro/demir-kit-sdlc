@@ -9,6 +9,8 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 import unittest
 from pathlib import Path
 
@@ -560,7 +562,7 @@ class UnexpectedDeathTests(unittest.TestCase):
             command = [
                 sys.executable,
                 "-c",
-                "print('demir-kit:waiting')\nprint('done')",
+                "print('demir-kit:waiting', flush=True)\nprint('done')",
             ]
             result = eval_run.run_session(
                 base_spec(command=command), out_dir=session_dir
@@ -574,6 +576,92 @@ class UnexpectedDeathTests(unittest.TestCase):
                 [entry["to"] for entry in state["history"]],
                 ["preparing", "running", "waiting", "running", "terminal"],
             )
+
+    def test_waiting_is_visible_while_process_is_alive(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            session_dir = Path(directory) / "session"
+            command = [
+                sys.executable,
+                "-c",
+                (
+                    "import time; print('demir-kit:waiting', flush=True);"
+                    " time.sleep(1.0)"
+                ),
+            ]
+            outcome: dict = {}
+
+            def run() -> None:
+                outcome.update(
+                    eval_run.run_session(
+                        base_spec(command=command, timeout=10),
+                        out_dir=session_dir,
+                    )
+                )
+
+            worker = threading.Thread(target=run, daemon=True)
+            worker.start()
+            observed = None
+            deadline = time.monotonic() + 2.5
+            while time.monotonic() < deadline:
+                try:
+                    snapshot = json.loads(
+                        (session_dir / "state.json").read_text(encoding="utf-8")
+                    )
+                except (OSError, json.JSONDecodeError):
+                    snapshot = {}
+                observed = snapshot.get("state")
+                if observed == "waiting":
+                    break
+                time.sleep(0.02)
+            self.assertEqual(observed, "waiting")
+            worker.join(5)
+            self.assertFalse(worker.is_alive())
+            self.assertEqual(outcome["status"], "pass")
+
+    def test_timeout_keeps_evidence_and_reports_input_wait(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            session_dir = Path(directory) / "session"
+            command = [
+                sys.executable,
+                "-c",
+                (
+                    "import time; print('demir-kit:waiting', flush=True);"
+                    " time.sleep(5)"
+                ),
+            ]
+            started = time.monotonic()
+            result = eval_run.run_session(
+                base_spec(command=command, timeout=0.4, attempts=2),
+                out_dir=session_dir,
+            )
+            self.assertLess(time.monotonic() - started, 4)
+            self.assertEqual(result["status"], "blocked")
+            self.assertTrue(result["timed_out"])
+            self.assertIn("zaman aşımı", result["recovery"]["reason"])
+            self.assertIn("girdi sağlanmadı", result["recovery"]["reason"])
+            self.assertIn("resume_command", result["recovery"])
+            self.assertTrue(result["recovery"]["evidence_intact"])
+
+            for relative in eval_run.EVIDENCE_FILES:
+                self.assertTrue(
+                    (session_dir / relative).is_file(), f"eksik kanıt: {relative}"
+                )
+            state = json.loads(
+                (session_dir / "state.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(
+                [entry["to"] for entry in state["history"]],
+                ["preparing", "running", "waiting", "blocked"],
+            )
+            events = eval_run.read_ndjson(
+                session_dir / "session" / "events.ndjson"
+            )
+            exits = [
+                event["payload"].get("returncode")
+                for event in events
+                if event["payload"].get("type") == "process.exit"
+            ]
+            self.assertLess(exits[0], 0)
 
 
 class SpecValidationTests(unittest.TestCase):
