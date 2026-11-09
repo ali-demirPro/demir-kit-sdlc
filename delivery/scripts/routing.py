@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import re
 from pathlib import Path
 
@@ -276,3 +277,189 @@ def _dedupe(items) -> list[str]:
         seen.add(item)
         result.append(item)
     return result
+
+
+ROUTE_INDEX_VERSION = 1
+ROUTE_INDEX_KEYS = {"version", "entries"}
+ROUTE_ENTRY_KEYS = {"surface", "path", "tags", "weight"}
+ROUTE_CLASSES = ("sink", "window", "retrieved")
+ROUTE_SOURCES = {"seal", "resolver", "index", "static"}
+
+
+class RouteIndexError(ValueError):
+    """Invalid delivery/context/index.yaml — the brief exits 2."""
+
+
+def route_index_path(root: Path) -> Path:
+    return Path(root) / "delivery" / "context" / "index.yaml"
+
+
+def _is_number(value) -> bool:
+    return (
+        isinstance(value, (int, float))
+        and not isinstance(value, bool)
+        and math.isfinite(value)
+    )
+
+
+def load_route_index(path: Path, root: Path | None = None) -> dict | None:
+    """Load and validate the route index; ``None`` means "index yok".
+
+    Missing file is the documented fallback. Any malformed shape raises
+    ``RouteIndexError`` so the caller can exit 2 instead of degrading silently.
+    """
+    path = Path(path)
+    if not path.is_file():
+        return None
+    base = Path(root) if root is not None else path.resolve().parents[2]
+    try:
+        data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except (OSError, yaml.YAMLError) as exc:
+        raise RouteIndexError(f"{path}: okunamadı ({exc})") from exc
+    if not isinstance(data, dict):
+        raise RouteIndexError(f"{path}: üst düzey mapping olmalı")
+    unknown = sorted(set(data) - ROUTE_INDEX_KEYS)
+    if unknown:
+        raise RouteIndexError(f"{path}: bilinmeyen anahtar: {', '.join(unknown)}")
+    missing = sorted(ROUTE_INDEX_KEYS - set(data))
+    if missing:
+        raise RouteIndexError(f"{path}: eksik anahtar: {', '.join(missing)}")
+    version = data.get("version")
+    if (
+        not isinstance(version, int)
+        or isinstance(version, bool)
+        or version != ROUTE_INDEX_VERSION
+    ):
+        raise RouteIndexError(f"{path}: version {ROUTE_INDEX_VERSION} olmalı")
+    entries = data.get("entries")
+    if not isinstance(entries, list):
+        raise RouteIndexError(f"{path}: entries liste olmalı")
+
+    result: list[dict] = []
+    for position, entry in enumerate(entries):
+        label = f"{path}: entries[{position}]"
+        if not isinstance(entry, dict):
+            raise RouteIndexError(f"{label}: mapping olmalı")
+        unknown = sorted(set(entry) - ROUTE_ENTRY_KEYS)
+        if unknown:
+            raise RouteIndexError(f"{label}: bilinmeyen anahtar: {', '.join(unknown)}")
+        missing = sorted(ROUTE_ENTRY_KEYS - set(entry))
+        if missing:
+            raise RouteIndexError(f"{label}: eksik anahtar: {', '.join(missing)}")
+        surface = entry.get("surface")
+        if not isinstance(surface, str) or not surface.strip():
+            raise RouteIndexError(f"{label}: surface boş olamaz")
+        entry_path = entry.get("path")
+        if not isinstance(entry_path, str) or not entry_path.strip():
+            raise RouteIndexError(f"{label}: path boş olamaz")
+        if not (base / entry_path).is_file():
+            raise RouteIndexError(f"{label}: çözülmeyen yol: {entry_path}")
+        tags = entry.get("tags")
+        if not isinstance(tags, list) or any(
+            not isinstance(tag, str) or not tag.strip() for tag in tags
+        ):
+            raise RouteIndexError(f"{label}: tags string listesi olmalı")
+        weight = entry.get("weight")
+        if not _is_number(weight) or weight <= 0:
+            raise RouteIndexError(f"{label}: weight pozitif sayı olmalı")
+        result.append(
+            {
+                "surface": surface.strip(),
+                "path": entry_path,
+                "tags": list(tags),
+                "weight": weight,
+            }
+        )
+
+    return {"version": version, "entries": result}
+
+
+def _surface_match(left: str, right: str) -> bool:
+    left = left.lower()
+    right = right.lower()
+    return (
+        left == right
+        or left.startswith(right + ".")
+        or right.startswith(left + ".")
+    )
+
+
+def build_route(
+    seal: dict,
+    docs: list[str],
+    index: dict | None,
+    prefix: str = "",
+) -> tuple[list[dict], str | None]:
+    """Explainable sink/window/retrieved selection for one brief.
+
+    Deterministic: same seal + same docs + same index version yield the same
+    ordered list. No clock, HEAD or environment value participates.
+    """
+    seal = seal if isinstance(seal, dict) else {}
+    docs = [str(doc) for doc in docs or []]
+    route: list[dict] = []
+
+    reference = (seal.get("reference") or {}).get("paths") or []
+    for path in reference:
+        route.append(
+            {
+                "class": "sink",
+                "path": f"{prefix}{path}",
+                "source": "seal",
+                "reason": "seal reference.paths (zorunlu çekirdek)",
+            }
+        )
+    for doc in docs:
+        route.append(
+            {
+                "class": "window",
+                "path": doc,
+                "source": "resolver",
+                "reason": "aktif rol dokümanı",
+            }
+        )
+
+    surfaces = [str(item) for item in seal.get("surfaces") or []]
+    if index is None:
+        for doc in docs:
+            route.append(
+                {
+                    "class": "retrieved",
+                    "path": doc,
+                    "source": "static",
+                    "reason": "index yok; statik resolver listesi",
+                }
+            )
+        return route, "index yok"
+
+    selected = [
+        entry
+        for entry in index.get("entries") or []
+        if any(_surface_match(entry["surface"], surface) for surface in surfaces)
+    ]
+    selected.sort(key=lambda entry: (-float(entry["weight"]), str(entry["path"])))
+    for entry in selected:
+        route.append(
+            {
+                "class": "retrieved",
+                "path": f"{prefix}{entry['path']}",
+                "source": "index",
+                "reason": (
+                    f"surface {entry['surface']} eşleşti "
+                    f"(weight {entry['weight']})"
+                ),
+            }
+        )
+    return route, None
+
+
+def render_route(route: list[dict], fallback: str | None = None) -> str:
+    lines: list[str] = []
+    if fallback:
+        lines.append(f"fallback: {fallback}")
+    for item in route:
+        lines.append(
+            f"{item['class']} {item['path']} "
+            f"(source: {item['source']}, reason: {item['reason']})"
+        )
+    return "\n".join(lines) + ("\n" if lines else "")

@@ -1,0 +1,53 @@
+# Route index: surface -> document/skill, consumed by `brief.py --route`.
+# Schema: version + entries[{surface, path, tags, weight}].
+# Unknown keys, missing keys, unresolved paths and non-positive weights exit 2.
+version: 1
+entries:
+  - surface: kit.docs
+    path: delivery/policies/context-budget.md
+    tags: [context, budget]
+    weight: 6
+  - surface: kit.docs
+    path: delivery/CONTRACT.md
+    tags: [contract]
+    weight: 5
+  - surface: kit.docs
+    path: delivery/policies/quality-gates.md
+    tags: [gates, quality]
+    weight: 5
+  - surface: kit.docs
+    path: delivery/protocol/seal.md
+    tags: [seal, intake]
+    weight: 4
+  - surface: kit.docs
+    path: skills/work-package/SKILL.md
+    tags: [seal, work-package]
+    weight: 4
+  - surface: kit.docs
+    path: delivery/plans/P2.yaml
+    tags: [plan, epic]
+    weight: 2
+  - surface: kit.scripts
+    path: delivery/scripts/brief.py
+    tags: [brief, route]
+    weight: 6
+  - surface: kit.scripts
+    path: delivery/scripts/resolver.py
+    tags: [resolver, docs]
+    weight: 5
+  - surface: kit.scripts
+    path: delivery/scripts/routing.py
+    tags: [routing, route]
+    weight: 5
+  - surface: kit.scripts
+    path: delivery/tests/test_brief.py
+    tags: [test, brief]
+    weight: 4
+  - surface: kit.scripts
+    path: delivery/scripts/gate.py
+    tags: [gate]
+    weight: 3
+  - surface: kit.scripts
+    path: delivery/scripts/doctor.py
+    tags: [doctor]
+    weight: 2

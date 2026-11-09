@@ -126,6 +126,11 @@ def build_brief(
     }
 
 
+def index_file() -> Path:
+    """Route index shipped with the kit; patched in tests."""
+    return routing.route_index_path(ROOT)
+
+
 def cp_role(gates: dict) -> str:
     return "designer" if gates.get("ui") else "developer"
 
@@ -375,6 +380,11 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="delivery agent brief")
     parser.add_argument("issue", type=int)
     parser.add_argument("--cp", help="compact brief for one checkpoint (CP-1)")
+    parser.add_argument(
+        "--route",
+        action="store_true",
+        help="sink/window/retrieved doküman seçimini kaynak ve gerekçeyle yaz",
+    )
     parser.add_argument("--write", type=Path, help="write the CP brief to this directory")
     parser.add_argument("--json", action="store_true")
     parser.add_argument("--post", action="store_true")
@@ -394,6 +404,33 @@ def main() -> int:
         project_ecosystem(),
         project_priorities(),
     )
+
+    if args.route:
+        seal = routing.seal_body(body)
+        if args.cp:
+            try:
+                cp_selection(seal, args.cp)
+            except ValueError as exc:
+                sys.exit(f"brief: {exc}")
+        try:
+            index = routing.load_route_index(index_file(), ROOT)
+        except routing.RouteIndexError as exc:
+            print(f"brief: {exc}", file=sys.stderr)
+            return 2
+        route, fallback = routing.build_route(
+            seal, data["docs"], index, routing.kit_prefix(ROOT)
+        )
+        if args.json:
+            print(
+                json.dumps(
+                    {"issue": data["issue"], "route": route, "fallback": fallback},
+                    ensure_ascii=False,
+                    indent=2,
+                )
+            )
+        else:
+            sys.stdout.write(routing.render_route(route, fallback))
+        return 0
 
     if args.cp:
         seal = routing.seal_body(body)

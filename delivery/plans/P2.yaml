@@ -122,7 +122,7 @@ children:
       eşlemesini ve ağırlığı taşısın. Seçim deterministik ve açıklanabilir olsun:
       seçilenler, aday olup seçilmeyenler ve gerekçeleri görünsün.
     risk: medium
-    depends_on: [289, 311]
+    depends_on: [289]
     ac:
       - "brief.py --route (ve --cp ile birlikte) sink/window/retrieved listesini her satırda kaynak ve gerekçeyle yazar; aynı issue + aynı index sürümü aynı listeyi üretir."
       - "delivery/context/index.yaml şeması (surface, path, tags, weight, version) doğrulanır; bilinmeyen anahtar veya çözülmeyen yol exit 2 verir."

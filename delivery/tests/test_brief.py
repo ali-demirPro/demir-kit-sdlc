@@ -2,11 +2,18 @@
 
 from __future__ import annotations
 
+import contextlib
 import importlib.util
+import io
+import json
+import re
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
+
+import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPTS = ROOT / "delivery" / "scripts"
@@ -203,6 +210,236 @@ class CpBriefTests(unittest.TestCase):
     def test_unknown_checkpoint_fails(self) -> None:
         with self.assertRaises(ValueError):
             brief.render_cp_brief({"issue": 142}, SEAL, "CP-9")
+
+
+class RouteTests(unittest.TestCase):
+    """sink/window/retrieved selection + index contract (issue 312)."""
+
+    ROUTE_SEAL = {
+        "demir_kit_version": "2",
+        "epic": 288,
+        "entry": {"kind": "feature"},
+        "factory": {"profile": "kit-internal"},
+        "intent": "route testi",
+        "surfaces": ["kit.scripts", "kit.docs"],
+        "reference": {"paths": ["delivery/scripts/brief.py"]},
+        "acceptance_criteria": [{"id": "AC-1", "text": "route"}],
+        "risk": {"level": "medium"},
+        "tests_plan": [
+            {
+                "checkpoint_id": "CP-1",
+                "cases": [
+                    {
+                        "id": "T-1",
+                        "ac": "AC-1",
+                        "text": "route",
+                        "check": "unit",
+                    }
+                ],
+            }
+        ],
+        "checkpoints": [
+            {"id": "CP-1", "title": "route", "gates": {"behavior": True}}
+        ],
+    }
+
+    def write_index(self, directory, entries, version=1) -> Path:
+        path = Path(directory) / "index.yaml"
+        path.write_text(
+            yaml.safe_dump(
+                {"version": version, "entries": entries}, sort_keys=False
+            ),
+            encoding="utf-8",
+        )
+        return path
+
+    def issue_body(self) -> str:
+        return (
+            "```yaml demir-kit\n"
+            + yaml.safe_dump(self.ROUTE_SEAL, sort_keys=False)
+            + "```"
+        )
+
+    def run_route(self, argv, index_path):
+        issue = json.dumps(
+            {"title": "route", "body": self.issue_body(), "labels": []}
+        )
+        out = io.StringIO()
+        err = io.StringIO()
+        with patch.object(brief, "repo_name", return_value="x/y"), patch.object(
+            brief, "gh", return_value=issue
+        ), patch.object(brief, "index_file", return_value=index_path), patch.object(
+            sys, "argv", ["brief.py", *argv]
+        ), contextlib.redirect_stdout(
+            out
+        ), contextlib.redirect_stderr(
+            err
+        ):
+            code = brief.main()
+        return code, out.getvalue(), err.getvalue()
+
+    def test_route_is_deterministic_and_labelled(self) -> None:
+        seal = {
+            "surfaces": ["kit.scripts", "kit.docs"],
+            "reference": {"paths": ["delivery/scripts/brief.py"]},
+        }
+        docs = [
+            "delivery/agents/developer/ROLE.md",
+            "delivery/agents/developer/how.md",
+        ]
+        entries = [
+            {
+                "surface": "kit.docs",
+                "path": "delivery/context/index.yaml",
+                "tags": ["context"],
+                "weight": 2,
+            },
+            {
+                "surface": "kit.scripts",
+                "path": "delivery/scripts/resolver.py",
+                "tags": ["code"],
+                "weight": 5,
+            },
+            {
+                "surface": "kit.docs",
+                "path": "delivery/plans/P2.yaml",
+                "tags": ["plan"],
+                "weight": 6,
+            },
+            {
+                "surface": "web.app",
+                "path": "delivery/scripts/routing.py",
+                "tags": ["code"],
+                "weight": 9,
+            },
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            index_path = self.write_index(tmp, entries)
+            index = brief.routing.load_route_index(index_path, ROOT)
+            self.assertIsNotNone(index)
+            first, fallback = brief.routing.build_route(seal, docs, index)
+            second, _ = brief.routing.build_route(seal, docs, index)
+            self.assertEqual(first, second)
+            self.assertIsNone(fallback)
+            retrieved = [
+                item["path"] for item in first if item["class"] == "retrieved"
+            ]
+            self.assertEqual(
+                retrieved,
+                [
+                    "delivery/plans/P2.yaml",
+                    "delivery/scripts/resolver.py",
+                    "delivery/context/index.yaml",
+                ],
+            )
+            self.assertNotIn("delivery/scripts/routing.py", retrieved)
+            self.assertEqual(
+                {item["class"] for item in first},
+                {"sink", "window", "retrieved"},
+            )
+            for item in first:
+                self.assertIn(item["source"], brief.routing.ROUTE_SOURCES)
+                self.assertTrue(item["reason"])
+                line = brief.routing.render_route([item]).strip()
+                self.assertRegex(
+                    line,
+                    rf"^{item['class']} {re.escape(item['path'])} "
+                    rf"\(source: {item['source']}, reason: .+\)$",
+                )
+
+            code, plain, _ = self.run_route(["312", "--route"], index_path)
+            cp_code, cp_plain, _ = self.run_route(
+                ["312", "--route", "--cp", "CP-1"], index_path
+            )
+            self.assertEqual((code, cp_code), (0, 0))
+            self.assertEqual(plain, cp_plain)
+            self.assertNotIn("fallback:", plain)
+            self.assertIn("retrieved delivery/plans/P2.yaml", plain)
+            self.assertIn("retrieved delivery/scripts/resolver.py", plain)
+            self.assertTrue(
+                all(
+                    re.match(
+                        r"^(sink|window|retrieved) \S+ "
+                        r"\(source: (seal|resolver|index|static), reason: .+\)$",
+                        line,
+                    )
+                    for line in plain.strip().splitlines()
+                )
+            )
+
+    def test_invalid_index_exits_two(self) -> None:
+        valid = {
+            "surface": "kit.docs",
+            "path": "delivery/scripts/brief.py",
+            "tags": [],
+            "weight": 1,
+        }
+        cases = {
+            "unknown_key": {"version": 1, "entries": [], "bogus": True},
+            "missing_key": {
+                "version": 1,
+                "entries": [
+                    {
+                        "surface": "kit.docs",
+                        "path": "delivery/scripts/brief.py",
+                        "tags": [],
+                    }
+                ],
+            },
+            "unresolved_path": {
+                "version": 1,
+                "entries": [{**valid, "path": "delivery/yok/boyle-dosya.md"}],
+            },
+            "invalid_weight": {
+                "version": 1,
+                "entries": [{**valid, "weight": "ağır"}],
+            },
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            for name, payload in cases.items():
+                with self.subTest(name=name):
+                    path = Path(tmp) / f"{name}.yaml"
+                    path.write_text(
+                        yaml.safe_dump(payload, sort_keys=False), encoding="utf-8"
+                    )
+                    code, _, err = self.run_route(["312", "--route"], path)
+                    self.assertEqual(code, 2)
+                    self.assertTrue(err.strip())
+
+    def test_missing_index_reports_fallback(self) -> None:
+        missing = ROOT / "delivery" / "context" / "yok-boyle-index.yaml"
+        self.assertFalse(missing.exists())
+        code, out, _ = self.run_route(["312", "--route"], missing)
+        self.assertEqual(code, 0)
+        lines = out.strip().splitlines()
+        self.assertEqual(lines[0], "fallback: index yok")
+        self.assertTrue(
+            any(
+                line.startswith("retrieved ") and "(source: static," in line
+                for line in lines[1:]
+            )
+        )
+        self.assertTrue(
+            any(
+                line.startswith("window ") and "(source: resolver," in line
+                for line in lines[1:]
+            )
+        )
+        for line in lines[1:]:
+            self.assertRegex(
+                line,
+                r"^(sink|window|retrieved) \S+ "
+                r"\(source: (seal|resolver|index|static), reason: .+\)$",
+            )
+
+        json_code, json_out, _ = self.run_route(
+            ["312", "--route", "--json"], missing
+        )
+        self.assertEqual(json_code, 0)
+        payload = json.loads(json_out)
+        self.assertEqual(payload["issue"], 312)
+        self.assertEqual(payload["fallback"], "index yok")
+        self.assertTrue(payload["route"])
 
 
 if __name__ == "__main__":
