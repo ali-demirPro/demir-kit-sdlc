@@ -106,10 +106,10 @@ def usage_kind(data: dict | None) -> str:
     return "usage-delta"
 
 
-def session_delta(issue: int) -> dict | None:
-    """Session delta from ``usage.py``; ``None`` when unavailable."""
+def session_delta(issue: int, root: Path | None = None) -> dict | None:
+    """Session delta from ``usage.py`` rooted at ``root``; ``None`` when unavailable."""
     try:
-        return usage.session_delta(issue)
+        return usage.session_delta(issue, project=resolve_root(root))
     except Exception:  # noqa: BLE001 - missing snapshot/session is ``unknown``
         return None
 
@@ -145,7 +145,7 @@ def resolve_tokens(
         if total > 0:
             return total, f"tokens:usage-delta:{display_path(delta_path, root)}"
         return UNKNOWN, "tokens:unknown"
-    data = session_delta(issue)
+    data = session_delta(issue, base)
     total = token_total(data) if data is not None else 0
     if total > 0:
         return total, "tokens:usage-delta:session"

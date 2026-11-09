@@ -45,6 +45,26 @@ def write_doc(root: Path, name: str, size: int) -> Path:
     return path
 
 
+def write_snapshot(root: Path, issue: int, session_id: str, tokens: dict) -> Path:
+    directory = root / ".orchestration"
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / f"usage-{issue}.json"
+    path.write_text(
+        json.dumps(
+            {
+                "issue": issue,
+                "session_id": session_id,
+                "cost": 0,
+                "tokens": tokens,
+                "time": {"created": 0, "updated": 1000},
+                "created_at": "2026-11-09T00:00:00+00:00",
+            }
+        ),
+        encoding="utf-8",
+    )
+    return path
+
+
 class RateTests(unittest.TestCase):
     def test_miss_and_over_read_definitions(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -148,6 +168,30 @@ class RecordTests(unittest.TestCase):
                 transition.warn_context_metrics(314)
         self.assertEqual(stdout.getvalue(), "")
 
+    def test_issue_only_fallback_is_labelled(self) -> None:
+        stderr = io.StringIO()
+        with patch.object(
+            transition.context_metrics,
+            "check",
+            return_value=(False, "uyari: context-metrics satiri yok"),
+        ):
+            with contextlib.redirect_stderr(stderr):
+                transition.warn_context_metrics(999)
+        self.assertIn("uyari: context-metrics satiri yok", stderr.getvalue())
+        self.assertIn("checkpoint bilinmiyor", stderr.getvalue())
+
+    def test_known_checkpoint_scopes_the_metrics_check(self) -> None:
+        body = (
+            "```yaml demir-kit\n"
+            "demir_kit_version: '2'\n"
+            "checkpoints:\n"
+            "  - id: CP-2\n"
+            "```\n"
+        )
+        self.assertEqual(transition.metrics_cp(None, {"body": body}), "CP-2")
+        self.assertEqual(transition.metrics_cp("CP-1", {"body": body}), "CP-1")
+        self.assertIsNone(transition.metrics_cp(None, {"body": ""}))
+
 
 class TokenTests(unittest.TestCase):
     def test_dot_kit_delta_wins_over_session_delta(self) -> None:
@@ -179,6 +223,27 @@ class TokenTests(unittest.TestCase):
             with patch.object(context_metrics, "session_delta", return_value=delta):
                 row = context_metrics.build_row(314, "CP-1", root=root)
         self.assertEqual(row["tokens"], 200)
+        self.assertEqual(row["method"], "tokens:usage-delta:session")
+
+    def test_session_delta_reads_the_given_root(self) -> None:
+        with tempfile.TemporaryDirectory() as first, tempfile.TemporaryDirectory() as second:
+            other = Path(first)
+            root = Path(second)
+            write_snapshot(other, 314, "ses_root", {"input": 10})
+            write_snapshot(root, 314, "ses_root", {"input": 100})
+            current = {
+                "id": "ses_root",
+                "cost": 0,
+                "tokens": {"input": 150},
+                "time": {"created": 0, "updated": 2000},
+            }
+            with patch.object(
+                context_metrics.usage, "project_root", return_value=other
+            ), patch.object(
+                context_metrics.usage, "api_session_info", return_value=current
+            ):
+                row = context_metrics.build_row(314, "CP-1", root=root)
+        self.assertEqual(row["tokens"], 50)  # root delta, not other/.orchestration
         self.assertEqual(row["method"], "tokens:usage-delta:session")
 
     def test_no_delta_source_is_unknown(self) -> None:
