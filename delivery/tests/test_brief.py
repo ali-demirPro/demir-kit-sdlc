@@ -347,13 +347,13 @@ class ConfigTests(unittest.TestCase):
         self.assertIn("fallback: ecosystem yok", out)
         self.assertIn("fallback: priorities yok", out)
 
-    def test_meta_path_uses_the_cycle_root(self) -> None:
-        """Brief metadata follows cycle.jsonl to the main checkout (issue 321)."""
+    def test_meta_path_uses_the_storage_root(self) -> None:
+        """Brief metadata follows the one storage-root resolver (issue 321)."""
         with tempfile.TemporaryDirectory() as main_dir, tempfile.TemporaryDirectory() as worktree_dir:
             main = Path(main_dir).resolve()
             worktree = Path(worktree_dir).resolve()
             with patch.object(
-                brief.cycle, "project_root", return_value=main
+                brief.context_metrics, "storage_root", return_value=main
             ), patch.object(brief.routing, "project_root", return_value=worktree):
                 code, out, err = self.run_brief(
                     ["321", "--cp", "CP-1"], set_context_root=False

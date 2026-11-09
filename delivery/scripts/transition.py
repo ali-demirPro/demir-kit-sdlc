@@ -685,9 +685,7 @@ def ensure_context_metrics(
     ``require`` turns a still-missing row into a hard stop; otherwise the
     warning is printed and the leaf-done transition continues.
     """
-    if root is None:
-        override = os.environ.get("DEMIR_KIT_CONTEXT_ROOT")
-        root = Path(override) if override else cycle.project_root(ROOT)
+    root = context_metrics.storage_root(root)
     if cp:
         ok, _ = context_metrics.check(number, cp, root)
         if ok:

@@ -23,7 +23,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import resolver  # noqa: E402
 import routing  # noqa: E402
-import cycle  # noqa: E402
 import profiles  # noqa: E402
 import context_metrics  # noqa: E402
 
@@ -965,7 +964,7 @@ def main() -> int:
                 docs=data["docs"],
                 route=cp_route,
                 meta_path=context_metrics.brief_meta_path(
-                    data["issue"], args.cp, root=cycle.project_root(ROOT)
+                    data["issue"], args.cp
                 ),
             )
         except ValueError as exc:

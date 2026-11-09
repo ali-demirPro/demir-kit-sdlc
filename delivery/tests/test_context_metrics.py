@@ -313,6 +313,58 @@ class EnsureMetricsTests(unittest.TestCase):
         self.assertEqual(row["method"], "tokens:unknown")
 
 
+class StorageRootTests(unittest.TestCase):
+    def test_env_override_wins(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            with patch.dict(os.environ, {"DEMIR_KIT_CONTEXT_ROOT": directory}):
+                self.assertEqual(
+                    context_metrics.storage_root(), Path(directory).resolve()
+                )
+
+    def test_default_is_the_cycle_root(self) -> None:
+        import cycle
+
+        with tempfile.TemporaryDirectory() as directory:
+            with patch.dict(
+                os.environ, {"DEMIR_KIT_CONTEXT_ROOT": ""}, clear=False
+            ), patch.object(
+                cycle, "project_root", return_value=Path(directory)
+            ):
+                self.assertEqual(
+                    context_metrics.storage_root(), Path(directory)
+                )
+
+
+class MalformedUsageTests(unittest.TestCase):
+    def test_string_token_is_a_warning_not_a_stop(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            usage = root / ".kit" / "usage-321.json"
+            usage.parent.mkdir(parents=True, exist_ok=True)
+            usage.write_text(
+                json.dumps({"tokens": {"input": "abc"}}), encoding="utf-8"
+            )
+            meta = root / ".kit" / "brief-321-CP-1.json"
+            meta.write_text(
+                json.dumps(
+                    {
+                        "issue": 321,
+                        "cp": "CP-1",
+                        "armed": ["cp CP-1"],
+                        "fallbacks": [],
+                        "selected_docs": ["a.md"],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            stderr = io.StringIO()
+            with contextlib.redirect_stderr(stderr):
+                transition.ensure_context_metrics(321, "CP-1", root=root)
+            metrics = root / ".kit" / "context-metrics.jsonl"
+            self.assertFalse(metrics.exists())
+        self.assertIn("uyari", stderr.getvalue())
+
+
 class ConcurrencyTests(unittest.TestCase):
     """Two writers serialize on the lock instead of dropping rows."""
 

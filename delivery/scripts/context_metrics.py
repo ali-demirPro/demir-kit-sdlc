@@ -78,13 +78,30 @@ def resolve_root(project: Path | str | None = None) -> Path:
     return ROOT
 
 
+def storage_root(root: Path | None = None) -> Path:
+    """Root that owns the runtime ``.kit`` files (brief metadata + metrics).
+
+    One rule for writer and reader: an explicit root wins, then
+    ``DEMIR_KIT_CONTEXT_ROOT`` (test/runtime override), then the main checkout
+    (``cycle.jsonl`` lives there and survives the epic worktree).
+    """
+    if root is not None:
+        return Path(root).resolve()
+    override = os.environ.get("DEMIR_KIT_CONTEXT_ROOT")
+    if override:
+        return Path(override).resolve()
+    import cycle
+
+    return cycle.project_root(ROOT)
+
+
 def metrics_path(root: Path | None = None) -> Path:
-    return resolve_root(root) / METRICS_PATH
+    return storage_root(root) / METRICS_PATH
 
 
 def brief_meta_path(issue: int, cp: str, root: Path | None = None) -> Path:
     """Machine metadata written by the CP brief for one issue + checkpoint."""
-    return resolve_root(root) / ".kit" / f"brief-{issue}-{cp}.json"
+    return storage_root(root) / ".kit" / f"brief-{issue}-{cp}.json"
 
 
 def read_brief_meta(
@@ -502,6 +519,10 @@ def record_from_brief(
         # Metadata is optional; a read-only project keeps its leaf-done, but
         # the missing row must still be visible on stderr.
         print("uyari: context-metrics yazilamadi; satir yok", file=sys.stderr)
+        return None
+    except (ValueError, TypeError):
+        # A malformed usage snapshot must not turn a measurement into a stop.
+        print("uyari: context-metrics okunamadi; satir yazilmadi", file=sys.stderr)
         return None
 
 
