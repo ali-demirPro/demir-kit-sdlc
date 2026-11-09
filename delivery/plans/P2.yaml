@@ -1,0 +1,197 @@
+source:
+  repo: https://github.com/Prefrontal-AI/latent-sparse-attention
+  commit: 5ebea732d639576d2a7579b0de40e6252f9001f5
+  read_at: "2026-11-09"
+
+mechanisms:
+  - name: sink-window-retrieved
+    ours: >-
+      brief.py --cp CP brief'i kapsam, AC, test ve yol listesini tek düz listede
+      yazar; context-budget.md 200k/300k bağlam, 2k/8k araç çıktısı ve 3/5
+      doküman eşiklerini ve "bir kez oku" kuralını koyar. Hangi dokümanın zorunlu
+      (sink), hangisinin taze (window), hangisinin göreve göre seçilmiş
+      (retrieved) olduğu ayrılmıyor.
+    gap: >-
+      Üç okuma sınıfı, sınıf başına dosya/token bütçesi, CP başına zorunlu sink
+      listesi ve retrieved seçim kuralı yok; brief düz liste veriyor ve satırlar
+      sınıf etiketi taşımıyor.
+    target: "delivery/policies/context-budget.md + delivery/scripts/brief.py; P2-2 (#311)"
+
+  - name: armed-banner-and-silent-fallback
+    ours: >-
+      brief.py path, capabilities ve docs yazar; render() yolu "(signal: …)" ile
+      basar ama kaynağı (signal/keyword/default) ayırmaz. routing.detect_path
+      eşleşme yoksa DEFAULT_PATH'e düşer; resolver.load_declared
+      profiles.compose'un ValueError'ını yutar; resolver.load_yaml
+      OSError/YAMLError'da {} döner; brief.py ecosystem/priorities yüklemesi hata
+      verirse bölümü sessizce atlar. next-leaf.py, orca_plan.py ve handoff.py de
+      etkin yapılandırmayı yazmaz.
+    gap: >-
+      Etkin yapılandırma (registry sha256, yüklenen politika dosyaları, path
+      provenance, index sürümü) hiçbir komutta yazılmıyor; "kuruldu" ile
+      "gerçekten kullanıldı" ayrımı ve fallback uyarısı yok. LSA'nın armed +
+      indexing çift banner'ının karşılığı eksik.
+    target: >-
+      delivery/scripts/brief.py, routing.py, resolver.py, orca_plan.py,
+      next-leaf.py; P2-4 (#313)
+
+  - name: flat-vs-tree
+    ours: >-
+      Brief tek düz doküman listesi (flat); epic→leaf→CP ilişkisi yalnız başlıkta
+      ve seal'de tutuluyor. Üst seviye özet (node bucket) veya kademeli daraltma
+      yok.
+    gap: >-
+      Kademeli seçim (önce epic/yüzey düğümleri, sonra CP dokümanları) ve daralan
+      beam yok; her brief aynı düz listeyi sıfırdan kuruyor.
+    target: "delivery/context/index.yaml + delivery/scripts/brief.py; P2-3 (#312)"
+
+  - name: distilled-vs-native-indexer
+    ours: >-
+      Seçim elle yazılmış statik doküman listesi ve resolver kuralları; native
+      indexer karşılığı. Trace'ten öğrenilen ağırlık veya yüzey başına frekans
+      yok.
+    gap: >-
+      Frekans tabanlı ve açıklanabilir router yok; seçim gerekçesi sayımla
+      desteklenmiyor, ağırlık değişince neden değiştiği görünmüyor.
+    target: "delivery/context/frequency.yaml + delivery/scripts/brief.py; P2-6 (#315)"
+
+  - name: selection-recall-measurement
+    ours: >-
+      Hiçbir dosya miss veya over-read ölçmüyor; usage.py yalnız token/cost
+      deltası verir, .kit/evidence.jsonl yalnız review turunu sayar.
+    gap: >-
+      Zorunlu doküman hatırlama oranı, fazla okuma oranı, leaf kapanış kaydı ve
+      10 leaf raporu yok; seçim kalitesi kanıtsız.
+    target: >-
+      delivery/scripts/context_metrics.py + .kit/context-metrics.jsonl;
+      P2-5 (#314), P2-7 (#316)
+
+measurement:
+  miss_rate: >-
+    |kaçırılan zorunlu doküman| / (|brief'teki doküman| + |kaçırılan|), leaf
+    başına ve 10 leaf toplamında. "Kaçırılan", leaf kapanışında brief dışından
+    okunup gate/review sonucunu değiştiren dokümandır; sadece açılmış olmak
+    yetmez.
+  over_read_rate: >-
+    (brief dışı okunan + brief'te olup kullanılmayan dokümanların) token
+    maliyeti / toplam bağlam tokenı. Token, .kit/usage-N.json oturum deltasından;
+    doküman maliyeti okunan bayt / 4 ile tahmin edilir ve satırda yöntem yazılır.
+  storage: ".kit/context-metrics.jsonl (makine durumu, depoya girmez; satır: issue, cp, brief_docs, extra_docs, missed_docs, tokens, miss_rate, over_read_rate, config_digest)"
+  baseline: >-
+    P2-4 ve P2-5 öncesi son 10 leaf ya da ilk ölçülen 10 leaf; baseline yoksa
+    rapor "ölçülemedi" der, sayı uydurmaz.
+  report: "P2-7 (#316) epic #288 yorumu; tanım bu bölümle birebir aynı."
+
+children:
+  - slug: p2-1-analysis
+    issue: 289
+    title: "P2-1: derin analiz — Prefrontal-AI/latent-sparse-attention"
+    intent: >-
+      Prefrontal-AI/latent-sparse-attention deposunu pinlenmiş commit'te kod
+      seviyesinde incele; mekanizmaları hedef dosya, AC, risk ve CP'ye çevir; alt
+      issue'ları aç.
+    risk: low
+    depends_on: []
+    ac:
+      - "Pinlenmiş commit sha'sı, okunan dosya listesi ve plan yolu epic yorumunda yazılı."
+      - "sink/window/retrieved ve 'armed' mekanizması src/lsa/core ile README'den okundu; brief.py ve context-budget.md ile farkı yazıldı."
+      - "En az 4 çocuk issue açıldı; her biri niyet, kaba AC, risk, hedef dosya ve depends_on taşıyor."
+      - "delivery/plans/P2.yaml dosyası var; epic gövdesindeki keep ve children ile birebir aynı."
+      - "Epic gövdesi güncellendi (defer→keep, children), çocuklar intake etiketli ve update.py yorumu atıldı."
+
+  - slug: p2-2-context-contract
+    issue: 311
+    title: "P2-2 context-budget.md sözleşmesi: sink/window/retrieved"
+    intent: >-
+      context-budget.md'yi üç parçalı okuma sözleşmesine çevir: sink her zaman
+      okunan çekirdek, window son CP/leaf'lerin taze yüzeyi, retrieved göreve göre
+      seçilen uzun kuyruk; sınıf başına bütçe ve CP başına zorunlu sink listesi.
+    risk: low
+    depends_on: [289]
+    ac:
+      - "Politika üç sınıfı adlandırır; her sınıf için dosya ve token üst sınırı tabloda yazılır. Mevcut 200k/300k bağlam, 2k/8k araç çıktısı ve 3/5 doküman eşikleri korunur."
+      - "Her CP için zorunlu sink listesi (seal, AC, testler, gate yolu) ve retrieved seçim kuralı yazılır; brief.py --cp çıktısı üç sınıfı etiketler."
+      - "\"Bir kez oku\" ve dilim oku kuralları korunur; sınıfı belirlenemeyen dosya unknown sayılır ve brief'te görünür, sessizce retrieved'a katılmaz."
+      - "./delivery/scripts/doctor.sh --strict 0 uyarı verir; delivery/tests/test_usage.py politikadaki eşikleri hâlâ bulur."
+
+  - slug: p2-3-route-index
+    issue: 312
+    title: "P2-3 brief.py --route + delivery/context/index.yaml"
+    intent: >-
+      brief.py'ye --route ekle; delivery/context/index.yaml yüzey → doküman/skill
+      eşlemesini ve ağırlığı taşısın. Seçim deterministik ve açıklanabilir olsun:
+      seçilenler, aday olup seçilmeyenler ve gerekçeleri görünsün.
+    risk: medium
+    depends_on: [289, 311]
+    ac:
+      - "brief.py --route (ve --cp ile birlikte) sink/window/retrieved listesini her satırda kaynak ve gerekçeyle yazar; aynı issue + aynı index sürümü aynı listeyi üretir."
+      - "delivery/context/index.yaml şeması (surface, path, tags, weight, version) doğrulanır; bilinmeyen anahtar veya çözülmeyen yol exit 2 verir."
+      - "Index yoksa route bugünkü statik listeye düşer ve bunu \"fallback: index yok\" satırıyla yazar; sessiz düşüş olmaz."
+      - "doctor.sh --strict index dosyasını ve route çıktısını doğrular; testte en az iki yüzey için seçim ve fallback kanıtlanır."
+
+  - slug: p2-4-armed-banner
+    issue: 313
+    title: "P2-4 etkin-yapılandırma (armed) banner'ı + fallback uyarısı"
+    intent: >-
+      Her brief ve worker spec'i etkin yapılandırmayı yazsın: registry sha256,
+      path provenance, yüklenen politikalar, index sürümü ve fallback nedeni.
+      LSA'nın armed + indexing çift banner'ı gibi "kuruldu" ile "gerçekten
+      kullanıldı" ayrı iki satır olsun.
+    risk: medium
+    depends_on: [289]
+    ac:
+      - "brief.py çıktısının başında config: bloğu bulunur: registry sha256, path provenance (signal/keyword/default), index sürümü ve yüklenen politika dosyaları; --json aynı veriyi taşır."
+      - "armed satırı yalnız seçim gerçekten uygulandıysa yazılır; indexing satırı ilk gerçek route tüketiminde yazılır. Biri eksikse çıktı \"unarmed: <neden>\" der."
+      - "Sessiz fallback'ler uyarıya döner: detect_path default'a düşerse, profiles.compose ValueError yutarsa, load_yaml boş dönerse fallback: satırı yazılır."
+      - "next-leaf.py, orca_plan.py ve handoff.py en az registry sha + index sürümünü yazar; testte bir fallback uyarısı ve bir unarmed durumu kanıtlanır."
+
+  - slug: p2-5-metrics
+    issue: 314
+    title: "P2-5 miss/over-read metrikleri + leaf kapanış hook'u"
+    intent: >-
+      miss rate ve over-read rate'i tek anlamlı tanımla; leaf kapanışında
+      .kit/context-metrics.jsonl satırı yaz. LSA'nın report.depths + recall /
+      recall64 ölçümünün kit karşılığı.
+    risk: medium
+    depends_on: [289, 312, 313]
+    ac:
+      - "Metrik tanımı yazılı ve tek anlamlı: miss_rate = |kaçırılan zorunlu| / (|brief| + |kaçırılan|); over_read_rate = (brief dışı + kullanılmayan brief) token / toplam bağlam token. Token, .kit/usage-N.json oturum deltasından gelir."
+      - "leaf-done öncesi hook .kit/context-metrics.jsonl dosyasına satır yazar: issue, CP, brief_docs, extra_docs, missed_docs, tokens, iki oran ve config digest. Satır yoksa transition uyarır."
+      - "En az üç fixture (temiz, miss, over-read) beklenen oranı üretir; aynı girdi aynı satırı verir."
+      - "Oranlar 0..1 aralığında kalır; payda sıfırsa unknown yazılır, sıfır uydurulmaz."
+
+  - slug: p2-6-learned-router
+    issue: 315
+    title: "P2-6 trace'ten öğrenilen router (frekans tablosu)"
+    intent: >-
+      Leaf kapanış kayıtları, gate ilk-deneme sonucu ve review bulgularından
+      açıklanabilir frekans tablosu öğren; route ağırlığını sayıma dayandır.
+      Embedding, vektör DB ve öğrenilmiş indexer eğitimi yok.
+    risk: medium
+    depends_on: [289, 312, 314]
+    ac:
+      - "delivery/context/frequency.yaml üretilir; her satır doküman, yüzey, seçilme sayısı, kullanılma sayısı ve oran taşır."
+      - "Router önce frekans tablosunu, tablo yoksa statik ağırlığı kullanır; seçim gerekçesi brief'te görünür."
+      - "Aynı trace girdisi aynı tabloyu üretir; tablo sürümlenir ve doctor.sh --strict şeklini doğrular."
+      - "Tablo yalnız gözlenen sayımları taşır; kişi/oturum kimliği, prompt veya dosya içeriği saklamaz."
+
+  - slug: p2-7-measurement-report
+    issue: 316
+    title: "P2-7 10 leaf sonrası ölçüm raporu"
+    intent: >-
+      On leaf'lik pencerede miss ve over-read ölçümünü raporla; P2-4 öncesi ve
+      sonrası farkı, etkin config yazılma oranını ve fallback sayısını göster.
+    risk: low
+    depends_on: [289, 311, 312, 313, 314, 315]
+    ac:
+      - "En az 10 leaf kapanışı .kit/context-metrics.jsonl üzerinden raporlanır; miss rate ve over-read rate ortalama + dağılım olarak verilir."
+      - "Her leaf için brief etkin config yazmış mı (armed), kaç fallback uyarısı üretmiş, ayrı satırda gösterilir."
+      - "Düşüş varsa baseline (P2 öncesi 10 leaf veya mevcut ölçüm) ile karşılaştırılır; baseline yoksa ölçülemedi denir."
+      - "Rapor epic #288'e yorum olarak yazılır ve delivery/plans/P2.yaml ölçüm bölümündeki tanımı birebir kullanır."
+
+not_taking:
+  - "Embedding / vektör DB"
+  - "Clustering ve öğrenilmiş indexer eğitimi"
+  - "Attention kernel kodu ve torch/sglang/transformers runtime bağımlılığı"
+  - "Repo kodunu kit'e kopyalamak"
+  - "Uzun-kuyruk seçimi için LLM çağrısı"
