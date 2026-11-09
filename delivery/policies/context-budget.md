@@ -99,6 +99,9 @@ geçerlidir; `unknown` dosya açılmadan önce sınıflandırılır.
 ## Ölçüm
 
 İki oran tek anlamlıdır; `delivery/scripts/context_metrics.py` bunları üretir.
+`context_metrics.py summary --window 10` son 10 satırdan miss/over-read ortalama +
+dağılım, leaf başına `armed`/`fallback_count` üretir; 10'dan az satırda
+`ready: false`, ölçülemeyen kalem `ölçülemedi` yazar.
 
 - `miss_rate = |kaçırılan zorunlu| / (|brief| + |kaçırılan|)`. `brief` yalnız
   kullanılan brief dokümanlarıdır; kullanılmayan brief dokümanı kaçırılan

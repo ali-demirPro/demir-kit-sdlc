@@ -47,6 +47,8 @@ import usage
 import yaml
 
 UNKNOWN = "unknown"
+UNMEASURED = "ölçülemedi"
+DISTRIBUTION_KEYS = ("0", "(0,0.25]", "(0.25,0.5]", "(0.5,1.0]", "unknown")
 METRICS_PATH = Path(".kit") / "context-metrics.jsonl"
 ROOT = Path(__file__).resolve().parents[2]
 INDEX_VERSION_RE = re.compile(r"^version:\s*(\S+)\s*$", re.M)
@@ -622,6 +624,109 @@ def _metrics_lines(path: Path):
             yield row
 
 
+def _distribution(values: list) -> dict:
+    """Five deterministic buckets; numeric values never land in ``unknown``."""
+    buckets = {key: 0 for key in DISTRIBUTION_KEYS}
+    for value in values:
+        if not _is_number(value):
+            buckets["unknown"] += 1
+            continue
+        rate = float(value)
+        if rate <= 0:
+            buckets["0"] += 1
+        elif rate <= 0.25:
+            buckets["(0,0.25]"] += 1
+        elif rate <= 0.5:
+            buckets["(0.25,0.5]"] += 1
+        else:
+            buckets["(0.5,1.0]"] += 1
+    return buckets
+
+
+def _rate_block(values: list) -> dict:
+    """``measured``, ``average`` and ``distribution`` for one rate column."""
+    numeric = [float(value) for value in values if _is_number(value)]
+    average = round(sum(numeric) / len(numeric), 4) if numeric else UNMEASURED
+    return {
+        "measured": len(numeric),
+        "average": average,
+        "distribution": _distribution(values),
+    }
+
+
+def _leaf_row(row: dict) -> dict:
+    """Per-leaf summary; anything unmeasured stays ``ölçülemedi``."""
+    issue = row.get("issue")
+    cp = row.get("cp")
+    armed = row.get("armed")
+    fallback = row.get("fallback_count")
+    miss_value = row.get("miss_rate")
+    over_value = row.get("over_read_rate")
+    return {
+        "issue": issue if _is_int(issue) else UNMEASURED,
+        "cp": cp if isinstance(cp, str) and cp.strip() else UNMEASURED,
+        "armed": armed if isinstance(armed, bool) else UNMEASURED,
+        "fallback_count": fallback if _is_number(fallback) else UNMEASURED,
+        "miss_rate": miss_value if _is_number(miss_value) else UNMEASURED,
+        "over_read_rate": over_value if _is_number(over_value) else UNMEASURED,
+    }
+
+
+def summary(
+    metrics_file: str | Path | None = None,
+    window: int = 10,
+    root: Path | None = None,
+) -> dict:
+    """Deterministic miss/over-read summary over ``.kit/context-metrics.jsonl``.
+
+    ``sample`` is every readable line, ``window`` is the trailing slice
+    (``leaves``) and ``ready`` says whether that slice already holds ten leaves.
+    Rates and the armed/fallback counts aggregate over that trailing window: the
+    report is a 10-leaf window, not an ever-growing total. A rate that is not
+    numeric is never replaced by a fabricated zero.
+    """
+    base = resolve_root(root)
+    path = (
+        _target(metrics_file, base)
+        if metrics_file is not None
+        else metrics_path(root)
+    )
+    rows = list(_metrics_lines(path))
+    size = max(0, int(window))
+    recent = rows[-size:] if size else []
+
+    miss_values = [row.get("miss_rate") for row in recent]
+    over_values = [row.get("over_read_rate") for row in recent]
+
+    armed = {"true": 0, "false": 0, "unknown": 0}
+    fallback_total = 0
+    fallback_unknown = 0
+    for row in recent:
+        armed_value = row.get("armed")
+        if armed_value is True:
+            armed["true"] += 1
+        elif armed_value is False:
+            armed["false"] += 1
+        else:
+            armed["unknown"] += 1
+        fallback = row.get("fallback_count")
+        if _is_number(fallback):
+            fallback_total += fallback
+        else:
+            fallback_unknown += 1
+
+    return {
+        "sample": len(rows),
+        "window": len(recent),
+        "ready": len(recent) >= 10,
+        "leaves": [_leaf_row(row) for row in recent],
+        "miss_rate": _rate_block(miss_values),
+        "over_read_rate": _rate_block(over_values),
+        "armed": armed,
+        "fallback_count": {"total": fallback_total, "unknown": fallback_unknown},
+    }
+
+
 def learn_rows(
     metrics_file: str | Path | None = None,
     index_file: str | Path | None = None,
@@ -829,6 +934,17 @@ def main(argv: list[str] | None = None) -> int:
     check_parser.add_argument("--issue", type=int, required=True)
     check_parser.add_argument("--cp", help="ayni issue ve cp satirini ara")
 
+    summary_parser = sub.add_parser("summary", help="10-leaf miss/over-read ozeti")
+    summary_parser.add_argument("--window", type=int, default=10)
+    # The top-level flag still parses before the subcommand; SUPPRESS keeps this
+    # alias from overwriting a value that came before ``summary``.
+    summary_parser.add_argument(
+        "--project",
+        type=Path,
+        default=argparse.SUPPRESS,
+        help="proje koku (alt komuttan sonra da kabul edilir)",
+    )
+
     learn_parser = sub.add_parser(
         "learn", help="derive delivery/context/frequency.yaml from metrics"
     )
@@ -843,6 +959,14 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "learn"
         else storage_root(args.project)
     )
+
+    if args.command == "summary":
+        # The task's public surface: JSON on stdout, exit 0.
+        document = summary(window=args.window, root=root)
+        sys.stdout.write(
+            json.dumps(document, ensure_ascii=False, indent=2) + "\n"
+        )
+        return 0
 
     if args.command == "learn":
         document, target = learn(

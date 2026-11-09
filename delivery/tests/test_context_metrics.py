@@ -67,6 +67,28 @@ def write_snapshot(root: Path, issue: int, session_id: str, tokens: dict) -> Pat
     return path
 
 
+def write_metrics_rows(root: Path, rows: list[dict]) -> Path:
+    path = context_metrics.metrics_path(root)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        "\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8"
+    )
+    return path
+
+
+def summary_row(index: int, miss, over, **overrides) -> dict:
+    row = {
+        "issue": 400 + index,
+        "cp": "CP-1",
+        "armed": True,
+        "fallback_count": 0,
+        "miss_rate": miss,
+        "over_read_rate": over,
+    }
+    row.update(overrides)
+    return row
+
+
 class RateTests(unittest.TestCase):
     def test_miss_and_over_read_definitions(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -922,6 +944,136 @@ class FixtureTests(unittest.TestCase):
                 self.assertEqual(first_line, second_line)
                 self.assertEqual(first["miss_rate"], spec["miss_rate"])
                 self.assertEqual(first["over_read_rate"], spec["over_read_rate"])
+
+
+class SummaryTests(unittest.TestCase):
+    """AC-3: the 10-leaf miss/over-read summary."""
+
+    def test_summary_needs_ten_rows(self) -> None:
+        miss_values = [0.0, 0.1, 0.2, 0.3, 0.4]
+        over_values = [0.0, 0.25, 0.5, 0.75, 1.0]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            write_metrics_rows(
+                root,
+                [
+                    summary_row(index, miss, over)
+                    for index, (miss, over) in enumerate(
+                        zip(miss_values, over_values)
+                    )
+                ],
+            )
+            data = context_metrics.summary(window=10, root=root)
+        self.assertFalse(data["ready"])
+        self.assertEqual(data["sample"], 5)
+        self.assertEqual(data["window"], 5)
+        self.assertEqual(data["miss_rate"]["measured"], 5)
+        self.assertEqual(
+            data["miss_rate"]["average"],
+            round(sum(miss_values) / len(miss_values), 4),
+        )
+        self.assertEqual(
+            data["over_read_rate"]["average"],
+            round(sum(over_values) / len(over_values), 4),
+        )
+        self.assertEqual(len(data["leaves"]), 5)
+
+    def test_summary_window_distribution_and_unknown(self) -> None:
+        miss_values = [0.0, 0.1, 0.2, 0.25, 0.3, 0.4, 0.5, 0.75]
+        over_values = [1.0, 0.75, 0.5, 0.4, 0.3, 0.25, 0.2, 0.1]
+        # Two older measured rows fall outside the trailing 10-leaf window.
+        rows = [
+            summary_row(10 + index, 0.9, 0.9, fallback_count=9)
+            for index in range(2)
+        ]
+        rows += [
+            summary_row(index, "unknown", "unknown", armed="unknown",
+                        fallback_count="unknown")
+            for index in range(2)
+        ]
+        rows += [
+            summary_row(2 + index, miss, over, fallback_count=index)
+            for index, (miss, over) in enumerate(zip(miss_values, over_values))
+        ]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            write_metrics_rows(root, rows)
+            data = context_metrics.summary(window=10, root=root)
+        self.assertTrue(data["ready"])
+        self.assertEqual(data["window"], 10)
+        self.assertEqual(data["sample"], 12)
+
+        block = data["miss_rate"]
+        self.assertEqual(block["measured"], 8)
+        self.assertEqual(block["average"], 0.3125)
+        self.assertEqual(block["distribution"]["unknown"], 2)
+        self.assertEqual(
+            {
+                key: block["distribution"][key]
+                for key in ("0", "(0,0.25]", "(0.25,0.5]", "(0.5,1.0]")
+            },
+            {"0": 1, "(0,0.25]": 3, "(0.25,0.5]": 3, "(0.5,1.0]": 1},
+        )
+        self.assertEqual(
+            sum(
+                count
+                for key, count in block["distribution"].items()
+                if key != "unknown"
+            ),
+            block["measured"],
+        )
+        self.assertEqual(data["over_read_rate"]["measured"], 8)
+        self.assertEqual(data["over_read_rate"]["distribution"]["unknown"], 2)
+        self.assertEqual(data["armed"], {"true": 8, "false": 0, "unknown": 2})
+        self.assertEqual(
+            data["fallback_count"], {"total": 28, "unknown": 2}
+        )
+
+        self.assertEqual(len(data["leaves"]), 10)
+        self.assertEqual(data["leaves"][0]["issue"], rows[2]["issue"])
+        self.assertEqual(data["leaves"][-1]["issue"], rows[-1]["issue"])
+        for leaf in data["leaves"]:
+            self.assertIn("armed", leaf)
+            self.assertIn("fallback_count", leaf)
+            if leaf["miss_rate"] != "ölçülemedi":
+                self.assertIn("miss_rate", leaf)
+
+    def test_summary_empty_file_is_olculemedi(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            path = write_metrics_rows(root, [])
+            self.assertEqual(path.read_text(encoding="utf-8"), "\n")
+            data = context_metrics.summary(window=10, root=root)
+        self.assertEqual(data["sample"], 0)
+        self.assertEqual(data["window"], 0)
+        self.assertFalse(data["ready"])
+        self.assertEqual(data["leaves"], [])
+        self.assertEqual(data["miss_rate"]["measured"], 0)
+        self.assertEqual(data["miss_rate"]["average"], "ölçülemedi")
+        self.assertEqual(data["over_read_rate"]["average"], "ölçülemedi")
+        self.assertEqual(data["armed"], {"true": 0, "false": 0, "unknown": 0})
+        self.assertEqual(
+            data["fallback_count"], {"total": 0, "unknown": 0}
+        )
+
+    def test_summary_cli_outputs_json(self) -> None:
+        rows = [
+            summary_row(index, 0.0, 0.0)
+            for index in range(12)
+        ]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            write_metrics_rows(root, rows)
+            stdout = io.StringIO()
+            with contextlib.redirect_stdout(stdout):
+                code = context_metrics.main(
+                    ["summary", "--project", str(root)]
+                )
+            self.assertEqual(code, 0)
+            data = json.loads(stdout.getvalue())
+        self.assertTrue(data["ready"])
+        self.assertEqual(data["sample"], 12)
+        self.assertEqual(data["window"], 10)
 
 
 if __name__ == "__main__":
