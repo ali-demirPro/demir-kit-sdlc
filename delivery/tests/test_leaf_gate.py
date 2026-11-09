@@ -173,6 +173,46 @@ class CloseLeafGateTests(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertTrue(output)
 
+    def test_failed_gate_keeps_its_log_path(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+
+            def fake_run(command, **kwargs):
+                if command[1:3] == ["terminal", "wait"]:
+                    (root / "gate.log").write_text("boom\n", encoding="utf-8")
+                    (root / "gate.exit").write_text("3", encoding="utf-8")
+                return subprocess.CompletedProcess(
+                    command,
+                    0,
+                    stdout=json.dumps(
+                        {"ok": True, "result": {"terminal": {"handle": "term_x"}}}
+                    ),
+                    stderr="",
+                )
+
+            with mock.patch.object(
+                transition.shutil, "which", return_value="/usr/bin/orca"
+            ), mock.patch.object(
+                transition.subprocess, "run", side_effect=fake_run
+            ):
+                code, output = transition.run_gate_in_orca(
+                    ROOT, ["true"], root=root
+                )
+            self.assertTrue((root / "gate.log").is_file())
+        self.assertEqual(code, 3)
+        self.assertIn("[gate] log:", output)
+        self.assertIn("gate.log", output)
+
+    def test_timeout_env_override_is_parsed_safely(self) -> None:
+        with mock.patch.dict(
+            os.environ, {"DEMIR_KIT_GATE_TIMEOUT_MS": "1234"}
+        ):
+            self.assertEqual(transition.gate_timeout_ms(), 1234)
+        with mock.patch.dict(
+            os.environ, {"DEMIR_KIT_GATE_TIMEOUT_MS": "abc"}
+        ):
+            self.assertEqual(transition.gate_timeout_ms(), 30 * 60 * 1000)
+
     def test_invalid_checkpoint_is_rejected_even_when_gate_is_off(self) -> None:
         with mock.patch.dict(os.environ, {"DEMIR_KIT_LEAF_GATE": "off"}):
             ok, message = transition.validate(

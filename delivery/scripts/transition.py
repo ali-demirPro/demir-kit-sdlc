@@ -24,9 +24,17 @@ import routing
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPTS = Path(__file__).resolve().parent
-GATE_TIMEOUT_MS = int(
-    os.environ.get("DEMIR_KIT_GATE_TIMEOUT_MS", str(30 * 60 * 1000))
-)
+
+
+def gate_timeout_ms() -> int:
+    """Orca terminal gate timeout; a bad override falls back to 30 minutes."""
+    try:
+        return max(1000, int(os.environ.get("DEMIR_KIT_GATE_TIMEOUT_MS", "")))
+    except ValueError:
+        return 30 * 60 * 1000
+
+
+GATE_TIMEOUT_MS = gate_timeout_ms()
 
 TARGETS = {
     "scope-confirmed",

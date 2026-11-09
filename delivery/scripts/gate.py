@@ -480,18 +480,29 @@ def main(argv: list[str] | None = None) -> int:
         else changed_files(project)
     )
     if not args.fast:
-        code_roots = [SCRIPT_ROOT, TEST_ROOT]
+        prefix = ""
         if project != KIT_ROOT:
             try:
                 prefix = KIT_ROOT.relative_to(project).as_posix() + "/"
             except ValueError:
                 prefix = ""
-            if prefix:
-                code_roots += [prefix + SCRIPT_ROOT, prefix + TEST_ROOT]
+        prefixed_change = bool(prefix) and any(
+            _under(_normalize(path), prefix + root)
+            for path in paths
+            for root in (SCRIPT_ROOT, TEST_ROOT)
+        )
+        if prefixed_change:
+            print(
+                "[gate] hata: kit kaynağı ürün ağacında değişti — "
+                "kapıyı kit kökünden koş",
+                file=sys.stderr,
+                flush=True,
+            )
+            return 2
         code_changes = any(
             _under(_normalize(path), root)
             for path in paths
-            for root in code_roots
+            for root in (SCRIPT_ROOT, TEST_ROOT)
         )
         if code_changes and not (project / TEST_ROOT).is_dir():
             print(
