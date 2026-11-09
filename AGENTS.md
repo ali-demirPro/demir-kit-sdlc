@@ -118,7 +118,7 @@ changes run `guard.sh --issue N`.
 - Start each CP from `brief.py --cp CP-x`; never read all of
   `CONTRACT.md` / `quality-gates.md`. Details:
   `delivery/policies/context-budget.md`.
-- 120k tokens warns, 200k stops the session. Write a short handoff, then continue
+- 200k tokens warns, 300k stops the session. Write a short handoff, then continue
   in a new session.
 
 ## Model selection

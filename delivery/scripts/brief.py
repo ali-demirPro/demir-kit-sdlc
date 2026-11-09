@@ -616,7 +616,7 @@ def render_cp_brief(
         "Okuma: bu brief yeterli; ek dosyayı yalnız ilgili satır için aç "
         "(`rg -n`), CONTRACT.md ve quality-gates.md tamamını okuma.",
         "Kurallar: yalnız bu CP; başka CP/contract/CI dosyasına dokunma; tam dosya "
-        "dökme; bağlam 120k'da uyar, 200k'da dur ve kısa özet yaz.",
+        "dökme; bağlam 200k'da uyar, 300k'da dur ve kısa özet yaz.",
     ]
     return "\n".join(lines) + "\n"
 
