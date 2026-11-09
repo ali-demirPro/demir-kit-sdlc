@@ -353,13 +353,13 @@ def apply_frequency(
     index: dict | None,
     prefix: str = "",
 ) -> list[dict]:
-    """Re-rank retrieved items: frequency ratio first, index weight otherwise.
+    """Re-rank retrieved items: frequency first, index weight otherwise.
 
-    Both scores share the 0..1 scale: frequency uses the observed ratio and the
-    index uses ``weight / max index weight``. ``source`` becomes ``frequency``
-    or ``index`` and the reason carries both the raw value and the score, so
-    ``--route`` explains the choice. Items outside ``retrieved`` keep their
-    order and class.
+    A document with a frequency row always precedes index-only candidates;
+    frequency rows sort by observed ratio descending, index candidates by
+    weight descending, ties by path ascending. ``source`` becomes ``frequency``
+    or ``index`` and the reason carries the raw ratio/weight, so ``--route``
+    explains the choice. Items outside ``retrieved`` keep their order and class.
     """
     if not frequency:
         return route
@@ -372,7 +372,6 @@ def apply_frequency(
         for entry in (index or {}).get("entries") or []
         if isinstance(entry, dict) and "path" in entry and "weight" in entry
     }
-    max_weight = max(weights.values(), default=0.0)
     decorated: list[dict] = []
     for item in route:
         if item.get("class") != "retrieved":
@@ -391,28 +390,30 @@ def apply_frequency(
                     "source": "frequency",
                     "reason": (
                         f"frequency {chosen['used']}/{chosen['selected']} "
-                        f"score {ratio:.2f}"
+                        f"ratio {ratio:.2f}"
                     ),
+                    "_group": 0,
                     "_order": ratio,
                 }
             )
             continue
         weight = weights.get(doc)
         reason = item.get("reason")
-        score = weight / max_weight if weight is not None and max_weight else 0.0
+        score = weight if weight is not None else 0.0
         if weight is not None:
-            reason = f"index weight {_route_number(weight)} score {score:.2f}"
+            reason = f"index weight {_route_number(weight)}"
         decorated.append(
             {
                 **item,
                 "source": "index",
                 "reason": reason,
+                "_group": 1,
                 "_order": score,
             }
         )
     selected = sorted(
         (item for item in decorated if item["class"] == "retrieved"),
-        key=lambda item: (-item["_order"], str(item["path"])),
+        key=lambda item: (item["_group"], -item["_order"], str(item["path"])),
     )
     result: list[dict] = []
     inserted = False
@@ -423,13 +424,21 @@ def apply_frequency(
         if inserted:
             continue
         result.extend(
-            {key: value for key, value in choice.items() if key != "_order"}
+            {
+                key: value
+                for key, value in choice.items()
+                if key not in ("_group", "_order")
+            }
             for choice in selected
         )
         inserted = True
     if not inserted:
         result.extend(
-            {key: value for key, value in choice.items() if key != "_order"}
+            {
+                key: value
+                for key, value in choice.items()
+                if key not in ("_group", "_order")
+            }
             for choice in selected
         )
     return result

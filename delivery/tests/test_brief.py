@@ -1035,13 +1035,7 @@ class FrequencyTests(unittest.TestCase):
                 "surface": "kit.scripts",
                 "path": "delivery/scripts/routing.py",
                 "tags": ["route"],
-                "weight": 2,
-            },
-            {
-                "surface": "web.app",
-                "path": "delivery/scripts/context_metrics.py",
-                "tags": ["route"],
-                "weight": 9,
+                "weight": 5,
             },
         ]
         entries += [
@@ -1084,24 +1078,25 @@ class FrequencyTests(unittest.TestCase):
             self.assertEqual(code, 0, err)
             learned = self.route_lines(out)
             self.assertTrue(learned)
-            # ratio 0.9 beats weight 6 once both share the 0..1 scale
-            # (6 / 9 = 0.67); raw values stay visible in the reason.
+            # Frequency rows come first even though a weight 6 index candidate
+            # would otherwise outrank ratio 0.9; raw values stay in the reason.
             self.assertEqual(
                 learned[0],
                 "retrieved delivery/scripts/routing.py "
-                "(source: frequency, reason: frequency 9/10 score 0.90)",
+                "(source: frequency, reason: frequency 9/10 ratio 0.90)",
             )
             self.assertIn(
                 "retrieved delivery/scripts/gate.py "
-                "(source: frequency, reason: frequency 1/10 score 0.10)",
+                "(source: frequency, reason: frequency 1/10 ratio 0.10)",
                 learned,
             )
-            self.assertTrue(
-                any(
-                    "reason: index weight 6 score 0.67" in line
-                    for line in learned
-                )
+            gate_line = next(
+                line for line in learned if line.startswith("retrieved delivery/scripts/gate.py ")
             )
+            weight_line = next(
+                line for line in learned if "reason: index weight 6" in line
+            )
+            self.assertLess(learned.index(gate_line), learned.index(weight_line))
 
             cp_code, cp_out, cp_err = self.run_route(
                 ["315", "--cp", "CP-1"], index_path, frequency_path
