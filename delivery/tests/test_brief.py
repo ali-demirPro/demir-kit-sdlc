@@ -7,6 +7,7 @@ import hashlib
 import importlib.util
 import io
 import json
+import os
 import re
 import sys
 import tempfile
@@ -113,6 +114,10 @@ class ConfigTests(unittest.TestCase):
         out = io.StringIO()
         err = io.StringIO()
         with contextlib.ExitStack() as stack:
+            runtime = stack.enter_context(tempfile.TemporaryDirectory())
+            stack.enter_context(
+                patch.dict(os.environ, {"DEMIR_KIT_CONTEXT_ROOT": runtime})
+            )
             if patch_repo:
                 stack.enter_context(
                     patch.object(brief, "repo_name", return_value="x/y")
@@ -479,6 +484,46 @@ class CpBriefTests(unittest.TestCase):
             brief.render_cp_brief({"issue": 142}, SEAL, "CP-9")
 
 
+class BriefMetaTests(unittest.TestCase):
+    """Machine metadata for context metrics (issue 321)."""
+
+    def test_meta_path_writes_deterministic_metadata(self) -> None:
+        control = {
+            "armed": ["path pure_technical", "cp CP-1"],
+            "fallbacks": ["ecosystem yok", "index yok"],
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            meta = Path(tmp) / ".kit" / "brief-321-CP-1.json"
+            brief.render_cp_brief(
+                {"issue": 321, "risk": "medium"},
+                SEAL,
+                "CP-1",
+                control=control,
+                meta_path=meta,
+            )
+            self.assertTrue(meta.is_file())
+            first = meta.read_text(encoding="utf-8")
+            payload = json.loads(first)
+            brief.render_cp_brief(
+                {"issue": 321, "risk": "medium"},
+                SEAL,
+                "CP-1",
+                control=control,
+                meta_path=meta,
+            )
+            second = meta.read_text(encoding="utf-8")
+        self.assertEqual(first, second)
+        self.assertEqual(payload["issue"], 321)
+        self.assertEqual(payload["cp"], "CP-1")
+        self.assertEqual(payload["armed"], control["armed"])
+        self.assertEqual(payload["fallbacks"], control["fallbacks"])
+        self.assertTrue(payload["brief_docs"])
+        self.assertEqual(
+            payload["brief_docs"], sorted(set(payload["brief_docs"]))
+        )
+        self.assertIn("delivery/scripts/brief.py", payload["brief_docs"])
+
+
 class ReadClassTests(unittest.TestCase):
     """sink/window/retrieved/unknown labels in the CP brief (issue 311)."""
 
@@ -620,7 +665,9 @@ class RouteTests(unittest.TestCase):
         )
         out = io.StringIO()
         err = io.StringIO()
-        with patch.object(brief, "repo_name", return_value="x/y"), patch.object(
+        with tempfile.TemporaryDirectory() as runtime, patch.dict(
+            os.environ, {"DEMIR_KIT_CONTEXT_ROOT": runtime}
+        ), patch.object(brief, "repo_name", return_value="x/y"), patch.object(
             brief, "gh", return_value=issue
         ), patch.object(brief, "index_file", return_value=index_path), patch.object(
             sys, "argv", ["brief.py", *argv]
@@ -952,7 +999,9 @@ class FrequencyTests(unittest.TestCase):
         )
         out = io.StringIO()
         err = io.StringIO()
-        with patch.object(brief, "repo_name", return_value="x/y"), patch.object(
+        with tempfile.TemporaryDirectory() as runtime, patch.dict(
+            os.environ, {"DEMIR_KIT_CONTEXT_ROOT": runtime}
+        ), patch.object(brief, "repo_name", return_value="x/y"), patch.object(
             brief, "gh", return_value=issue
         ), patch.object(
             brief, "index_file", return_value=index_path

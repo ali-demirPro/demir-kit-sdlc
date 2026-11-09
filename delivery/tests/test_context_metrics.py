@@ -193,6 +193,112 @@ class RecordTests(unittest.TestCase):
         self.assertIsNone(transition.metrics_cp(None, {"body": ""}))
 
 
+class BriefMetaTests(unittest.TestCase):
+    """Machine metadata the CP brief writes, and the row it derives."""
+
+    def write_meta(
+        self,
+        root: Path,
+        issue: int,
+        cp: str,
+        armed: list[str],
+        fallbacks: list[str],
+        brief_docs: list[str],
+    ) -> Path:
+        path = context_metrics.brief_meta_path(issue, cp, root)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            json.dumps(
+                {
+                    "issue": issue,
+                    "cp": cp,
+                    "armed": armed,
+                    "fallbacks": fallbacks,
+                    "brief_docs": brief_docs,
+                }
+            ),
+            encoding="utf-8",
+        )
+        return path
+
+    def test_record_from_brief_derives_armed_and_fallbacks(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            write_usage(root, 321, {"input": 100, "output": 0, "reasoning": 0})
+            docs = [
+                "delivery/scripts/brief.py",
+                "delivery/scripts/context_metrics.py",
+            ]
+            self.write_meta(
+                root,
+                321,
+                "CP-1",
+                ["path pure_technical", "cp CP-1"],
+                ["ecosystem yok", "index yok"],
+                docs,
+            )
+            result = context_metrics.record_from_brief(321, "CP-1", root)
+        self.assertIsNotNone(result)
+        row, line = result
+        self.assertEqual(row["armed"], True)
+        self.assertEqual(row["fallback_count"], 2)
+        self.assertEqual(row["brief_docs"], docs)
+        self.assertEqual(row["tokens"], 100)
+        self.assertEqual(row["miss_rate"], 0.0)
+        self.assertEqual(row["over_read_rate"], 0.0)
+        self.assertEqual(json.loads(line), row)
+
+    def test_missing_metadata_is_unknown_not_zero(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            row = context_metrics.build_row(321, "CP-1", tokens=100, root=root)
+            self.assertEqual(row["armed"], "unknown")
+            self.assertEqual(row["fallback_count"], "unknown")
+            with patch.object(
+                context_metrics,
+                "session_delta",
+                side_effect=ValueError("no snapshot"),
+            ):
+                self.assertIsNone(
+                    context_metrics.record_from_brief(321, "CP-1", root)
+                )
+
+    def test_mismatched_metadata_is_ignored(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.write_meta(root, 321, "CP-2", ["cp CP-2"], [], ["a.md"])
+            self.assertIsNone(
+                context_metrics.read_brief_meta(321, "CP-1", root)
+            )
+
+    def test_same_issue_and_cp_keeps_one_line(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            path = root / ".kit" / "context-metrics.jsonl"
+            context_metrics.record(
+                321, "CP-1", brief_docs=["a.md"], tokens=100, root=root
+            )
+            path.write_text(
+                path.read_text(encoding="utf-8") + "bozuk satir\n",
+                encoding="utf-8",
+            )
+            context_metrics.record(
+                321, "CP-1", brief_docs=["b.md"], tokens=200, root=root
+            )
+            context_metrics.record(
+                321, "CP-2", brief_docs=["c.md"], tokens=300, root=root
+            )
+            raw_lines = path.read_text(encoding="utf-8").splitlines()
+        self.assertEqual(raw_lines[0], "bozuk satir")
+        rows = [json.loads(raw) for raw in raw_lines[1:]]
+        self.assertEqual(
+            [(row["issue"], row["cp"]) for row in rows],
+            [(321, "CP-1"), (321, "CP-2")],
+        )
+        self.assertEqual(rows[0]["brief_docs"], ["b.md"])
+        self.assertEqual(rows[1]["brief_docs"], ["c.md"])
+
+
 class TokenTests(unittest.TestCase):
     def test_dot_kit_delta_wins_over_session_delta(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

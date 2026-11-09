@@ -489,6 +489,29 @@ def evidence_skeleton(reviewers: list[str], risk: str) -> list[str]:
     return lines
 
 
+def write_brief_meta(
+    path: Path,
+    issue: int,
+    cp_id: str,
+    control: dict | None,
+    brief_docs: list[str],
+) -> None:
+    """Write the machine-readable CP brief metadata (deterministic JSON)."""
+    control = control or {}
+    payload = {
+        "issue": issue,
+        "cp": cp_id,
+        "armed": list(control.get("armed") or []),
+        "fallbacks": list(control.get("fallbacks") or []),
+        "brief_docs": list(brief_docs),
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(payload, ensure_ascii=False, sort_keys=True, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+
 def render_cp_brief(
     data: dict,
     seal: dict,
@@ -501,6 +524,7 @@ def render_cp_brief(
     control: dict | None = None,
     docs: list[str] | None = None,
     route: list[dict] | None = None,
+    meta_path: Path | None = None,
 ) -> str:
     """Compact per-checkpoint brief: scope, AC, tests, evidence skeleton."""
     cp, cases = cp_selection(seal, cp_id)
@@ -563,6 +587,11 @@ def render_cp_brief(
         window=window_docs(docs, role),
         route=cp_route_items(route),
     )
+    brief_docs = sorted({str(item["path"]) for item in reading})
+    if meta_path is not None:
+        write_brief_meta(
+            meta_path, data["issue"], cp_id, control, brief_docs
+        )
     if sink_paths:
         lines.append("Yollar:")
         lines += [
@@ -894,6 +923,9 @@ def main() -> int:
                 control=cp_control,
                 docs=data["docs"],
                 route=cp_route,
+                meta_path=context_metrics.brief_meta_path(
+                    data["issue"], args.cp
+                ),
             )
         except ValueError as exc:
             sys.exit(f"brief: {exc}")

@@ -13,8 +13,10 @@ Definitions (single source of truth, see ``delivery/policies/context-budget.md``
   the row records ``clamped: true``. The ``method`` field names the source as
   ``usage-delta`` (session delta) or ``usage-total`` (explicit snapshot file).
 
-One deterministic JSON line is appended to ``.kit/context-metrics.jsonl`` so a
-leaf-done transition can tell whether the CP was measured.
+One deterministic JSON line is written per ``(issue, cp)`` to
+``.kit/context-metrics.jsonl`` so a leaf-done transition can tell whether the CP
+was measured; recording the same pair again replaces its line instead of
+appending a duplicate.
 """
 
 from __future__ import annotations
@@ -60,6 +62,28 @@ def resolve_root(project: Path | str | None = None) -> Path:
 
 def metrics_path(root: Path | None = None) -> Path:
     return resolve_root(root) / METRICS_PATH
+
+
+def brief_meta_path(issue: int, cp: str, root: Path | None = None) -> Path:
+    """Machine metadata written by the CP brief for one issue + checkpoint."""
+    return resolve_root(root) / ".kit" / f"brief-{issue}-{cp}.json"
+
+
+def read_brief_meta(
+    issue: int, cp: str, root: Path | None = None
+) -> dict | None:
+    """Brief metadata for ``issue``/``cp``; ``None`` when absent or mismatched."""
+    try:
+        data = json.loads(
+            brief_meta_path(issue, cp, root).read_text(encoding="utf-8")
+        )
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    if data.get("issue") != issue or data.get("cp") != cp:
+        return None
+    return data
 
 
 def display_path(value: str | Path, root: Path | None = None) -> str:
@@ -237,6 +261,7 @@ def build_row(
     tokens: int | None = None,
     usage_file: str | Path | None = None,
     config: str | None = None,
+    brief_meta: dict | None = None,
     root: Path | None = None,
 ) -> dict:
     base = resolve_root(root)
@@ -252,6 +277,13 @@ def build_row(
     )
     method = [token_method]
     method += [f"doc-missing:{value}" for value in missing]
+    if brief_meta is not None:
+        armed_value: bool | str = bool(brief_meta.get("armed"))
+        fallback_count: int | str = len(brief_meta.get("fallbacks") or [])
+    else:
+        # No metadata means unmeasured, never a fabricated False/0.
+        armed_value = UNKNOWN
+        fallback_count = UNKNOWN
     row = {
         "issue": issue,
         "cp": cp,
@@ -263,6 +295,8 @@ def build_row(
         "miss_rate": miss_rate(brief_sorted, missed_sorted),
         "over_read_rate": rate,
         "clamped": clamped,
+        "armed": armed_value,
+        "fallback_count": fallback_count,
         "config_digest": config_digest(base, config),
         "method": ";".join(sorted(method)),
     }
@@ -283,6 +317,7 @@ def record(
     tokens: int | None = None,
     usage_file: str | Path | None = None,
     config: str | None = None,
+    brief_meta: dict | None = None,
     root: Path | None = None,
     write: bool = True,
 ) -> tuple[dict, str]:
@@ -296,15 +331,54 @@ def record(
         tokens=tokens,
         usage_file=usage_file,
         config=config,
+        brief_meta=brief_meta,
         root=root,
     )
     line = line_of(row)
     if write:
         path = metrics_path(root)
         path.parent.mkdir(parents=True, exist_ok=True)
-        with path.open("a", encoding="utf-8") as handle:
-            handle.write(line + "\n")
+        kept: list[str] = []
+        try:
+            existing = path.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            existing = []
+        for raw in existing:
+            if not raw.strip():
+                continue
+            try:
+                current = json.loads(raw)
+            except json.JSONDecodeError:
+                # A broken line is not ours to drop.
+                kept.append(raw)
+                continue
+            if (
+                isinstance(current, dict)
+                and current.get("issue") == issue
+                and current.get("cp") == cp
+            ):
+                continue
+            kept.append(raw)
+        kept.append(line)
+        path.write_text("\n".join(kept) + "\n", encoding="utf-8")
     return row, line
+
+
+def record_from_brief(
+    issue: int, cp: str, root: Path | None = None
+) -> tuple[dict, str] | None:
+    """Record a row from the CP brief metadata; ``None`` when it is missing."""
+    meta = read_brief_meta(issue, cp, root)
+    if meta is None:
+        return None
+    brief_docs = meta.get("brief_docs")
+    return record(
+        issue,
+        cp,
+        brief_docs=brief_docs if isinstance(brief_docs, list) else [],
+        brief_meta=meta,
+        root=root,
+    )
 
 
 def check(
