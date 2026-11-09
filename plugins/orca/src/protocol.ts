@@ -52,6 +52,20 @@ export interface StatusActive {
   leaves: number
 }
 
+/** Bir epic'in eval özeti; kayıt yoksa her alan `null` (sıfır uydurulmaz). */
+export interface StatusEvaluations {
+  batch: string | null
+  cases_pass: number | null
+  cases_total: number | null
+  discovery_rate: number | null
+  findings: {
+    friction: number | null
+    objection: number | null
+    opportunity: number | null
+  }
+  updated_at: string | null
+}
+
 export interface StatusEpic {
   number: number
   title?: string
@@ -69,6 +83,11 @@ export interface StatusEpic {
   open_findings?: number
   approvals?: { agent_approved: boolean; human_qa: boolean }
   next_action?: string | null
+  /**
+   * Eval özeti. Eski `status.py` alanı hiç taşımaz (`undefined`); üretici kayıt
+   * yoksa `null` da gönderebilir. İki durumda da panel eval satırı çizmez.
+   */
+  evaluations?: StatusEvaluations | null
 }
 
 export interface StatusCounts {

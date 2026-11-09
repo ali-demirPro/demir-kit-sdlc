@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://demir-kit.dev/schemas/eval_case.schema.json",
+  "title": "demir-kit eval case (v2)",
+  "description": "Committed eval case frontmatter. Bir case ölçüm kimliği (id), niyet, kriterler ve hedefler taşır; gövde ajan istemidir. Eski markdown tablo biçimi ayrıca geçerlidir.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "intent", "criteria", "targets"],
+  "properties": {
+    "demir_kit_version": { "const": "2" },
+    "id": {
+      "description": "Ölçüm kimliği; aynı kimlik altındaki koşular karşılaştırılır.",
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+    },
+    "intent": {
+      "description": "Case'in ölçtüğü niyet; gövdedeki istemden bağımsız kısa özet.",
+      "type": "string",
+      "minLength": 1
+    },
+    "criteria": {
+      "description": "Başarı kriterleri; statik doğrulama ve sonraki yargı için kullanılır.",
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "targets": {
+      "description": "Hedef dosya yolları; doğrulanabilir case için en az bir hedef.",
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "tools": {
+      "description": "İzinli araçlar; boşsa kısıt yok sayılır.",
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "inputs": {
+      "description": "Case girdileri; dosya veya dizin yolu. Çalıştırmasız önizlemede sha256 üretilir.",
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    }
+  }
+}

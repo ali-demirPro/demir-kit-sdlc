@@ -4,16 +4,34 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+import math
+import os
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 import yaml
 
+from schema_lite import validate_schema
+
 ROOT = Path(__file__).resolve().parents[2]
 AGENTS = ROOT / "delivery" / "agents"
+FINDINGS = ROOT / "delivery" / "findings"
+FINDING_SCHEMA = ROOT / "delivery" / "schemas" / "finding.schema.json"
+CASE_SCHEMA = ROOT / "delivery" / "schemas" / "eval_case.schema.json"
+REVISION_LOG = ROOT / ".kit" / "eval-revisions.jsonl"
+FINDING_SUFFIXES = (".finding.yaml", ".finding.yml", ".finding.json")
+CASE_REQUIRED = ("id", "intent", "criteria", "targets")
 MIN_ROWS = 10
 RESULT_VALUES = {"pass", "fail", "skip"}
+VERIFY_STATES = ("yes", "no", "unknown")
+SKILLS = ROOT / "skills"
+RUNS_DIR = ROOT / ".kit" / "eval-runs"
+DISCOVERY_STATES = ("triggered", "not_triggered", "unknown")
+EVENTS_ARTIFACT = "session/events.ndjson"
+MAX_EVIDENCE = 20
 
 
 def load_yaml(path: Path) -> dict:
@@ -22,6 +40,166 @@ def load_yaml(path: Path) -> dict:
     except (OSError, yaml.YAMLError):
         return {}
     return data if isinstance(data, dict) else {}
+
+
+def load_finding_schema() -> dict:
+    try:
+        data = json.loads(FINDING_SCHEMA.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def load_case_schema() -> dict:
+    try:
+        data = json.loads(CASE_SCHEMA.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+class CaseError(ValueError):
+    """Raised when a committed case cannot be parsed."""
+
+
+def split_frontmatter(text: str) -> tuple[dict | None, str, str | None]:
+    """Return ``(frontmatter, body, error)`` without changing the legacy table."""
+    lines = text.splitlines()
+    if not lines or lines[0].strip() != "---":
+        return None, text, None
+    for index in range(1, len(lines)):
+        if lines[index].strip() in {"---", "..."}:
+            raw = "\n".join(lines[1:index])
+            try:
+                data = yaml.safe_load(raw)
+            except yaml.YAMLError as exc:
+                return None, "", f"frontmatter ayrıştırılamadı: {exc}"
+            if not isinstance(data, dict):
+                return None, "", "frontmatter mapping değil"
+            return data, "\n".join(lines[index + 1 :]), None
+    return None, "", "frontmatter kapanmadı"
+
+
+def has_frontmatter(path: Path) -> bool:
+    try:
+        return path.read_text(encoding="utf-8").lstrip("\ufeff").startswith("---")
+    except OSError:
+        return False
+
+
+def parse_case(path: Path) -> dict:
+    """Parse one committed case; the body is the agent prompt."""
+    try:
+        raw = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise CaseError(f"okunamadı: {exc}") from exc
+    raw = raw.lstrip("\ufeff")
+    frontmatter, body, error = split_frontmatter(raw)
+    if error:
+        raise CaseError(error)
+    if frontmatter is None:
+        raise CaseError("frontmatter yok")
+    case = dict(frontmatter)
+    case["body"] = body.strip()
+    case["path"] = str(path)
+    case["revision"] = content_sha256(raw.encode("utf-8"))
+    return case
+
+
+def content_sha256(data: bytes) -> str:
+    return "sha256:" + hashlib.sha256(data).hexdigest()
+
+
+def path_sha256(path: Path) -> str:
+    """Hash a file's bytes, or a directory's sorted relative paths and bytes."""
+    if path.is_dir():
+        digest = hashlib.sha256()
+        for item in sorted(path.rglob("*")):
+            if not item.is_file():
+                continue
+            digest.update(str(item.relative_to(path)).encode("utf-8") + b"\0")
+            digest.update(item.read_bytes())
+            digest.update(b"\0")
+        return "sha256:" + digest.hexdigest()
+    return content_sha256(path.read_bytes())
+
+
+def resolve_input(entry: str, case_dir: Path, root: Path = ROOT) -> Path | None:
+    """Resolve a case input relative to the case, then the kit root."""
+    candidate = Path(entry).expanduser()
+    if candidate.is_absolute():
+        return candidate if candidate.exists() else None
+    for base in (case_dir, root):
+        resolved = base / candidate
+        if resolved.exists():
+            return resolved
+    return None
+
+
+def check_case_file(path: Path, schema: dict | None = None) -> list[str]:
+    """Validate one committed case; missing required fields are failures."""
+    if not path.is_file():
+        return [f"case dosyası yok: {path}"]
+    try:
+        case = parse_case(path)
+    except CaseError as exc:
+        return [f"{path}: {exc}"]
+    schema = load_case_schema() if schema is None else schema
+    if not schema:
+        return [f"case şeması yok: {CASE_SCHEMA}"]
+    record = {key: value for key, value in case.items() if key not in {"body", "path", "revision"}}
+    messages = validate_schema(record, schema, "$")
+    return [f"{path}: {message}" for message in messages]
+
+
+def load_finding_record(path: Path) -> tuple[dict, list[str]]:
+    try:
+        raw = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        return {}, [f"{path}: okunamadı ({exc})"]
+    try:
+        data = json.loads(raw) if path.suffix == ".json" else yaml.safe_load(raw)
+    except (json.JSONDecodeError, yaml.YAMLError):
+        return {}, [f"{path}: ayrıştırılamadı"]
+    if not isinstance(data, dict):
+        return {}, [f"{path}: kök mapping değil"]
+    return data, []
+
+
+def finding_files(directory: Path | None = None) -> list[Path]:
+    base = FINDINGS if directory is None else directory
+    if not base.is_dir():
+        return []
+    return sorted(
+        path
+        for path in base.iterdir()
+        if path.is_file() and path.name.endswith(FINDING_SUFFIXES)
+    )
+
+
+def check_finding_file(path: Path, schema: dict | None = None) -> list[str]:
+    """Validate one finding record; UNKNOWN is a result, never a failure."""
+    if not path.is_file():
+        return [f"bulgu dosyası yok: {path}"]
+    record, errors = load_finding_record(path)
+    if errors:
+        return errors
+    schema = load_finding_schema() if schema is None else schema
+    if not schema:
+        return [f"bulgu şeması yok: {FINDING_SCHEMA}"]
+    messages = validate_schema(record, schema, "$")
+    evidence = record.get("evidence")
+    if not isinstance(evidence, list) or not evidence:
+        messages.append("$.evidence: kanıt referansı yok")
+    return [f"{path}: {message}" for message in messages]
+
+
+def check_findings(directory: Path | None = None) -> list[str]:
+    schema = load_finding_schema()
+    errors: list[str] = []
+    for path in finding_files(directory):
+        errors.extend(check_finding_file(path, schema))
+    return errors
 
 
 def parse_eval(path: Path) -> list[dict]:
@@ -51,6 +229,8 @@ def check_eval_file(path: Path, minimum: int = MIN_ROWS) -> list[str]:
     errors: list[str] = []
     if not path.is_file():
         return [f"eval dosyası yok: {path}"]
+    if has_frontmatter(path):
+        return check_case_file(path)
     rows = parse_eval(path)
     if len(rows) < minimum:
         errors.append(f"{path}: en az {minimum} senaryo (şu an {len(rows)})")
@@ -65,6 +245,1236 @@ def check_eval_file(path: Path, minimum: int = MIN_ROWS) -> list[str]:
             if not row[key]:
                 errors.append(f"{path}: {row['id']} için {key} boş")
     return errors
+
+
+def _check(state: str, check_id: str, detail: str) -> dict:
+    return {"id": check_id, "state": state, "detail": detail}
+
+
+def _target_state(entry: str, case_dir: Path, root: Path) -> tuple[str, str]:
+    if not isinstance(entry, str) or not entry.strip():
+        return "no", "hedef boş"
+    if any(marker in entry for marker in ("*", "?", "[", "]", "${{", "://")):
+        return "unknown", "hedef çözümlenemedi (glob/değişken/URL)"
+    candidate = Path(entry).expanduser()
+    if candidate.is_absolute():
+        return ("yes", "hedef var") if candidate.exists() else ("no", "hedef yok")
+    for base in (root, case_dir):
+        if (base / candidate).exists():
+            return "yes", "hedef var"
+    return "no", "hedef yok"
+
+
+def _input_state(entry: str, case_dir: Path, root: Path) -> tuple[str, str]:
+    if not isinstance(entry, str) or not entry.strip():
+        return "no", "girdi boş"
+    if any(marker in entry for marker in ("*", "?", "[", "]", "${{", "://")):
+        return "unknown", "girdi çözümlenemedi (glob/değişken/URL)"
+    if resolve_input(entry, case_dir, root) is None:
+        return "no", "girdi yok"
+    return "yes", "girdi var"
+
+
+def verify_case(path: Path, root: Path = ROOT) -> dict:
+    """Static yes/no/unknown checklist; exit 1 is reserved for a definite no."""
+    checks: list[dict] = []
+    if not path.is_file():
+        checks.append(_check("no", "case.file", f"case dosyası yok: {path}"))
+        return _verification(path, checks)
+    try:
+        raw = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        checks.append(_check("no", "case.file", f"okunamadı: {exc}"))
+        return _verification(path, checks)
+    frontmatter, _body, error = split_frontmatter(raw.lstrip("\ufeff"))
+    if error:
+        checks.append(_check("no", "case.frontmatter", error))
+        return _verification(path, checks)
+    if frontmatter is None:
+        checks.append(_check("no", "case.frontmatter", "frontmatter yok"))
+        return _verification(path, checks)
+
+    checks.append(_check("yes", "case.frontmatter", "frontmatter ayrıştırıldı"))
+    for field in CASE_REQUIRED:
+        value = frontmatter.get(field)
+        present = value not in (None, "", [])
+        checks.append(
+            _check(
+                "yes" if present else "no",
+                f"case.{field}",
+                f"{field} var" if present else f"{field} eksik",
+            )
+        )
+
+    schema = load_case_schema()
+    if not schema:
+        checks.append(_check("unknown", "case.schema", "case şeması yok"))
+    elif all(frontmatter.get(field) not in (None, "", []) for field in CASE_REQUIRED):
+        errors = validate_schema(frontmatter, schema, "$")
+        checks.append(
+            _check(
+                "no" if errors else "yes",
+                "case.schema",
+                "; ".join(errors) if errors else "şema uygun",
+            )
+        )
+
+    targets = frontmatter.get("targets")
+    if isinstance(targets, list):
+        for index, entry in enumerate(targets):
+            state, detail = _target_state(entry, path.parent, root)
+            checks.append(_check(state, f"case.target.{index}", f"{entry}: {detail}"))
+
+    inputs = frontmatter.get("inputs")
+    if isinstance(inputs, list):
+        for index, entry in enumerate(inputs):
+            state, detail = _input_state(entry, path.parent, root)
+            checks.append(_check(state, f"case.input.{index}", f"{entry}: {detail}"))
+
+    tools = frontmatter.get("tools")
+    if isinstance(tools, list):
+        for index, entry in enumerate(tools):
+            if not isinstance(entry, str) or not entry.strip():
+                checks.append(_check("no", f"case.tool.{index}", "araç boş"))
+            else:
+                checks.append(
+                    _check(
+                        "unknown",
+                        f"case.tool.{index}",
+                        f"{entry}: araç varlığı statik olarak doğrulanamadı",
+                    )
+                )
+    return _verification(path, checks)
+
+
+def _verification(path: Path, checks: list[dict]) -> dict:
+    summary = {state: 0 for state in VERIFY_STATES}
+    for item in checks:
+        summary[item["state"]] += 1
+    status = "failed" if summary["no"] else (
+        "incomplete" if summary["unknown"] else "passed"
+    )
+    return {
+        "case": str(path),
+        "status": status,
+        "summary": summary,
+        "checks": checks,
+    }
+
+
+def dry_run_case(path: Path, root: Path = ROOT) -> dict:
+    """Describe the selected case and its input hashes without executing it."""
+    try:
+        case = parse_case(path)
+    except CaseError as exc:
+        return {
+            "case": str(path),
+            "error": str(exc),
+            "executed": False,
+            "inputs": [],
+        }
+    inputs: list[dict] = []
+    for entry in case.get("inputs") or []:
+        if not isinstance(entry, str) or not entry.strip():
+            inputs.append({"path": str(entry), "sha256": None, "missing": True})
+            continue
+        resolved = resolve_input(entry, path.parent, root)
+        if resolved is None:
+            inputs.append({"path": entry, "sha256": None, "missing": True})
+            continue
+        inputs.append(
+            {
+                "path": entry,
+                "resolved": str(resolved),
+                "sha256": path_sha256(resolved),
+                "missing": False,
+            }
+        )
+    return {
+        "case": str(path),
+        "id": case.get("id"),
+        "sha256": case["revision"],
+        "intent": case.get("intent"),
+        "criteria": case.get("criteria") or [],
+        "targets": case.get("targets") or [],
+        "tools": case.get("tools") or [],
+        "inputs": inputs,
+        "executed": False,
+    }
+
+
+def read_revisions(log: Path | None = None) -> list[dict]:
+    path = REVISION_LOG if log is None else Path(log)
+    if not path.is_file():
+        return []
+    rows: list[dict] = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        try:
+            item = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(item, dict):
+            rows.append(item)
+    return rows
+
+
+def revision_warnings(
+    case_id: str, revision: str, log: Path | None = None
+) -> list[str]:
+    warnings: list[str] = []
+    other = sorted(
+        {
+            str(item.get("revision"))
+            for item in read_revisions(log)
+            if item.get("id") == case_id and item.get("revision") != revision
+        }
+    )
+    if other:
+        warnings.append(
+            f"{case_id}: aynı ölçüm kimliği altında farklı revision var "
+            f"({', '.join(other)}); karşılaştırma revision={revision} ile daraltılmalı"
+        )
+    return warnings
+
+
+def record_revision(
+    case_id: str,
+    revision: str,
+    *,
+    log: Path | None = None,
+    case: Path | None = None,
+    at: str | None = None,
+) -> tuple[dict, list[str]]:
+    """Append one run revision; older revisions stay in the same log."""
+    path = REVISION_LOG if log is None else Path(log)
+    warnings = revision_warnings(case_id, revision, path)
+    record = {
+        "demir_kit_version": "2",
+        "id": case_id,
+        "revision": revision,
+        "case": str(case) if case is not None else None,
+        "at": at or datetime.now(timezone.utc).isoformat(timespec="seconds"),
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(record, ensure_ascii=False, sort_keys=True) + "\n")
+    return record, warnings
+
+
+def run_case(
+    path: Path, log: Path | None = None, at: str | None = None
+) -> tuple[dict | None, list[str]]:
+    """Freeze the case revision for a run; comparison narrowing stays explicit."""
+    errors = check_case_file(path)
+    if errors:
+        return None, errors
+    try:
+        case = parse_case(path)
+    except CaseError as exc:
+        return None, [f"{path}: {exc}"]
+    return record_revision(
+        str(case["id"]), str(case["revision"]), log=log, case=path, at=at
+    )
+
+
+# ---------------------------------------------------------------------------
+# discovery measurement
+
+
+class DiscoveryError(ValueError):
+    """Raised when a skill description cannot be read."""
+
+
+def read_skill_description(name: str, skills_root: Path | None = None) -> dict:
+    """Read only ``skills/<name>/SKILL.md`` frontmatter; never write it."""
+    base = SKILLS if skills_root is None else Path(skills_root)
+    if not name or "/" in name or name in {".", ".."}:
+        raise DiscoveryError(f"geçersiz skill adı: {name!r}")
+    path = base / name / "SKILL.md"
+    if not path.is_file():
+        raise DiscoveryError(f"skill yok: {name}")
+    try:
+        text = path.read_text(encoding="utf-8").lstrip("\ufeff")
+    except (OSError, UnicodeDecodeError) as exc:
+        raise DiscoveryError(
+            f"{name}: SKILL.md okunamadı, encoding geçersiz ({exc})"
+        ) from exc
+    frontmatter, _body, error = split_frontmatter(text)
+    if error:
+        raise DiscoveryError(f"{name}: {error}")
+    if frontmatter is None:
+        raise DiscoveryError(f"{name}: frontmatter yok")
+    description = frontmatter.get("description")
+    if not isinstance(description, str) or not description.strip():
+        raise DiscoveryError(f"{name}: description boş")
+    description = description.strip()
+    try:
+        source = str(path.relative_to(base.parent))
+    except ValueError:
+        source = str(path)
+    return {
+        "name": name,
+        "source": source,
+        "description": description,
+        "description_sha256": content_sha256(description.encode("utf-8")),
+    }
+
+
+def _looks_like_session(path: Path) -> bool:
+    return (
+        (path / "spec.json").is_file()
+        or (path / "result.json").is_file()
+        or (path / "session").is_dir()
+    )
+
+
+def _read_mapping(path: Path) -> dict:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _session_case(session_dir: Path) -> str:
+    for name in ("spec.json", "result.json"):
+        value = _read_mapping(session_dir / name).get("case")
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return ""
+
+
+def _case_id(case_path: Path) -> str:
+    if not case_path.is_file():
+        return ""
+    try:
+        return str(parse_case(case_path).get("id") or "")
+    except (OSError, UnicodeDecodeError, CaseError):
+        return ""
+
+
+def _candidate_paths(value: str, case_path: Path) -> list[Path]:
+    """Resolve a session's case value against the case's ancestors.
+
+    Expansion may fail for values such as ``~unknown/x.md``; that is reported as
+    "no candidate" instead of aborting the whole discovery command.
+    """
+    try:
+        candidate = Path(value).expanduser()
+    except (OSError, RuntimeError, ValueError):
+        return []
+    if candidate.is_absolute():
+        return [candidate]
+    return [base / candidate for base in (case_path.parent, *case_path.parent.parents)]
+
+
+def _is_basename_only(value: str) -> bool:
+    """Return True when the value names one file component after normalization.
+
+    ``./demo.md``, ``demo.md/`` and ``foo/../demo.md`` all denote the same bare
+    file name. Without normalization the last variant keeps a ``foo/..`` parent
+    and would be resolved against every case directory instead of hitting the
+    shared-basename guard.
+    """
+    normalized = os.path.normpath(value)
+    if normalized in ("", ".", ".."):
+        return False
+    return Path(normalized).parent == Path(".")
+
+
+def _matches_case_value(
+    value: str,
+    case_path: Path,
+    case_id: str = "",
+    shared_basenames: frozenset[str] = frozenset(),
+) -> bool:
+    """Match only the resolved case path or the case id, never a shared file name.
+
+    A bare file name is ambiguous when more than one supplied case carries it, so
+    such evidence does not match any of them. The comparison uses the normalized
+    base name, so variants such as ``./demo.md``, ``demo.md/`` and
+    ``foo/../demo.md`` count as bare.
+    """
+    value = value.strip()
+    if not value:
+        return False
+    if case_id and value == case_id:
+        return True
+    try:
+        basename_only = _is_basename_only(value)
+        basename = Path(os.path.normpath(value)).name.casefold()
+    except (OSError, RuntimeError, ValueError):
+        return False
+    if basename_only and basename in shared_basenames:
+        return False
+    try:
+        target = case_path.resolve()
+        return any(
+            candidate.resolve() == target
+            for candidate in _candidate_paths(value, case_path)
+        )
+    except (OSError, RuntimeError, ValueError):
+        return False
+
+
+def _shared_basenames(cases: list[Path]) -> frozenset[str]:
+    """Return case file names that more than one distinct case path carries."""
+    counts: dict[str, int] = {}
+    seen: set[str] = set()
+    for raw in cases:
+        path = Path(raw).expanduser()
+        if not path.is_file():
+            continue
+        try:
+            key = str(path.resolve())
+        except (OSError, RuntimeError, ValueError):
+            key = str(path)
+        if key in seen:
+            continue
+        seen.add(key)
+        name = path.name.casefold()
+        counts[name] = counts.get(name, 0) + 1
+    return frozenset(name for name, count in counts.items() if count > 1)
+
+
+def _runs_for_case(
+    case_path: Path,
+    runs_dir: Path,
+    shared_basenames: frozenset[str] = frozenset(),
+) -> list[Path]:
+    if not runs_dir.is_dir():
+        return []
+    case_id = _case_id(case_path)
+    matched: list[Path] = []
+    for entry in sorted(runs_dir.iterdir()):
+        if not entry.is_dir() or not _looks_like_session(entry):
+            continue
+        if _matches_case_value(
+            _session_case(entry), case_path, case_id, shared_basenames
+        ):
+            matched.append(entry)
+    return matched
+
+
+def _case_sessions(
+    path: Path,
+    runs_dir: Path,
+    shared_basenames: frozenset[str] = frozenset(),
+) -> list[Path]:
+    if path.is_dir():
+        if _looks_like_session(path):
+            return [path]
+        return sorted(
+            entry
+            for entry in path.iterdir()
+            if entry.is_dir() and _looks_like_session(entry)
+        )
+    if path.is_file():
+        return _runs_for_case(path, runs_dir, shared_basenames)
+    return []
+
+
+def discovery_sessions(
+    cases: list[Path], runs: Path | None = None
+) -> tuple[list[Path], list[str]]:
+    """Resolve case arguments to unique sessions, sorted by resolved path.
+
+    A case path that does not exist is an error; an existing case without any
+    matching run is returned separately instead of becoming a fake session.
+    Evidence that carries only a bare file name cannot be assigned when several
+    supplied cases share that name.
+    """
+    runs_dir = RUNS_DIR if runs is None else Path(runs)
+    shared_basenames = _shared_basenames(cases)
+    found: dict[str, Path] = {}
+    empty_cases: list[str] = []
+    for raw in cases:
+        path = Path(raw).expanduser()
+        if not path.exists():
+            raise DiscoveryError(f"case yok: {path}")
+        matched = _case_sessions(path, runs_dir, shared_basenames)
+        if not matched:
+            empty_cases.append(str(path))
+        for item in matched:
+            try:
+                resolved = item.resolve()
+            except OSError:
+                resolved = item
+            found[str(resolved)] = resolved
+    # Dedupe and sort so the same case set yields the same report regardless of
+    # the order the arguments were supplied in.
+    return [found[key] for key in sorted(found)], sorted(set(empty_cases))
+
+
+def _load_events(path: Path) -> tuple[list[tuple[int, object]], str]:
+    if not path.is_file():
+        return [], "session/events.ndjson yok"
+    try:
+        text = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        return [], f"session/events.ndjson okunamadı ({exc})"
+    events: list[tuple[int, object]] = []
+    corrupt = 0
+    for number, line in enumerate(text.splitlines(), 1):
+        if not line.strip():
+            continue
+        try:
+            events.append((number, json.loads(line)))
+        except json.JSONDecodeError:
+            corrupt += 1
+    if corrupt:
+        return events, f"bozuk NDJSON: {corrupt} satır"
+    if not events:
+        return [], "geçerli olay yok"
+    return events, ""
+
+
+def _result_readable(path: Path) -> tuple[bool, str]:
+    if not path.is_file():
+        return False, "result.json yok"
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError) as exc:
+        return False, f"result.json okunamadı ({exc})"
+    except json.JSONDecodeError:
+        return False, "result.json geçersiz JSON"
+    if not isinstance(data, dict):
+        return False, "result.json mapping değil"
+    return True, ""
+
+
+def _event_payload(event: object) -> object:
+    if isinstance(event, dict) and isinstance(event.get("payload"), dict):
+        return event["payload"]
+    return event
+
+
+def _command_tokens(payload: dict) -> list[str]:
+    command = payload.get("command")
+    if isinstance(command, str):
+        return [command]
+    if isinstance(command, (list, tuple)):
+        return [str(item) for item in command]
+    return []
+
+
+def _command_mentions_skill(tokens: list[str], skill: str) -> bool:
+    marker = f"skills/{skill}"
+    for token in tokens:
+        normalized = token.replace("\\", "/")
+        if normalized == skill or marker in normalized:
+            return True
+        if any(part == skill for part in normalized.split("/")):
+            return True
+    return False
+
+
+def event_matches_skill(event: object, skill: str) -> bool:
+    """Structural trigger match; stdout and process.exit text never counts.
+
+    A skill is triggered by an explicit ``payload.skill``/``payload.name``
+    field or by a ``process.start`` command whose tokens invoke the skill
+    directory.  Mentioning the name in output or exit text is not a trigger.
+    """
+    payload = _event_payload(event)
+    if not isinstance(payload, dict):
+        return False
+    if payload.get("skill") == skill or payload.get("name") == skill:
+        return True
+    if payload.get("type") != "process.start":
+        return False
+    return _command_mentions_skill(_command_tokens(payload), skill)
+
+
+def _artifact_evidence(line: int) -> dict:
+    return {"kind": "artifact", "artifact": EVENTS_ARTIFACT, "line": line}
+
+
+def classify_session(session_dir: Path, skill: str) -> dict:
+    """Classify one session; missing evidence is ``unknown``, never ``not_triggered``."""
+    session_dir = Path(session_dir)
+    events, events_error = _load_events(session_dir / "session" / "events.ndjson")
+    analyzable = bool(events) and not events_error
+    reason = "" if analyzable else events_error
+    if analyzable:
+        readable, result_error = _result_readable(session_dir / "result.json")
+        if not readable:
+            analyzable = False
+            reason = result_error
+    record = {
+        "session": str(session_dir),
+        "case": _session_case(session_dir),
+        "status": "unknown",
+        "analyzable": analyzable,
+        "event_count": len(events),
+        "matching_lines": 0,
+        "evidence_truncated": False,
+        "evidence": [],
+        "reason": reason,
+    }
+    if not analyzable:
+        return record
+    lines = sorted(
+        {
+            number
+            for number, event in events
+            if event_matches_skill(event, skill)
+        }
+    )
+    record["matching_lines"] = len(lines)
+    if lines:
+        record["status"] = "triggered"
+        record["evidence"] = [_artifact_evidence(line) for line in lines[:MAX_EVIDENCE]]
+        record["evidence_truncated"] = len(lines) > MAX_EVIDENCE
+    else:
+        record["status"] = "not_triggered"
+        record["evidence"] = [_artifact_evidence(events[0][0])]
+    return record
+
+
+def _ratio(numerator: int, denominator: int) -> dict:
+    value = None if denominator == 0 else round(numerator / denominator, 4)
+    return {"numerator": numerator, "denominator": denominator, "value": value}
+
+
+def _tally(rows: list[dict]) -> dict:
+    counts = {status: 0 for status in DISCOVERY_STATES}
+    for row in rows:
+        counts[row["status"]] += 1
+    counts["total"] = len(rows)
+    counts["analyzable"] = sum(1 for row in rows if row["analyzable"])
+    return counts
+
+
+def build_discovery(
+    skills: list[str],
+    cases: list[Path],
+    runs: Path | None = None,
+    skills_root: Path | None = None,
+) -> dict:
+    """Build the deterministic discovery report for one or more skills.
+
+    Skill names are deduplicated and emitted in name order, so neither a
+    repeated ``--skill`` nor a different argument order changes the report.
+    """
+    sessions, empty_cases = discovery_sessions(cases, runs)
+    reports: list[dict] = []
+    totals = {status: 0 for status in DISCOVERY_STATES}
+    totals["total"] = 0
+    totals["analyzable"] = 0
+    for name in sorted(set(skills)):
+        meta = read_skill_description(name, skills_root)
+        rows = [classify_session(session, name) for session in sessions]
+        counts = _tally(rows)
+        for key in totals:
+            totals[key] += counts[key]
+        reports.append(
+            {
+                "name": name,
+                "source": meta["source"],
+                "description_sha256": meta["description_sha256"],
+                "sessions": rows,
+                "counts": counts,
+                "rate": _ratio(counts["triggered"], counts["analyzable"]),
+                "unknown_rate": _ratio(counts["unknown"], counts["total"]),
+            }
+        )
+    return {
+        "mode": "discovery",
+        "executed": True,
+        "skills": reports,
+        "cases_without_sessions": empty_cases,
+        "totals": totals,
+    }
+
+
+def _discovery_command(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(
+        prog="eval.py discovery", description="skill discovery measurement"
+    )
+    parser.add_argument("--skill", action="append", required=True)
+    parser.add_argument("--case", action="append", required=True, dest="cases")
+    parser.add_argument("--runs", type=Path, default=RUNS_DIR)
+    parser.add_argument("--json", action="store_true")
+    parser.add_argument("-o", "--output", choices=("text", "json"))
+    args = parser.parse_args(argv)
+    as_json = args.json or args.output == "json"
+    try:
+        report = build_discovery(args.skill, args.cases, runs=args.runs)
+    except DiscoveryError as exc:
+        print(f"eval: {exc}", file=sys.stderr)
+        return 2
+    if as_json:
+        _emit_json(report)
+    else:
+        for skill in report["skills"]:
+            rate = skill["rate"]
+            unknown = skill["unknown_rate"]
+            value = "-" if rate["value"] is None else f"{rate['value']:.4f}"
+            print(
+                f"{skill['name']}: triggered {rate['numerator']}/{rate['denominator']} "
+                f"({value}); bilinmiyor {unknown['numerator']}/{unknown['denominator']}"
+            )
+        if report["cases_without_sessions"]:
+            print(f"koşusuz case: {len(report['cases_without_sessions'])}")
+    return 0
+
+
+# Batch comparison (CP-1: batch selection, judged denominator, rates)
+
+BATCH_ROOT = ROOT / ".kit" / "eval-batches"
+CRITERION_STATES = ("pass", "fail", "unknown", "unassessable")
+COMPLETED_STATES = ("pass", "fail")
+SESSION_OVERRIDE_KEYS = ("status", "criteria", "turns", "duration_ms", "revision")
+
+
+class CompareError(ValueError):
+    """Raised when a batch selector or manifest cannot be compared."""
+
+
+class CompareNoMatch(Exception):
+    """Raised when one side has no session left to compare (AC-5)."""
+
+    def __init__(self, side: str):
+        super().__init__(f"eşleşme yok: {side}")
+        self.side = side
+
+
+def _batch_id(flag: str, value: str | None) -> str:
+    if value is None:
+        raise CompareError(f"{flag} zorunlu; değer 'batch=<id>' olmalı")
+    if not value.startswith("batch="):
+        raise CompareError(f"{flag} 'batch=<id>' biçiminde olmalı: {value}")
+    batch_id = value[len("batch=") :]
+    if not batch_id:
+        raise CompareError(f"{flag} batch id boş olamaz")
+    if batch_id in {".", ".."} or "/" in batch_id or "\\" in batch_id:
+        raise CompareError(f"{flag} batch id geçersiz: {batch_id}")
+    return batch_id
+
+
+def resolve_batch(root: Path, batch_id: str) -> Path:
+    """Return the manifest path for ``batch_id`` under ``root``."""
+    for candidate in (root / f"{batch_id}.json", root / batch_id / "batch.json"):
+        if candidate.is_file():
+            return candidate
+    raise CompareError(f"batch bulunamadı: {batch_id} ({root})")
+
+
+def load_batch_manifest(path: Path) -> dict:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise CompareError(f"batch manifest okunamadı: {path}: {exc}") from exc
+    if not isinstance(data, dict):
+        raise CompareError(f"batch manifest nesne değil: {path}")
+    version = data.get("demir_kit_version")
+    if version is not None and str(version) != "2":
+        raise CompareError(f"batch manifest sürümü '2' değil: {path}")
+    if not isinstance(data.get("sessions"), list):
+        raise CompareError(f"batch manifest 'sessions' listesi taşımıyor: {path}")
+    return data
+
+
+def _session_entry(entry: object, index: int) -> tuple[str, dict]:
+    """Return ``(path, overrides)`` for one manifest session entry."""
+    if isinstance(entry, str):
+        raw = entry
+        overrides: dict = {}
+    elif isinstance(entry, dict):
+        raw = entry.get("session")
+        if not isinstance(raw, str):
+            raise CompareError(
+                f"sessions[{index}] 'session' alanı string olmalı: {entry!r}"
+            )
+        overrides = {key: value for key, value in entry.items() if key != "session"}
+        unknown = sorted(key for key in overrides if key not in SESSION_OVERRIDE_KEYS)
+        if unknown:
+            raise CompareError(
+                f"sessions[{index}] bilinmeyen override anahtarı: {', '.join(unknown)}"
+            )
+    else:
+        raise CompareError(
+            f"sessions[{index}] string ya da nesne olmalı: {type(entry).__name__}"
+        )
+    raw = raw.strip()
+    if not raw:
+        raise CompareError(f"sessions[{index}] session yolu boş olamaz")
+    return raw, overrides
+
+
+def _session_path(raw: str, manifest_dir: Path) -> tuple[Path, bool]:
+    """Resolve ``raw`` against the manifest directory only (absolute wins)."""
+    path = Path(raw)
+    if not path.is_absolute():
+        path = manifest_dir / path
+    resolved = path.resolve()
+    return resolved, resolved.is_dir()
+
+
+def _read_result(session: Path | None) -> dict:
+    if session is None:
+        return {}
+    try:
+        payload = json.loads((session / "result.json").read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _normalize_criteria(value: object) -> dict[str, str]:
+    if not isinstance(value, dict):
+        return {}
+    return {
+        str(key): item if isinstance(item, str) and item in CRITERION_STATES else "unknown"
+        for key, item in value.items()
+    }
+
+
+def _normalize_revision(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+    value = value.strip()
+    return value or None
+
+
+def _session_record(
+    entry: object, manifest_dir: Path, index: int, manifest_revision: str | None
+) -> dict:
+    raw, overrides = _session_entry(entry, index)
+    path, exists = _session_path(raw, manifest_dir)
+    if not exists:
+        # The revision still resolves before the directory check, so an override
+        # on a missing session survives ``--revision`` narrowing (ADV-7).
+        revision = _normalize_revision(
+            overrides.get("revision", manifest_revision)
+        )
+        return {
+            "path": str(path),
+            "index": index,
+            "overrides": overrides,
+            "exists": False,
+            "status": "unknown",
+            "criteria": {},
+            "turns": None,
+            "duration_ms": None,
+            "revision": revision,
+            "reason": f"oturum dizini yok: {path}",
+        }
+    result = _read_result(path)
+
+    status = overrides.get("status", result.get("status", "unknown"))
+    if not isinstance(status, str) or status not in {"pass", "fail", "blocked"}:
+        status = "unknown"
+
+    criteria = _normalize_criteria(result.get("criteria"))
+    if isinstance(overrides.get("criteria"), dict):
+        criteria.update(_normalize_criteria(overrides["criteria"]))
+
+    revision = _normalize_revision(
+        overrides.get("revision", result.get("revision", manifest_revision))
+    )
+
+    return {
+        "path": str(path),
+        "index": index,
+        "overrides": overrides,
+        "exists": True,
+        "status": status,
+        "criteria": criteria,
+        "turns": overrides.get("turns", result.get("turns")),
+        "duration_ms": overrides.get("duration_ms", result.get("duration_ms")),
+        "revision": revision,
+        "reason": None,
+    }
+
+
+def _collect_records(
+    manifest: dict, manifest_dir: Path, side: str, warnings: list[str]
+) -> list[dict]:
+    """Build records, deduplicating by resolved path (ADV-2) and validating entries (ADV-3)."""
+    manifest_revision = manifest.get("revision")
+    if not isinstance(manifest_revision, str) or not manifest_revision.strip():
+        manifest_revision = None
+    else:
+        manifest_revision = manifest_revision.strip()
+    records: list[dict] = []
+    seen: dict[str, dict] = {}
+    duplicates = 0
+    for index, entry in enumerate(manifest["sessions"]):
+        record = _session_record(entry, manifest_dir, index, manifest_revision)
+        previous = seen.get(record["path"])
+        if previous is not None:
+            if record["overrides"] != previous["overrides"]:
+                raise CompareError(
+                    f"sessions[{index}]: {record['path']} tekrar ediyor ve override "
+                    f"çakışıyor (ilk: sessions[{previous['index']}])"
+                )
+            duplicates += 1
+            continue
+        seen[record["path"]] = record
+        records.append(record)
+    if duplicates:
+        warnings.append(f"{side}: {duplicates} yinelenen oturum girdisi tekilleştirildi")
+    return records
+
+
+def _filter_revision(
+    records: list[dict], revision: str | None, side: str, warnings: list[str]
+) -> list[dict]:
+    """Keep only records carrying ``revision``; missing revisions are counted (ADV-1)."""
+    if revision is None:
+        return records
+    kept: list[dict] = []
+    mismatched = 0
+    missing = 0
+    for record in records:
+        current = record["revision"]
+        if current is None:
+            missing += 1
+        elif current == revision:
+            kept.append(record)
+        else:
+            mismatched += 1
+    warnings.append(
+        f"{side}: revision filtresi ({revision}): {len(kept)} eşleşti; "
+        f"{mismatched} farklı revision ve {missing} revision taşımayan oturum dışlandı"
+    )
+    return kept
+
+
+def _rate(passed: int, judged: int) -> float | None:
+    return None if judged == 0 else round(passed / judged, 4)
+
+
+def _numeric_metric(value: object, metric: str) -> float | None:
+    """Return a valid metric value or ``None`` (CP-2, ADV-11/ADV-12).
+
+    ``turns`` must be a non-negative integer (booleans excluded), ``duration_ms``
+    a non-negative finite number. Values that cannot be represented as a float
+    (``10**400``) are dropped instead of raising ``OverflowError``.
+    """
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    try:
+        number = float(value)
+    except (OverflowError, TypeError, ValueError):
+        return None
+    if not math.isfinite(number) or number < 0:
+        return None
+    if metric == "turns" and not isinstance(value, int):
+        return None
+    return number
+
+
+def _median(
+    values: list[object], metric: str, side: str, warnings: list[str]
+) -> float | None:
+    """Median of the valid numbers, rounded to two decimals (CP-2).
+
+    Missing values are skipped silently; present-but-invalid values are skipped
+    and counted in ``warnings`` (ADV-11/ADV-12).
+    """
+    numbers: list[float] = []
+    invalid = 0
+    for value in values:
+        if value is None:
+            continue
+        number = _numeric_metric(value, metric)
+        if number is None:
+            invalid += 1
+        else:
+            numbers.append(number)
+    if invalid:
+        warnings.append(
+            f"{side}: {invalid} geçersiz {metric} değeri medyan dışında bırakıldı"
+        )
+    numbers.sort()
+    if not numbers:
+        return None
+    middle = len(numbers) // 2
+    if len(numbers) % 2:
+        median = numbers[middle]
+    else:
+        median = (numbers[middle - 1] + numbers[middle]) / 2
+    return round(median, 2)
+
+
+def _delta_value(candidate: object, baseline: object, digits: int) -> float | None:
+    """Signed candidate minus baseline; ``None`` when either side is null."""
+    if candidate is None or baseline is None:
+        return None
+    result = round(candidate - baseline, digits)
+    return 0.0 if result == 0 else result
+
+
+def _revision_warning(
+    records: list[dict], revision: str | None, side: str
+) -> str | None:
+    """Mixed revisions stay visible; ``--revision`` narrowing silences this (CP-2)."""
+    if revision is not None:
+        return None
+    revisions = sorted(
+        {record["revision"] for record in records if record["revision"]}
+    )
+    if len(revisions) < 2:
+        return None
+    return (
+        f"{side}: birden fazla revision ({', '.join(revisions)}); "
+        "--revision <hash> ile daralt"
+    )
+
+
+def build_compare_side(
+    batch_id: str,
+    manifest_path: Path,
+    *,
+    revision: str | None = None,
+    side: str = "",
+    warnings: list[str] | None = None,
+) -> dict:
+    if warnings is None:
+        warnings = []
+    manifest = load_batch_manifest(manifest_path)
+    manifest_dir = manifest_path.parent
+    records = _collect_records(manifest, manifest_dir, side or batch_id, warnings)
+    # Unresolved sessions are reported even when ``--revision`` excludes them
+    # from the compared set (ADV-7).
+    unresolved = [
+        {"path": record["path"], "reason": record["reason"]}
+        for record in sorted(records, key=lambda record: str(record["path"]))
+        if not record["exists"]
+    ]
+    side_label = side or batch_id
+    records = _filter_revision(records, revision, side_label, warnings)
+    mixed = _revision_warning(records, revision, side_label)
+    if mixed is not None:
+        warnings.append(mixed)
+    records.sort(key=lambda record: str(record["path"]))
+
+    criteria: dict[str, dict] = {}
+    for record in records:
+        for name, state in record["criteria"].items():
+            counts = criteria.setdefault(
+                name,
+                {"pass": 0, "fail": 0, "unknown": 0, "unassessable": 0},
+            )
+            counts[state] += 1
+
+    criterion_output: dict[str, dict] = {}
+    total_pass = 0
+    total_judged = 0
+    for name in sorted(criteria):
+        counts = criteria[name]
+        judged = counts["pass"] + counts["fail"]
+        value = _rate(counts["pass"], judged)
+        total_pass += counts["pass"]
+        total_judged += judged
+        criterion_output[name] = {
+            "pass": counts["pass"],
+            "fail": counts["fail"],
+            "unknown": counts["unknown"],
+            "unassessable": counts["unassessable"],
+            "judged": judged,
+            "pass_rate": value,
+            "value": value,
+        }
+
+    label = manifest.get("batch")
+    if not isinstance(label, str) or not label:
+        label = batch_id
+
+    return {
+        "batch": label,
+        "sessions": len(records),
+        "completed": sum(1 for record in records if record["status"] in COMPLETED_STATES),
+        "pass_rate": {
+            "pass": total_pass,
+            "judged": total_judged,
+            "value": _rate(total_pass, total_judged),
+            "basis": "criteria",
+        },
+        "criteria": criterion_output,
+        "median_turns": _median(
+            [record["turns"] for record in records], "turns", side_label, warnings
+        ),
+        "median_duration_ms": _median(
+            [record["duration_ms"] for record in records],
+            "duration_ms",
+            side_label,
+            warnings,
+        ),
+        "revision": revision,
+        "session_paths": [record["path"] for record in records],
+        "unresolved": unresolved,
+    }
+
+
+def build_compare(
+    baseline_id: str,
+    candidate_id: str,
+    batch_root: Path | None = None,
+    revision: str | None = None,
+) -> dict:
+    """Build the deterministic comparison of two batches.
+
+    ``revision`` narrows both sides to sessions carrying that exact revision;
+    sessions without a revision are excluded and counted in ``warnings``.
+    An empty side raises :class:`CompareNoMatch` instead of inventing zeros.
+    """
+    if revision is not None:
+        if not revision.strip():
+            raise CompareError("--revision boş olamaz")
+        revision = revision.strip()
+    root = BATCH_ROOT if batch_root is None else batch_root
+    baseline_path = resolve_batch(root, baseline_id)
+    candidate_path = resolve_batch(root, candidate_id)
+    warnings: list[str] = []
+    baseline = build_compare_side(
+        baseline_id,
+        baseline_path,
+        revision=revision,
+        side="baseline",
+        warnings=warnings,
+    )
+    candidate = build_compare_side(
+        candidate_id,
+        candidate_path,
+        revision=revision,
+        side="candidate",
+        warnings=warnings,
+    )
+    for side, data in (("baseline", baseline), ("candidate", candidate)):
+        if data["sessions"] == 0:
+            raise CompareNoMatch(side)
+
+    delta_criteria = {
+        name: _delta_value(
+            candidate["criteria"].get(name, {}).get("value"),
+            baseline["criteria"].get(name, {}).get("value"),
+            4,
+        )
+        for name in sorted(set(baseline["criteria"]) | set(candidate["criteria"]))
+    }
+    return {
+        "mode": "compare",
+        "revision": revision,
+        "baseline": baseline,
+        "candidate": candidate,
+        "delta": {
+            "pass_rate": _delta_value(
+                candidate["pass_rate"]["value"],
+                baseline["pass_rate"]["value"],
+                4,
+            ),
+            "criteria": delta_criteria,
+            "median_turns": _delta_value(
+                candidate["median_turns"], baseline["median_turns"], 2
+            ),
+            "median_duration_ms": _delta_value(
+                candidate["median_duration_ms"],
+                baseline["median_duration_ms"],
+                2,
+            ),
+            "judged": candidate["pass_rate"]["judged"]
+            - baseline["pass_rate"]["judged"],
+        },
+        "warnings": warnings,
+    }
+
+
+def _format_rate(rate: dict) -> str:
+    value = "-" if rate["value"] is None else f"{rate['value']:.4f}"
+    return f"{rate['pass']}/{rate['judged']} ({value})"
+
+
+def _format_metric(value: float | None, digits: int = 2) -> str:
+    return "-" if value is None else f"{value:.{digits}f}"
+
+
+def _format_delta(value: float | None, digits: int = 4) -> str:
+    return "-" if value is None else f"{value:+.{digits}f}"
+
+
+def _compare_command(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(
+        prog="eval.py compare", description="baseline/candidate batch comparison"
+    )
+    parser.add_argument("--baseline")
+    parser.add_argument("--candidate")
+    parser.add_argument("--batch-root", type=Path, default=BATCH_ROOT)
+    parser.add_argument("--revision")
+    parser.add_argument("--json", action="store_true")
+    parser.add_argument("-o", "--output", choices=("text", "json"))
+    try:
+        args = parser.parse_args(argv)
+    except SystemExit as exc:
+        return int(exc.code) if exc.code else 0
+
+    as_json = args.json or args.output == "json"
+    try:
+        baseline_id = _batch_id("--baseline", args.baseline)
+        candidate_id = _batch_id("--candidate", args.candidate)
+        if baseline_id == candidate_id:
+            raise CompareError(
+                f"--baseline ve --candidate aynı batch olamaz: {baseline_id}"
+            )
+        report = build_compare(
+            baseline_id,
+            candidate_id,
+            batch_root=args.batch_root,
+            revision=args.revision,
+        )
+    except CompareNoMatch as exc:
+        print(f"eşleşme yok: {exc.side}", file=sys.stderr)
+        if as_json:
+            _emit_json(
+                {
+                    "mode": "compare",
+                    "status": "no-match",
+                    "side": exc.side,
+                    "error": "eşleşme yok",
+                }
+            )
+        return 1
+    except CompareError as exc:
+        print(f"eval: {exc}", file=sys.stderr)
+        return 2
+
+    if as_json:
+        _emit_json(report)
+        return 0
+
+    for side in ("baseline", "candidate"):
+        data = report[side]
+        print(
+            f"{side} ({data['batch']}): {data['sessions']} oturum, "
+            f"{data['completed']} tamamlanan; pass rate (kriter ağırlıklı) "
+            f"{_format_rate(data['pass_rate'])}"
+        )
+        print(
+            f"  medyan tur: {_format_metric(data['median_turns'])}, "
+            f"medyan süre: {_format_metric(data['median_duration_ms'])} ms"
+        )
+        for name in sorted(data["criteria"]):
+            counts = data["criteria"][name]
+            print(
+                f"  {name}: pass {counts['pass']}, fail {counts['fail']}, "
+                f"unknown {counts['unknown']}, unassessable {counts['unassessable']} "
+                f"→ {_format_rate(counts)}"
+            )
+    delta = report["delta"]
+    print(
+        f"delta: pass rate {_format_delta(delta['pass_rate'])}, "
+        f"judged {delta['judged']:+d}, "
+        f"medyan tur {_format_delta(delta['median_turns'], 2)}, "
+        f"medyan süre {_format_delta(delta['median_duration_ms'], 2)}"
+    )
+    for warning in report["warnings"]:
+        print(f"uyarı: {warning}")
+    return 0
 
 
 def agent_variants() -> list[dict]:
@@ -97,6 +1507,7 @@ def check_all() -> list[str]:
             if eval_rel
             else [f"{record['role']}.{record['capability']}: eval yok"]
         )
+    errors.extend(check_findings())
     return errors
 
 
@@ -133,20 +1544,135 @@ def validate_results(payload: dict, expected: list[str], allow_skip: bool = Fals
     return errors
 
 
-def main() -> int:
+def _emit_json(payload: dict) -> None:
+    print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
+
+
+def _verify_command(paths: list[Path], as_json: bool) -> int:
+    results = [verify_case(path) for path in paths]
+    if as_json:
+        _emit_json({"mode": "verify", "executed": False, "cases": results})
+    else:
+        for item in results:
+            print(f"{item['case']}: {item['status']}")
+            for check in item["checks"]:
+                print(f"  [{check['state']}] {check['id']}: {check['detail']}")
+            summary = item["summary"]
+            print(
+                f"  {summary['yes']} yes, {summary['no']} no, "
+                f"{summary['unknown']} unknown"
+            )
+    return 1 if any(item["status"] == "failed" for item in results) else 0
+
+
+def _dry_run_command(paths: list[Path], as_json: bool) -> int:
+    results = [dry_run_case(path) for path in paths]
+    failed = any("error" in item for item in results)
+    if as_json:
+        _emit_json(
+            {
+                "mode": "dry-run",
+                "executed": False,
+                "status": "failed" if failed else "passed",
+                "cases": results,
+            }
+        )
+    else:
+        for item in results:
+            if "error" in item:
+                print(f"{item['case']}: {item['error']}")
+                continue
+            print(f"{item['case']}: {item.get('id')} {item['sha256']}")
+            for entry in item["inputs"]:
+                digest = entry.get("sha256") or "yok"
+                print(f"  input {entry['path']} {digest}")
+        print("dry-run: hiçbir case çalıştırılmadı")
+    return 1 if failed else 0
+
+
+def _run_command(paths: list[Path], log: Path | None, as_json: bool) -> int:
+    records: list[dict] = []
+    warnings: list[str] = []
+    failed = False
+    for path in paths:
+        record, messages = run_case(path, log=log)
+        warnings.extend(messages)
+        if record is None:
+            failed = True
+        else:
+            records.append(record)
+    if as_json:
+        _emit_json(
+            {
+                "mode": "run",
+                "executed": False,
+                "status": "failed" if failed else "passed",
+                "records": records,
+                "warnings": warnings,
+            }
+        )
+    else:
+        for record in records:
+            print(f"{record['case']}: {record['id']} {record['revision']}")
+        for message in warnings:
+            print(f"[uyarı] {message}")
+    return 1 if failed else 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    args_list = list(sys.argv[1:] if argv is None else argv)
+    if args_list and args_list[0] == "compare":
+        return _compare_command(args_list[1:])
+    if args_list and args_list[0] == "discovery":
+        return _discovery_command(args_list[1:])
+
     parser = argparse.ArgumentParser(description="capability eval runner")
     parser.add_argument("--check", action="store_true")
     parser.add_argument("--list", action="store_true")
     parser.add_argument("--template", action="store_true")
+    parser.add_argument("--verify", action="store_true")
+    parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--run", action="store_true")
     parser.add_argument("--role")
     parser.add_argument("--eval")
     parser.add_argument("--results", type=Path)
     parser.add_argument("--allow-skip", action="store_true")
     parser.add_argument("--json", action="store_true")
-    args = parser.parse_args()
+    parser.add_argument("-o", "--output", choices=("text", "json"))
+    parser.add_argument("--revision-log", type=Path)
+    parser.add_argument("cases", nargs="*", metavar="CASE")
+    args = parser.parse_args(args_list)
+
+    modes = [args.verify, args.dry_run, args.run]
+    if sum(bool(mode) for mode in modes) > 1:
+        parser.error("--verify, --dry-run ve --run aynı anda kullanılamaz")
+    as_json = args.output == "json" or args.json
+    paths = [Path(item) for item in args.cases]
+
+    if args.verify:
+        if not paths:
+            parser.error("--verify için en az bir case yolu gerekli")
+        return _verify_command(paths, as_json)
+
+    if args.dry_run:
+        if not paths:
+            parser.error("--dry-run için en az bir case yolu gerekli")
+        return _dry_run_command(paths, as_json)
+
+    if args.run:
+        if not paths:
+            parser.error("--run için en az bir case yolu gerekli")
+        return _run_command(paths, args.revision_log, as_json)
 
     if args.check:
-        errors = check_all()
+        if paths:
+            errors = [
+                message
+                for path in paths
+                for message in check_eval_file(path)
+            ]
+        else:
+            errors = check_all()
         for message in errors:
             print(f"[fail] {message}")
         print(f"{len(errors)} hata")
