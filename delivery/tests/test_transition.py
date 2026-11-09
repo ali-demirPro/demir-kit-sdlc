@@ -293,6 +293,107 @@ class TransitionTests(unittest.TestCase):
         self.assertEqual(error.exception.code, 0)
         self.assertIn("--require-metrics", output.getvalue())
 
+    def _leaf_with_cp(self) -> dict:
+        issue = leaf_issue(["executing"])
+        issue["body"] = fenced(
+            "demir-kit",
+            {
+                "epic": 44,
+                "risk": {"level": "medium"},
+                "checkpoints": [
+                    {
+                        "id": "CP-1",
+                        "title": "cp",
+                        "gates": {"behavior": True},
+                    }
+                ],
+            },
+        )
+        return issue
+
+    def _leaf_done_patches(self, issue: dict):
+        return (
+            patch.object(transition, "fetch_issue", return_value=issue),
+            patch.object(transition, "doctor_ok", return_value=(True, "")),
+            patch.object(transition, "close_leaf_gate"),
+            patch.object(transition, "check_push"),
+            patch.object(transition, "apply_delta", return_value=([], [])),
+            patch.object(transition, "post_comment", return_value=None),
+        )
+
+    def test_leaf_done_writes_metrics_through_main(self) -> None:
+        issue = self._leaf_with_cp()
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            kit = root / ".kit"
+            kit.mkdir()
+            (kit / "brief-48-CP-1.json").write_text(
+                json.dumps(
+                    {
+                        "issue": 48,
+                        "cp": "CP-1",
+                        "armed": ["cp CP-1"],
+                        "fallbacks": [],
+                        "selected_docs": [],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (kit / "usage-48.json").write_text(
+                json.dumps({"tokens": {"input": 100}}), encoding="utf-8"
+            )
+            env = {
+                "DEMIR_KIT_CONTEXT_ROOT": directory,
+                "DEMIR_KIT_CYCLE_ROOT": directory,
+            }
+            with patch.dict(os.environ, env, clear=False):
+                with self._leaf_done_patches(issue)[0], \
+                     self._leaf_done_patches(issue)[1], \
+                     self._leaf_done_patches(issue)[2], \
+                     self._leaf_done_patches(issue)[3], \
+                     self._leaf_done_patches(issue)[4], \
+                     self._leaf_done_patches(issue)[5]:
+                    code = run_transition(
+                        ["--issue", "48", "--to", "leaf-done", "--no-orca"]
+                    )
+            self.assertEqual(code, 0)
+            rows = [
+                json.loads(raw)
+                for raw in (kit / "context-metrics.jsonl")
+                .read_text(encoding="utf-8")
+                .splitlines()
+            ]
+        self.assertEqual([(row["issue"], row["cp"]) for row in rows], [(48, "CP-1")])
+        self.assertEqual(rows[0]["tokens"], 100)
+
+    def test_leaf_done_require_metrics_stops_without_a_row(self) -> None:
+        issue = self._leaf_with_cp()
+        with tempfile.TemporaryDirectory() as directory:
+            env = {
+                "DEMIR_KIT_CONTEXT_ROOT": directory,
+                "DEMIR_KIT_CYCLE_ROOT": directory,
+            }
+            with patch.dict(os.environ, env, clear=False):
+                with self._leaf_done_patches(issue)[0], \
+                     self._leaf_done_patches(issue)[1], \
+                     self._leaf_done_patches(issue)[2], \
+                     self._leaf_done_patches(issue)[3], \
+                     self._leaf_done_patches(issue)[4], \
+                     self._leaf_done_patches(issue)[5]:
+                    with self.assertRaises(SystemExit) as error:
+                        run_transition(
+                            [
+                                "--issue", "48",
+                                "--to", "leaf-done",
+                                "--require-metrics",
+                                "--no-orca",
+                            ]
+                        )
+            self.assertIn("--require-metrics", str(error.exception))
+            self.assertFalse(
+                (Path(directory) / ".kit" / "context-metrics.jsonl").exists()
+            )
+
 
 if __name__ == "__main__":
     unittest.main()
