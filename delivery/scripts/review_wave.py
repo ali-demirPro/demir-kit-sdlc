@@ -38,7 +38,7 @@ def orca(args: list[str], timeout: float = 180.0) -> dict:
         result = subprocess.run(
             ["orca", *args], capture_output=True, text=True, timeout=timeout
         )
-    except (FileNotFoundError, OSError):
+    except (FileNotFoundError, OSError, subprocess.TimeoutExpired):
         return {}
     if result.returncode != 0:
         return {}
@@ -234,16 +234,20 @@ def wait_workers(workers: list[dict], timeout: float, poll: float = 5) -> list[d
             remaining = deadline - time.time()
             if remaining <= 0:
                 return workers
-            shown = orca(
-                [
-                    "orchestration",
-                    "worker-show",
-                    "--dispatch",
-                    str(item["dispatch_id"]),
-                    "--json",
-                ],
-                timeout=max(0.1, min(SHOW_TIMEOUT, remaining)),
-            )
+            try:
+                shown = orca(
+                    [
+                        "orchestration",
+                        "worker-show",
+                        "--dispatch",
+                        str(item["dispatch_id"]),
+                        "--json",
+                    ],
+                    timeout=max(0.1, min(SHOW_TIMEOUT, remaining)),
+                )
+            except Exception:
+                # One failed probe must not abort the wave; the deadline decides.
+                shown = {}
             state = worker_state(shown)
             if state in SETTLED:
                 item["state"] = state

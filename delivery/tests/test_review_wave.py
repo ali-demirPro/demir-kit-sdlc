@@ -6,6 +6,7 @@ import importlib.util
 import os
 import io
 import json
+import subprocess
 import sys
 import time
 import unittest
@@ -162,6 +163,37 @@ class ReviewWaveTests(unittest.TestCase):
         self.assertTrue(
             all(call["timeout"] is not None and call["timeout"] <= 15 for call in calls)
         )
+
+    def test_orca_returns_empty_on_subprocess_timeout(self) -> None:
+        with patch.object(
+            review_wave.subprocess,
+            "run",
+            side_effect=subprocess.TimeoutExpired("orca", 1),
+        ):
+            shown = review_wave.orca(["orchestration", "worker-show"])
+        self.assertEqual(shown, {})
+
+    def test_wait_workers_survives_subprocess_timeout(self) -> None:
+        workers = [{"name": "a", "dispatch_id": "ctx_a", "state": "dispatched"}]
+
+        def fake_run(args, **kwargs):
+            raise subprocess.TimeoutExpired(args, kwargs.get("timeout", 1))
+
+        started = time.monotonic()
+        with patch.object(review_wave.subprocess, "run", side_effect=fake_run):
+            review_wave.wait_workers(workers, timeout=1, poll=5)
+        self.assertLess(time.monotonic() - started, 3.0)
+        self.assertEqual(workers[0]["state"], "dispatched")
+
+    def test_wait_workers_survives_probe_error(self) -> None:
+        workers = [{"name": "a", "dispatch_id": "ctx_a", "state": "dispatched"}]
+        started = time.monotonic()
+        with patch.object(
+            review_wave, "orca", side_effect=RuntimeError("orca down")
+        ):
+            review_wave.wait_workers(workers, timeout=1, poll=5)
+        self.assertLess(time.monotonic() - started, 3.0)
+        self.assertEqual(workers[0]["state"], "dispatched")
 
     def test_collect_reads_worker_done_message(self) -> None:
         workers = [{"name": "a", "dispatch_id": "ctx_a", "state": "succeeded"}]
