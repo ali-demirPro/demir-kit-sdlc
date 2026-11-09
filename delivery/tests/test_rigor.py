@@ -111,6 +111,16 @@ class SchemaTest(unittest.TestCase):
         errors = rigor.validate(data)
         self.assertTrue(any("mapping.team.size" in message for message in errors))
 
+    def test_mapping_and_kit_semantics_sections_required(self) -> None:
+        for section in ("mapping", "kit_semantics"):
+            data = copy.deepcopy(document())
+            del data[section]
+            errors = rigor.validate(data)
+            self.assertTrue(
+                any(section in message for message in errors),
+                f"{section} bölümü silinince hata yok",
+            )
+
     def test_kit_semantics_required_keys_and_unknown_key(self) -> None:
         data = copy.deepcopy(document())
         del data["kit_semantics"]["reviewer_count"]
@@ -349,6 +359,19 @@ class DoctorRigorTest(unittest.TestCase):
         errors = list(doctor.ERRORS)
         doctor.ERRORS.clear()
         self.assertEqual(errors, [])
+
+    def test_doctor_flags_deleted_section(self) -> None:
+        for section in ("mapping", "kit_semantics"):
+            data = copy.deepcopy(document())
+            del data[section]
+            with tempfile.TemporaryDirectory() as raw:
+                path = Path(raw) / "rigor.yaml"
+                path.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
+                doctor.ERRORS.clear()
+                doctor.check_rigor(path)
+                errors = "\n".join(doctor.ERRORS)
+                doctor.ERRORS.clear()
+            self.assertIn(section, errors)
 
     def test_doctor_flags_deleted_knob(self) -> None:
         data = copy.deepcopy(document())
