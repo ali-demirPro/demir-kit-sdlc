@@ -62,7 +62,8 @@ class ModuleSplitTest(unittest.TestCase):
         lines = len((SCRIPTS / "doctor.py").read_text(encoding="utf-8").splitlines())
         # 1800 + 2: frequency.yaml şema kontrolü (issue 315) doctor.py'ye
         # bir import ve bir report çağrısı ekledi; payda tek satır bırakıldı.
-        self.assertLess(lines, 1802, lines)
+        # +30: rigor.yaml denetimi (issue 325) import, check_rigor ve main çağrısı.
+        self.assertLess(lines, 1833, lines)
 
     def test_skill_lint_behaviour_is_unchanged(self) -> None:
         path = ROOT / "skills" / "demo" / "SKILL.md"

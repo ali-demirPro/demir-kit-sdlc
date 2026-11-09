@@ -5,7 +5,7 @@
   "description": "process.rigor tek kapısı: üç seviye, altı düğme yayma tablosu. Bilinmeyen seviye ve eksik/fazla düğme reddedilir.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["version", "levels"],
+  "required": ["version", "levels", "gating"],
   "properties": {
     "version": { "type": "integer", "const": 1 },
     "levels": {
@@ -94,7 +94,58 @@
         }
       }
     },
-    "mapping": { "type": "object" },
-    "kit_semantics": { "type": "object" }
+    "mapping": {
+      "type": "object",
+      "additionalProperties": { "type": "string" },
+      "required": [
+        "modes.workflow",
+        "docs.density",
+        "qa.level",
+        "modes.story_granularity",
+        "modes.review_mode",
+        "team.size"
+      ],
+      "properties": {
+        "modes.workflow": { "type": "string" },
+        "docs.density": { "type": "string" },
+        "qa.level": { "type": "string" },
+        "modes.story_granularity": { "type": "string" },
+        "modes.review_mode": { "type": "string" },
+        "team.size": { "type": "string" }
+      },
+      "allOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "modes.workflow": {},
+            "docs.density": {},
+            "qa.level": {},
+            "modes.story_granularity": {},
+            "modes.review_mode": {},
+            "team.size": {}
+          }
+        }
+      ]
+    },
+    "kit_semantics": {
+      "type": "object",
+      "additionalProperties": { "type": "string" },
+      "required": ["reviewer_count", "review_mode"],
+      "properties": {
+        "reviewer_count": { "type": "string" },
+        "review_mode": { "type": "string" },
+        "story_granularity": { "type": "string" }
+      },
+      "allOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "reviewer_count": {},
+            "review_mode": {},
+            "story_granularity": {}
+          }
+        }
+      ]
+    }
   }
 }

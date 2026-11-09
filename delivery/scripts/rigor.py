@@ -167,9 +167,17 @@ def load_effective(project: Path | str | None = None, rigor_path: Path | None = 
 
 def reviewer_count(risk: str, data: dict | None = None) -> int:
     """Gating reviewer count is risk-only; rigor never changes it."""
-    gating = (data or load_rigor()).get("gating") or {}
+    data = data if data is not None else load_rigor()
+    gating = data.get("gating")
+    if not isinstance(gating, dict) or not gating:
+        raise RigorError("gating eksik")
+    source = gating.get("reviewer_count_source")
+    if source != "risk":
+        raise RigorError(
+            f"gating.reviewer_count_source '{source}' geçersiz — beklenen: risk"
+        )
     counts = gating.get("reviewer_count") or {}
-    if risk not in counts:
+    if not isinstance(counts, dict) or risk not in counts:
         raise RigorError(f"bilinmeyen risk: {risk}")
     return int(counts[risk])
 
@@ -186,6 +194,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--effective", action="store_true", help="etkin matrisi yaz")
     parser.add_argument("--project", type=Path, default=ROOT, help="kit.config kökü")
     args = parser.parse_args(argv)
+
+    if args.check is None and not args.effective:
+        parser.error("--check veya --effective gerekli")
 
     if args.check is not None:
         try:

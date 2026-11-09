@@ -8,6 +8,7 @@ from __future__ import annotations
 import copy
 import importlib.util
 import json
+import re
 import subprocess
 import sys
 import tempfile
@@ -21,6 +22,7 @@ SCRIPTS = ROOT / "delivery" / "scripts"
 RIGOR_PATH = ROOT / "delivery" / "rigor.yaml"
 SCHEMA_PATH = ROOT / "delivery" / "schemas" / "rigor.schema.json"
 P3_PATH = ROOT / "delivery" / "plans" / "P3.yaml"
+QUALITY_GATES_PATH = ROOT / "delivery" / "policies" / "quality-gates.md"
 
 sys.path.insert(0, str(SCRIPTS))
 
@@ -28,6 +30,11 @@ spec = importlib.util.spec_from_file_location("rigor", SCRIPTS / "rigor.py")
 rigor = importlib.util.module_from_spec(spec)
 assert spec.loader is not None
 spec.loader.exec_module(rigor)
+
+doctor_spec = importlib.util.spec_from_file_location("doctor", SCRIPTS / "doctor.py")
+doctor = importlib.util.module_from_spec(doctor_spec)
+assert doctor_spec.loader is not None
+doctor_spec.loader.exec_module(doctor)
 
 
 def document() -> dict:
@@ -37,6 +44,17 @@ def document() -> dict:
 def p3_levels() -> dict:
     plan = yaml.safe_load(P3_PATH.read_text(encoding="utf-8"))
     return plan["knobs"]["levels"]
+
+
+def matrix_rows() -> dict[str, list[str]]:
+    """quality-gates.md risk matrisi satırları (hücreler sırayla)."""
+    rows: dict[str, list[str]] = {}
+    for line in QUALITY_GATES_PATH.read_text(encoding="utf-8").splitlines():
+        match = re.match(r"^\|\s*`(low|medium|high|critical)`\s*\|(.+)\|\s*$", line)
+        if not match:
+            continue
+        rows[match.group(1)] = [cell.strip() for cell in match.group(2).split("|")]
+    return rows
 
 
 def project(root: Path, body: str) -> Path:
@@ -63,6 +81,46 @@ class SchemaTest(unittest.TestCase):
         errors = rigor.validate(data)
         self.assertTrue(errors, "eksik düğme kabul edildi")
         self.assertTrue(any("team.size" in message for message in errors))
+
+    def test_missing_gating_rejected(self) -> None:
+        data = copy.deepcopy(document())
+        del data["gating"]
+        errors = rigor.validate(data)
+        self.assertTrue(errors, "gating eksikken kabul edildi")
+        self.assertTrue(any("gating" in message for message in errors))
+
+    def test_invalid_reviewer_count_source_rejected(self) -> None:
+        data = copy.deepcopy(document())
+        data["gating"]["reviewer_count_source"] = "level"
+        errors = rigor.validate(data)
+        self.assertTrue(errors, "risk dışı reviewer_count_source kabul edildi")
+
+    def test_mapping_required_knob_and_unknown_key(self) -> None:
+        data = copy.deepcopy(document())
+        del data["mapping"]["team.size"]
+        errors = rigor.validate(data)
+        self.assertTrue(any("mapping.team.size" in message for message in errors))
+
+        data = copy.deepcopy(document())
+        data["mapping"]["bogus.knob"] = "x"
+        errors = rigor.validate(data)
+        self.assertTrue(any("bogus.knob" in message for message in errors))
+
+        data = copy.deepcopy(document())
+        data["mapping"]["team.size"] = 3
+        errors = rigor.validate(data)
+        self.assertTrue(any("mapping.team.size" in message for message in errors))
+
+    def test_kit_semantics_required_keys_and_unknown_key(self) -> None:
+        data = copy.deepcopy(document())
+        del data["kit_semantics"]["reviewer_count"]
+        errors = rigor.validate(data)
+        self.assertTrue(any("kit_semantics.reviewer_count" in message for message in errors))
+
+        data = copy.deepcopy(document())
+        data["kit_semantics"]["bogus"] = "x"
+        errors = rigor.validate(data)
+        self.assertTrue(any("kit_semantics.bogus" in message for message in errors))
 
     def test_cli_exit_codes(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
@@ -95,6 +153,34 @@ class SchemaTest(unittest.TestCase):
             )
             self.assertEqual(missing.returncode, 1, missing.stderr)
 
+    def test_cli_requires_check_or_effective(self) -> None:
+        result = subprocess.run(
+            [sys.executable, str(SCRIPTS / "rigor.py")],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertIn("--check veya --effective gerekli", result.stderr)
+
+    def test_cli_effective_with_project(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = project(Path(raw), "process:\n  rigor: full\n")
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(SCRIPTS / "rigor.py"),
+                    "--effective",
+                    "--project",
+                    str(root),
+                ],
+                capture_output=True,
+                text=True,
+            )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["level"], "full")
+        self.assertEqual(payload["source"], "kit.config.yaml")
+
 
 class SpreadTableTest(unittest.TestCase):
     """T-2: 3x6 table matches P3; reviewers risk-only; review_mode inert."""
@@ -118,6 +204,35 @@ class SpreadTableTest(unittest.TestCase):
         for level in rigor.LEVELS:
             for knob in data["levels"][level]:
                 self.assertNotIn("reviewer", knob)
+
+    def test_reviewer_count_requires_gating_and_risk_source(self) -> None:
+        data = copy.deepcopy(document())
+        del data["gating"]
+        with self.assertRaises(rigor.RigorError) as missing:
+            rigor.reviewer_count("low", data)
+        self.assertIn("gating eksik", str(missing.exception))
+
+        data = copy.deepcopy(document())
+        data["gating"]["reviewer_count_source"] = "level"
+        with self.assertRaises(rigor.RigorError) as source:
+            rigor.reviewer_count("low", data)
+        self.assertIn("reviewer_count_source", str(source.exception))
+
+    def test_quality_gates_matrix_matches_gating(self) -> None:
+        data = document()
+        rows = matrix_rows()
+        self.assertEqual(set(rows), {"low", "medium", "high", "critical"})
+        for risk, cells in rows.items():
+            self.assertEqual(len(cells), 7, f"{risk}: beklenmeyen sütun sayısı")
+            match = re.search(r"(\d+)\s*reviewer", cells[4])
+            self.assertIsNotNone(match, f"{risk}: reviewer sayısı yok")
+            self.assertEqual(
+                int(match.group(1)), rigor.reviewer_count(risk, data), risk
+            )
+        self.assertNotIn("reviews.human", rows["low"][6])
+        self.assertNotIn("reviews.human", rows["medium"][6])
+        self.assertIn("reviews.human", rows["high"][6])
+        self.assertIn("human_second", rows["critical"][6])
 
     def test_review_mode_stored_not_live(self) -> None:
         self.assertIn("modes.review_mode", rigor.KNOBS)
@@ -223,6 +338,29 @@ class OverrideTest(unittest.TestCase):
                 effective["knobs"]["docs.density"]["source"], "rigor:minimal"
             )
             self.assertEqual(rigor.reviewer_count("medium"), 1)
+
+
+class DoctorRigorTest(unittest.TestCase):
+    """T-6: doctor validates rigor.yaml (ADV-1)."""
+
+    def test_doctor_accepts_current_file(self) -> None:
+        doctor.ERRORS.clear()
+        doctor.check_rigor()
+        errors = list(doctor.ERRORS)
+        doctor.ERRORS.clear()
+        self.assertEqual(errors, [])
+
+    def test_doctor_flags_deleted_knob(self) -> None:
+        data = copy.deepcopy(document())
+        del data["levels"]["standard"]["team.size"]
+        with tempfile.TemporaryDirectory() as raw:
+            path = Path(raw) / "rigor.yaml"
+            path.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
+            doctor.ERRORS.clear()
+            doctor.check_rigor(path)
+            errors = "\n".join(doctor.ERRORS)
+            doctor.ERRORS.clear()
+        self.assertIn("team.size", errors)
 
 
 class DoctorGateTest(unittest.TestCase):

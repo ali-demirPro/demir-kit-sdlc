@@ -32,6 +32,7 @@ from schema_lite import validate_schema  # noqa: E402, F401
 import process_gate  # noqa: E402
 import profiles as profiles_lib  # noqa: E402
 import resolver as resolver_lib  # noqa: E402
+import rigor as rigor_lib  # noqa: E402
 import seal_lint  # noqa: E402
 import variants as variants_lib  # noqa: E402
 from doctor_skills import (  # noqa: E402, F401  (public re-exports)
@@ -90,6 +91,7 @@ REQUIRED_FILES = [
     "kit.config.yaml",
     "delivery/CONTRACT.md",
     "delivery/registry.yaml",
+    "delivery/rigor.yaml",
     "delivery/templates/github-labels.json",
     "delivery/schemas/leaf.schema.json",
     "delivery/schemas/epic.schema.json",
@@ -263,6 +265,17 @@ def check_registry() -> None:
     if profile_default and not (DELIVERY / "profiles" / f"{profile_default}.yaml").is_file():
         error(f"registry.profiles.default: {profile_default}.yaml yok")
 
+    rigor = reg.get("rigor") or {}
+    if not isinstance(rigor, dict):
+        error("registry.yaml: rigor mapping değil")
+    else:
+        for key in ("config", "schema", "resolver"):
+            value = rigor.get(key)
+            if not isinstance(value, str) or not value.strip():
+                error(f"registry.rigor.{key}: yol yok")
+            elif not (ROOT / value).is_file():
+                error(f"registry.rigor.{key}: dosya yok — {value}")
+
     # agent directories
     agents: set[str] = set(reg.get("role_order_default") or [])
     for spec in paths.values():
@@ -304,6 +317,22 @@ def check_registry() -> None:
             if only_pol:
                 detail.append(f"policy'de fazla: {', '.join(sorted(only_pol))}")
             error("path-routing.md ↔ registry paths uyuşmuyor — " + "; ".join(detail))
+
+
+def check_rigor(config: Path | None = None) -> None:
+    check("rigor")
+    path = Path(config) if config else DELIVERY / "rigor.yaml"
+    messages: list[str] = []
+    try:
+        messages.extend(rigor_lib.validate_file(path))
+    except rigor_lib.RigorError as exc:
+        messages.append(str(exc))
+    try:
+        rigor_lib.load_effective(ROOT, rigor_path=path if config else None)
+    except rigor_lib.RigorError as exc:
+        messages.append(str(exc))
+    for message in dict.fromkeys(messages):
+        error(f"rigor: {message}")
 
 
 def check_labels() -> None:
@@ -1751,6 +1780,7 @@ def main() -> int:
         check_files()
         check_schemas()
         check_registry()
+        check_rigor()
         check_capabilities()
         check_profiles()
         check_agent_variants()
