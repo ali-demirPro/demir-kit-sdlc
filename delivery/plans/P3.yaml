@@ -17,8 +17,8 @@ mechanisms:
       (registry.paths), profil kompozisyonu (profiles.py) ve risk matrisi
       (quality-gates.md) ayrı ayrı karar veriyor. Landing ile payments
       arasındaki fark profil gate'lerinde (payments `architect` + `commercial`
-      taşır) ve risk glob'unda; doküman derinliği, kanıt ayrıntısı ve reviewer
-      paneli ikisinde de aynı.
+      taşır) ve risk glob'unda (`**/payments/**` → high); doküman derinliği ve
+      kanıt şablonu aynı, reviewer paneli risk seviyesine bağlı.
     gap: >-
       `process.rigor` diye tek bir kapı yok; "ne kadar tören" sorusu bir kez
       sorulup altı düğmeye yayılmıyor. Bugünkü davranışın adı bile yok.
@@ -37,11 +37,11 @@ mechanisms:
 
   - name: six-knobs
     ours: >-
-      Karşılıklar var ama adları ve sınırları yok: workflow → kanıt seviyesi ve
-      kalite kapıları, docs.density → context-budget okuma bütçesi, qa.level →
-      tests_plan `check` türleri, story_granularity → leaf/CP boyutu,
-      review_mode → risk matrisindeki reviewer sayısı, team.size → agent
-      varyantları ve capability matrisi.
+      Karşılıklar var ama adları ve sınırları yok: workflow → zorunlu
+      doküman/kanıt kümesi (kalite kapıları sabit), docs.density →
+      context-budget okuma bütçesi, qa.level → tests_plan `check` türleri,
+      story_granularity → leaf/CP boyutu, review_mode → risk matrisindeki
+      reviewer sayısı, team.size → agent varyantları ve capability matrisi.
     gap: >-
       Altı düğmenin üç değeri (minimal/standard/full) tek tabloda
       tanımlanmıyor; açık düğme değerinin yaymayı iki yönde ezmesi
@@ -121,6 +121,11 @@ knobs:
       solo hiç gate açmaz kuralı alınmaz.
     team.size: >-
       Aktif agent/varyant kümesi; risk tabanı ve insan kapısı değişmez.
+  kit_semantics:
+    modes.review_mode: >-
+      Kit'te `solo` gate'siz değildir: taban 1 adversarial reviewer demektir.
+      `lean`/`full` paneli genişletir; hiçbiri behavior gate'ini veya insan
+      kapısını kaldırmaz.
 
 risk_conflict:
   - ccgs: "modes.review_mode: solo — hiçbir director/specialist gate açılmaz"
@@ -137,12 +142,13 @@ risk_conflict:
       Bizde minimal yalnız fazladan kanıtı kısar; ana kapı ve test çalıştırma
       zorunluluğu kalır.
 
-  - ccgs: "modes.workflow: minimal — /gate-check hiç çalışmaz, stage Concept'te kalır"
+  - ccgs: "modes.workflow: minimal — minimal path'te /gate-check koşmaz; effects-map'e göre azaltılmış kontrol listesiyle çalışır"
     ours: "behavior + evidence + leaf-done her seviyede zorunlu"
-    verdict: reject
+    verdict: narrow
     reason: >-
-      Kapısız yol alınmaz; workflow yalnız zorunlu doküman/kanıt kümesini
-      daraltır.
+      CCGS'nin iki kaynağı çelişiyor (workflow-catalog minimal yolu vs
+      effects-map). Biz kapısız yolu almıyoruz: workflow yalnız zorunlu
+      doküman/kanıt kümesini daraltır, gate'i kaldırmaz.
 
   - ccgs: "modes.rigor kilitli; modes.review_mode ve team.size local override"
     ours: "yerel override yalnız doküman/bağlam; evidence, reviewer, risk ve insan kapısı kilitli"
@@ -184,7 +190,7 @@ children:
     risk: medium
     depends_on: [291]
     ac:
-      - "`delivery/rigor.yaml` üç seviyeyi ve altı düğme için yayma tablosunu taşır; şema bilinmeyen seviyeyi ve eksik düğmeyi reddeder."
+      - "`delivery/rigor.yaml` üç seviyeyi ve altı düğme için yayma tablosunu taşır; şema bilinmeyen seviyeyi ve eksik düğmeyi reddeder. `modes.review_mode` değerlerinin kit semantiği (`solo` = taban 1 reviewer) dosyada yazılır."
       - "`kit.config.yaml` `process.rigor` alanını taşır; alan yoksa `standard` etkin olur ve kaynak `default` olarak raporlanır."
       - "Açık düğme değeri yaymayı iki yönde de ezer; kaynak `kit.config.yaml`, türetilmiş değer için `rigor:<level>` yazılır."
       - "`./delivery/scripts/doctor.sh --strict` 0 uyarı verir; şema testi geçersiz seviyeyi exit 1 ile reddeder."
