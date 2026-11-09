@@ -222,6 +222,37 @@ class EvalModeTests(unittest.TestCase):
             self.assertEqual(result["status"], "failed")
             self.assertGreaterEqual(result["summary"]["no"], 1)
 
+    def test_verify_unresolved_input_stays_unknown(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = write_case(
+                Path(directory),
+                case_record(
+                    targets=["delivery/scripts/eval.py"],
+                    tools=[],
+                    inputs=["${{ env.INPUT }}"],
+                ),
+            )
+            result = eval_mod.verify_case(path)
+            self.assertEqual(result["status"], "incomplete")
+            self.assertEqual(result["summary"]["no"], 0)
+            self.assertGreaterEqual(result["summary"]["unknown"], 1)
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(eval_mod.main(["--verify", str(path)]), 0)
+
+    def test_verify_matches_check_for_bom_case(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = write_case(
+                Path(directory),
+                case_record(targets=["delivery/scripts/eval.py"], tools=[], inputs=[]),
+            )
+            path.write_bytes(b"\xef\xbb\xbf" + path.read_bytes())
+            self.assertEqual(eval_mod.check_case_file(path), [])
+            result = eval_mod.verify_case(path)
+            self.assertEqual(result["status"], "passed")
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(eval_mod.main(["--check", str(path)]), 0)
+                self.assertEqual(eval_mod.main(["--verify", str(path)]), 0)
+
     def test_verify_exits_one_only_for_definite_no(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             unresolved = write_case(

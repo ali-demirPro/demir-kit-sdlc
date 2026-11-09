@@ -258,6 +258,16 @@ def _target_state(entry: str, case_dir: Path, root: Path) -> tuple[str, str]:
     return "no", "hedef yok"
 
 
+def _input_state(entry: str, case_dir: Path, root: Path) -> tuple[str, str]:
+    if not isinstance(entry, str) or not entry.strip():
+        return "no", "girdi boş"
+    if any(marker in entry for marker in ("*", "?", "[", "]", "${{", "://")):
+        return "unknown", "girdi çözümlenemedi (glob/değişken/URL)"
+    if resolve_input(entry, case_dir, root) is None:
+        return "no", "girdi yok"
+    return "yes", "girdi var"
+
+
 def verify_case(path: Path, root: Path = ROOT) -> dict:
     """Static yes/no/unknown checklist; exit 1 is reserved for a definite no."""
     checks: list[dict] = []
@@ -269,7 +279,7 @@ def verify_case(path: Path, root: Path = ROOT) -> dict:
     except OSError as exc:
         checks.append(_check("no", "case.file", f"okunamadı: {exc}"))
         return _verification(path, checks)
-    frontmatter, _body, error = split_frontmatter(raw)
+    frontmatter, _body, error = split_frontmatter(raw.lstrip("\ufeff"))
     if error:
         checks.append(_check("no", "case.frontmatter", error))
         return _verification(path, checks)
@@ -311,12 +321,8 @@ def verify_case(path: Path, root: Path = ROOT) -> dict:
     inputs = frontmatter.get("inputs")
     if isinstance(inputs, list):
         for index, entry in enumerate(inputs):
-            if not isinstance(entry, str) or not entry.strip():
-                checks.append(_check("no", f"case.input.{index}", "girdi boş"))
-            elif resolve_input(entry, path.parent, root) is None:
-                checks.append(_check("no", f"case.input.{index}", f"{entry}: girdi yok"))
-            else:
-                checks.append(_check("yes", f"case.input.{index}", f"{entry}: girdi var"))
+            state, detail = _input_state(entry, path.parent, root)
+            checks.append(_check(state, f"case.input.{index}", f"{entry}: {detail}"))
 
     tools = frontmatter.get("tools")
     if isinstance(tools, list):
