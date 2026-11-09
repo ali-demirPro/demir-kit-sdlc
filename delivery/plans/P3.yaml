@@ -1,0 +1,258 @@
+source:
+  repo: https://github.com/Donchitos/Claude-Code-Game-Studios
+  commit: abc0de79d6ceb0b5d7aa693945849b3937afbe6a
+  read_at: "2026-11-09"
+  files:
+    - .claude/docs/effects-map.md
+    - .claude/hooks/yaml-helper.sh
+    - .claude/docs/workflow-modes.md
+    - .claude/docs/workflow-catalog.yaml
+    - studio-tests/quality-rubric.md
+    - studio-tests/catalog.yaml
+
+mechanisms:
+  - name: single-front-door
+    ours: >-
+      Süreç ağırlığı tek bir soru değil, dağınık varsayımlar: path routing
+      (registry.paths), profil kompozisyonu (profiles.py) ve risk matrisi
+      (quality-gates.md) ayrı ayrı karar veriyor. Aynı leaf her riskte aynı
+      töreni görüyor; landing page ile payments arasındaki fark yalnız risk
+      seviyesinde.
+    gap: >-
+      `process.rigor` diye tek bir kapı yok; "ne kadar tören" sorusu bir kez
+      sorulup altı düğmeye yayılmıyor. Bugünkü davranışın adı bile yok.
+    target: "delivery/rigor.yaml + kit.config.yaml; P3-2 (#325)"
+
+  - name: expansion-and-provenance
+    ours: >-
+      brief.py etkin yapılandırmayı yazıyor (registry sha256, path, yüklenen
+      politikalar), ama türetilmiş süreç değerlerinin kaynağını yazmıyor;
+      `resolve` yalnız dosya/legacy/default ayrımı yapıyor.
+    gap: >-
+      CCGS'nin `project.yaml → legacy → rigor expansion → default` zinciri ve
+      `rigor:<level>` kaynak etiketi yok. Türetilmiş değer ile açık değer
+      birbirinden ayrılmıyor; `doctor --explain` etkin matrisi basmıyor.
+    target: "delivery/scripts/profiles.py + doctor_explain.py; P3-3 (#326)"
+
+  - name: six-knobs
+    ours: >-
+      Karşılıklar var ama adları ve sınırları yok: workflow → kanıt seviyesi ve
+      kalite kapıları, docs.density → context-budget okuma bütçesi, qa.level →
+      tests_plan `check` türleri, story_granularity → leaf/CP boyutu,
+      review_mode → risk matrisindeki reviewer sayısı, team.size → agent
+      varyantları ve capability matrisi.
+    gap: >-
+      Altı düğmenin üç değeri (minimal/standard/full) tek tabloda
+      tanımlanmıyor; açık düğme değerinin yaymayı iki yönde ezmesi
+      (off-diagonal) kural değil.
+    target: "delivery/rigor.yaml + delivery/schemas/rigor.schema.json; P3-2 (#325)"
+
+  - name: personal-override
+    ours: >-
+      `.kit/` bugün yalnız makine durumu taşıyor (usage, evidence, metrics);
+      kişisel yapılandırma dosyası yok. Bir geliştiricinin kendi tercihini
+      takım ayarından ayırma yolu bulunmuyor.
+    gap: >-
+      `project.local.yaml` deseninin karşılığı yok: beyaz liste, kilitli
+      anahtarın sessizce yutulmaması ve "artifact üreten ayar kilitli"
+      kuralı eksik.
+    target: ".kit/local.yaml + delivery/scripts/resolver.py; P3-5 (#328)"
+
+  - name: risk-baseline
+    ours: >-
+      Risk tabanı sabit: quality-gates.md matrisi her riskte behavior gate,
+      low/medium'da 1 reviewer, high/critical'da 2 reviewer + insan kapısı;
+      registry.auto_escalate glob'ları ve human_gate ayrı duruyor.
+    gap: >-
+      Bu sabitlik sözleşmede tek bir değişmez olarak yazılı değil; CONTRACT'ta
+      ikinci I11-I14 bloğu numara çakışması üretiyor ve learnings.py I13'e
+      atıf yapıyor. Rigor'un bu tabanı düşüremediği test edilmiyor.
+    target: "delivery/CONTRACT.md I20-I24 + learnings.py; P3-4 (#327)"
+
+  - name: default-level
+    ours: >-
+      Bugünkü fiilî varsayılan "her leaf tam tören": behavior gate zorunlu,
+      en az 1 reviewer, tests_plan case'leri zorunlu. Bu, standard seviyenin
+      tarifidir ama adı yok.
+    gap: >-
+      CCGS `minimal` varsayıyor ve gerekçesi "ağır tören daha iyi sonuç
+      vermiyor"; bizim ölçümümüz yok. Varsayılanı `standard` yapıp `minimal`ı
+      açık seçim bırakan karar yazılı değil.
+    target: "kit.config.yaml process.rigor + delivery/policies/process-rigor.md; P3-2 (#325), P3-6 (#329)"
+
+knobs:
+  levels:
+    minimal:
+      modes.workflow: minimal
+      docs.density: terse
+      qa.level: minimal
+      modes.story_granularity: coarse
+      modes.review_mode: solo
+      team.size: individual
+    standard:
+      modes.workflow: standard
+      docs.density: balanced
+      qa.level: standard
+      modes.story_granularity: balanced
+      modes.review_mode: lean
+      team.size: individual
+    full:
+      modes.workflow: full
+      docs.density: thorough
+      qa.level: full
+      modes.story_granularity: fine
+      modes.review_mode: full
+      team.size: studio
+  mapping:
+    modes.workflow: >-
+      Zorunlu kanıt ve doküman kümesi; minimal'de yalnız brief/CP kanıtı,
+      full'de tam kanıt zinciri. Kalite kapıları sabit kalır.
+    docs.density: >-
+      Doküman ve yorum derinliği; context-budget sınıfları ve "dilim oku"
+      kuralı korunur.
+    qa.level: >-
+      Fazladan test kanıtı ayrıntısı; behavior gate her seviyede zorunlu,
+      minimal yalnız ek kanıtı kısar.
+    modes.story_granularity: >-
+      Leaf/CP boyutu; minimal'de daha büyük CP, full'de daha küçük CP.
+    modes.review_mode: >-
+      Reviewer paneli genişliği; bizde taban en az 1 reviewer (adversarial),
+      solo hiç gate açmaz kuralı alınmaz.
+    team.size: >-
+      Aktif agent/varyant kümesi; risk tabanı ve insan kapısı değişmez.
+
+risk_conflict:
+  - ccgs: "modes.review_mode: solo — hiçbir director/specialist gate açılmaz"
+    ours: "low/medium: behavior + 1 adversarial reviewer; high/critical: 2 reviewer + insan"
+    verdict: reject
+    reason: >-
+      Gate'siz mod risk düşürme kaçağıdır. Bizde review_mode yalnız panel
+      genişliğini değiştirir; taban 1 reviewer sabittir.
+
+  - ccgs: "qa.level: minimal — logic/integration hikâyelerinde test istenmez"
+    ours: "behavior gate her riskte zorunlu; tests_plan case'leri çalışır"
+    verdict: narrow
+    reason: >-
+      Bizde minimal yalnız fazladan kanıtı kısar; ana kapı ve test çalıştırma
+      zorunluluğu kalır.
+
+  - ccgs: "modes.workflow: minimal — /gate-check hiç çalışmaz, stage Concept'te kalır"
+    ours: "behavior + evidence + leaf-done her seviyede zorunlu"
+    verdict: reject
+    reason: >-
+      Kapısız yol alınmaz; workflow yalnız zorunlu doküman/kanıt kümesini
+      daraltır.
+
+  - ccgs: "modes.rigor kilitli; modes.review_mode ve team.size local override"
+    ours: "yerel override yalnız doküman/bağlam; evidence, reviewer, risk ve insan kapısı kilitli"
+    verdict: narrow
+    reason: >-
+      Kişisel deneyim tanımı daraltıldı: tören ağırlığı artifact üretiyorsa
+      kilitlidir.
+
+  - ccgs: "varsayılan modes.rigor: minimal"
+    ours: "varsayılan process.rigor: standard (bugünkü davranış)"
+    verdict: diverge
+    reason: >-
+      CCGS'nin ölçümü ağır törenin daha iyi sonuç vermediğini söylüyor; bizde
+      ölçüm yok, bu yüzden bugünkü davranış korunur, minimal açık seçim olur.
+
+children:
+  - slug: p3-1-analysis
+    issue: 291
+    title: "P3-1: derin analiz — Donchitos/Claude-Code-Game-Studios"
+    intent: >-
+      Donchitos/Claude-Code-Game-Studios deposunu pinlenmiş commit'te kod
+      seviyesinde incele; mekanizmaları hedef dosya, AC, risk ve CP'ye çevir;
+      alt issue'ları aç.
+    risk: low
+    depends_on: []
+    ac:
+      - "Pinlenmiş commit sha'sı, okunan dosya listesi ve plan yolu epic yorumunda yazılı."
+      - "rigor'ın altı düğmesi project.yaml şemasından ve effects-map.md'den okundu; bizim risk matrisiyle çakışma/çelişki tablosu yazıldı."
+      - "En az 4 çocuk issue açıldı; her biri niyet, kaba AC, risk, hedef dosya ve depends_on taşıyor."
+      - "delivery/plans/P3.yaml dosyası var; epic gövdesindeki keep ve children ile birebir aynı."
+      - "Epic gövdesi güncellendi (defer→keep, children), çocuklar intake etiketli ve update.py yorumu atıldı."
+
+  - slug: p3-2-rigor-config
+    issue: 325
+    title: "P3-2 delivery/rigor.yaml + kit.config.yaml process.rigor + şema"
+    intent: >-
+      Tek kapıyı kur: process.rigor bir kez seçilir, altı düğmeyi türetir;
+      varsayılan standard, minimal açık seçim, full yüksek güvence.
+    risk: medium
+    depends_on: [291]
+    ac:
+      - "`delivery/rigor.yaml` üç seviyeyi ve altı düğme için yayma tablosunu taşır; şema bilinmeyen seviyeyi ve eksik düğmeyi reddeder."
+      - "`kit.config.yaml` `process.rigor` alanını taşır; alan yoksa `standard` etkin olur ve kaynak `default` olarak raporlanır."
+      - "Açık düğme değeri yaymayı iki yönde de ezer; kaynak `project.yaml`, türetilmiş değer için `rigor:<level>` yazılır."
+      - "`./delivery/scripts/doctor.sh --strict` 0 uyarı verir; şema testi geçersiz seviyeyi exit 1 ile reddeder."
+
+  - slug: p3-3-effective-matrix
+    issue: 326
+    title: "P3-3 profiles.py kompozisyonu + doctor --explain etkin matris"
+    intent: >-
+      Rigor'u profillere bağla: compose() etkin seviyeyi ve türetilmiş altı
+      düğmeyi döndürsün; doctor --explain her düğmenin değerini ve kaynağını
+      tek matriste yazsın.
+    risk: medium
+    depends_on: [291, 325]
+    ac:
+      - "`profiles.compose()` çıktısı `rigor` bloğu taşır: etkin seviye, kaynak ve altı düğmenin değeri."
+      - "`doctor.sh --explain` etkin matrisi basar; her satır düğme, değer ve kaynak taşır; `--json` aynı veriyi verir."
+      - "Geçersiz `process.rigor` veya çözülemeyen düğme uyarı satırı üretir; varsayılana düşerken nedeni yazar."
+      - "`./delivery/scripts/doctor.sh --strict` 0 uyarı verir; `standard` ve açık `minimal` için matris kanıtlanır."
+
+  - slug: p3-4-risk-invariant
+    issue: 327
+    title: "P3-4 risk tabanı değişmezi + CONTRACT I20-I24 + testler"
+    intent: >-
+      Rigor'un risk düşürme kaçağına dönüşmediğini sözleşmeye yaz: risk tabanı,
+      auto_escalate glob'ları ve insan kapıları rigor'dan bağımsız kalır.
+      İkinci I11-I14 bloğu I20-I23'e taşınır, risk tabanı değişmezi I24 olur.
+    risk: medium
+    depends_on: [325]
+    ac:
+      - "CONTRACT'ta I20-I23 çakışmasız yeniden numaralanır; I24 rigor'un risk tabanını, auto_escalate'i veya insan kapısını düşüremediğini yazar."
+      - "`learnings.py` I13 atfı doğru maddeye işaret eder; `rg -n \"I13|I20|I24\"` çıktısı tek anlamlıdır."
+      - "Testte `minimal` rigor ile high/critical leaf'in insan kapısını ve 2 reviewer'ını koruduğu kanıtlanır; low/medium da değişmez."
+      - "`./delivery/scripts/doctor.sh --strict` 0 uyarı verir; sözleşme değişikliği VERSION + CHANGELOG ile eşlenir."
+
+  - slug: p3-5-local-override
+    issue: 328
+    title: "P3-5 .kit/local.yaml kişisel override whitelist"
+    intent: >-
+      project.local.yaml desenini uyarla: .kit/local.yaml yalnız doküman
+      derinliği ve bağlam tercihlerini ezsin. Evidence, reviewer, risk ve insan
+      kapıları kilitli; kilitli anahtar sessizce yutulmaz.
+    risk: medium
+    depends_on: [325, 327]
+    ac:
+      - "`.kit/local.yaml` beyaz listesi yalnız kişisel deneyim anahtarlarını taşır; kilitli anahtar çözümlemede okunmaz ve gerekçeli uyarı yazılır."
+      - "Beyaz liste tek kaynaktan gelir; okuma ve yazma listeleri ayrışırsa doctor bunu hata sayar."
+      - "Kilitli anahtar davranışı kanıtlanır: risk, reviewer ve insan kapısı ayarları local dosyadan ezilemez."
+      - "`./delivery/scripts/doctor.sh --strict` 0 uyarı verir; `.kit/local.yaml` depoya girmez."
+
+  - slug: p3-6-effects-map
+    issue: 329
+    title: "P3-6 policies/process-rigor.md effects map"
+    intent: >-
+      Rigor'un hangi davranışı gerçekten değiştirdiğini tek sayfada yaz: her
+      düğme için değer → etki tablosu, sınırlar ve okuyan dosya. CCGS
+      effects-map.md deseninin kit karşılığı.
+    risk: low
+    depends_on: [326, 328]
+    ac:
+      - "`delivery/policies/process-rigor.md` altı düğmenin üç değerde ne değiştirdiğini tablo olarak yazar; okuyan komut/dosya adı verilir."
+      - "Politika, risk tabanı ve insan kapısının rigor'dan etkilenmediğini açıkça yazar; çelişki tablosu `P3.yaml` ile aynıdır."
+      - "`minimal` seviyenin kısaltığı (doküman derinliği, fazladan kanıt) ile kısmadığı (behavior gate, en az 1 reviewer) ayrı satırlarda yazılır."
+      - "`./delivery/scripts/doctor.sh --strict` 0 uyarı verir; politika CONTRACT ve quality-gates.md ile çelişmez."
+
+not_taking:
+  - "49 agent / 74 skill enflasyonu"
+  - "`full` rigor'un varsayılan olması"
+  - "`solo` review mode'un gate'leri tamamen kapatması"
+  - "`qa.level: minimal`ın behavior gate'i veya test çalıştırmayı kaldırması"
+  - "Risk tabanı, auto_escalate glob'ları ve insan kapılarının rigor ile düşmesi"
+  - "Repo kodunu kit'e kopyalamak"
+  - "`workflow_overrides` / per-system tier mekanizmasının birebir alınması"
