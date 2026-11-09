@@ -100,7 +100,7 @@ def config_body(seal: dict | None = None) -> str:
 class ConfigTests(unittest.TestCase):
     """Effective configuration banner (issue 313)."""
 
-    def run_brief(self, argv, index_path=None, title="config", seal=None):
+    def run_brief(self, argv, index_path=None, title="config", seal=None, patch_repo=True):
         issue = json.dumps(
             {
                 "title": title,
@@ -111,7 +111,10 @@ class ConfigTests(unittest.TestCase):
         out = io.StringIO()
         err = io.StringIO()
         with contextlib.ExitStack() as stack:
-            stack.enter_context(patch.object(brief, "repo_name", return_value="x/y"))
+            if patch_repo:
+                stack.enter_context(
+                    patch.object(brief, "repo_name", return_value="x/y")
+                )
             stack.enter_context(patch.object(brief, "gh", return_value=issue))
             if index_path is not None:
                 stack.enter_context(
@@ -265,6 +268,62 @@ class ConfigTests(unittest.TestCase):
         ):
             code, out, _ = self.run_brief(["313"])
         self.assertEqual(code, 0)
+        self.assertIn("fallback: ecosystem yok", out)
+        self.assertIn("fallback: priorities yok", out)
+
+    def test_invalid_index_version_matches_route(self) -> None:
+        entries = [
+            {
+                "surface": "kit.docs",
+                "path": "delivery/scripts/brief.py",
+                "tags": ["brief"],
+                "weight": 2,
+            }
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            index = self.write_index(tmp, entries, version=9)
+            code, out, _ = self.run_brief(["313"], index)
+            self.assertEqual(code, 0)
+            config = self.parse_config(out)
+            self.assertEqual(config["index_version"], "yok")
+            self.assertIn("fallback: index surumu gecersiz", out)
+            self.assertNotIn("indexing:", out)
+
+            json_code, json_out, _ = self.run_brief(["313", "--json"], index)
+            self.assertEqual(json_code, 0)
+            payload = json.loads(json_out)
+            self.assertEqual(payload["config"]["index_version"], "yok")
+            self.assertIn("index surumu gecersiz", payload["fallbacks"])
+
+            route_code, _, err = self.run_brief(["313", "--route"], index)
+            self.assertEqual(route_code, 2)
+            self.assertIn("version 1", err)
+
+    def test_entry_kind_is_armed_source(self) -> None:
+        seal = {
+            **CONFIG_SEAL,
+            "entry": {"kind": "feature"},
+            "surfaces": ["other"],
+            "intent": "zzz",
+        }
+        code, out, _ = self.run_brief(["313"], title="zzz", seal=seal)
+        self.assertEqual(code, 0)
+        config = self.parse_config(out)
+        self.assertEqual(config["path"], "ui_feature")
+        self.assertEqual(config["path_source"], "entry")
+        self.assertIn("armed: path ui_feature", out)
+        self.assertNotIn("unarmed: path default", out)
+        self.assertNotIn("fallback: path default", out)
+
+    def test_missing_ecosystem_still_prints_banner(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp, patch.object(
+            brief.routing, "project_root", return_value=Path(tmp)
+        ), patch.object(brief, "project_ecosystem", return_value={}), patch.object(
+            brief, "project_priorities", return_value={}
+        ):
+            code, out, _ = self.run_brief(["313"], patch_repo=False)
+        self.assertEqual(code, 0)
+        self.assertTrue(out.startswith("config:\n"))
         self.assertIn("fallback: ecosystem yok", out)
         self.assertIn("fallback: priorities yok", out)
 

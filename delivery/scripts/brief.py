@@ -34,11 +34,16 @@ def gh(args: list[str]) -> str:
 
 def repo_name() -> str:
     project = routing.project_root(ROOT)
-    ecosystem = yaml.safe_load((project / "ecosystem.yaml").read_text(encoding="utf-8")) or {}
-    repo = (ecosystem.get("tracker") or {}).get("repo")
-    if not repo:
-        sys.exit("brief: ecosystem.yaml tracker.repo yok")
-    return repo
+    try:
+        ecosystem = yaml.safe_load(
+            (project / "ecosystem.yaml").read_text(encoding="utf-8")
+        ) or {}
+    except (OSError, yaml.YAMLError):
+        ecosystem = {}
+    repo = (ecosystem.get("tracker") or {}).get("repo") if isinstance(ecosystem, dict) else None
+    # gh api expands these placeholders from the current repository; a missing
+    # ecosystem must not stop the brief before its banner is printed.
+    return str(repo) if repo else "{owner}/{repo}"
 
 
 def project_ecosystem() -> dict:
@@ -94,7 +99,7 @@ def control_fields(
     """
     armed: list[str] = []
     reasons: list[str] = []
-    if path_source != "default":
+    if path_source in ("signal", "keyword", "entry"):
         armed.append(f"path {path_id}")
     else:
         reasons.append("path default")
@@ -174,6 +179,9 @@ def build_brief(
     reasons = list(fallbacks or [])
     if path_source == "default":
         reasons.append("path default")
+    version_fallback = routing.route_index_version_fallback(index_file())
+    if version_fallback:
+        reasons.append(version_fallback)
     reasons += resolver.fallbacks()
     reasons = _unique(reasons)
 

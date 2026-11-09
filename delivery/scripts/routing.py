@@ -135,9 +135,10 @@ def detect_path_detail(
     """Like :func:`detect_path`, plus the provenance of the selection.
 
     ``path_source`` is ``signal`` when a registry signal matched, ``keyword``
-    when the title/body keyword score picked the path, and ``default`` for the
-    entry-kind/DEFAULT_PATH fallback. The original two-value signature stays
-    intact for existing callers.
+    when the title/body keyword score picked the path, ``entry`` when the seal
+    entry kind selected it, and ``default`` only for the last-resort
+    DEFAULT_PATH fallback. The original two-value signature stays intact for
+    existing callers.
     """
     seal = seal_body(body) if seal is None else seal
     paths = registry.get("paths") or {}
@@ -163,7 +164,7 @@ def detect_path_detail(
 
     entry_kind = (seal.get("entry") or {}).get("kind")
     if entry_kind in ENTRY_PATHS and ENTRY_PATHS[entry_kind] in paths:
-        return ENTRY_PATHS[entry_kind], None, "default"
+        return ENTRY_PATHS[entry_kind], None, "entry"
     return DEFAULT_PATH, None, "default"
 
 
@@ -322,20 +323,40 @@ def registry_sha256(root: Path) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-def route_index_version(path: Path) -> str:
-    """Lenient index version for the config banner; ``yok`` when unreadable.
+def route_index_version_ok(version) -> bool:
+    """One validation shared by the banner and :func:`load_route_index`."""
+    return (
+        isinstance(version, int)
+        and not isinstance(version, bool)
+        and version == ROUTE_INDEX_VERSION
+    )
 
-    The route itself stays strict: :func:`load_route_index` still raises for a
-    malformed index so ``--route`` can exit 2.
+
+def route_index_version(path: Path) -> str:
+    """Index version for the config banner; ``yok`` when missing/invalid.
+
+    The route itself stays strict: :func:`load_route_index` raises for the same
+    invalid version so ``--route`` can exit 2.
     """
     try:
         data = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
     except (OSError, yaml.YAMLError):
         return "yok"
     version = data.get("version") if isinstance(data, dict) else None
-    if isinstance(version, int) and not isinstance(version, bool):
-        return str(version)
-    return "yok"
+    return str(version) if route_index_version_ok(version) else "yok"
+
+
+def route_index_version_fallback(path: Path) -> str | None:
+    """``index surumu gecersiz`` when a present index has an unusable version."""
+    path = Path(path)
+    if not path.is_file():
+        return None
+    try:
+        data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except (OSError, yaml.YAMLError):
+        return "index surumu gecersiz"
+    version = data.get("version") if isinstance(data, dict) else None
+    return None if route_index_version_ok(version) else "index surumu gecersiz"
 
 
 def policy_files(root: Path, registry: dict) -> list[str]:
@@ -439,11 +460,7 @@ def load_route_index(path: Path, root: Path | None = None) -> dict | None:
     if missing:
         raise RouteIndexError(f"{path}: eksik anahtar: {', '.join(missing)}")
     version = data.get("version")
-    if (
-        not isinstance(version, int)
-        or isinstance(version, bool)
-        or version != ROUTE_INDEX_VERSION
-    ):
+    if not route_index_version_ok(version):
         raise RouteIndexError(f"{path}: version {ROUTE_INDEX_VERSION} olmalı")
     entries = data.get("entries")
     if not isinstance(entries, list):
