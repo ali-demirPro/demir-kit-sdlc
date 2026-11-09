@@ -87,6 +87,7 @@ READ_TAGS = {
     "retrieved": "[retrieved]",
 }
 READ_UNKNOWN = "[unknown]"
+SINK_LIMIT = 4
 WINDOW_LIMIT = 3
 RETRIEVED_LIMIT = 5
 WINDOW_DOC_ORDER = ("ROLE.md", "how.md", "SKILL.md", "communicates.md", "dependencies.md")
@@ -436,19 +437,29 @@ def render_cp_brief(
             )
     else:
         lines.append("Testler: seal'de bu CP için case yok — seal'i düzelt.")
+    sink_paths = [f"{prefix}{path}" for path in reference[:SINK_LIMIT]]
+    overflow = [f"{prefix}{path}" for path in reference[SINK_LIMIT:]]
     reading = reading_items(
-        sink=[f"{prefix}{path}" for path in reference],
+        sink=sink_paths,
         window=window_docs(docs, role),
         route=cp_route_items(route),
     )
-    if reference:
+    if sink_paths:
         lines.append("Yollar:")
         lines += [
-            f"- {READ_TAGS['sink']} {prefix}{path}" if prefix
-            else f"- {READ_TAGS['sink']} {path}"
-            for path in reference
+            f"- {READ_TAGS['sink']} {path}" for path in sink_paths
         ]
-    extra = [item for item in reading if item["class"] != "sink"]
+    if overflow:
+        lines.append("Sink limiti aşan referanslar:")
+        lines += [
+            f"- {READ_UNKNOWN} (sink limiti) {path}" for path in overflow
+        ]
+    overflow_set = set(overflow)
+    extra = [
+        item
+        for item in reading
+        if item["class"] != "sink" and item["path"] not in overflow_set
+    ]
     if extra:
         lines.append("Okuma sınıfları:")
         lines += render_reading_items(extra)

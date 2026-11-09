@@ -31,9 +31,11 @@ sözleşmesidir. Her dosya tek bir sınıfa girer; sınıfı belirlenemeyen dosy
 | `unknown` | Sınıfı belirlenemeyen | retrieve edilmez; brief'te görünür | — |
 
 Sınıf bütçeleri mevcut eşikleri değiştirmez: 200k/300k bağlam, 2k/8k araç
-çıktısı ve 3/5 doküman sınırları aynen geçerlidir. Bir CP'nin okuma bütçesi
-sınıf üst sınırlarının toplamıdır (en fazla 12 dosya / 38k token) ve 200k uyarı
-eşiğinin altında kalır.
+çıktısı ve 3/5 doküman sınırları aynen geçerlidir. Bir CP'nin toplam okuma
+bütçesi en fazla 5 dosyadır; sınıf üst sınırları bu toplamın alt sınırlarıdır
+(hiçbir sınıf 5 dosyalık toplamı aşamaz, sınıfların toplamı da 5 dosyayı
+geçemez) ve 200k uyarı eşiğinin altında kalır. `unknown` okunmadığı için
+toplama girmez.
 
 ### CP başına zorunlu sink
 

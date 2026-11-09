@@ -449,6 +449,8 @@ class ContextBudgetTests(unittest.TestCase):
         self.assertIn("4 dosya / 10k token", text)
         self.assertIn("3 dosya / 8k token", text)
         self.assertIn("5 dosya / 20k token", text)
+        self.assertIn("Worker başına okunan doküman | 3 dosya | 5 dosya", text)
+        self.assertIn("en fazla 5 dosyadır", text)
         self.assertIn("2k token", text)
         self.assertIn("8k token", text)
         self.assertIn("CP başına zorunlu sink", text)

@@ -518,6 +518,35 @@ class ReadClassTests(unittest.TestCase):
         self.assertIn("[unknown] delivery/plans/P2.yaml", text)
         self.assertNotIn("[retrieved] delivery/plans/P2.yaml", text)
 
+    def test_sink_limit_keeps_overflow_visible_as_unknown(self) -> None:
+        seal = {
+            **SEAL,
+            "reference": {
+                "paths": [f"delivery/scripts/module_{index}.py" for index in range(7)]
+            },
+        }
+        text = brief.render_cp_brief(
+            {"issue": 311, "risk": "medium"}, seal, "CP-1"
+        )
+        lines = text.splitlines()
+        sink_lines = [
+            line for line in lines if line.startswith("- [sink] ")
+        ]
+        unknown_lines = [
+            line
+            for line in lines
+            if line.startswith("- [unknown] (sink limiti) ")
+        ]
+        self.assertEqual(len(sink_lines), 4)
+        self.assertEqual(len(unknown_lines), 3)
+        for index in range(4):
+            self.assertIn(f"[sink] delivery/scripts/module_{index}.py", text)
+        for index in range(4, 7):
+            self.assertIn(
+                f"[unknown] (sink limiti) delivery/scripts/module_{index}.py",
+                text,
+            )
+
     def test_candidate_is_not_promoted_to_retrieved(self) -> None:
         route = [
             {"class": "candidate", "path": "delivery/plans/P2.yaml"},
