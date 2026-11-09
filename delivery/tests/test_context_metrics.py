@@ -349,6 +349,51 @@ class StorageRootTests(unittest.TestCase):
             self.assertTrue((main / ".kit" / "context-metrics.jsonl").is_file())
             self.assertFalse((worktree / ".kit").exists())
 
+    def test_worktree_usage_feeds_the_main_row(self) -> None:
+        """Usage evidence stays with the worktree; the row lands in main."""
+        import cycle
+
+        with tempfile.TemporaryDirectory() as main_dir, tempfile.TemporaryDirectory() as worktree_dir:
+            main = Path(main_dir).resolve()
+            worktree = Path(worktree_dir).resolve()
+            (main / "kit.config.yaml").write_text("kit:\n  root: .\n", encoding="utf-8")
+            meta = main / ".kit" / "brief-321-CP-1.json"
+            meta.parent.mkdir(parents=True, exist_ok=True)
+            meta.write_text(
+                json.dumps(
+                    {
+                        "issue": 321,
+                        "cp": "CP-1",
+                        "armed": ["cp CP-1"],
+                        "fallbacks": [],
+                        "selected_docs": [],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            seen: dict = {}
+
+            def fake_delta(issue: int, root=None):
+                seen["root"] = Path(root) if root is not None else None
+                return {"tokens": {"input": 300}}
+
+            with patch.object(
+                cycle, "git_root", return_value=main
+            ), patch.object(
+                transition.context_metrics, "session_delta", side_effect=fake_delta
+            ):
+                transition.ensure_context_metrics(321, "CP-1", root=worktree)
+                row_path = main / ".kit" / "context-metrics.jsonl"
+                rows = [
+                    json.loads(raw)
+                    for raw in row_path.read_text(encoding="utf-8").splitlines()
+                ]
+            self.assertEqual(seen["root"], worktree)
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(rows[0]["tokens"], 300)
+            self.assertNotIn("tokens:unknown", rows[0]["method"])
+            self.assertFalse((worktree / ".kit" / "context-metrics.jsonl").exists())
+
 
 class MalformedUsageTests(unittest.TestCase):
     def test_string_token_is_a_warning_not_a_stop(self) -> None:

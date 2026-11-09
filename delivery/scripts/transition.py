@@ -685,7 +685,11 @@ def ensure_context_metrics(
     ``require`` turns a still-missing row into a hard stop; otherwise the
     warning is printed and the leaf-done transition continues.
     """
-    root = context_metrics.storage_root(root)
+    if root is None:
+        override = os.environ.get("DEMIR_KIT_CONTEXT_ROOT")
+        # Usage evidence lives with the caller (epic worktree); the metrics
+        # file itself is mapped to the main checkout by ``metrics_path``.
+        root = Path(override) if override else Path.cwd()
     if cp:
         ok, _ = context_metrics.check(number, cp, root)
         if ok:
