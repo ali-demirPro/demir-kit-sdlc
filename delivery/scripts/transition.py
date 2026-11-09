@@ -288,6 +288,13 @@ def closes_wait(target: str) -> bool:
     return str(target) in CLOSING_TARGETS
 
 
+def record_cycle(root: Path, issue: int, target: str, row: dict) -> None:
+    """Append a transition row, closing an open wait on closing targets."""
+    if closes_wait(target):
+        cycle.close_wait(root, issue, ts=row.get("ts"))
+    cycle.record(root, row)
+
+
 def last_checkpoint(issue: dict) -> str | None:
     seal = parse_seal(issue.get("body") or "")
     checkpoints = seal.get("checkpoints") or []
@@ -858,11 +865,7 @@ def main() -> int:
         applied = {"add": added, "remove": removed}
 
     if not args.no_cycle:
-        root = cycle.project_root(ROOT)
-        if closes_wait(args.to):
-            cycle.close_wait(root, args.issue, ts=row.get("ts"))
-        cycle.record(root, row)
-
+        record_cycle(cycle.project_root(ROOT), args.issue, args.to, row)
 
     if not args.no_orca:
         seal = parse_seal(issue.get("body") or "")

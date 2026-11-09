@@ -69,21 +69,33 @@ class WaitTests(unittest.TestCase):
         self.assertFalse(transition.closes_wait("review"))
         self.assertTrue(transition.closes_wait("leaf-done"))
         self.assertTrue(transition.closes_wait("epic-done"))
+
+    def test_record_cycle_closes_an_open_wait_only_on_closing_targets(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             project = Path(directory)
             cycle.record(
                 project,
                 cycle.make_row(240, "wait", actor="human-qa", ts="2020-01-01T00:00:00+00:00"),
             )
-            # A non-closing walk over the project must leave the wait open.
-            self.assertFalse(
-                any(transition.closes_wait(target) for target in ("executing", "review"))
+            transition.record_cycle(
+                project,
+                240,
+                "executing",
+                cycle.make_row(240, "executing", actor="agent", ts="2026-11-08T10:00:00+00:00"),
             )
-            stages_before = [row["stage"] for row in cycle.read(project, 240)]
-            self.assertEqual(stages_before, ["wait"])
-            self.assertTrue(cycle.close_wait(project, 240, ts="2026-11-08T11:00:00+00:00"))
-            stages_after = [row["stage"] for row in cycle.read(project, 240)]
-            self.assertEqual(stages_after, ["wait", "wait-done"])
+            self.assertEqual(
+                [row["stage"] for row in cycle.read(project, 240)],
+                ["wait", "executing"],
+            )
+
+            transition.record_cycle(
+                project,
+                240,
+                "leaf-done",
+                cycle.make_row(240, "leaf-done", actor="agent", ts="2026-11-08T11:00:00+00:00"),
+            )
+            stages = [row["stage"] for row in cycle.read(project, 240)]
+            self.assertEqual(stages, ["wait", "executing", "wait-done", "leaf-done"])
 
 
 if __name__ == "__main__":

@@ -155,8 +155,13 @@ def apply(issue: int, note: str, repo: str) -> None:
 
 
 def record_wait_done(project: Path, issue: int) -> bool:
-    """Close an open approval wait in the project's cycle log."""
-    return cycle.close_wait(Path(project), int(issue))
+    """Close an open approval wait in the project's cycle log.
+
+    Called from an epic worktree the log lives in the main checkout, so resolve
+    the owning project root instead of writing into the worktree.
+    """
+    root = cycle.project_root(Path(project), cwd=Path(project))
+    return cycle.close_wait(root, int(issue))
 
 
 def repo_name(project: Path) -> str:
