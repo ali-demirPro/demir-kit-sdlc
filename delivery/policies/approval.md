@@ -13,7 +13,8 @@ verilir. İnsan, issue numarasını taşıyan fenced `demir-kit-accept` bloğund
   ajan kendi kendini onaylayamaz.
 - `transition.py --accept <login>` yalnız ek doğrulamadır: insan yorumu yoksa
   tek başına onay sayılmaz.
-- Epic `epic-done` için de aynı insan `demir-kit-accept` yorumu şarttır.
+- Epic `epic-done` için de aynı insan `demir-kit-accept` yorumu şarttır; leaf bloğu `issue:`, epic bloğu `epic:` anahtarını taşır.
+- T2 insan onayı vekâlete devredilemez (A1 kapsamı dışıdır).
 
 ## Otonom devam (soru yok)
 

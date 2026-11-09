@@ -800,7 +800,7 @@ def main() -> int:
     parser.add_argument("--reason", default="")
     parser.add_argument("--issue-link", default="")
     parser.add_argument(
-        "--accept", default="", help="epic-done insan login doğrulaması (opsiyonel)"
+        "--accept", default="", help="insan login ek doğrulaması (agent-approved/epic-done)"
     )
     parser.add_argument(
         "--keep-worktree",

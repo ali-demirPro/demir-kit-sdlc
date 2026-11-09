@@ -12,7 +12,7 @@ Eski v1 yürütmesi arşivdedir (`archive/v1.7/`). Yeni runtime yalnızca `deliv
 | Artefakt | Taşıyıcı | Şema | Üreten | Onaylayan |
 |----------|----------|------|--------|-----------|
 | Epic | GitHub issue + KEEP tablosu | `schemas/epic.schema.json` | owner + orchestrator | insan (`scope-confirmed`) |
-| Leaf seal | issue body içinde `demir-kit` YAML bloğu | `schemas/leaf.schema.json` | seal | orchestrator (`agent-approved`) |
+| Leaf seal | issue body içinde `demir-kit` YAML bloğu | `schemas/leaf.schema.json` | seal | insan (`agent-approved`) |
 | Evidence | issue comment | `schemas/evidence.schema.json` | coordinator + documenter | gate sonuçları |
 | Closure | issue comment | `schemas/closure.schema.json` | documenter | orchestrator + insan |
 | Ecosystem | repo kökü `ecosystem.yaml` | — | devops | health-check |
@@ -49,7 +49,7 @@ stateDiagram-v2
 | # | From | To | Kim | Guard | Kanıt | Etiket |
 |---|------|----|-----|-------|-------|--------|
 | T1 | `intake` | `scope-confirmed` | orchestrator | KEEP/DEFER/CUT tablosu + child listesi | epic comment | `+scope-confirmed` |
-| T2 | `scope-confirmed` | `agent-approved` | insan | leaf şeması geçerli, AC ↔ tests_plan tam | insan authored demir-kit-accept | `+agent-approved` |
+| T2 | `intake` / `scope-confirmed` | `agent-approved` | insan | leaf şeması geçerli, AC ↔ tests_plan tam | insan authored demir-kit-accept | `+agent-approved` |
 | T3 | `agent-approved` | `executing` | coordinator | health-check `ready`, bağımlılıklar kapalı, claim | run comment | `+executing` |
 | T4 | `executing` | `leaf-done` | coordinator | tüm CP evidence + risk gate'leri | evidence comment'leri | `+leaf-done -executing` |
 | T5 | `executing` | `blocked` | coordinator | `policies/escalation.md` maddesi | blocker comment | `+blocked` |
@@ -60,7 +60,7 @@ stateDiagram-v2
 
 Kurallar:
 
-- T3–T6 otomatiktir; T2 ve T7, T9 insan ister.
+- T3–T6 otomatiktir; T2 ve T7, T9 insan ister. T2 leaf parent epic `scope-confirmed` ise `intake`tan da mühürlenebilir.
 - T4, evidence şeması geçerli değilse **imkânsızdır** (`doctor.sh --issue N`).
 - T9, closure `status: pass` değilse, açık child varsa veya kabul bloğu insan
   tarafından yazılmadıysa yasaktır; "epic bitti" demek contract ihlalidir.
@@ -74,7 +74,7 @@ Kanonik set `templates/github-labels.json` ile birebir aynıdır.
 |--------|-------|-----------|
 | `intake` | Taslak; kapsam kilitli değil | owner |
 | `scope-confirmed` | Epic kapsamı kilitli | orchestrator |
-| `agent-approved` | Leaf mühürlü; yürütülebilir | seal |
+| `agent-approved` | Leaf mühürlü; yürütülebilir | insan `demir-kit-accept` |
 | `executing` | Claim edildi, CP döngüsü açık | coordinator |
 | `blocked` | Dış bağımlılık / bütçe aşımı | coordinator |
 | `deferred` | Bilinçli ertelendi, issue linki var | insan |

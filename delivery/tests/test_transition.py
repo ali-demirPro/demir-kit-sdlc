@@ -243,6 +243,37 @@ class TransitionTests(unittest.TestCase):
         self.assertTrue(any("run transition:" in body for body in comments))
         self.assertFalse(any("demir-kit-accept" in body for body in comments))
 
+    def test_epic_done_rejects_mismatched_accept(self) -> None:
+        accept = {
+            "body": fenced(
+                "demir-kit-accept",
+                {
+                    "demir_kit_version": "2",
+                    "epic": 44,
+                    "by": "human",
+                    "decision": "accepted",
+                },
+            ),
+            "user": {"login": "human"},
+            "author_association": "MEMBER",
+        }
+        issue = epic_issue(
+            ["scope-confirmed", "human-qa"],
+            comments=[
+                {"body": fenced("demir-kit-closure", closure())},
+                accept,
+            ],
+        )
+        child = leaf_issue(["leaf-done"])
+        with patch.object(
+            transition, "fetch_issue", side_effect=lambda n: issue if n == 44 else child
+        ):
+            with self.assertRaises(SystemExit) as error:
+                run_transition(
+                    ["--issue", "44", "--to", "epic-done", "--accept", "other"]
+                )
+        self.assertIn("eşleşmiyor", str(error.exception))
+
     def test_agent_approved_requires_parent_scope(self) -> None:
         leaf = leaf_issue(["intake"], comments=[human_accept(48)])
         parent = epic_issue(["intake"])
@@ -299,6 +330,22 @@ class TransitionTests(unittest.TestCase):
             with self.assertRaises(SystemExit) as error:
                 run_transition(["--issue", "48", "--to", "agent-approved"])
         self.assertIn("insan", str(error.exception))
+
+    def test_agent_approved_rejects_mismatched_accept(self) -> None:
+        leaf = leaf_issue(["intake"], comments=[human_accept(48)])
+        parent = epic_issue(["scope-confirmed"])
+        with patch.object(
+            transition, "fetch_issue", side_effect=[leaf, parent]
+        ):
+            with self.assertRaises(SystemExit) as error:
+                run_transition(
+                    [
+                        "--issue", "48",
+                        "--to", "agent-approved",
+                        "--accept", "other",
+                    ]
+                )
+        self.assertIn("eşleşmiyor", str(error.exception))
 
     def test_executing_delegates_to_claim(self) -> None:
         issue = leaf_issue(["agent-approved"])
