@@ -409,6 +409,13 @@ def validate(issue: dict, target: str, args) -> tuple[bool, str]:
                 return False, f"parent epic #{parent} okunamadı"
             if "scope-confirmed" not in labels_of(parent_issue):
                 return False, f"parent epic #{parent} scope-confirmed değil"
+        acceptance = approvals.human_acceptance_for(
+            issue.get("comments") or [], issue.get("number") or 0
+        )
+        if not acceptance:
+            return False, "agent-approved için insan authored demir-kit-accept comment'i gerekli"
+        if args.accept and str(args.accept) != acceptance["by"]:
+            return False, f"--accept '{args.accept}' insan onayıyla eşleşmiyor"
     elif target == "executing":
         if epic:
             return False, "executing yalnız leaf için"

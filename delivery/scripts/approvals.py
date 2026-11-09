@@ -81,6 +81,42 @@ def human_acceptance(comments: list[dict], epic: int | str) -> dict | None:
     return found if found and found.get("decision") == "accepted" else None
 
 
+def human_acceptance_for(comments: list[dict], issue: int | str) -> dict | None:
+    """Latest human accept/reject block for an issue; acceptance only.
+
+    Leaf comments use ``issue``; epic comments historically use ``epic``.
+    Only the latest eligible block counts, so a later reject revokes an
+    earlier acceptance.
+    """
+    found = None
+    for comment in comments:
+        if not is_human(comment):
+            continue
+        block = acceptance_block(comment)
+        if not block:
+            continue
+        decision = block.get("decision")
+        if decision not in {"accepted", "rejected"}:
+            continue
+        try:
+            if int(block.get("issue", block.get("epic"))) != int(issue):
+                continue
+        except (TypeError, ValueError):
+            continue
+        author = login(comment)
+        if not block.get("by") or str(block["by"]) != author:
+            continue
+        found = {
+            "issue": int(issue),
+            "by": author,
+            "association": association(comment),
+            "decision": decision,
+            "comment_id": comment.get("id") or comment.get("url"),
+            "body": comment.get("body"),
+        }
+    return found if found and found.get("decision") == "accepted" else None
+
+
 def main() -> int:
     print("approvals: library module", file=sys.stderr)
     return 0

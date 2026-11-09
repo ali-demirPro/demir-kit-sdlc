@@ -62,6 +62,17 @@ def epic_issue(labels: list[str], comments: list[dict] | None = None) -> dict:
     }
 
 
+def human_accept(issue_id: int, by: str = "human", decision: str = "accepted") -> dict:
+    return {
+        "body": fenced(
+            "demir-kit-accept",
+            {"issue": issue_id, "by": by, "decision": decision},
+        ),
+        "user": {"login": by},
+        "author_association": "OWNER",
+    }
+
+
 def closure(status: str = "pass") -> dict:
     return {
         "demir_kit_version": "2",
@@ -233,7 +244,7 @@ class TransitionTests(unittest.TestCase):
         self.assertFalse(any("demir-kit-accept" in body for body in comments))
 
     def test_agent_approved_requires_parent_scope(self) -> None:
-        leaf = leaf_issue(["intake"])
+        leaf = leaf_issue(["intake"], comments=[human_accept(48)])
         parent = epic_issue(["intake"])
         with patch.object(
             transition, "fetch_issue", side_effect=[leaf, parent]
@@ -241,6 +252,53 @@ class TransitionTests(unittest.TestCase):
             with self.assertRaises(SystemExit) as error:
                 run_transition(["--issue", "48", "--to", "agent-approved"])
         self.assertIn("parent", str(error.exception))
+
+    def test_agent_approved_requires_human_comment(self) -> None:
+        leaf = leaf_issue(["intake"])
+        parent = epic_issue(["scope-confirmed"])
+        with patch.object(
+            transition, "fetch_issue", side_effect=[leaf, parent]
+        ):
+            with self.assertRaises(SystemExit) as error:
+                run_transition(["--issue", "48", "--to", "agent-approved"])
+        self.assertIn("insan", str(error.exception))
+
+    def test_agent_approved_accepts_human_comment(self) -> None:
+        leaf = leaf_issue(["intake"], comments=[human_accept(48)])
+        parent = epic_issue(["scope-confirmed"])
+        calls: list[list[str]] = []
+        comments: list[str] = []
+        with patch.object(
+            transition, "fetch_issue", side_effect=[leaf, parent]
+        ), patch.object(
+            transition, "doctor_ok", return_value=(True, "")
+        ), patch.object(
+            transition, "gh", side_effect=lambda args: calls.append(args) or ""
+        ), patch.object(
+            transition, "post_comment", side_effect=lambda number, body: comments.append(body)
+        ):
+            self.assertEqual(
+                run_transition(["--issue", "48", "--to", "agent-approved"]), 0
+            )
+        self.assertTrue(
+            any(
+                "--add-label" in call and "agent-approved" in call
+                for call in calls
+            )
+        )
+        self.assertTrue(any("run transition:" in body for body in comments))
+
+    def test_agent_approved_rejects_agent_comment(self) -> None:
+        agent = human_accept(48, by="agent")
+        agent["author_association"] = "NONE"
+        leaf = leaf_issue(["intake"], comments=[agent])
+        parent = epic_issue(["scope-confirmed"])
+        with patch.object(
+            transition, "fetch_issue", side_effect=[leaf, parent]
+        ):
+            with self.assertRaises(SystemExit) as error:
+                run_transition(["--issue", "48", "--to", "agent-approved"])
+        self.assertIn("insan", str(error.exception))
 
     def test_executing_delegates_to_claim(self) -> None:
         issue = leaf_issue(["agent-approved"])

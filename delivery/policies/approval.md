@@ -3,6 +3,18 @@
 Onay = GitHub issue + label. Sohbet onayı yalnız bilgi eksikse. Eşikler ve
 sahip yokken vekâlet: [autonomy.md](autonomy.md).
 
+## Onay etiketi yalnız insan
+
+`agent-approved` ve epic `demir-kit-accept` yalnız insan authored yorumla
+verilir. İnsan, issue numarasını taşıyan fenced `demir-kit-accept` bloğunda
+`decision: accepted` yazar; `by` alanı yorumun login'iyle eşleşir.
+
+- Ajan authored blok (bot hesabı veya `author_association: NONE`) reddedilir;
+  ajan kendi kendini onaylayamaz.
+- `transition.py --accept <login>` yalnız ek doğrulamadır: insan yorumu yoksa
+  tek başına onay sayılmaz.
+- Epic `epic-done` için de aynı insan `demir-kit-accept` yorumu şarttır.
+
 ## Otonom devam (soru yok)
 
 | Koşul | Sonraki adım |
