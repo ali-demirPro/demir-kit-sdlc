@@ -83,6 +83,28 @@ class CycleLogTests(unittest.TestCase):
         self.assertEqual(data["review_minutes"], 20)
         self.assertIn("review 20 dk", cycle.section(rows, "#216"))
 
+    def test_review_tail_stops_at_an_approval_wait(self) -> None:
+        rows = [
+            cycle.make_row(216, "executing", ts="2026-11-07T10:00:00+00:00"),
+            cycle.make_row(216, "review", ts="2026-11-07T10:30:00+00:00"),
+            cycle.make_row(216, "wait", ts="2026-11-07T10:40:00+00:00"),
+            cycle.make_row(216, "wait-done", ts="2026-11-07T11:00:00+00:00"),
+            cycle.make_row(216, "leaf-done", ts="2026-11-07T11:30:00+00:00"),
+        ]
+        data = cycle.summary(rows)
+        self.assertEqual(data["phases"][0]["minutes"], 90)
+        self.assertEqual(data["review_minutes"], 10)
+
+    def test_review_wait_before_the_last_review_is_not_counted(self) -> None:
+        rows = [
+            cycle.make_row(216, "executing", ts="2026-11-07T10:00:00+00:00"),
+            cycle.make_row(216, "review", ts="2026-11-07T10:30:00+00:00"),
+            cycle.make_row(216, "wait", ts="2026-11-07T10:40:00+00:00"),
+            cycle.make_row(216, "review", ts="2026-11-07T11:00:00+00:00"),
+            cycle.make_row(216, "leaf-done", ts="2026-11-07T11:30:00+00:00"),
+        ]
+        self.assertEqual(cycle.review_minutes(rows), 30)
+
     def test_section_is_readable_and_empty_safe(self) -> None:
         self.assertIn("kayıt yok", cycle.section([]))
         rows = [

@@ -17,6 +17,11 @@ cycle = importlib.util.module_from_spec(spec)
 assert spec.loader is not None
 spec.loader.exec_module(cycle)
 
+spec_t = importlib.util.spec_from_file_location("transition_wait", SCRIPTS / "transition.py")
+transition = importlib.util.module_from_spec(spec_t)
+assert spec_t.loader is not None
+spec_t.loader.exec_module(transition)
+
 
 def labeled(name: str, stamp: str) -> dict:
     return {"event": "labeled", "label": {"name": name}, "created_at": stamp}
@@ -58,6 +63,27 @@ class WaitTests(unittest.TestCase):
     def test_close_wait_without_a_wait_is_a_noop(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             self.assertFalse(cycle.close_wait(Path(directory), 240))
+
+    def test_only_closing_transitions_close_an_open_wait(self) -> None:
+        self.assertFalse(transition.closes_wait("executing"))
+        self.assertFalse(transition.closes_wait("review"))
+        self.assertTrue(transition.closes_wait("leaf-done"))
+        self.assertTrue(transition.closes_wait("epic-done"))
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            cycle.record(
+                project,
+                cycle.make_row(240, "wait", actor="human-qa", ts="2020-01-01T00:00:00+00:00"),
+            )
+            # A non-closing walk over the project must leave the wait open.
+            self.assertFalse(
+                any(transition.closes_wait(target) for target in ("executing", "review"))
+            )
+            stages_before = [row["stage"] for row in cycle.read(project, 240)]
+            self.assertEqual(stages_before, ["wait"])
+            self.assertTrue(cycle.close_wait(project, 240, ts="2026-11-08T11:00:00+00:00"))
+            stages_after = [row["stage"] for row in cycle.read(project, 240)]
+            self.assertEqual(stages_after, ["wait", "wait-done"])
 
 
 if __name__ == "__main__":

@@ -280,6 +280,14 @@ def cycle_row(
     return cycle.make_row(issue, stage, actor=actor, reason=reason, epic=epic)
 
 
+CLOSING_TARGETS = frozenset({"leaf-done", "epic-done"})
+
+
+def closes_wait(target: str) -> bool:
+    """Only closing transitions end an approval wait."""
+    return str(target) in CLOSING_TARGETS
+
+
 def last_checkpoint(issue: dict) -> str | None:
     seal = parse_seal(issue.get("body") or "")
     checkpoints = seal.get("checkpoints") or []
@@ -850,8 +858,10 @@ def main() -> int:
         applied = {"add": added, "remove": removed}
 
     if not args.no_cycle:
-        cycle.close_wait(cycle.project_root(ROOT), args.issue, ts=row.get("ts"))
-        cycle.record(cycle.project_root(ROOT), row)
+        root = cycle.project_root(ROOT)
+        if closes_wait(args.to):
+            cycle.close_wait(root, args.issue, ts=row.get("ts"))
+        cycle.record(root, row)
 
 
     if not args.no_orca:

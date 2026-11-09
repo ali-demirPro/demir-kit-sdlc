@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import sys
+import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPTS = ROOT / "delivery" / "scripts"
@@ -125,6 +128,37 @@ class ApplyRepoTests(unittest.TestCase):
         for args in calls:
             self.assertIn("--repo", args)
             self.assertEqual(args[args.index("--repo") + 1], "owner/repo")
+
+
+class WaitCloseTests(unittest.TestCase):
+    def test_apply_closes_the_open_wait_in_the_project_log(self) -> None:
+        risk_body = "```yaml demir-kit\nrisk:\n  level: low\n```\n"
+        calls: list[list[str]] = []
+
+        def fake_gh(args, repo=None):
+            calls.append(args)
+            if args[:2] == ["issue", "list"]:
+                return json.dumps([{"number": 225, "body": risk_body}])
+            if args[0] == "api":
+                return json.dumps([request()])
+            return ""
+
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            (project / "ecosystem.yaml").write_text(
+                "tracker:\n  repo: owner/repo\n", encoding="utf-8"
+            )
+            sweep.cycle.record(
+                project,
+                sweep.cycle.make_row(225, "wait", actor="human-qa", ts="2020-01-01T00:00:00+00:00"),
+            )
+            with patch.object(sys, "argv", [
+                "approval_sweep.py", "--project", str(project), "--apply"
+            ]), patch.object(sweep, "_gh", side_effect=fake_gh):
+                self.assertEqual(sweep.main(), 0)
+            stages = [row["stage"] for row in sweep.cycle.read(project, 225)]
+        self.assertTrue(any(args[:2] == ["issue", "comment"] for args in calls))
+        self.assertEqual(stages, ["wait", "wait-done"])
 
 
 if __name__ == "__main__":
