@@ -1,0 +1,163 @@
+source:
+  repo: https://github.com/gauge-sh/gauge-cli
+  commit: 9912745213ecba261cdf28a2041411c26c510803
+  read_at: "2026-11-09"
+
+mechanisms:
+  - name: session-runner
+    ours: >-
+      eval.py yalnız markdown tablosunu parse eder (parse_eval en az 4 sütun,
+      MIN_ROWS=10); hiçbir agent oturumu başlatmaz. --results elle yazılmış
+      JSON'u pass/fail/skip olarak doğrular.
+    gap: >-
+      Oturum dizini, spec/result dosyaları, NDJSON olayları ve diff kanıtı yok;
+      süreç yaşam döngüsü ve worktree sandbox yok.
+    target: "delivery/scripts/eval_run.py; P1-3 (#306)"
+
+  - name: normalized-evidence
+    ours: >-
+      CP kanıtı diff_hash ve test listesidir; oturum içi olay, sıra numarası veya
+      artefakt satırı taşınmaz.
+    gap: >-
+      seq/turn/observedAt taşıyan normalize NDJSON ve {trace,seq} /
+      {artifact,line} atıf modeli yok; kanıt yokluğu "yok" sayılıyor.
+    target: "delivery/scripts/eval_run.py + delivery/schemas/finding.schema.json; P1-3 (#306), P1-2 (#305)"
+
+  - name: findings-taxonomy
+    ours: >-
+      Sonuç kümesi yalnız pass/fail/skip; bulgu türü, kanıt temeli, etki ve
+      neden alanları yok.
+    gap: >-
+      FRICTION/OBJECTION/OPPORTUNITY, OBSERVED/AGENT_CLAIM/INFERRED,
+      BLOCKED/RECOVERED/EXTRA_WORK/SELECTION_LOSS ve unknown≠fail eksik.
+    target: "delivery/schemas/finding.schema.json; P1-2 (#305)"
+
+  - name: case-and-run-modes
+    ours: >-
+      eval.py --check statik lint, --list, --template ve --results sunar;
+      --run, --verify ve --dry-run yok; case formatı yalnız markdown tablodur.
+    gap: >-
+      Committed case frontmatter'ı, revision dondurma, statik yes/no/unknown
+      kontrol listesi ve çalıştırmasız önizleme yok.
+    target: "delivery/scripts/eval.py + delivery/schemas/eval_case.schema.json; P1-4 (#307)"
+
+  - name: discovery-vs-preference
+    ours: >-
+      Skill'ler kurulu ama tetiklenme ölçülmüyor; seçim/preference sonucu ile
+      discovery ayrımı yok.
+    gap: >-
+      Skill tetiklenme oranı, payda, unknown ayrımı ve kanıt atfı yok.
+    target: "delivery/scripts/eval.py; P1-5 (#308)"
+
+  - name: baseline-candidate-compare
+    ours: >-
+      --results tek dosyayı doğrular; baseline/candidate, delta, payda veya
+      revision uyarısı yok.
+    gap: >-
+      İki batch seçimi, pass rate/kriter/medyan karşılaştırması, mixed-revision
+      uyarısı ve judged paydası yok.
+    target: "delivery/scripts/eval.py; P1-6 (#309)"
+
+  - name: instruction-routing
+    ours: >-
+      skills/ runtime skill'leri ve doctor skill-writing denetimi var; CLI
+      topic yönlendirmesi ve local/hosted mod başlığı yok.
+    gap: >-
+      Workflow rehberini komuta göre yönlendiren topic kaydı ve mod-duyarlı
+      başlık eksik; bizdeki karşılığı skill description tetikleyicisidir.
+    target: "skills/*/SKILL.md; P1-5 (#308)"
+
+children:
+  - slug: p1-1-analysis
+    issue: 287
+    title: "P1-1: derin analiz — gauge-sh/gauge-cli"
+    intent: >-
+      gauge-cli deposunu pinlenmiş commit'te kod seviyesinde incele; mekanizmaları
+      hedef dosya, AC, risk ve CP'ye çevir; alt issue'ları aç.
+    risk: low
+    depends_on: []
+    ac:
+      - "Pinlenmiş commit sha'sı, okunan dosya listesi ve plan yolu epic yorumunda yazılı."
+      - "gauge'ın oturum, bulgu ve karşılaştırma mekanizmaları cli/src/instructions/ kaynağından okundu; eval.py ile farkı yazıldı."
+      - "En az 4 çocuk issue açıldı; her biri niyet, kaba AC, risk, hedef dosya ve depends_on taşıyor."
+      - "delivery/plans/P1.yaml dosyası var; epic gövdesindeki keep ve children ile birebir aynı."
+
+  - slug: p1-2-findings-schema
+    issue: 305
+    title: "P1-2 bulgu şeması ve taksonomi (FRICTION/OBJECTION/OPPORTUNITY, basis, unknown≠fail)"
+    intent: >-
+      gauge'ın sessionAnalysis bulgu şemasını uyarla: tür, kanıt temeli, etki ve
+      neden alanları; bilinmeyen durumu fail'den ayır.
+    risk: low
+    depends_on: [287]
+    ac:
+      - "delivery/schemas/finding.schema.json zorunlu alanları ve sabit değer kümelerini doğrular; UNKNOWN geçerli değerdir."
+      - "eval.py --check bulgu dosyalarını şemaya göre doğrular; geçersiz kayıt exit 1, UNKNOWN fail sayılmaz."
+      - "En az bir fixture bilinmeyen kanıtı unknown olarak korur ve fail'e çevrilmediğini gösterir."
+      - "Her bulgu en az bir kanıt referansı taşır (trace seq veya artifact yol/satır)."
+
+  - slug: p1-3-session-runner
+    issue: 306
+    title: "P1-3 oturum koşucusu (Orca worktree sandbox, NDJSON normalize, kanıt atıfları)"
+    intent: >-
+      Orca worktree sandbox'ında gerçek agent oturumu koşturan, olayları NDJSON'a
+      normalize eden ve kanıt atıflarını üreten Python koşucusunu kur.
+    risk: medium
+    depends_on: [287, 305]
+    ac:
+      - "Koşucu ayrı worktree dizininde spec.json, result.json, session/inputs.ndjson, session/events.ndjson ve session/diff.patch üretir."
+      - "Her olay {seq, turn, observedAt, payload} taşır; seq dizi indeksinden türetilmez, filtrede boşluklar korunur."
+      - "Kanıt referansı {kind: trace, seq} ve {kind: artifact, artifact, attempt, line} biçimlerini destekler; geçersiz referans reddedilir."
+      - "Oturum preparing/running/waiting/blocked/terminal olarak izlenir; beklenmedik ölümde kanıt korunur ve kurtarma yolu raporlanır."
+      - "Koşu python3 + mevcut kit bağımlılıklarıyla çalışır; Node, Docker veya npm istemez."
+
+  - slug: p1-4-case-format
+    issue: 307
+    title: "P1-4 case formatı ve eval.py run/verify/dry-run"
+    intent: >-
+      Committed case formatını ve eval.py'nin run/verify/dry-run kiplerini tanımla;
+      ölçüm kimliği ve revision hash'ini dondur.
+    risk: medium
+    depends_on: [287, 306]
+    ac:
+      - "Mevcut evals/*.md tablo biçimi geriye uyumlu kalır; yeni frontmatter alanları parse edilir ve eksik zorunlu alan exit 1 verir."
+      - "eval.py --verify yes/no/unknown statik kontrol listesi üretir; exit 1 yalnız kesin no için döner."
+      - "eval.py --dry-run seçilen case ve girdileri sha256 özetiyle çalıştırmadan yazar; -o json makine okunur çıktı verir."
+      - "run her koşuda revision hash'ini kaydeder; aynı kimlik altında farklı revision'lar ayrı kalır."
+
+  - slug: p1-5-discovery
+    issue: 308
+    title: "P1-5 discovery: skill tetiklenme oranı"
+    intent: >-
+      Bir skill'in oturumda tetiklenip tetiklenmediğini ölç; oranı payda ve
+      kanıtla raporla, unknown'ı not_triggered sayma.
+    risk: low
+    depends_on: [287, 305, 306, 307]
+    ac:
+      - "eval.py discovery --skill <name> --case <path> her oturum için triggered/not_triggered/unknown üretir; payda analiz edilebilir oturumlardır."
+      - "Rapor en az 3 runtime skill için oran, payda ve kanıt referanslarını JSON olarak yazar."
+      - "Kanıt eksikse sonuç unknown olur ve unknown oranı ayrı satırda gösterilir."
+      - "Aynı girdi kümesi aynı sayıları üretir; çıktı deterministiktir."
+
+  - slug: p1-6-compare
+    issue: 309
+    title: "P1-6 compare: baseline/candidate batch"
+    intent: >-
+      İki batch'i karşılaştıran compare komutunu kur: pass rate, kriter bazı,
+      medyan tur/süre ve delta; mixed revision uyarısı ve judged paydası.
+    risk: medium
+    depends_on: [287, 305, 306, 307]
+    ac:
+      - "eval.py compare --baseline batch=<id> --candidate batch=<id> iki batch'i seçer; seçici eksik veya çakışıksa exit 2 verir."
+      - "Çıktı pass rate, kriter bazı pass rate, medyan tur/süre ve delta taşır; -o json aynı veriyi verir."
+      - "Bir tarafta birden fazla revision varsa uyarı verir ve revision=<hash> ile daraltmayı önerir."
+      - "unknown/unassessable kriterler paydadan çıkarılır, judged sayısı gösterilir; tamamlanma yargı sayılmaz."
+      - "Bir tarafta koşu yoksa sıfır uydurmaz; eşleşme yok der ve exit 1 verir."
+
+not_taking:
+  - "Hosted Gauge platformu, hesap ve credits"
+  - "Varsayılan açık telemetri"
+  - "Docker/Node zorunlu runtime bağımlılığı"
+  - "npm/@withgauge paketlerini vendoring veya repo kodunu kopyalama"
+  - "Web fixture gateway, custom runtime image ve SQLite raporlama katmanı"
+  - "Gauge Chat, dashboard ve organizasyon yönetimi"

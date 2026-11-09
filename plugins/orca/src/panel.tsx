@@ -28,6 +28,7 @@ import type {
   StatusProject,
   StatusSnapshot
 } from './protocol'
+import { evalText } from './eval'
 
 /** Dashboard ile aynı pencere: 30 saniyede bir tazele. */
 const REFRESH_MS = 30_000
@@ -331,6 +332,9 @@ function EpicDetail({
   const checkpoints = Array.isArray(epic.checkpoints) ? epic.checkpoints : []
   const approvals = epic.approvals
   const url = epic.url ?? ''
+  // Alan yok (eski status.py), `null` (üretici sözleşmesi) ya da tüm parçalar
+  // boşsa `null`: satır çizilmez. `evalText` saf modülde, `node:test` ile sınanır.
+  const evalLine = evalText(epic.evaluations)
 
   return (
     <Stack gap="xs">
@@ -348,6 +352,13 @@ function EpicDetail({
       </Row>
 
       <Text muted size="xs">{`sıradaki iş: ${epic.next_action ?? '-'}`}</Text>
+
+      {/* Salt-okur eval özeti; parça yoksa hiç çizilmez. */}
+      {evalLine !== null && (
+        <Text muted size="xs">
+          {evalLine}
+        </Text>
+      )}
 
       {checkpoints.length === 0 && (
         <Text muted size="xs">

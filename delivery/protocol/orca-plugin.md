@@ -45,6 +45,28 @@ değil `{done,total}`) çökmez: CP listesi boş kalır, rozet `0/0` olur. "Issu
 aç" düğmesi `epics[].url` adresini `shell.openExternal` ile tarayıcıda açar;
 URL `status.py`'den gelir (`tracker.repo` yoksa `null`, düğme çizilmez).
 
+## Eval özeti
+
+`status.py` her epic'e salt-okur `evaluations` bloğu koyar:
+`{batch, cases_pass, cases_total, discovery_rate, findings{friction,objection,opportunity}, updated_at}`.
+Detay görünümü dolu alanlardan tek satır çizer:
+`eval 12/14 · discovery %80 · 3 friction`. Parçalar sabit sıradadır:
+
+- `eval P/T`: `cases_pass` ve `cases_total` ikisi de sayıysa,
+- `discovery %N`: `discovery_rate` sayıysa (`Math.round(rate * 100)`),
+- bulgular: `friction`, `objection`, `opportunity` içinde yalnız **0'dan büyük**
+  olanlar `3 friction`, `1 objection`, `2 opportunity` biçiminde.
+
+`null` alan satıra girmez. Sayı tabanı panelde de denetlenir: `cases_*` ve
+bulgular yalnız negatif olmayan tam sayıysa, `discovery_rate` yalnız `0..1`
+aralığında sonlu sayıysa çizilir; sözleşme dışı değer parçayı atlar. Hiçbir
+parça yoksa (tüm alanlar `null` ya da bulgular sıfır) satır çizilmez; panel
+çökmez. Eski `status.py` alanı hiç taşımaz (`undefined`); üretici kayıt yoksa
+`null` da gönderebilir. İki durumda da satır çizilmez. Yardımcılar saf
+`src/eval.ts` modülündedir; `orca plugin test plugins/orca` bu çıktıları
+`node:test` ile birebir doğrular. Satır salt-okurdur; düğme ya da yeni
+`plugin.request` aksiyonu eklemez.
+
 ## Aksiyonlar
 
 Panel aksiyonu yalnız işçiye istek olarak gider; istek `projectPath` taşır ve
@@ -202,7 +224,7 @@ yoksa normalize karşılaştırmaya (sondaki `/`, büyük/küçük harf) düşü
 Doğrula:
 
 ```bash
-orca plugin check plugins/orca     # dört senaryo: fresh, detail, legacy, empty
+orca plugin check plugins/orca     # sekiz senaryo: fresh, detail, evalPartial, legacy, evalEmpty, sameName, focusMissing, empty
 orca plugin inspect plugins/orca   # katkılar, izinler, içerik özeti
 python3 -m unittest delivery.tests.test_orca_plugin
 ```

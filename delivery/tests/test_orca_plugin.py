@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import unittest
 from pathlib import Path
 
@@ -214,6 +215,185 @@ class PanelTests(unittest.TestCase):
         self.assertNotIn("leaves", detail)
         list_source = source.split("function ProjectGroup", 1)[1].split("export default function Panel", 1)[0]
         self.assertIn("(epic.leaves ?? [])", list_source)
+
+
+class EvaluationPanelTests(unittest.TestCase):
+    """CP-2 (#310): eval özeti detayda tek satır; null güvenli, eski biçim uyumlu."""
+
+    EVAL = PLUGIN / "src" / "eval.ts"
+    EVAL_TEST = PLUGIN / "src" / "eval.test.ts"
+
+    def sources(self) -> tuple[str, str, str, str]:
+        return (
+            PANEL.read_text(encoding="utf-8"),
+            (PLUGIN / "src" / "protocol.ts").read_text(encoding="utf-8"),
+            (PLUGIN / "src" / "panel.check.ts").read_text(encoding="utf-8"),
+            self.EVAL.read_text(encoding="utf-8"),
+        )
+
+    @staticmethod
+    def interface_block(protocol: str) -> str:
+        """`PluginRequests` gövdesini kuyruğa taşmadan ayır (ADV-15)."""
+        start = protocol.index("interface PluginRequests")
+        opening = protocol.index("{", start)
+        depth = 0
+        for index in range(opening, len(protocol)):
+            if protocol[index] == "{":
+                depth += 1
+            elif protocol[index] == "}":
+                depth -= 1
+                if depth == 0:
+                    return protocol[opening : index + 1]
+        raise AssertionError("PluginRequests bloğu kapanmadı")
+
+    def test_eval_line_from_filled_fields(self) -> None:
+        """T-4 / AC-2: saf yardımcı tek satır üretir; panel onu import eder."""
+        panel, _, _, helper_source = self.sources()
+
+        # Yardımcı ve taban kontrolleri saf modülde; panel kendi kopyasını taşımaz.
+        self.assertNotIn("function evalText", panel)
+        self.assertNotIn("function isCount", panel)
+        self.assertIn("from './eval'", panel)
+        self.assertIn("const evalLine = evalText(epic.evaluations)", panel)
+        helper = helper_source.split("export function evalText", 1)[1].split(
+            "export function", 1
+        )[0]
+        # ADV-13: sözleşme tabanı panelde de uygulanır; aralık dışı parça atlanır.
+        self.assertIn("Number.isInteger(value) && value >= 0", helper_source)
+        self.assertIn("value >= 0 && value <= 1", helper_source)
+        # `eval P/T` iki sayı da doluysa; `discovery %N` yuvarlanır.
+        self.assertIn("isCount(pass) && isCount(total)", helper)
+        self.assertIn("`eval ${pass}/${total}`", helper)
+        self.assertIn("isRate(rate)", helper)
+        self.assertIn("Math.round(rate * 100)", helper)
+        self.assertIn("isCount(count) && count > 0", helper)
+        # ADV-12: bulgular sabit sırada; dizi ters çevrilirse test düşer.
+        self.assertRegex(
+            helper,
+            r"\[\s*evaluations\.findings\?\.friction,\s*'friction'\s*\],\s*"
+            r"\[\s*evaluations\.findings\?\.objection,\s*'objection'\s*\],\s*"
+            r"\[\s*evaluations\.findings\?\.opportunity,\s*'opportunity'\s*\]",
+        )
+        # Hiçbir parça yoksa satır çizilmez: boş liste `null` döner.
+        self.assertIn("parts.length === 0 ? null : parts.join(' · ')", helper)
+        # Detay satırı yalnız doluysa çizilir; salt-okur Text.
+        detail = panel.split("function EpicDetail", 1)[1].split("function isActive", 1)[0]
+        self.assertIn("{evalLine !== null && (", detail)
+        self.assertIn("{evalLine}", detail)
+
+    def test_eval_outputs_are_executed(self) -> None:
+        """ADV-11/12: node:test tam dizeyi ve kısmi null davranışını çalıştırır."""
+        test_source = self.EVAL_TEST.read_text(encoding="utf-8")
+
+        self.assertIn("from 'node:test'", test_source)
+        self.assertIn("from './eval'", test_source)
+        # Dolu ve sabit sıralı tam çıktı birebir iddia edilir.
+        self.assertIn("'eval 12/14 · discovery %80 · 3 friction'", test_source)
+        self.assertIn(
+            "'eval 12/14 · discovery %80 · 1 friction · 2 objection · 3 opportunity'",
+            test_source,
+        )
+        # Kısmi null: yalnız `3 friction`; sıfır bulgu ve all-null: satır yok.
+        self.assertIn("'3 friction'", test_source)
+        self.assertIn("'eval 12/14 · discovery %80'", test_source)
+        self.assertIn("assert.equal(evalText(undefined), null)", test_source)
+        self.assertIn("assert.equal(evalText(null), null)", test_source)
+
+    def test_check_fixtures(self) -> None:
+        """T-4: panel.check dolu, kısmi ve tümü null fixture'ları çizer."""
+        _, _, check, _ = self.sources()
+
+        # Dolu eval: `eval 12/14 · discovery %80 · 3 friction` üretir; 0 atlanır.
+        self.assertIn("cases_pass: 12", check)
+        self.assertIn("cases_total: 14", check)
+        self.assertIn("discovery_rate: 0.8", check)
+        self.assertIn("findings: { friction: 3, objection: 0, opportunity: 0 }", check)
+        self.assertIn("detail:", check)
+        # ADV-11: kısmi null fixture (epic 190) ve kendi senaryosu.
+        partial = check.split("const partialEvaluationsEpic", 1)[1].split(
+            "/** Eval kaydı yok", 1
+        )[0]
+        self.assertIn("number: 190", partial)
+        self.assertIn("cases_pass: 12", partial)
+        self.assertIn("cases_total: null", partial)
+        self.assertIn("discovery_rate: null", partial)
+        self.assertIn(
+            "findings: { friction: 3, objection: null, opportunity: null }", partial
+        )
+        self.assertIn("evalPartial:", check)
+        self.assertIn("epicNumber: 190", check)
+        # Tümü null ikinci senaryo: satır çizilmez, çökme yok.
+        self.assertIn("evalEmpty:", check)
+        self.assertIn("epicNumber: 189", check)
+        self.assertIn("cases_pass: null", check)
+
+    def test_eval_empty_fixture_is_bound(self) -> None:
+        """ADV-16: evalEmpty'in epic 189 + all-null bloğu snapshot'ta gerçekten durur."""
+        _, _, check, _ = self.sources()
+
+        empty = check.split("const emptyEvaluationsEpic", 1)[1].split(
+            "const snapshot", 1
+        )[0]
+        self.assertIn("number: 189", empty)
+        for field in (
+            "batch: null",
+            "cases_pass: null",
+            "cases_total: null",
+            "discovery_rate: null",
+            "updated_at: null",
+        ):
+            self.assertIn(field, empty)
+        self.assertIn(
+            "findings: { friction: null, objection: null, opportunity: null }", empty
+        )
+        # Fixture snapshot'ın epics dizisinde: senaryo sessizce listeye düşmez.
+        self.assertIn(
+            "epics: [epicDetail, partialEvaluationsEpic, emptyEvaluationsEpic]", check
+        )
+
+    def test_legacy_without_evaluations(self) -> None:
+        """T-5 / AC-3: alan opsiyonel; eski snapshot alanı taşımaz, panel çalışır."""
+        panel, protocol, check, helper = self.sources()
+
+        self.assertIn("export interface StatusEvaluations", protocol)
+        self.assertIn("evaluations?: StatusEvaluations | null", protocol)
+        for field in (
+            "batch: string | null",
+            "cases_pass: number | null",
+            "cases_total: number | null",
+            "discovery_rate: number | null",
+            "updated_at: string | null",
+        ):
+            self.assertIn(field, protocol)
+        for finding in ("friction: number | null", "objection: number | null", "opportunity: number | null"):
+            self.assertIn(finding, protocol)
+        # Eski `status.py` biçimi alanı taşımaz; legacy senaryosu korunur.
+        legacy = check.split("const legacySnapshot", 1)[1].split("/** Aynı adlı", 1)[0]
+        self.assertNotIn("evaluations", legacy)
+        self.assertIn("legacy:", check)
+        self.assertIn("epicNumber: 188", check)
+        # ADV-14: tip sözleşmesi ve panel aynı hikâyeyi anlatır: `undefined`/`null`.
+        self.assertIn("evaluations === undefined || evaluations === null", helper)
+        self.assertIn("evalText(epic.evaluations)", panel)
+
+    def test_read_only_no_new_request(self) -> None:
+        """T-6 / AC-4: yeni plugin.request yok; panel yazma/ağ çağrısı yapmaz."""
+        panel, protocol, _, _ = self.sources()
+
+        expected = {"status.snapshot", "workspace.open", "epic.decision", "leaf.claim"}
+        # ADV-15: çift tırnak, template literal ve alias çağrısı da yakalanır.
+        names = set(re.findall(r"request\s*\(\s*['\"`]([^'\"`]+)", panel))
+        self.assertEqual(names, expected)
+        # `const ask = plugin.request` gibi alias yeni aksiyonu gizleyemez.
+        self.assertNotRegex(panel, r"=\s*(?:await\s+)?plugin\s*\.\s*request(?!\s*\()")
+        # Sözleşme aynı dört istekle sınırlı: yalnız arayüz gövdesi taranır.
+        declared = set(re.findall(r"['\"]([^'\"]+)['\"]\s*:", self.interface_block(protocol)))
+        self.assertEqual(declared, expected)
+        # Panel yazma ya da ağ yolu açmaz; eval satırı düğme değil.
+        for forbidden in ("writeFile", "appendFile", "mkdir", "fetch(", "fs."):
+            self.assertNotIn(forbidden, panel)
+        detail = panel.split("function EpicDetail", 1)[1].split("function isActive", 1)[0]
+        self.assertIn("<Text muted size=\"xs\">", detail)
 
 
 class ActionTests(unittest.TestCase):

@@ -20,7 +20,66 @@ const epicDetail = {
   ],
   gate: null,
   approvals: { agent_approved: true, human_qa: true },
-  next_action: 'CP-2 panel detayı'
+  next_action: 'CP-2 panel detayı',
+  // Dolu eval: satır `eval 12/14 · discovery %80 · 3 friction` olur; sıfır
+  // bulgular (objection/opportunity) satıra girmez.
+  evaluations: {
+    batch: '2026-11-08',
+    cases_pass: 12,
+    cases_total: 14,
+    discovery_rate: 0.8,
+    findings: { friction: 3, objection: 0, opportunity: 0 },
+    updated_at: '2026-11-08T10:00:00Z'
+  }
+}
+
+/**
+ * Kısmi null (ADV-11): `cases_total` ve `discovery_rate` null, friction 3.
+ * Satır yalnız `3 friction` olur; `12/undefined` ya da null parça sızmaz.
+ */
+const partialEvaluationsEpic = {
+  number: 190,
+  title: 'Epic: kısmi eval',
+  state: 'executing',
+  risk: 'low',
+  checkpoints: [],
+  updated_at: null,
+  url: null,
+  leaves: [],
+  gate: null,
+  approvals: { agent_approved: false, human_qa: false },
+  next_action: null,
+  evaluations: {
+    batch: '2026-11-08',
+    cases_pass: 12,
+    cases_total: null,
+    discovery_rate: null,
+    findings: { friction: 3, objection: null, opportunity: null },
+    updated_at: null
+  }
+}
+
+/** Eval kaydı yok: her alan `null`; detayda satır çizilmez, panel çökmez. */
+const emptyEvaluationsEpic = {
+  number: 189,
+  title: 'Epic: eval kaydı yok',
+  state: 'executing',
+  risk: 'low',
+  checkpoints: [],
+  updated_at: null,
+  url: null,
+  leaves: [],
+  gate: null,
+  approvals: { agent_approved: false, human_qa: false },
+  next_action: null,
+  evaluations: {
+    batch: null,
+    cases_pass: null,
+    cases_total: null,
+    discovery_rate: null,
+    findings: { friction: null, objection: null, opportunity: null },
+    updated_at: null
+  }
 }
 
 const snapshot = {
@@ -35,8 +94,8 @@ const snapshot = {
       repo: 'ali-demirPro/demir-kit-sdlc',
       repo_root: '/Users/ali/projeler/demir-kit',
       ok: true,
-      epics: [epicDetail],
-      counts: { epics: 1, leaves: 3, blocked: 0 },
+      epics: [epicDetail, partialEvaluationsEpic, emptyEvaluationsEpic],
+      counts: { epics: 3, leaves: 3, blocked: 0 },
       agents: [
         { terminalId: 't1', title: 'claude/main', state: 'working' },
         { terminalId: 't2', title: 'codex/review', state: 'working' },
@@ -229,12 +288,33 @@ export default defineCheck({
   legacy: {
     ...quietWorker,
     // Eski şekilli checkpoint'ler detayda da açık: CP listesi boş kalır.
+    // `evaluations` alanı yok: eval satırı çizilmez, panel çökmez.
     persisted: {
       plugin: {
         view: { kind: 'detail', projectId: 'ws-demir-kit', epicNumber: 188 }
       }
     },
     requests: { 'status.snapshot': legacySnapshot }
+  },
+  evalPartial: {
+    ...quietWorker,
+    // Kısmi null (epic 190): yalnız `3 friction` çizilir.
+    persisted: {
+      plugin: {
+        view: { kind: 'detail', projectId: 'ws-demir-kit', epicNumber: 190 }
+      }
+    },
+    requests: { 'status.snapshot': snapshot }
+  },
+  evalEmpty: {
+    ...quietWorker,
+    // Tüm eval alanları null (epic 189): detay satır çizmez.
+    persisted: {
+      plugin: {
+        view: { kind: 'detail', projectId: 'ws-demir-kit', epicNumber: 189 }
+      }
+    },
+    requests: { 'status.snapshot': snapshot }
   },
   sameName: {
     ...quietWorker,
