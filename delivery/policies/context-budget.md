@@ -17,6 +17,51 @@ sıfırla, bir dosyayı bir kez ve yalnız gereken dilimde oku.
 Sert sınırda dur: kısa özet yaz (karar + dosya yolları + açık iş), yeni oturum
 aç ve özetle devam et. Sessizce devam etmek yasak.
 
+## Üç okuma sınıfı
+
+LSA'nın `sink_size + top_k + window_size` ayrımı bu politikanın okuma
+sözleşmesidir. Her dosya tek bir sınıfa girer; sınıfı belirlenemeyen dosya
+`unknown` sayılır.
+
+| Sınıf | Ne | Bütçe | Kaynak |
+|-------|-----|-------|--------|
+| `sink` | Zorunlu çekirdek: seal, AC, testler, gate yolu | CP başına en fazla 4 dosya / 10k token | seal + CP brief |
+| `window` | Son CP/leaf'in taze yüzeyi: aktif rol ajan dokümanları | en fazla 3 dosya / 8k token | resolver role docs |
+| `retrieved` | Göreve göre seçilen uzun kuyruk | en fazla 5 dosya / 20k token | index/route |
+| `unknown` | Sınıfı belirlenemeyen | retrieve edilmez; brief'te görünür | — |
+
+Sınıf bütçeleri mevcut eşikleri değiştirmez: 200k/300k bağlam, 2k/8k araç
+çıktısı ve 3/5 doküman sınırları aynen geçerlidir. Bir CP'nin okuma bütçesi
+sınıf üst sınırlarının toplamıdır (en fazla 12 dosya / 38k token) ve 200k uyarı
+eşiğinin altında kalır.
+
+### CP başına zorunlu sink
+
+Her CP brief'i şu dört sink'i taşır:
+
+1. Seal bloğu (`epic`, `risk`, `surfaces`, `reference.paths`).
+2. CP'ye bağlı AC satırları.
+3. `tests_plan` içindeki CP test case'leri.
+4. `gate.sh --issue N --checkpoint CP-x` gate yolu.
+
+Sink satırları `brief.py --cp` çıktısında `[sink]` etiketiyle görünür. Eksik
+sink `unknown` değildir; brief seal düzeltilmeden başlamaz.
+
+### Retrieved seçim kuralı
+
+`retrieved` yalnız route index'ten seçilir: seal `surfaces` ile eşleşen
+girdiler weight azalan sırada alınır; eşit weight'te yol artan sıralanır.
+Eşleşmeyen veya weight'i eşik altında kalan aday retrieved listesine katılmaz.
+Sınıfı belirlenemeyen dosya da `[unknown]` sayılır ve sessizce retrieved'a
+düşmez.
+
+### Etiketler
+
+`brief.py --cp` doküman ve route satırlarını `[sink]`, `[window]`,
+`[retrieved]` ve `[unknown]` etiketleriyle yazar. Etiketsiz dosya yoktur;
+varsayılan `[unknown]`'dır. "Bir kez oku" ve dilim okuma kuralları aynen
+geçerlidir; `unknown` dosya açılmadan önce sınıflandırılır.
+
 ## Kurallar
 
 1. **Epic başına yeni bağlam.** Bir epic bitince sonraki epic yeni oturumda

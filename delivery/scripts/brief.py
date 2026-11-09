@@ -80,6 +80,103 @@ def _unique(items) -> list[str]:
     return result
 
 
+READ_CLASSES = ("sink", "window", "retrieved")
+READ_TAGS = {
+    "sink": "[sink]",
+    "window": "[window]",
+    "retrieved": "[retrieved]",
+}
+READ_UNKNOWN = "[unknown]"
+WINDOW_LIMIT = 3
+RETRIEVED_LIMIT = 5
+WINDOW_DOC_ORDER = ("ROLE.md", "how.md", "SKILL.md", "communicates.md", "dependencies.md")
+
+
+def read_tag(value) -> str:
+    """Tag for one reading class; an unrecognised class is ``[unknown]``."""
+    text = str(value or "").strip()
+    return READ_TAGS.get(text, READ_UNKNOWN)
+
+
+def reading_items(
+    sink: list[str] | None = None,
+    window: list[str] | None = None,
+    route: list[dict] | None = None,
+) -> list[dict]:
+    """Classify paths for a CP brief: sink > window > retrieved > unknown.
+
+    Every path keeps one class. Route candidates are already explained by
+    ``--route`` and are not re-listed; a route item without a known reading
+    class stays visible as ``unknown`` instead of joining ``retrieved``.
+    """
+    items: list[dict] = []
+    seen: set[str] = set()
+
+    def add(kind: str, path) -> None:
+        text = str(path or "")
+        if not text or text in seen:
+            return
+        seen.add(text)
+        items.append({"class": kind, "path": text})
+
+    for path in sink or []:
+        add("sink", path)
+    for path in window or []:
+        add("window", path)
+    for item in route or []:
+        if not isinstance(item, dict):
+            continue
+        kind = str(item.get("class") or "").strip()
+        if kind == "candidate":
+            continue
+        add(kind if kind in READ_CLASSES else "unknown", item.get("path"))
+    return items
+
+
+def window_docs(docs: list[str] | None, role: str) -> list[str]:
+    """Active CP role documents, at most ``WINDOW_LIMIT``, core files first."""
+    selected = [
+        str(doc)
+        for doc in docs or []
+        if f"/agents/{role}/" in f"/{doc}"
+    ]
+    selected.sort(
+        key=lambda doc: (
+            WINDOW_DOC_ORDER.index(Path(doc).name)
+            if Path(doc).name in WINDOW_DOC_ORDER
+            else len(WINDOW_DOC_ORDER),
+            doc,
+        )
+    )
+    return selected[:WINDOW_LIMIT]
+
+
+def cp_route_items(route: list[dict] | None) -> list[dict]:
+    """Route items the CP brief lists: sink/retrieved/unknown, capped budget.
+
+    Window paths come from :func:`window_docs`; candidates stay in ``--route``
+    output so the CP brief does not re-list them as reading material.
+    """
+    items: list[dict] = []
+    retrieved = 0
+    for item in route or []:
+        if not isinstance(item, dict):
+            continue
+        kind = str(item.get("class") or "").strip()
+        if kind in ("window", "candidate"):
+            continue
+        if kind == "retrieved":
+            retrieved += 1
+            if retrieved > RETRIEVED_LIMIT:
+                continue
+        items.append(item)
+    return items
+
+
+def render_reading_items(items: list[dict]) -> list[str]:
+    return [f"- {read_tag(item['class'])} {item['path']}" for item in items]
+
+
 def control_fields(
     path_id: str,
     path_source: str,
@@ -282,6 +379,8 @@ def render_cp_brief(
     profile_gates: dict | None = None,
     include_evidence: bool = True,
     control: dict | None = None,
+    docs: list[str] | None = None,
+    route: list[dict] | None = None,
 ) -> str:
     """Compact per-checkpoint brief: scope, AC, tests, evidence skeleton."""
     cp, cases = cp_selection(seal, cp_id)
@@ -337,9 +436,22 @@ def render_cp_brief(
             )
     else:
         lines.append("Testler: seal'de bu CP için case yok — seal'i düzelt.")
+    reading = reading_items(
+        sink=[f"{prefix}{path}" for path in reference],
+        window=window_docs(docs, role),
+        route=cp_route_items(route),
+    )
     if reference:
         lines.append("Yollar:")
-        lines += [f"- {prefix}{path}" if prefix else f"- {path}" for path in reference]
+        lines += [
+            f"- {READ_TAGS['sink']} {prefix}{path}" if prefix
+            else f"- {READ_TAGS['sink']} {path}"
+            for path in reference
+        ]
+    extra = [item for item in reading if item["class"] != "sink"]
+    if extra:
+        lines.append("Okuma sınıfları:")
+        lines += render_reading_items(extra)
 
     if include_evidence and cases:
         lines += [
@@ -563,10 +675,39 @@ def main() -> int:
             )
         else:
             lines = header_lines(route_data)
-            sys.stdout.write(
+            output = (
                 "\n".join(lines) + ("\n" if lines else "")
                 + routing.render_route(route, None)
             )
+            if args.cp:
+                cp, _ = cp_selection(seal, args.cp)
+                role = cp_role(cp.get("gates") or {})
+                reading = reading_items(
+                    sink=[
+                        str(item["path"])
+                        for item in route
+                        if item.get("class") == "sink"
+                    ],
+                    window=window_docs(
+                        [
+                            str(item["path"])
+                            for item in route
+                            if item.get("class") == "window"
+                        ],
+                        role,
+                    ),
+                    route=cp_route_items(
+                        [
+                            item
+                            for item in route
+                            if item.get("class") not in ("sink", "window", "candidate")
+                        ]
+                    ),
+                )
+                if reading:
+                    output += "Okuma sınıfları:\n"
+                    output += "\n".join(render_reading_items(reading)) + "\n"
+            sys.stdout.write(output)
         return 0
 
     if args.cp:
@@ -592,6 +733,15 @@ def main() -> int:
                     cp_applied=True,
                 ),
             }
+            cp_route: list[dict] = []
+            try:
+                index = routing.load_route_index(index_file(), ROOT)
+            except routing.RouteIndexError:
+                index = None
+            if index is not None:
+                cp_route, _ = routing.build_route(
+                    seal, data["docs"], index, routing.kit_prefix(ROOT)
+                )
             text = render_cp_brief(
                 {"issue": data["issue"], "risk": effective},
                 seal,
@@ -601,6 +751,8 @@ def main() -> int:
                 risk=effective,
                 profile_gates=profile_gates,
                 control=cp_control,
+                docs=data["docs"],
+                route=cp_route,
             )
         except ValueError as exc:
             sys.exit(f"brief: {exc}")

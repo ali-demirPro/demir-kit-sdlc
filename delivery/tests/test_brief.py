@@ -477,6 +477,57 @@ class CpBriefTests(unittest.TestCase):
             brief.render_cp_brief({"issue": 142}, SEAL, "CP-9")
 
 
+class ReadClassTests(unittest.TestCase):
+    """sink/window/retrieved/unknown labels in the CP brief (issue 311)."""
+
+    def test_cp_brief_labels_three_classes(self) -> None:
+        route = [
+            {
+                "class": "sink",
+                "path": "delivery/scripts/brief.py",
+                "source": "seal",
+                "reason": "seal",
+            },
+            {
+                "class": "retrieved",
+                "path": "delivery/scripts/gate.py",
+                "source": "index",
+                "reason": "weight",
+            },
+        ]
+        text = brief.render_cp_brief(
+            {"issue": 311, "risk": "medium"},
+            SEAL,
+            "CP-1",
+            docs=["delivery/agents/developer/ROLE.md"],
+            route=route,
+        )
+        for tag in ("[sink]", "[window]", "[retrieved]"):
+            self.assertIn(tag, text)
+        self.assertIn("[window] delivery/agents/developer/ROLE.md", text)
+        self.assertIn("[retrieved] delivery/scripts/gate.py", text)
+
+    def test_unknown_is_visible_and_not_retrieved(self) -> None:
+        route = [
+            {"class": "sink", "path": "delivery/scripts/brief.py"},
+            {"class": "mystery", "path": "delivery/plans/P2.yaml"},
+        ]
+        text = brief.render_cp_brief(
+            {"issue": 311, "risk": "medium"}, SEAL, "CP-1", route=route
+        )
+        self.assertIn("[unknown] delivery/plans/P2.yaml", text)
+        self.assertNotIn("[retrieved] delivery/plans/P2.yaml", text)
+
+    def test_candidate_is_not_promoted_to_retrieved(self) -> None:
+        route = [
+            {"class": "candidate", "path": "delivery/plans/P2.yaml"},
+        ]
+        text = brief.render_cp_brief(
+            {"issue": 311, "risk": "medium"}, SEAL, "CP-1", route=route
+        )
+        self.assertNotIn("[retrieved] delivery/plans/P2.yaml", text)
+
+
 class RouteTests(unittest.TestCase):
     """sink/window/retrieved selection + index contract (issue 312)."""
 
@@ -669,6 +720,29 @@ class RouteTests(unittest.TestCase):
                     for line in plain_route
                 )
             )
+
+    def test_cp_brief_prints_read_class_tags(self) -> None:
+        entries = [
+            {
+                "surface": "kit.docs",
+                "path": "delivery/policies/context-budget.md",
+                "tags": ["context"],
+                "weight": 6,
+            },
+            {
+                "surface": "kit.scripts",
+                "path": "delivery/scripts/gate.py",
+                "tags": ["gate"],
+                "weight": 3,
+            },
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            index_path = self.write_index(tmp, entries)
+            code, out, err = self.run_route(["311", "--cp", "CP-1"], index_path)
+        self.assertEqual(code, 0, err)
+        for tag in ("[sink]", "[window]", "[retrieved]"):
+            self.assertIn(tag, out)
+        self.assertIn("[retrieved] delivery/scripts/gate.py", out)
 
     def test_invalid_index_exits_two(self) -> None:
         valid = {
