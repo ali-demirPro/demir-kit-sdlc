@@ -16,6 +16,11 @@ cp_close = importlib.util.module_from_spec(spec)
 assert spec.loader is not None
 spec.loader.exec_module(cp_close)
 
+spec_g = importlib.util.spec_from_file_location("gate_level", SCRIPTS / "gate.py")
+gate = importlib.util.module_from_spec(spec_g)
+assert spec_g.loader is not None
+spec_g.loader.exec_module(gate)
+
 
 class LevelTests(unittest.TestCase):
     def test_default_level_is_fast(self) -> None:
@@ -25,11 +30,16 @@ class LevelTests(unittest.TestCase):
         import json
 
         schema = json.loads((ROOT / "delivery" / "schemas" / "evidence.schema.json").read_text(encoding="utf-8"))
-        self.assertEqual(schema["properties"]["gate_level"]["enum"], ["fast", "full"])
+        self.assertEqual(
+            schema["properties"]["gate_level"]["enum"],
+            ["fast", "selected", "full"],
+        )
 
     def test_gate_reason_carries_the_level(self) -> None:
-        source = (SCRIPTS / "gate.py").read_text(encoding="utf-8")
-        self.assertIn("'fast' if args.fast else 'full'", source)
+        self.assertEqual(
+            gate.gate_reason("CP-1", "selected", False), "CP-1 selected exit=0"
+        )
+        self.assertEqual(gate.gate_reason("", "full", True), "- full exit=1")
 
 
 if __name__ == "__main__":

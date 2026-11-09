@@ -1,4 +1,4 @@
-# Delivery contract — v2.60
+# Delivery contract — v2.62
 
 Bu dosya delivery'nin **tek durum makinesi**dir. Agent, path ve risk verisi
 `registry.yaml`'da; artefakt şekilleri `schemas/` altında; uygulama
@@ -176,6 +176,8 @@ kabul **makine kapısıdır**: `doctor.sh --strict` + testler yeşilse kurallaş
   CP brief, okuma ve compaction sınırları)
 - Model seçimi: `policies/model-selection.md` (varsayılan dayatma yok; miras ve
   rol bazlı model yalnız açık bayrakla)
+- Otonomi ve delegated kabul: `policies/autonomy.md` (eşikler, durma koşulları,
+  vekâlet sınırı, dönüş özeti)
 - Skill yazımı: `policies/skill-writing.md` (`doctor` `skill writing` kontrolü)
 - Blocker: `policies/escalation.md`
 - İnsan dili: `policies/human-communication.md`

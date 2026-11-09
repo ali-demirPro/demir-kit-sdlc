@@ -1,5 +1,30 @@
 # Changelog
 
+## 2.62.0 — 2026-11-09
+
+- **Otonomi ve delegated kabul (Epic N, #283)** — `delivery/policies/autonomy.md`
+  eşikleri (A2 otonom), durma koşullarını (A0 insan kapısı), vekâleten kabul
+  sınırını (A1) ve dönüş özetini tanımlar; CONTRACT Yürütme bölümü ve registry
+  politikaya bağlanır.
+- Sahip yokken `low`/`medium` leaf, review, closure ve PR vekâleten kapatılır ve
+  `delegated: coordinator` ile işaretlenir; geri dönülemez iş ve ürün
+  teslimatında epic kabulü insanda kalır.
+- Sürüm 2.62.0.
+
+## 2.61.0 — 2026-11-08
+
+- **Orca'ya devret (Epic N, #277)** — kit makine kapısı olmaktan çıktı:
+  `next-leaf --claim`, `orca_wave` ve `review_wave` artık `resources.blocked`
+  yüzünden exit 3 vermez; `resources.py` yalnız rapor üretir, `--check` her
+  durumda 0 döner. Orca hep var sayılır, kaynak yönetimi Orca'nındır.
+- Otomatik reaper ve `worker_cleanup` kaldırıldı; worker kapatma yalnız
+  `orca orchestration worker-release` ile, `retained` kaydına dokunmadan.
+- `hygiene.py` artık simülatör silmez/`simctl` ayrıştırmaz; yalnız DerivedData
+  temizler. `--simulators` bayrağı kaldırıldı; simülatör yaşam döngüsü
+  `orca emulator` komutlarında.
+- `resources.py` simülatör sayımını bıraktı; simülatör ölçümü Orca'ya ait.
+- Sürüm 2.61.0; `brief.py` makine satırı bilgilendirme olarak güncellendi.
+
 ## 2.60.0 — 2026-11-08
 
 - **Makine bütçesi (Epic A)** — paylaşılan `DerivedData` (`detect.py` + skill'ler),

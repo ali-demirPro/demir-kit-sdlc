@@ -26,11 +26,8 @@ import closure  # noqa: E402
 import model_policy  # noqa: E402
 import review_packet  # noqa: E402
 import budget  # noqa: E402
-import resources  # noqa: E402
-import worker_reaper  # noqa: E402
 import routing  # noqa: E402
 import usage  # noqa: E402
-import worker_cleanup  # noqa: E402
 
 SETTLED = {"succeeded", "failed", "stopped"}
 
@@ -243,6 +240,48 @@ def read_output(dispatch_id: str) -> str:
     return "\n".join(str(line) for line in terminal.get("tail") or [])
 
 
+def review_batches(names: list[str], limits: dict | None = None) -> list[list[str]]:
+    """Split reviewers into bounded batches; the box runs one batch at a time."""
+    try:
+        raw = int((limits or {}).get("reviewers") or 0)
+    except (TypeError, ValueError):
+        raw = 0
+    cap = raw if raw > 0 else 2
+    return [names[index : index + cap] for index in range(0, len(names), cap)]
+
+
+def stop_worker(dispatch_id: str) -> None:
+    """Stop a worker that outlived its batch timeout; never raises."""
+    try:
+        orca(["orchestration", "worker-stop", "--dispatch", dispatch_id, "--json"])
+    except Exception:
+        return
+
+
+def settle_batch(workers: list[dict]) -> list[dict]:
+    """Stop stragglers so the next batch never exceeds the reviewer cap."""
+    for item in workers:
+        if str(item.get("state") or "") == "dispatched":
+            stop_worker(str(item.get("dispatch_id") or ""))
+    return workers
+
+
+def release_worker(dispatch_id: str) -> None:
+    """Archive the reviewer's output and close its terminal via Orca."""
+    try:
+        orca(
+            [
+                "orchestration",
+                "worker-release",
+                "--dispatch",
+                dispatch_id,
+                "--json",
+            ]
+        )
+    except Exception:
+        return
+
+
 def collect(workers: list[dict], run_id: str | None = None) -> list[dict]:
     check = (
         orca(["orchestration", "check", "--run", run_id, "--json"])
@@ -276,7 +315,7 @@ def collect(workers: list[dict], run_id: str | None = None) -> list[dict]:
             output += "\n" + texts[handle]
         item["verdict"] = parse_verdict(output)
         item["summary"] = "\n".join(output.splitlines()[-25:])
-        worker_cleanup.release(str(item["dispatch_id"]))
+        release_worker(str(item["dispatch_id"]))
     delivery = str(check.get("deliveryId") or "")
     if run_id and delivery:
         orca(
@@ -347,19 +386,18 @@ def main() -> int:
     if not run_id:
         raise SystemExit("review_wave: Orca run bulunamadı (--run ver)")
     worktree = str(routing.project_root(ROOT))
-    reason = resources.blocked(routing.project_root(ROOT))
-    if reason:
-        print(f"review_wave: makine bloke — {reason}", file=sys.stderr)
-        return 3
 
     model = model_policy.role_launch(
         routing.project_root(ROOT), "reviewer"
     ).get("model")
-    workers = [
-        start_worker(name, specs[name], run_id, worktree, model) for name in names
-    ]
-    workers = wait_workers(workers, args.timeout)
-    workers = collect(workers, run_id)
+    workers: list[dict] = []
+    for batch in review_batches(names, budget.load(routing.project_root(ROOT))):
+        started = [
+            start_worker(name, specs[name], run_id, worktree, model)
+            for name in batch
+        ]
+        settled = settle_batch(wait_workers(started, args.timeout))
+        workers.extend(collect(settled, run_id))
     verdicts = {
         item["name"]: (
             None if item.get("verdict") is None else bool(item["verdict"])
@@ -367,7 +405,6 @@ def main() -> int:
         for item in workers
     }
     approved = all(value is True for value in verdicts.values())
-    worker_reaper.reap_idle(worktree)
     result = {
         **plan,
         "run_id": run_id,

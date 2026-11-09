@@ -13,8 +13,6 @@ from pathlib import Path
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
-os.environ.setdefault("DEMIR_KIT_REAPER", "off")
-os.environ.setdefault("DEMIR_KIT_RESOURCES", "off")
 SCRIPTS = ROOT / "delivery" / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
@@ -137,7 +135,7 @@ class ReviewWaveTests(unittest.TestCase):
         ]
         with patch.object(review_wave, "orca", side_effect=responses) as orca, patch.object(
             review_wave, "read_output", return_value="no verdict"
-        ), patch.object(review_wave.worker_cleanup, "release"):
+        ), patch.object(review_wave, "release_worker"):
             result = review_wave.collect(workers, "run_1")
         self.assertTrue(result[0]["verdict"])
         self.assertEqual(orca.call_args.args[0][-1], "d1")
@@ -150,7 +148,7 @@ class ReviewWaveTests(unittest.TestCase):
         with patch.object(
             review_wave, "read_output", side_effect=["approved: true", "no verdict"]
         ), patch.object(
-            review_wave.worker_cleanup, "release"
+            review_wave, "release_worker"
         ) as release:
             result = review_wave.collect(workers)
         self.assertTrue(result[0]["verdict"])
@@ -221,6 +219,60 @@ class ReviewWaveCliTests(unittest.TestCase):
                 ["--issue", "156", "--cp", "CP-1", "--run", "run_1", "--apply"]
             )
         self.assertEqual(code, 1)
+
+class ReleaseWorkerTests(unittest.TestCase):
+    def test_release_uses_orca_worker_release(self) -> None:
+        with patch.object(review_wave, "orca", return_value="{}") as orca:
+            review_wave.release_worker("ctx_1")
+        self.assertEqual(
+            orca.call_args.args[0],
+            ["orchestration", "worker-release", "--dispatch", "ctx_1", "--json"],
+        )
+
+    def test_release_never_raises(self) -> None:
+        with patch.object(review_wave, "orca", side_effect=RuntimeError("boom")):
+            review_wave.release_worker("ctx_1")
+
+    def test_no_reaper_references_remain(self) -> None:
+        for name in ("orca_wave.py", "review_wave.py", "transition.py"):
+            source = (ROOT / "delivery" / "scripts" / name).read_text(encoding="utf-8")
+            self.assertNotIn("worker_reaper", source, name)
+            self.assertNotIn("worker_cleanup", source, name)
+
+class ReviewBatchTests(unittest.TestCase):
+    def test_reviewers_are_split_into_bounded_batches(self) -> None:
+        names = ["a", "b", "c", "d", "e"]
+        self.assertEqual(
+            review_wave.review_batches(names, {"reviewers": 2}),
+            [["a", "b"], ["c", "d"], ["e"]],
+        )
+
+    def test_default_cap_is_two(self) -> None:
+        self.assertEqual(
+            review_wave.review_batches(["a", "b", "c"], {}), [["a", "b"], ["c"]]
+        )
+
+    def test_non_positive_cap_falls_back_to_default(self) -> None:
+        self.assertEqual(
+            review_wave.review_batches(["a", "b"], {"reviewers": -1}),
+            [["a", "b"]],
+        )
+
+    def test_main_uses_bounded_batches(self) -> None:
+        source = (ROOT / "delivery" / "scripts" / "review_wave.py").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("for batch in review_batches(", source)
+
+class SettleBatchTests(unittest.TestCase):
+    def test_dispatched_stragglers_are_stopped(self) -> None:
+        workers = [
+            {"name": "a", "dispatch_id": "ctx_a", "state": "dispatched"},
+            {"name": "b", "dispatch_id": "ctx_b", "state": "succeeded"},
+        ]
+        with patch.object(review_wave, "stop_worker") as stop:
+            review_wave.settle_batch(workers)
+        stop.assert_called_once_with("ctx_a")
 
 
 if __name__ == "__main__":

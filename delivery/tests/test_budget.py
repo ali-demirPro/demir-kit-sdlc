@@ -76,6 +76,18 @@ class WaveChunkTests(unittest.TestCase):
         waves = wave.topological_waves(tasks, max_parallel=1)
         self.assertEqual(waves, [["a"], ["b"], ["c"]])
 
+    def test_reviewers_key_is_read(self) -> None:
+        from pathlib import Path
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "ecosystem.yaml").write_text(
+                "resources:\n  reviewers: 2\n", encoding="utf-8"
+            )
+            limits = budget.load(root)
+        self.assertEqual(limits["reviewers"], 2)
+
 
 if __name__ == "__main__":
     unittest.main()

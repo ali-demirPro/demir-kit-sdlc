@@ -21,5 +21,6 @@ tracker:
   repo: ali-demirPro/demir-kit-sdlc
 
 resources:
-  heavy_workers: 2
+  heavy_workers: 1
+  reviewers: 2
   simulators: 1

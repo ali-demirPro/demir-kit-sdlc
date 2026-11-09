@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Safe cleanup: old build caches, idle simulators, index noise.
+"""Safe cleanup: old Xcode DerivedData plus index markers.
 
 Guardrails are the point: every path must live under an allowlisted root, the
 disk must have room, no build may be running, and one run may delete at most
@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import argparse
 import os
-import re
 import shutil
 import subprocess
 import sys
@@ -21,12 +20,10 @@ import time
 from pathlib import Path
 
 KEEP_DAYS = 7
-SIM_DAYS = 14
 MAX_BYTES = 20 * 1024**3
 MIN_FREE = 20 * 1024**3
 
 DERIVED = Path.home() / "Library/Developer/Xcode/DerivedData"
-SIMULATORS = Path.home() / "Library/Developer/CoreSimulator/Devices"
 INDEX_DIRS = (
     Path.home() / "Library/Developer/Xcode/DerivedData",
     Path.home() / "Library/Developer/CoreSimulator/Devices",
@@ -54,21 +51,6 @@ def _size(path: Path) -> int:
         return 0
 
 
-UUID_RE = re.compile(
-    r"\(([0-9A-Fa-f]{8}(?:-[0-9A-Fa-f]{4}){3}-[0-9A-Fa-f]{12})\)"
-)
-
-
-def _booted() -> set[str]:
-    try:
-        output = subprocess.check_output(
-            ["xcrun", "simctl", "list", "devices", "booted"], text=True
-        )
-    except (OSError, subprocess.CalledProcessError):
-        return set()
-    return set(UUID_RE.findall(output))
-
-
 def _busy() -> bool:
     try:
         output = subprocess.check_output(["ps", "-Ao", "comm"], text=True)
@@ -83,14 +65,10 @@ def group_of(name: str) -> str:
 
 def plan(
     derived: Path = DERIVED,
-    simulators: Path = SIMULATORS,
     now: float | None = None,
     keep_days: int = KEEP_DAYS,
-    sim_days: int = SIM_DAYS,
-    booted: set[str] | None = None,
 ) -> dict:
     now = now or time.time()
-    booted = booted if booted is not None else _booted()
     items: list[dict] = []
 
     groups: dict[str, list[Path]] = {}
@@ -108,26 +86,15 @@ def plan(
                  "age_days": int(_age_days(item, now))}
             )
 
-    if Path(simulators).is_dir():
-        for item in Path(simulators).iterdir():
-            if not item.is_dir() or item.name in booted:
-                continue
-            if _age_days(item, now) < sim_days:
-                continue
-            items.append(
-                {"kind": "simulator", "path": str(item), "bytes": _size(item),
-                 "age_days": int(_age_days(item, now))}
-            )
-
     total = sum(item["bytes"] for item in items)
-    return {"items": items, "bytes": total, "booted": sorted(booted)}
+    return {"items": items, "bytes": total}
 
 
 def guards(
     result: dict, free: int | None = None, roots: tuple[Path, ...] | None = None
 ) -> list[str]:
     problems: list[str] = []
-    roots = tuple(root.resolve() for root in (roots or (DERIVED, SIMULATORS)))
+    roots = tuple(root.resolve() for root in (roots or (DERIVED,)))
     for item in result["items"]:
         path = Path(item["path"]).resolve()
         if not any(path.is_relative_to(root) for root in roots):
@@ -146,22 +113,10 @@ def apply(result: dict) -> dict:
     deleted = 0
     failed = 0
     for item in result["items"]:
-        path = Path(item["path"])
         try:
-            if item["kind"] == "simulator":
-                done = subprocess.run(
-                    ["xcrun", "simctl", "delete", path.name],
-                    capture_output=True,
-                    text=True,
-                    timeout=60,
-                )
-                if done.returncode != 0:
-                    failed += 1
-                    continue
-            else:
-                shutil.rmtree(path)
+            shutil.rmtree(Path(item["path"]))
             deleted += 1
-        except (OSError, subprocess.SubprocessError):
+        except OSError:
             failed += 1
             continue
     return {"deleted": deleted, "failed": failed}
@@ -188,10 +143,9 @@ def main() -> int:
     parser.add_argument("--dry-run", action="store_true", help="plan only (default)")
     parser.add_argument("--json", action="store_true")
     parser.add_argument("--derived", default=str(DERIVED))
-    parser.add_argument("--simulators", default=str(SIMULATORS))
     args = parser.parse_args()
 
-    result = plan(Path(args.derived), Path(args.simulators))
+    result = plan(Path(args.derived))
     problems = guards(result)
     payload = {
         **result,

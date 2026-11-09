@@ -197,3 +197,27 @@ evidence and labels apply; only the worker transport changes.
   a human gate.
 - A worker must not approve its own work; reviewers stay isolated.
 - If a worker edits outside its CP, stop it and open a follow-up issue.
+
+## Simülatör yaşam döngüsü
+
+Simülatör açma/kapatma kit'in işi değildir; Orca worktree kapsamlı emülatör
+köprüsünü kullan:
+
+```bash
+orca emulator list --worktree active --json
+orca emulator attach "<device-name-or-udid>" --worktree active --json
+orca emulator shutdown --worktree active --json
+```
+
+Kit hiçbir cihazı silmez; `simctl` yalnız teşhis için doğrudan çağrılabilir.
+Disk geri kazanımı için cihaz silme gerekirse Xcode Devices penceresi kullanılır.
+
+## Bağlam devri
+
+Bağlam eşiği `policies/context-budget.md` ile aynıdır. Eşiğe gelince `handoff.py` kısa devir notunu
+issue'ya yazar, successor agent'ı `orca agent launch --worktree path:<epic>`
+ile başlatır. Yanıt kaybolursa aynı komutu `--retry-launch <operationId>` ile
+tekrar et; ikinci agent açma. Eski terminal, launch başarılı olduğunda
+`terminal close` ile kapanır. Runtime'ı masaüstü uygulamasından bağımsız tutmak
+için `orca serve service install` (LaunchAgent/systemd) kullanılabilir; tek
+başına `--supervise` bunu sağlamaz.

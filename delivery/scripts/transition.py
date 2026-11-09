@@ -7,8 +7,11 @@ import argparse
 import json
 import os
 import re
+import shlex
+import shutil
 import subprocess
 import sys
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -21,6 +24,17 @@ import routing
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPTS = Path(__file__).resolve().parent
+
+
+def gate_timeout_ms() -> int:
+    """Orca terminal gate timeout; a bad override falls back to 30 minutes."""
+    try:
+        return max(1000, int(os.environ.get("DEMIR_KIT_GATE_TIMEOUT_MS", "")))
+    except ValueError:
+        return 30 * 60 * 1000
+
+
+GATE_TIMEOUT_MS = gate_timeout_ms()
 
 TARGETS = {
     "scope-confirmed",
@@ -497,6 +511,135 @@ def post_comment(number: int, body: str) -> None:
     gh(["issue", "comment", str(number), "--body", body])
 
 
+def terminal_handle(payload: object) -> str:
+    """Extract the runtime-issued terminal handle from an Orca envelope."""
+    if not isinstance(payload, dict):
+        return ""
+    result = payload.get("result")
+    result = result if isinstance(result, dict) else {}
+    terminal = result.get("terminal")
+    terminal = terminal if isinstance(terminal, dict) else {}
+    for value in (
+        terminal.get("handle"),
+        result.get("handle"),
+        result.get("terminalId"),
+    ):
+        if value:
+            return str(value)
+    return ""
+
+
+def run_gate_in_orca(
+    project: Path,
+    command: list[str],
+    timeout_ms: int = GATE_TIMEOUT_MS,
+    root: Path | None = None,
+) -> tuple[int | None, str]:
+    """Run the gate in an Orca terminal and read the exit code from a file.
+
+    Returns ``(None, "")`` only when Orca is missing or ``terminal create``
+    itself fails. Once a terminal exists the gate must not run a second time:
+    handle/JSON/timeout problems are gate failures.
+    """
+    if not shutil.which("orca"):
+        return None, ""
+    directory = Path(root) if root else Path(
+        tempfile.mkdtemp(prefix="demir-kit-gate-")
+    )
+    directory.mkdir(parents=True, exist_ok=True)
+    log = directory / "gate.log"
+    code_file = directory / "gate.exit"
+    for path in (log, code_file):
+        try:
+            path.unlink()
+        except FileNotFoundError:
+            pass
+    shell = (
+        f"{shlex.join(command)} > {shlex.quote(str(log))} 2>&1; "
+        f"c=$?; printf '%s' \"$c\" > {shlex.quote(str(code_file))}; "
+        f'exit "$c"'
+    )
+    try:
+        created = subprocess.run(
+            [
+                "orca",
+                "terminal",
+                "create",
+                "--worktree",
+                f"path:{project}",
+                "--title",
+                "demir-kit gate",
+                "--command",
+                shell,
+                "--json",
+            ],
+            cwd=str(project),
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        shutil.rmtree(directory, ignore_errors=True)
+        return 1, "terminal create tamamlanmadı"
+    if created.returncode != 0:
+        shutil.rmtree(directory, ignore_errors=True)
+        return None, ""
+    try:
+        payload = json.loads(created.stdout)
+    except json.JSONDecodeError:
+        shutil.rmtree(directory, ignore_errors=True)
+        return 1, "terminal create yanıtı okunamadı"
+    handle = terminal_handle(payload)
+    if not handle:
+        shutil.rmtree(directory, ignore_errors=True)
+        return 1, "terminal handle yok"
+    try:
+        subprocess.run(
+            [
+                "orca",
+                "terminal",
+                "wait",
+                "--terminal",
+                handle,
+                "--for",
+                "exit",
+                "--timeout-ms",
+                str(timeout_ms),
+                "--json",
+            ],
+            cwd=str(project),
+            capture_output=True,
+            text=True,
+            timeout=timeout_ms / 1000 + 60,
+        )
+    except subprocess.TimeoutExpired:
+        subprocess.run(
+            ["orca", "terminal", "close", "--terminal", handle, "--json"],
+            cwd=str(project),
+            capture_output=True,
+            text=True,
+        )
+        shutil.rmtree(directory, ignore_errors=True)
+        return 124, "terminal wait timeout"
+    except OSError as exc:
+        shutil.rmtree(directory, ignore_errors=True)
+        return 127, str(exc)
+    try:
+        output = log.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        output = ""
+    try:
+        code = int(code_file.read_text(encoding="utf-8").strip())
+    except (OSError, ValueError):
+        shutil.rmtree(directory, ignore_errors=True)
+        return 1, (output or "gate sonucu dosyadan okunamadı")[-4000:]
+    if code != 0:
+        output = f"{output}\n[gate] log: {log}"
+    else:
+        shutil.rmtree(directory, ignore_errors=True)
+    return code, output[-4000:]
+
+
 def close_leaf_gate(issue: dict, args) -> None:
     """Full leaf gate before leaf-done, or an explicit, recorded degrade."""
     if args.no_gate:
@@ -518,18 +661,28 @@ def close_leaf_gate(issue: dict, args) -> None:
     except ValueError as exc:
         sys.exit(f"transition: {exc}")
     print(f"gate: {' '.join(command)}", flush=True)
-    try:
-        result = subprocess.run(
-            command, cwd=str(Path.cwd()), capture_output=True, text=True
+    code, output = run_gate_in_orca(Path.cwd(), command)
+    if code is None:
+        post_comment(
+            args.issue,
+            f"run degrade: issue #{args.issue}\n"
+            "reason: Orca terminali açılamadı; leaf kapısı koordinatörde koştu",
         )
-    except OSError as exc:
-        sys.exit(f"transition: leaf kapısı koşulamadı — {exc}")
-    if result.returncode != 0:
+        try:
+            result = subprocess.run(
+                command, cwd=str(Path.cwd()), capture_output=True, text=True
+            )
+        except OSError as exc:
+            sys.exit(f"transition: leaf kapısı koşulamadı — {exc}")
+        code, output = result.returncode, result.stdout + result.stderr
+    if code != 0:
         sys.exit(
-            "transition: leaf tam kapısı düştü — "
-            + (result.stdout + result.stderr).strip()[-400:]
+            "transition: leaf tam kapısı düştü — " + (output or "").strip()[-400:]
         )
-    print("gate: full exit 0", flush=True)
+    if (output or "").strip():
+        tail = "\n".join(output.strip().splitlines()[-20:])
+        print(tail, flush=True)
+    print("gate: exit 0", flush=True)
 
 
 def check_push(args) -> None:
@@ -644,8 +797,6 @@ def main() -> int:
     )
     plan["cycle"] = row
     if args.dry_run:
-        if args.to == "leaf-done" and not args.json:
-            print("reaper: dry-run")
         if args.write_cycle and not args.no_cycle:
             cycle.record(cycle.project_root(ROOT), row)
         print(json.dumps(plan, ensure_ascii=False) if args.json else f"#{args.issue}: {state} -> {args.to} (dry-run)")
@@ -683,34 +834,6 @@ def main() -> int:
         cycle.close_wait(cycle.project_root(ROOT), args.issue, ts=row.get("ts"))
         cycle.record(cycle.project_root(ROOT), row)
 
-    released = 0
-    if args.to == "leaf-done" and os.environ.get("DEMIR_KIT_REAPER", "on") != "off":
-        try:
-            reaper = subprocess.run(
-                [
-                    sys.executable,
-                    str(SCRIPTS / "worker_reaper.py"),
-                    "--apply",
-                    "--json",
-                    "--project",
-                    str(Path.cwd()),
-                ],
-                capture_output=True,
-                text=True,
-                timeout=120,
-            )
-            released = int(json.loads(reaper.stdout).get("released", 0))
-        except (
-            subprocess.TimeoutExpired,
-            subprocess.SubprocessError,
-            OSError,
-            json.JSONDecodeError,
-            AttributeError,
-            ValueError,
-        ):
-            released = 0
-        if not args.json:
-            print(f"reaper: {released} boşta worker kapatıldı")
 
     if not args.no_orca:
         seal = parse_seal(issue.get("body") or "")
@@ -773,7 +896,6 @@ def main() -> int:
         "remove": applied["remove"],
         "run_id": run_id,
         "cycle": row,
-        "released": released,
     }
     print(json.dumps(result, ensure_ascii=False) if args.json else f"#{args.issue}: {state} -> {args.to}")
     return 0

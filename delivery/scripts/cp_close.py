@@ -102,7 +102,7 @@ def gate_command(issue: int, cp_id: str, level: str = DEFAULT_GATE_LEVEL) -> str
     project = routing.project_root(ROOT)
     gate = project / prefix / "delivery" / "scripts" / "gate.sh"
     if gate.is_file():
-        suffix = " --fast" if level == "fast" else ""
+        suffix = {"fast": " --fast", "full": " --full"}.get(level, "")
         return f"./{prefix}delivery/scripts/gate.sh --issue {issue} --checkpoint {cp_id}{suffix}"
     command = f"./{prefix}delivery/scripts/doctor.sh --issue {issue} --checkpoint {cp_id}"
     if prefix:
@@ -258,7 +258,7 @@ def main() -> int:
     parser.add_argument("--cp", required=True)
     parser.add_argument("--evidence", type=Path, required=True)
     parser.add_argument("--apply", action="store_true", help="gate, post, verify, checkpoint")
-    parser.add_argument("--gate-level", choices=["full", "fast"], default=DEFAULT_GATE_LEVEL)
+    parser.add_argument("--gate-level", choices=["full", "selected", "fast"], default=DEFAULT_GATE_LEVEL)
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
 

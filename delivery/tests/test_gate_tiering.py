@@ -28,6 +28,9 @@ spec_c.loader.exec_module(cp_close)
 class FastGateTests(unittest.TestCase):
     def run_plan(self, *extra: str) -> str:
         with tempfile.TemporaryDirectory() as directory:
+            test_file = Path(directory) / "delivery" / "tests" / "test_gate.py"
+            test_file.parent.mkdir(parents=True)
+            test_file.write_text("", encoding="utf-8")
             buffer = io.StringIO()
             with redirect_stdout(buffer):
                 gate.main(
@@ -50,10 +53,16 @@ class FastGateTests(unittest.TestCase):
         self.assertIn("plan doctor", text)
         self.assertNotIn("unittest", text)
 
-    def test_full_runs_the_suites(self) -> None:
+    def test_default_runs_the_selected_modules(self) -> None:
         text = self.run_plan()
+        self.assertIn("level selected", text)
+        self.assertIn("unittest:delivery.tests.test_gate", text)
+        self.assertNotIn("discover -s", text)
+
+    def test_full_runs_the_whole_suite(self) -> None:
+        text = self.run_plan("--full")
         self.assertIn("level full", text)
-        self.assertIn("unittest", text)
+        self.assertIn("discover -s delivery/tests", text)
 
     def test_cp_close_command_carries_the_level(self) -> None:
         self.assertIn("--fast", cp_close.gate_command(231, "CP-1", "fast"))

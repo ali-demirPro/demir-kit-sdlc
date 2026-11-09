@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import argparse
 import importlib.util
+import json
 import os
+import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -66,6 +69,10 @@ class LeafGateTests(unittest.TestCase):
         self.assertEqual(cp_close.DEFAULT_GATE_LEVEL, "fast")
         self.assertIn("--fast", cp_close.gate_command(251, "CP-1"))
         self.assertNotIn("--fast", cp_close.gate_command(251, "CP-1", "full"))
+        self.assertIn("--full", cp_close.gate_command(251, "CP-1", "full"))
+        selected = cp_close.gate_command(251, "CP-1", "selected")
+        self.assertNotIn("--fast", selected)
+        self.assertNotIn("--full", selected)
 
 class CloseLeafGateTests(unittest.TestCase):
     def args(self, **overrides) -> argparse.Namespace:
@@ -91,11 +98,120 @@ class CloseLeafGateTests(unittest.TestCase):
     def test_enabled_gate_runs_argv_without_shell(self) -> None:
         done = mock.Mock(returncode=0, stdout="", stderr="")
         with mock.patch.dict(os.environ, {"DEMIR_KIT_LEAF_GATE": "on"}), \
+             mock.patch.object(
+                 transition, "run_gate_in_orca", return_value=(None, "")
+             ), \
              mock.patch.object(transition.subprocess, "run", return_value=done) as run:
             transition.close_leaf_gate(self.issue(), self.args())
         command = run.call_args[0][0]
         self.assertIsInstance(command, list)
         self.assertNotIn("shell", run.call_args.kwargs)
+
+    def test_gate_runs_in_orca_terminal_and_reads_exit_file(self) -> None:
+        calls = []
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+
+            def fake_run(command, **kwargs):
+                calls.append(command)
+                if command[1:3] == ["terminal", "create"]:
+                    return subprocess.CompletedProcess(
+                        command,
+                        0,
+                        stdout=json.dumps(
+                            {"ok": True, "result": {"terminal": {"handle": "term_x"}}}
+                        ),
+                        stderr="",
+                    )
+                if command[1:3] == ["terminal", "wait"]:
+                    (root / "gate.log").write_text("gate ok\n", encoding="utf-8")
+                    (root / "gate.exit").write_text("0", encoding="utf-8")
+                return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+
+            with mock.patch.object(
+                transition.shutil, "which", return_value="/usr/bin/orca"
+            ), mock.patch.object(
+                transition.subprocess, "run", side_effect=fake_run
+            ):
+                code, output = transition.run_gate_in_orca(
+                    ROOT, ["true"], root=root
+                )
+        self.assertEqual(code, 0)
+        self.assertIn("gate ok", output)
+        self.assertEqual(calls[0][:3], ["orca", "terminal", "create"])
+        command_text = calls[0][calls[0].index("--command") + 1]
+        self.assertIn('exit "$c"', command_text)
+        self.assertIn("gate.exit", command_text)
+        self.assertEqual(calls[1][:3], ["orca", "terminal", "wait"])
+
+    def test_missing_orca_falls_back_to_a_direct_run(self) -> None:
+        with mock.patch.object(transition.shutil, "which", return_value=None):
+            self.assertEqual(
+                transition.run_gate_in_orca(ROOT, ["true"]), (None, "")
+            )
+
+    def test_created_terminal_without_result_file_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            def fake_run(command, **kwargs):
+                return subprocess.CompletedProcess(
+                    command,
+                    0,
+                    stdout=json.dumps(
+                        {"ok": True, "result": {"terminal": {"handle": "term_x"}}}
+                    ),
+                    stderr="",
+                )
+
+            with mock.patch.object(
+                transition.shutil, "which", return_value="/usr/bin/orca"
+            ), mock.patch.object(
+                transition.subprocess, "run", side_effect=fake_run
+            ):
+                code, output = transition.run_gate_in_orca(
+                    ROOT, ["true"], root=Path(directory)
+                )
+        self.assertEqual(code, 1)
+        self.assertTrue(output)
+
+    def test_failed_gate_keeps_its_log_path(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+
+            def fake_run(command, **kwargs):
+                if command[1:3] == ["terminal", "wait"]:
+                    (root / "gate.log").write_text("boom\n", encoding="utf-8")
+                    (root / "gate.exit").write_text("3", encoding="utf-8")
+                return subprocess.CompletedProcess(
+                    command,
+                    0,
+                    stdout=json.dumps(
+                        {"ok": True, "result": {"terminal": {"handle": "term_x"}}}
+                    ),
+                    stderr="",
+                )
+
+            with mock.patch.object(
+                transition.shutil, "which", return_value="/usr/bin/orca"
+            ), mock.patch.object(
+                transition.subprocess, "run", side_effect=fake_run
+            ):
+                code, output = transition.run_gate_in_orca(
+                    ROOT, ["true"], root=root
+                )
+            self.assertTrue((root / "gate.log").is_file())
+        self.assertEqual(code, 3)
+        self.assertIn("[gate] log:", output)
+        self.assertIn("gate.log", output)
+
+    def test_timeout_env_override_is_parsed_safely(self) -> None:
+        with mock.patch.dict(
+            os.environ, {"DEMIR_KIT_GATE_TIMEOUT_MS": "1234"}
+        ):
+            self.assertEqual(transition.gate_timeout_ms(), 1234)
+        with mock.patch.dict(
+            os.environ, {"DEMIR_KIT_GATE_TIMEOUT_MS": "abc"}
+        ):
+            self.assertEqual(transition.gate_timeout_ms(), 30 * 60 * 1000)
 
     def test_invalid_checkpoint_is_rejected_even_when_gate_is_off(self) -> None:
         with mock.patch.dict(os.environ, {"DEMIR_KIT_LEAF_GATE": "off"}):

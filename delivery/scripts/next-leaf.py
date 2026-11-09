@@ -18,7 +18,6 @@ sys.path.insert(0, str(SCRIPTS))
 import budget  # noqa: E402
 import cycle  # noqa: E402
 import epic_worktree  # noqa: E402
-import resources  # noqa: E402
 import process_gate  # noqa: E402
 
 SKIP_LABELS = {"executing", "blocked", "deferred", "leaf-done", "epic-done"}
@@ -478,12 +477,6 @@ def main() -> int:
         if not args.issue:
             sys.exit("next-leaf: --release requires --issue N")
         return release(args.issue, args.force, args.reason)
-
-    if args.claim:
-        reason = resources.blocked(epic_worktree.project_root())
-        if reason:
-            print(f"next-leaf: makine bloke — {reason}", file=sys.stderr)
-            return 3
 
     open_issues = json.loads(
         gh(

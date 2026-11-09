@@ -2,7 +2,7 @@
 
 ## Repo
 
-demir-kit 2.60 — delivery-first agent system. Docs, YAML and small bash/python
+demir-kit 2.62 — delivery-first agent system. Docs, YAML and small bash/python
 scripts; Python unittest suite and CI, no app build system or package manager.
 "Correct" means the contract, registry, schemas and policies agree — `doctor.sh`
 decides.
@@ -31,6 +31,7 @@ Version lives in `VERSION`; bump it with `CHANGELOG.md` and the README header.
 ./delivery/scripts/verify.py --project .          # read-only adaptation check
 ./delivery/scripts/adopt.py --project . --apply   # one-command SDLC injection
 ./delivery/scripts/brief.py 12              # leaf → agent brief
+./delivery/scripts/handoff.py --issue 277 --apply  # bağlam devri (python3 ile de çalışır)
 python3 -m unittest discover -s delivery/tests  # test suite
 ./delivery/scripts/resolver.py --surface web.app --platform web --stack next
 ./delivery/scripts/adapt.py --add platform.android  # capability diff; --apply writes .kit/capabilities.yaml

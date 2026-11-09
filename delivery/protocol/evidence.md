@@ -7,7 +7,8 @@ Her CP için tek kanıt comment'i. `leaf-done` bu bloklar olmadan imkânsızdır
 
 - `verification.reviewers[].id` gerçek oturum id'si olmalı (`ses_…`); `reviewer_a`
   gibi yer tutucu kimlikler reddedilir (kesme: 2026-11-08T09:00Z).
-- `gate_level: fast|full` alanı CP'de koşan kapıyı yazar; `cp_close` yalnız `gate.sh` koşarken damgalar.
+- `gate_level: fast|selected|full` alanı CP'de koşan kapıyı yazar; `cp_close`
+  `fast` damgalar, `leaf-done` varsayılan `selected`, tam paket `full`.
 
 ## Şablon
 

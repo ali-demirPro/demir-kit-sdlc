@@ -24,7 +24,6 @@ HEALTHY = {
     "compressor_mb": 300,
     "load1": 1.2,
     "cpus": 8,
-    "booted_simulators": 0,
     "heavy_workers": 0,
 }
 
@@ -53,8 +52,7 @@ class EvaluateTests(unittest.TestCase):
         self.assertEqual(resources.evaluate(metrics(load1=13.0))["state"], 2)
         self.assertEqual(resources.evaluate(metrics(load1=21.0))["state"], 3)
 
-    def test_simulator_and_worker_budget_blocks(self) -> None:
-        self.assertEqual(resources.evaluate(metrics(booted_simulators=2))["state"], 3)
+    def test_worker_budget_blocks(self) -> None:
         self.assertEqual(resources.evaluate(metrics(heavy_workers=3))["state"], 3)
 
     def test_limits_override_merges_with_defaults(self) -> None:
@@ -104,7 +102,7 @@ class CliTests(unittest.TestCase):
             capture_output=True,
             text=True,
         )
-        self.assertEqual(result.returncode, 3)
+        self.assertEqual(result.returncode, 0)
         data = json.loads(result.stdout)
         self.assertEqual(data["state"], 3)
         self.assertEqual(data["metrics"]["free_ram_mb"], 200)
@@ -118,34 +116,6 @@ class CliTests(unittest.TestCase):
             text=True,
         )
         self.assertEqual(result.returncode, 0)
-
-
-class EntryPointTests(unittest.TestCase):
-    def test_next_leaf_claim_refuses_when_blocked(self) -> None:
-        from unittest import mock
-
-        spec_n = importlib.util.spec_from_file_location(
-            "next_leaf", SCRIPTS / "next-leaf.py"
-        )
-        next_leaf = importlib.util.module_from_spec(spec_n)
-        assert spec_n.loader is not None
-        spec_n.loader.exec_module(next_leaf)
-        with mock.patch.object(next_leaf.resources, "blocked", return_value="test"):
-            with mock.patch.object(sys, "argv", ["next-leaf.py", "--claim"]):
-                self.assertEqual(next_leaf.main(), 3)
-
-    def test_orca_wave_execute_refuses_when_blocked(self) -> None:
-        from unittest import mock
-
-        spec_w = importlib.util.spec_from_file_location(
-            "orca_wave_r", SCRIPTS / "orca_wave.py"
-        )
-        wave = importlib.util.module_from_spec(spec_w)
-        assert spec_w.loader is not None
-        spec_w.loader.exec_module(wave)
-        with mock.patch.object(wave.resources, "blocked", return_value="test"):
-            with mock.patch.object(sys, "argv", ["orca_wave.py", "--execute"]):
-                self.assertEqual(wave.main(), 3)
 
 
 if __name__ == "__main__":
