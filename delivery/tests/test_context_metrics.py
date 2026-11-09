@@ -8,6 +8,7 @@ import io
 import json
 import sys
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -193,6 +194,43 @@ class RecordTests(unittest.TestCase):
         self.assertIsNone(transition.metrics_cp(None, {"body": ""}))
 
 
+class ConcurrencyTests(unittest.TestCase):
+    """Two writers serialize on the lock instead of dropping rows."""
+
+    def test_two_threads_keep_both_rows(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            barrier = threading.Barrier(2)
+            errors: list[BaseException] = []
+
+            def writer(issue: int) -> None:
+                try:
+                    barrier.wait(timeout=5)
+                    context_metrics.record(
+                        issue,
+                        "CP-1",
+                        brief_docs=[f"{issue}.md"],
+                        tokens=100,
+                        root=root,
+                    )
+                except BaseException as exc:  # noqa: BLE001 - surfaced below
+                    errors.append(exc)
+
+            threads = [
+                threading.Thread(target=writer, args=(issue,))
+                for issue in (400, 401)
+            ]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join(timeout=10)
+            path = root / ".kit" / "context-metrics.jsonl"
+            raw_lines = path.read_text(encoding="utf-8").splitlines()
+        self.assertEqual(errors, [])
+        rows = [json.loads(raw) for raw in raw_lines]
+        self.assertEqual(sorted(row["issue"] for row in rows), [400, 401])
+
+
 class BriefMetaTests(unittest.TestCase):
     """Machine metadata the CP brief writes, and the row it derives."""
 
@@ -260,7 +298,7 @@ class BriefMetaTests(unittest.TestCase):
         self.assertEqual(row["tokens"], 100)
         self.assertEqual(row["miss_rate"], "unknown")
         self.assertEqual(row["over_read_rate"], "unknown")
-        self.assertIn("usage:unknown", row["method"])
+        self.assertIn("split:unknown", row["method"])
         self.assertEqual(json.loads(line), row)
 
     def test_non_list_metadata_is_ignored(self) -> None:
@@ -329,6 +367,24 @@ class BriefMetaTests(unittest.TestCase):
         self.assertEqual(row["armed"], False)
         self.assertEqual(row["fallback_count"], 0)
 
+    def test_non_list_armed_and_fallbacks_are_unknown(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            row = context_metrics.build_row(
+                321,
+                "CP-1",
+                tokens=100,
+                brief_meta={
+                    "issue": 321,
+                    "cp": "CP-1",
+                    "armed": "no",
+                    "fallbacks": None,
+                },
+                root=root,
+            )
+        self.assertEqual(row["armed"], "unknown")
+        self.assertEqual(row["fallback_count"], "unknown")
+
     def test_invalid_utf8_brief_meta_is_ignored(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -376,23 +432,59 @@ class BriefMetaTests(unittest.TestCase):
         self.assertEqual(rows[1]["brief_docs"], ["c.md"])
         self.assertFalse((path.parent / "context-metrics.jsonl.tmp").exists())
 
-    def test_invalid_utf8_metrics_file_is_replaced_not_fatal(self) -> None:
+    def test_invalid_utf8_metrics_file_is_preserved_and_raises(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             path = root / ".kit" / "context-metrics.jsonl"
             path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_bytes(b"\xff\xfe bozuk\n")
-            stderr = io.StringIO()
-            with contextlib.redirect_stderr(stderr):
-                row, line = context_metrics.record(
+            original = b"\xff\xfe bozuk\n"
+            path.write_bytes(original)
+            with self.assertRaises(context_metrics.ContextMetricsError):
+                context_metrics.record(
                     321, "CP-1", brief_docs=["a.md"], tokens=100, root=root
                 )
-            self.assertEqual(path.read_text(encoding="utf-8"), line + "\n")
-            self.assertIn(
-                "uyari: context-metrics dosyasi UTF-8 degil",
-                stderr.getvalue(),
+            self.assertEqual(path.read_bytes(), original)
+            self.assertFalse(
+                (path.parent / "context-metrics.jsonl.tmp").exists()
             )
-        self.assertEqual(row["issue"], 321)
+
+            meta = context_metrics.brief_meta_path(321, "CP-1", root)
+            meta.write_text(
+                json.dumps(
+                    {"issue": 321, "cp": "CP-1", "selected_docs": ["a.md"]}
+                ),
+                encoding="utf-8",
+            )
+            self.assertIsNone(
+                context_metrics.record_from_brief(321, "CP-1", root)
+            )
+            self.assertEqual(path.read_bytes(), original)
+
+    def test_cli_record_reports_read_error_and_exits_one(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            path = root / ".kit" / "context-metrics.jsonl"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            original = b"\xff\xfe bozuk\n"
+            path.write_bytes(original)
+            stderr = io.StringIO()
+            with contextlib.redirect_stderr(stderr):
+                code = context_metrics.main(
+                    [
+                        "--project",
+                        str(root),
+                        "record",
+                        "--issue",
+                        "321",
+                        "--cp",
+                        "CP-1",
+                        "--tokens",
+                        "100",
+                    ]
+                )
+            self.assertEqual(code, 1)
+            self.assertIn("context-metrics:", stderr.getvalue())
+            self.assertEqual(path.read_bytes(), original)
 
 
 class TokenTests(unittest.TestCase):

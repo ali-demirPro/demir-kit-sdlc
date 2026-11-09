@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -508,10 +509,14 @@ def write_brief_meta(
         "selected_docs": list(brief_docs),
     }
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
+    # Temp + atomic replace: a crash mid-write leaves the previous metadata
+    # intact instead of a half-written JSON file.
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(
         json.dumps(payload, ensure_ascii=False, sort_keys=True, indent=2) + "\n",
         encoding="utf-8",
     )
+    os.replace(tmp, path)
 
 
 def render_cp_brief(
@@ -591,14 +596,18 @@ def render_cp_brief(
     )
     brief_docs = sorted({str(item["path"]) for item in reading})
     if meta_path is not None:
-        write_brief_meta(
-            meta_path,
-            data["issue"],
-            cp_id,
-            control,
-            brief_docs,
-            (control or {}).get("unarmed"),
-        )
+        try:
+            write_brief_meta(
+                meta_path,
+                data["issue"],
+                cp_id,
+                control,
+                brief_docs,
+                (control or {}).get("unarmed"),
+            )
+        except OSError as exc:
+            # Metrics are optional; a read-only .kit must not lose the brief.
+            print(f"brief: metadata yazilamadi — {exc}", file=sys.stderr)
     if sink_paths:
         lines.append("Yollar:")
         lines += [

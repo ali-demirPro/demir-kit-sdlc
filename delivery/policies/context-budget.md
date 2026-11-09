@@ -117,14 +117,34 @@ geçerlidir; `unknown` dosya açılmadan önce sınıflandırılır.
 `leaf-done` öncesi `.kit/context-metrics.jsonl` dosyasına tek satır yazılır:
 
 ```json
-{"brief_docs":[],"clamped":false,"config_digest":"sha256:…","cp":"CP-1","extra_docs":[],"issue":314,"method":"tokens:unknown","miss_rate":"unknown","missed_docs":[],"over_read_rate":"unknown","tokens":"unknown","unused_brief_docs":[]}
+{"armed":true,"brief_docs":[],"clamped":false,"config_digest":"sha256:…","cp":"CP-1","extra_docs":[],"fallback_count":2,"issue":314,"method":"split:unknown;tokens:unknown","miss_rate":"unknown","missed_docs":[],"over_read_rate":"unknown","selected_docs":["delivery/scripts/brief.py"],"tokens":"unknown","unused_brief_docs":[]}
 ```
 
-Satır `issue, cp, brief_docs, unused_brief_docs, extra_docs, missed_docs,
-tokens, miss_rate, over_read_rate, clamped, config_digest, method` alanlarını
-taşır ve deterministiktir (yol artan sıralı, zaman damgası yok). `config_digest`
+Satır `issue, cp, selected_docs, brief_docs, unused_brief_docs, extra_docs,
+missed_docs, tokens, miss_rate, over_read_rate, clamped, armed, fallback_count,
+config_digest, method` alanlarını taşır ve deterministiktir (yol artan sıralı,
+zaman damgası yok). `selected_docs` brief'in seçtiği dokümanlardır; `brief_docs`
+yalnız kullanıldığı kanıtlananlar, `unused_brief_docs` seçilip kullanılmayanlar,
+`extra_docs` brief dışından okunanlardır (`brief_docs` boş olabilir). `armed`
+brief'in etkin seçim yapıp yapmadığıdır (bool ya da `unknown`), `fallback_count`
+üretilen fallback uyarısı sayısıdır (int ya da `unknown`); metadata yoksa veya
+değer liste değilse `unknown` yazılır, `false`/`0` uydurulmaz. `config_digest`
 `delivery/registry.yaml` sha256'sı ile `delivery/context/index.yaml` sürümüdür.
-Dosya `.gitignore` içindedir; depoya girmez. Satır yoksa `transition.py`
+
+CP brief seçimini `.kit/brief-<issue>-<cp>.json` dosyasına da yazar; anahtarlar
+`issue`, `cp`, `armed`, `unarmed`, `fallbacks`, `selected_docs` ve değerler
+deterministiktir. Bu dosya yalnız seçimi bilir; kullanım kanıtı üretmez.
+
+`usage_known` / `split:unknown` kuralı: brief metadata'sı yalnız seçimi bilir.
+Kullanım kanıtı yoksa `brief_docs` ve `unused_brief_docs` boş, `miss_rate` ve
+`over_read_rate` `unknown` olur ve `method` `split:unknown` taşır; `0.0`
+uydurulmaz. `tokens` yine usage deltasından gelebilir, çünkü bilinmeyen yalnız
+used/unused ayrımıdır.
+
+Yazma `.kit/context-metrics.lock` üzerinde `fcntl.flock` ile serileşir; okuma
+hatasında dosya değiştirilmez ve hata bildirilir (`ContextMetricsError`).
+`.kit/context-metrics.jsonl.tmp` ve `.kit/brief-*.json` `.gitignore`
+kapsamındadır; depoya girmez. Satır yoksa `transition.py`
 `uyari: context-metrics satiri yok` yazar ve geçişi engellemez.
 
 ## Done when

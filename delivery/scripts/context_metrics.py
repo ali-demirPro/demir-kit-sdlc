@@ -15,12 +15,17 @@ Definitions (single source of truth, see ``delivery/policies/context-budget.md``
 - ``selected_docs`` is what the CP brief chose. When use evidence is absent
   (``usage_known=False``, the ``record_from_brief`` path) the used/unused split
   stays empty, both rates are ``unknown`` and ``method`` carries
-  ``usage:unknown``; the selection is never reported as used.
+  ``split:unknown``; ``tokens`` may still come from the usage delta, because
+  only the used/unused split is unknown, not the token total. The selection is
+  never reported as used.
 
 One deterministic JSON line is written per ``(issue, cp)`` to
 ``.kit/context-metrics.jsonl`` so a leaf-done transition can tell whether the CP
 was measured; recording the same pair again replaces its line instead of
-appending a duplicate.
+appending a duplicate. Writers serialize on ``.kit/context-metrics.lock``
+(``fcntl.flock`` where available) and a read error raises
+:class:`ContextMetricsError` without touching the file, so a broken line set is
+never silently truncated.
 """
 
 from __future__ import annotations
@@ -32,6 +37,11 @@ import os
 import re
 import sys
 from pathlib import Path
+
+try:  # POSIX only; a lock-less platform still records, just unserialized.
+    import fcntl
+except ImportError:  # pragma: no cover - Windows
+    fcntl = None
 
 import usage
 import yaml
@@ -45,6 +55,10 @@ FREQUENCY_PATH = Path("delivery") / "context" / "frequency.yaml"
 INDEX_PATH = Path("delivery") / "context" / "index.yaml"
 FREQUENCY_KEYS = {"version", "source", "rows"}
 FREQUENCY_ROW_KEYS = {"doc", "surface", "selected", "used", "ratio"}
+
+
+class ContextMetricsError(RuntimeError):
+    """The metrics file could not be read; it was left untouched."""
 
 
 class FrequencyError(ValueError):
@@ -317,23 +331,23 @@ def build_row(
     method = [token_method]
     method += [f"doc-missing:{value}" for value in missing]
     if not usage_known:
-        method.append("usage:unknown")
-    if brief_meta is not None:
-        # A present key keeps its meaning; an absent key is unmeasured, never
-        # a fabricated False/0 from bool(None)/len([]).
-        armed_value = (
-            bool(brief_meta.get("armed"))
-            if "armed" in brief_meta
-            else UNKNOWN
-        )
-        fallback_count = (
-            len(brief_meta.get("fallbacks") or [])
-            if "fallbacks" in brief_meta
-            else UNKNOWN
-        )
+        # Only the used/unused split is unknown; tokens may still be a delta.
+        method.append("split:unknown")
+    meta = brief_meta if isinstance(brief_meta, dict) else None
+    if meta is not None and "armed" in meta and isinstance(meta["armed"], list):
+        armed_value = bool(meta["armed"])
     else:
-        # No metadata means unmeasured, never a fabricated False/0.
+        # A present key keeps its meaning; an absent key or a non-list value
+        # (null/str) is unmeasured, never a fabricated False/0.
         armed_value = UNKNOWN
+    if (
+        meta is not None
+        and "fallbacks" in meta
+        and isinstance(meta["fallbacks"], list)
+    ):
+        fallback_count = len(meta["fallbacks"])
+    else:
+        # No metadata (or a non-list fallbacks value) means unmeasured.
         fallback_count = UNKNOWN
     row = {
         "issue": issue,
@@ -357,6 +371,46 @@ def build_row(
 
 def line_of(row: dict) -> str:
     return json.dumps(row, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
+def _existing_lines(path: Path) -> list[str]:
+    """Lines of the current metrics file; a read error never erases them.
+
+    A missing file is an empty history. An existing but unreadable file (bad
+    UTF-8, permissions, I/O error) raises :class:`ContextMetricsError` so the
+    caller leaves the bytes alone instead of rewriting them from ``[]``.
+    """
+    if not path.exists():
+        return []
+    try:
+        return path.read_text(encoding="utf-8").splitlines()
+    except (UnicodeDecodeError, OSError) as exc:
+        raise ContextMetricsError(
+            f"context-metrics okunamadi: {path}: {exc}"
+        ) from exc
+
+
+def _replace_line(lines: list[str], issue: int, cp: str, line: str) -> list[str]:
+    """Drop the old rows for ``(issue, cp)`` and append the new line."""
+    kept: list[str] = []
+    for raw in lines:
+        if not raw.strip():
+            continue
+        try:
+            current = json.loads(raw)
+        except json.JSONDecodeError:
+            # A broken line is not ours to drop.
+            kept.append(raw)
+            continue
+        if (
+            isinstance(current, dict)
+            and current.get("issue") == issue
+            and current.get("cp") == cp
+        ):
+            continue
+        kept.append(raw)
+    kept.append(line)
+    return kept
 
 
 def record(
@@ -394,39 +448,24 @@ def record(
     if write:
         path = metrics_path(root)
         path.parent.mkdir(parents=True, exist_ok=True)
-        kept: list[str] = []
+        lock_path = path.parent / "context-metrics.lock"
+        lock_fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o644)
         try:
-            existing = path.read_text(encoding="utf-8").splitlines()
-        except UnicodeDecodeError:
-            print(
-                "uyari: context-metrics dosyasi UTF-8 degil; yeniden yaziliyor",
-                file=sys.stderr,
-            )
-            existing = []
-        except OSError:
-            existing = []
-        for raw in existing:
-            if not raw.strip():
-                continue
-            try:
-                current = json.loads(raw)
-            except json.JSONDecodeError:
-                # A broken line is not ours to drop.
-                kept.append(raw)
-                continue
-            if (
-                isinstance(current, dict)
-                and current.get("issue") == issue
-                and current.get("cp") == cp
-            ):
-                continue
-            kept.append(raw)
-        kept.append(line)
-        # Write to a sibling temp file and atomically replace, so a crash
-        # mid-write cannot truncate the existing metrics file.
-        tmp = path.with_name(path.name + ".tmp")
-        tmp.write_text("\n".join(kept) + "\n", encoding="utf-8")
-        os.replace(tmp, path)
+            if fcntl is not None:
+                fcntl.flock(lock_fd, fcntl.LOCK_EX)
+            kept = _replace_line(_existing_lines(path), issue, cp, line)
+            # Write to a sibling temp file and atomically replace, so a crash
+            # mid-write cannot truncate the existing metrics file.
+            tmp = path.with_name(path.name + ".tmp")
+            tmp.write_text("\n".join(kept) + "\n", encoding="utf-8")
+            os.replace(tmp, path)
+        finally:
+            if fcntl is not None:
+                try:
+                    fcntl.flock(lock_fd, fcntl.LOCK_UN)
+                except OSError:  # pragma: no cover - closing releases it too
+                    pass
+            os.close(lock_fd)
     return row, line
 
 
@@ -443,14 +482,18 @@ def record_from_brief(
     if meta is None:
         return None
     selected = meta.get("selected_docs")
-    return record(
-        issue,
-        cp,
-        selected_docs=selected if isinstance(selected, list) else [],
-        usage_known=False,
-        brief_meta=meta,
-        root=root,
-    )
+    try:
+        return record(
+            issue,
+            cp,
+            selected_docs=selected if isinstance(selected, list) else [],
+            usage_known=False,
+            brief_meta=meta,
+            root=root,
+        )
+    except (ContextMetricsError, OSError):
+        # A leaf-done must not crash because the metrics file is unreadable.
+        return None
 
 
 def check(
@@ -784,19 +827,23 @@ def main(argv: list[str] | None = None) -> int:
     for value in args.brief_doc:
         path, is_unused = parse_brief(value)
         (unused if is_unused else brief).append(path)
-    row, line = record(
-        args.issue,
-        args.cp,
-        brief_docs=brief,
-        unused_brief_docs=unused,
-        extra_docs=args.extra_doc,
-        missed_docs=args.missed_doc,
-        tokens=args.tokens,
-        usage_file=args.usage_file,
-        config=args.config_digest,
-        root=root,
-        write=not args.dry_run,
-    )
+    try:
+        row, line = record(
+            args.issue,
+            args.cp,
+            brief_docs=brief,
+            unused_brief_docs=unused,
+            extra_docs=args.extra_doc,
+            missed_docs=args.missed_doc,
+            tokens=args.tokens,
+            usage_file=args.usage_file,
+            config=args.config_digest,
+            root=root,
+            write=not args.dry_run,
+        )
+    except (ContextMetricsError, OSError) as exc:
+        print(f"context-metrics: {exc}", file=sys.stderr)
+        return 1
     print(line)
     return 0
 

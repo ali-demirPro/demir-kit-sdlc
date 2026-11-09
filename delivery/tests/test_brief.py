@@ -513,6 +513,7 @@ class BriefMetaTests(unittest.TestCase):
                 meta_path=meta,
             )
             second = meta.read_text(encoding="utf-8")
+            self.assertFalse((meta.parent / (meta.name + ".tmp")).exists())
         self.assertEqual(first, second)
         self.assertEqual(payload["issue"], 321)
         self.assertEqual(payload["cp"], "CP-1")
@@ -525,6 +526,22 @@ class BriefMetaTests(unittest.TestCase):
             payload["selected_docs"], sorted(set(payload["selected_docs"]))
         )
         self.assertIn("delivery/scripts/brief.py", payload["selected_docs"])
+
+    def test_unwritable_meta_path_still_returns_the_brief(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            blocker = Path(tmp) / "blocked"
+            blocker.write_text("x", encoding="utf-8")
+            meta = blocker / "brief-321-CP-1.json"
+            stderr = io.StringIO()
+            with contextlib.redirect_stderr(stderr):
+                text = brief.render_cp_brief(
+                    {"issue": 321, "risk": "medium"},
+                    SEAL,
+                    "CP-1",
+                    meta_path=meta,
+                )
+        self.assertIn("CP brief — CP-1", text)
+        self.assertIn("brief: metadata yazilamadi", stderr.getvalue())
 
 
 class ReadClassTests(unittest.TestCase):
