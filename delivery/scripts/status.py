@@ -59,6 +59,10 @@ EVALUATION_KEYS = {
     "updated_at",
 }
 FINDING_KEYS = ("friction", "objection", "opportunity")
+# Epic anahtarı yalnız sade pozitif tam sayı: boşluk, işaret, baştaki sıfır yok.
+EVAL_EPIC_KEY = re.compile(r"^[1-9][0-9]*$")
+# JS güvenli tam sayı sınırı; daha büyük sayı panelde kaybolur.
+EVALUATION_COUNT_MAX = 2**53
 # `updated_at` yalnız ISO-8601 kabul eder; başka metin `null` olur.
 ISO_8601 = re.compile(
     r"^\d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])"
@@ -400,6 +404,12 @@ def evaluation_block(value: object) -> dict:
     for key in ("batch", "cases_pass", "cases_total", "discovery_rate", "updated_at"):
         if key in value:
             block[key] = value[key]
+    rate = block["discovery_rate"]
+    if isinstance(rate, (int, float)) and not isinstance(rate, bool):
+        try:
+            block["discovery_rate"] = float(rate)
+        except (OverflowError, ValueError):
+            block["discovery_rate"] = None
     findings = value.get("findings")
     if isinstance(findings, dict):
         for key in FINDING_KEYS:
@@ -412,14 +422,39 @@ def non_negative_int(value: object) -> bool:
     return isinstance(value, int) and not isinstance(value, bool) and value >= 0
 
 
+def valid_evaluation_count(value: object) -> bool:
+    """Negatif olmayan ve JS güvenli sınırı aşmayan tam sayı."""
+    return non_negative_int(value) and value <= EVALUATION_COUNT_MAX
+
+
+def valid_batch(value: object) -> bool:
+    """Boş olmayan batch adı; yalnız boşluk da geçersiz."""
+    return isinstance(value, str) and bool(value.strip())
+
+
 def valid_discovery_rate(value: object) -> bool:
+    """0..1 arası sonlu sayı; dev int OverflowError yerine geçersiz sayılır."""
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return False
-    return math.isfinite(value) and 0 <= value <= 1
+    try:
+        number = float(value)
+    except (OverflowError, ValueError):
+        return False
+    return math.isfinite(number) and 0 <= number <= 1
 
 
 def valid_updated_at(value: object) -> bool:
-    return isinstance(value, str) and bool(ISO_8601.match(value.strip()))
+    """ISO-8601 biçim + gerçek takvim günü (2026-02-31 geçersiz)."""
+    if not isinstance(value, str):
+        return False
+    text = value.strip()
+    if not ISO_8601.match(text):
+        return False
+    try:
+        datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    return True
 
 
 def eval_field(
@@ -446,14 +481,27 @@ def normalize_evaluations(raw: object, epic: str, warnings: list[str]) -> dict:
     if not isinstance(raw, dict):
         warnings.append(f"evaluations {epic}: kayıt eşleme değil, null")
         return block
-    block["batch"] = eval_field(
-        raw, epic, "batch", lambda value: isinstance(value, str), warnings
-    )
+    block["batch"] = eval_field(raw, epic, "batch", valid_batch, warnings)
+    if isinstance(block["batch"], str):
+        block["batch"] = block["batch"].strip()
     for key in ("cases_pass", "cases_total"):
-        block[key] = eval_field(raw, epic, key, non_negative_int, warnings)
+        block[key] = eval_field(raw, epic, key, valid_evaluation_count, warnings)
     block["discovery_rate"] = eval_field(
         raw, epic, "discovery_rate", valid_discovery_rate, warnings
     )
+    if isinstance(block["discovery_rate"], (int, float)) and not isinstance(
+        block["discovery_rate"], bool
+    ):
+        block["discovery_rate"] = float(block["discovery_rate"])
+    cases_pass, cases_total = block["cases_pass"], block["cases_total"]
+    if (
+        cases_pass is not None
+        and cases_total is not None
+        and cases_pass > cases_total
+    ):
+        warnings.append(f"evaluations {epic}: cases_pass > cases_total, null")
+        block["cases_pass"] = None
+        block["cases_total"] = None
     findings = raw.get("findings")
     if "findings" not in raw:
         warnings.append(f"evaluations {epic}: findings eksik, null")
@@ -477,11 +525,17 @@ def load_evaluations(project: Path) -> tuple[dict[int, dict], list[str]]:
     """
     warnings: list[str] = []
     path = project / EVALUATIONS_PATH
+    if not path.exists():
+        return {}, warnings
     if not path.is_file():
+        warnings.append("evaluations dosya değil, tüm alanlar null")
         return {}, warnings
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+    except OSError:
+        warnings.append("evaluations okunamadı: dosyaya erişilemedi, tüm alanlar null")
+        return {}, warnings
+    except ValueError:
         warnings.append("evaluations okunamadı: JSON geçersiz, tüm alanlar null")
         return {}, warnings
     if not isinstance(data, dict):
@@ -493,12 +547,15 @@ def load_evaluations(project: Path) -> tuple[dict[int, dict], list[str]]:
         return {}, warnings
     records: dict[int, dict] = {}
     for key, raw in epics.items():
-        try:
-            number = int(str(key))
-        except (TypeError, ValueError):
-            warnings.append(f"evaluations epic anahtarı geçersiz: {key}")
+        name = key if isinstance(key, str) else str(key)
+        if not isinstance(key, str) or not EVAL_EPIC_KEY.match(name):
+            warnings.append(f"evaluations epic anahtarı geçersiz: {name}")
             continue
-        records[number] = normalize_evaluations(raw, str(key), warnings)
+        number = int(name)
+        if number in records:
+            warnings.append(f"evaluations epic anahtarı yinelenen: {name}")
+            continue
+        records[number] = normalize_evaluations(raw, name, warnings)
     return records, warnings
 
 
@@ -768,12 +825,19 @@ def valid_checkpoint(item: object) -> bool:
 def valid_evaluations(item: object) -> bool:
     if not isinstance(item, dict) or set(item) != EVALUATION_KEYS:
         return False
-    if item.get("batch") is not None and not isinstance(item.get("batch"), str):
+    if item.get("batch") is not None and not valid_batch(item.get("batch")):
         return False
     for key in ("cases_pass", "cases_total"):
         value = item.get(key)
-        if value is not None and not non_negative_int(value):
+        if value is not None and not valid_evaluation_count(value):
             return False
+    cases_pass, cases_total = item.get("cases_pass"), item.get("cases_total")
+    if (
+        cases_pass is not None
+        and cases_total is not None
+        and cases_pass > cases_total
+    ):
+        return False
     rate = item.get("discovery_rate")
     if rate is not None and not valid_discovery_rate(rate):
         return False
@@ -781,14 +845,20 @@ def valid_evaluations(item: object) -> bool:
     if not isinstance(findings, dict) or set(findings) != set(FINDING_KEYS):
         return False
     if not all(
-        value is None or non_negative_int(value) for value in findings.values()
+        value is None or valid_evaluation_count(value) for value in findings.values()
     ):
         return False
     return item.get("updated_at") is None or valid_updated_at(item.get("updated_at"))
 
 
-def valid_epic(item: object) -> bool:
-    if not isinstance(item, dict) or set(item) != EPIC_KEYS:
+def valid_epic(item: object, *, allow_legacy: bool = False) -> bool:
+    if not isinstance(item, dict):
+        return False
+    keys = set(item)
+    if keys == EPIC_KEYS:
+        if not valid_evaluations(item.get("evaluations")):
+            return False
+    elif not (allow_legacy and keys == EPIC_KEYS - {"evaluations"}):
         return False
     if not isinstance(item.get("number"), int) or isinstance(item.get("number"), bool):
         return False
@@ -821,15 +891,13 @@ def valid_epic(item: object) -> bool:
         return False
     if not all(isinstance(value, bool) for value in approvals.values()):
         return False
-    if not valid_evaluations(item.get("evaluations")):
-        return False
     return all(
         item.get(key) is None or isinstance(item.get(key), (str, int, float))
         for key in ("next_action", "cycle_minutes", "cost_delta")
     )
 
 
-def valid_contract(data: object) -> bool:
+def valid_contract(data: object, *, allow_legacy: bool = False) -> bool:
     if not isinstance(data, dict) or set(data) != CONTRACT_KEYS:
         return False
     if data.get("contract_version") != CONTRACT_VERSION:
@@ -870,7 +938,7 @@ def valid_contract(data: object) -> bool:
         return False
     if not isinstance(data.get("epics"), list):
         return False
-    if not all(valid_epic(item) for item in data["epics"]):
+    if not all(valid_epic(item, allow_legacy=allow_legacy) for item in data["epics"]):
         return False
     counts = data.get("counts")
     if not isinstance(counts, dict) or set(counts) != {"epics", "leaves", "blocked"}:
@@ -879,6 +947,20 @@ def valid_contract(data: object) -> bool:
         return False
     warnings = data.get("warnings")
     return isinstance(warnings, list) and all(isinstance(item, str) for item in warnings)
+
+
+def normalize_cached_contract(data: dict) -> dict:
+    """Önbellek epic'lerini kanonikleştirir.
+
+    Eski kit sürümünün yazdığı önbellekte `evaluations` yoktur; eksik alan
+    all-null bloğa tamamlanır ki `--offline` eski önbelleği kullanmaya devam etsin.
+    """
+    epics = []
+    for item in data["epics"]:
+        epic = dict(item)
+        epic["evaluations"] = evaluation_block(epic.get("evaluations"))
+        epics.append(epic)
+    return {**data, "epics": epics}
 
 
 def args_fingerprint(args: argparse.Namespace) -> dict:
@@ -915,8 +997,9 @@ def read_cache(
     if not ignore_args and envelope.get("args") != fingerprint:
         return None, 0
     data = envelope.get("data")
-    if not valid_contract(data):
+    if not valid_contract(data, allow_legacy=True):
         return None, 0
+    data = normalize_cached_contract(data)
     return data, max(0, age)
 
 

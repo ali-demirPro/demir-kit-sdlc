@@ -744,8 +744,8 @@ class EvaluationsTests(unittest.TestCase):
             self.assertEqual([epic["number"] for epic in data["epics"]], [12])
             self.assertEqual(data["epics"][0]["evaluations"], self.RECORD)
 
-    def test_t3_old_cache_without_evaluations_recomputes(self) -> None:
-        """T-3: evaluations taşımayan eski önbellek geçersiz sayılır."""
+    def test_t3_old_cache_without_evaluations_is_accepted(self) -> None:
+        """ADV-4: evaluations taşımayan eski önbellek all-null blokla kabul edilir."""
         with tempfile.TemporaryDirectory() as tmp:
             project, stub = self.setup_project(
                 tmp, evaluations_doc({"12": self.RECORD})
@@ -761,8 +761,216 @@ class EvaluationsTests(unittest.TestCase):
             second = run("--json", "--cache-ttl", "60", cwd=project, path=stub)
             self.assertEqual(second.returncode, 0, second.stderr)
             data = payload(second)
-            self.assertEqual(data["source"], "live")
-            self.assertEqual(data["epics"][0]["evaluations"], self.RECORD)
+            self.assertEqual(data["source"], "cache")
+            self.assertEqual([epic["number"] for epic in data["epics"]], [12])
+            self.assertEqual(data["epics"][0]["evaluations"], NULL_EVALUATIONS)
+
+    def test_adv4_offline_serves_legacy_cache(self) -> None:
+        """ADV-4: `--offline` eski (evaluations'sız) önbellekten epic'leri korur."""
+        with tempfile.TemporaryDirectory() as tmp:
+            project, stub = self.setup_project(
+                tmp, evaluations_doc({"12": self.RECORD})
+            )
+            warm = run("--json", "--cache-ttl", "60", cwd=project, path=stub)
+            self.assertEqual(warm.returncode, 0, warm.stderr)
+            cache = project / ".orchestration" / "status-cache.json"
+            envelope = json.loads(cache.read_text(encoding="utf-8"))
+            for epic in envelope["data"]["epics"]:
+                epic.pop("evaluations", None)
+            cache.write_text(json.dumps(envelope), encoding="utf-8")
+
+            offline = run("--json", "--offline", cwd=project, path=stub)
+            self.assertEqual(offline.returncode, 0, offline.stderr)
+            data = payload(offline)
+            self.assertEqual(data["source"], "cache")
+            self.assertFalse(data["stale"])
+            self.assertEqual([epic["number"] for epic in data["epics"]], [12])
+            self.assertEqual(data["epics"][0]["evaluations"], NULL_EVALUATIONS)
+
+    def test_adv1_invalid_utf8_is_null(self) -> None:
+        """ADV-1: geçersiz UTF-8 çökmez; null + uyarı, exit 0."""
+        with tempfile.TemporaryDirectory() as tmp:
+            project, stub = self.setup_project(tmp)
+            path = project / ".kit" / "evaluations.json"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(b'{"epics": {"12": {"batch": "\xff\xfe"}}}')
+            proc = run("--json", cwd=project, path=stub)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            data = payload(proc)
+            self.assertEqual(data["epics"][0]["evaluations"], NULL_EVALUATIONS)
+            self.assertTrue(
+                any("JSON geçersiz" in item for item in data["warnings"]),
+                data["warnings"],
+            )
+
+    def test_adv2_huge_rate_in_file_is_null(self) -> None:
+        """ADV-2: 10**400 discovery_rate OverflowError değil, null + uyarı."""
+        with tempfile.TemporaryDirectory() as tmp:
+            project, stub = self.setup_project(tmp)
+            path = project / ".kit" / "evaluations.json"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(
+                '{"demir_kit_version": "2", "epics": {"12": '
+                '{"discovery_rate": ' + str(10**400) + "}}}",
+                encoding="utf-8",
+            )
+            proc = run("--json", cwd=project, path=stub)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            data = payload(proc)
+            self.assertIsNone(data["epics"][0]["evaluations"]["discovery_rate"])
+            self.assertTrue(
+                any("discovery_rate" in item for item in data["warnings"]),
+                data["warnings"],
+            )
+
+    def test_adv2_huge_rate_in_cache_does_not_crash(self) -> None:
+        """ADV-2: zehirli önbellek `--offline`da çökmez; yok sayılır."""
+        with tempfile.TemporaryDirectory() as tmp:
+            project, stub = self.setup_project(
+                tmp, evaluations_doc({"12": self.RECORD})
+            )
+            warm = run("--json", "--cache-ttl", "60", cwd=project, path=stub)
+            self.assertEqual(warm.returncode, 0, warm.stderr)
+            cache = project / ".orchestration" / "status-cache.json"
+            envelope = json.loads(cache.read_text(encoding="utf-8"))
+            envelope["data"]["epics"][0]["evaluations"]["discovery_rate"] = 10**400
+            cache.write_text(json.dumps(envelope), encoding="utf-8")
+
+            offline = run("--json", "--offline", cwd=project, path=stub)
+            self.assertEqual(offline.returncode, 0, offline.stderr)
+            data = payload(offline)
+            self.assertEqual(data["epics"], [])
+            self.assertTrue(data["stale"])
+            self.assertTrue(
+                any("önbellek geçersiz" in item for item in data["warnings"]),
+                data["warnings"],
+            )
+
+    @unittest.skipIf(
+        os.name == "nt" or (hasattr(os, "geteuid") and os.geteuid() == 0),
+        "izin testi POSIX kök olmayan kullanıcı ister",
+    )
+    def test_adv5_permission_error_message(self) -> None:
+        """ADV-5: okunamayan dosya JSON değil, erişim hatası olarak raporlanır."""
+        with tempfile.TemporaryDirectory() as tmp:
+            project, stub = self.setup_project(
+                tmp, evaluations_doc({"12": self.RECORD})
+            )
+            path = project / ".kit" / "evaluations.json"
+            path.chmod(0o000)
+            try:
+                proc = run("--json", cwd=project, path=stub)
+            finally:
+                path.chmod(0o644)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            data = payload(proc)
+            self.assertEqual(data["epics"][0]["evaluations"], NULL_EVALUATIONS)
+            self.assertTrue(
+                any("erişilemedi" in item for item in data["warnings"]),
+                data["warnings"],
+            )
+            self.assertFalse(
+                any("JSON geçersiz" in item for item in data["warnings"]),
+                data["warnings"],
+            )
+
+    def test_adv6_non_canonical_epic_keys_rejected(self) -> None:
+        """ADV-6: 012/ 12 /+12/-5 anahtarları reddedilir, uyarı verir."""
+        with tempfile.TemporaryDirectory() as tmp:
+            keys = ("012", " 12 ", "+12", "-5", "12.0")
+            project, stub = self.setup_project(
+                tmp, evaluations_doc({key: self.RECORD for key in keys})
+            )
+            proc = run("--json", cwd=project, path=stub)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            data = payload(proc)
+            self.assertEqual(data["epics"][0]["evaluations"], NULL_EVALUATIONS)
+            warnings = " ".join(data["warnings"])
+            for key in keys:
+                self.assertIn(f"epic anahtarı geçersiz: {key}", warnings)
+
+    def test_adv7_non_calendar_date_rejected(self) -> None:
+        """ADV-7: takvimde olmayan ISO (31 Şubat) ve geçerli artık gün."""
+        with tempfile.TemporaryDirectory() as tmp:
+            project, stub = self.setup_project(
+                tmp,
+                evaluations_doc(
+                    {
+                        "12": {**self.RECORD, "updated_at": "2026-02-31T10:00:00Z"},
+                    }
+                ),
+            )
+            proc = run("--json", cwd=project, path=stub)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            data = payload(proc)
+            self.assertIsNone(data["epics"][0]["evaluations"]["updated_at"])
+            self.assertTrue(
+                any("updated_at" in item for item in data["warnings"]),
+                data["warnings"],
+            )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            project, stub = self.setup_project(
+                tmp,
+                evaluations_doc(
+                    {
+                        "12": {**self.RECORD, "updated_at": "2024-02-29T10:00:00Z"},
+                    }
+                ),
+            )
+            proc = run("--json", cwd=project, path=stub)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            self.assertEqual(
+                payload(proc)["epics"][0]["evaluations"]["updated_at"],
+                "2024-02-29T10:00:00Z",
+            )
+
+    def test_adv8_bounds_and_normalization(self) -> None:
+        """ADV-8: sayı sınırı, pass<=total, boş batch, rate float normalizesi."""
+        with tempfile.TemporaryDirectory() as tmp:
+            project, stub = self.setup_project(
+                tmp,
+                evaluations_doc(
+                    {
+                        "12": {
+                            **self.RECORD,
+                            "batch": "",
+                            "cases_pass": 99,
+                            "cases_total": 14,
+                        }
+                    }
+                ),
+            )
+            proc = run("--json", cwd=project, path=stub)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            data = payload(proc)
+            block = data["epics"][0]["evaluations"]
+            self.assertIsNone(block["batch"])
+            self.assertIsNone(block["cases_pass"])
+            self.assertIsNone(block["cases_total"])
+            warnings = " ".join(data["warnings"])
+            self.assertIn("batch geçersiz", warnings)
+            self.assertIn("cases_pass > cases_total", warnings)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            project, stub = self.setup_project(
+                tmp,
+                evaluations_doc(
+                    {
+                        "12": {
+                            **self.RECORD,
+                            "cases_pass": 10**400,
+                            "discovery_rate": 1,
+                        }
+                    }
+                ),
+            )
+            proc = run("--json", cwd=project, path=stub)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            block = payload(proc)["epics"][0]["evaluations"]
+            self.assertIsNone(block["cases_pass"])
+            self.assertEqual(block["discovery_rate"], 1.0)
+            self.assertIsInstance(block["discovery_rate"], float)
 
 
 class ProgressTests(unittest.TestCase):
