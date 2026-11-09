@@ -1149,20 +1149,49 @@ def _rate(passed: int, judged: int) -> float | None:
     return None if judged == 0 else round(passed / judged, 4)
 
 
-def _numeric_metric(value: object) -> float | None:
-    """Return a finite, non-boolean number or ``None`` (CP-2)."""
+def _numeric_metric(value: object, metric: str) -> float | None:
+    """Return a valid metric value or ``None`` (CP-2, ADV-11/ADV-12).
+
+    ``turns`` must be a non-negative integer (booleans excluded), ``duration_ms``
+    a non-negative finite number. Values that cannot be represented as a float
+    (``10**400``) are dropped instead of raising ``OverflowError``.
+    """
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None
-    if not math.isfinite(value):
+    try:
+        number = float(value)
+    except (OverflowError, TypeError, ValueError):
         return None
-    return float(value)
+    if not math.isfinite(number) or number < 0:
+        return None
+    if metric == "turns" and not isinstance(value, int):
+        return None
+    return number
 
 
-def _median(values: list[object]) -> float | None:
-    """Median of the valid numbers, rounded to two decimals (CP-2)."""
-    numbers = sorted(
-        number for number in map(_numeric_metric, values) if number is not None
-    )
+def _median(
+    values: list[object], metric: str, side: str, warnings: list[str]
+) -> float | None:
+    """Median of the valid numbers, rounded to two decimals (CP-2).
+
+    Missing values are skipped silently; present-but-invalid values are skipped
+    and counted in ``warnings`` (ADV-11/ADV-12).
+    """
+    numbers: list[float] = []
+    invalid = 0
+    for value in values:
+        if value is None:
+            continue
+        number = _numeric_metric(value, metric)
+        if number is None:
+            invalid += 1
+        else:
+            numbers.append(number)
+    if invalid:
+        warnings.append(
+            f"{side}: {invalid} geçersiz {metric} değeri medyan dışında bırakıldı"
+        )
+    numbers.sort()
     if not numbers:
         return None
     middle = len(numbers) // 2
@@ -1268,9 +1297,14 @@ def build_compare_side(
             "basis": "criteria",
         },
         "criteria": criterion_output,
-        "median_turns": _median([record["turns"] for record in records]),
+        "median_turns": _median(
+            [record["turns"] for record in records], "turns", side_label, warnings
+        ),
         "median_duration_ms": _median(
-            [record["duration_ms"] for record in records]
+            [record["duration_ms"] for record in records],
+            "duration_ms",
+            side_label,
+            warnings,
         ),
         "revision": revision,
         "session_paths": [record["path"] for record in records],

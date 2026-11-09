@@ -1753,6 +1753,122 @@ class CompareTests(unittest.TestCase):
         self.assertIsNone(payload["delta"]["median_turns"])
         self.assertIsNone(payload["delta"]["median_duration_ms"])
 
+    def test_adv11_huge_integer_is_skipped_without_traceback(self) -> None:
+        write_batch_session(
+            self.batches,
+            "base-1",
+            status="pass",
+            criteria={"AC-1": "pass"},
+            turns=2,
+            duration_ms=100,
+        )
+        # 308+ digit integers parse as Python int but cannot become a float.
+        write_batch_session(
+            self.batches,
+            "base-2",
+            status="pass",
+            criteria={"AC-1": "pass"},
+            turns=10**400,
+            duration_ms=10**400,
+        )
+        write_batch_session(
+            self.batches,
+            "base-3",
+            status="pass",
+            criteria={"AC-1": "pass"},
+            turns=6,
+            duration_ms=300,
+        )
+        write_batch_manifest(
+            self.batches,
+            "base",
+            ["sessions/base-1", "sessions/base-2", "sessions/base-3"],
+        )
+        write_batch_session(
+            self.batches,
+            "cand-1",
+            status="pass",
+            criteria={"AC-1": "pass"},
+            turns=4,
+            duration_ms=200,
+        )
+        write_batch_manifest(self.batches, "cand", ["sessions/cand-1"])
+
+        code, stdout, stderr = self.run_compare(
+            "--baseline", "batch=base", "--candidate", "batch=cand", "--json"
+        )
+        self.assertEqual(code, 0)
+        self.assertNotIn("Traceback", stderr)
+        payload = json.loads(stdout)
+        baseline = payload["baseline"]
+        self.assertEqual(baseline["median_turns"], 4.0)
+        self.assertEqual(baseline["median_duration_ms"], 200.0)
+        self.assertEqual(payload["delta"]["median_turns"], 0.0)
+        self.assertEqual(payload["delta"]["median_duration_ms"], 0.0)
+        self.assertTrue(
+            any("geçersiz turns" in item for item in payload["warnings"])
+        )
+        self.assertTrue(
+            any("geçersiz duration_ms" in item for item in payload["warnings"])
+        )
+
+    def test_adv12_negative_and_fractional_metrics_are_skipped(self) -> None:
+        write_batch_session(
+            self.batches,
+            "base-1",
+            status="pass",
+            criteria={"AC-1": "pass"},
+            turns=-1,
+            duration_ms=-500,
+        )
+        write_batch_session(
+            self.batches,
+            "base-2",
+            status="pass",
+            criteria={"AC-1": "pass"},
+            turns=4.5,
+            duration_ms=150,
+        )
+        write_batch_session(
+            self.batches,
+            "base-3",
+            status="pass",
+            criteria={"AC-1": "pass"},
+            turns=3,
+            duration_ms=250,
+        )
+        write_batch_manifest(
+            self.batches,
+            "base",
+            ["sessions/base-1", "sessions/base-2", "sessions/base-3"],
+        )
+        write_batch_session(
+            self.batches,
+            "cand-1",
+            status="pass",
+            criteria={"AC-1": "pass"},
+            turns=5,
+            duration_ms=100,
+        )
+        write_batch_manifest(self.batches, "cand", ["sessions/cand-1"])
+
+        code, stdout, _ = self.run_compare(
+            "--baseline", "batch=base", "--candidate", "batch=cand", "--json"
+        )
+        self.assertEqual(code, 0)
+        payload = json.loads(stdout)
+        baseline = payload["baseline"]
+        self.assertEqual(baseline["median_turns"], 3.0)
+        self.assertEqual(baseline["median_duration_ms"], 200.0)
+        self.assertEqual(payload["delta"]["median_turns"], 2.0)
+        self.assertEqual(payload["delta"]["median_duration_ms"], -100.0)
+        self.assertTrue(
+            any("2 geçersiz turns" in item for item in payload["warnings"])
+        )
+        self.assertTrue(
+            any("1 geçersiz duration_ms" in item for item in payload["warnings"])
+        )
+
     def test_t5_mixed_revision_warns_and_revision_narrows(self) -> None:
         write_batch_session(
             self.batches,
