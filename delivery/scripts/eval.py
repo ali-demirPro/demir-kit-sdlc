@@ -968,29 +968,34 @@ def load_batch_manifest(path: Path) -> dict:
     return data
 
 
-def _session_entry(entry: object) -> tuple[str, dict]:
+def _session_entry(entry: object, index: int) -> tuple[str, dict]:
+    """Return ``(path, overrides)`` for one manifest session entry."""
     if isinstance(entry, str):
-        return entry, {}
-    if isinstance(entry, dict):
+        raw = entry
+        overrides: dict = {}
+    elif isinstance(entry, dict):
         raw = entry.get("session")
-        if isinstance(raw, str):
-            return raw, entry
-    return "", {}
+        if not isinstance(raw, str):
+            raise CompareError(
+                f"sessions[{index}] 'session' alanı string olmalı: {entry!r}"
+            )
+        overrides = {key: value for key, value in entry.items() if key != "session"}
+    else:
+        raise CompareError(
+            f"sessions[{index}] string ya da nesne olmalı: {type(entry).__name__}"
+        )
+    if not raw.strip():
+        raise CompareError(f"sessions[{index}] session yolu boş olamaz")
+    return raw, overrides
 
 
-def _session_path(raw: str, manifest_dir: Path) -> Path | None:
-    if not raw:
-        return None
+def _session_path(raw: str, manifest_dir: Path) -> tuple[Path, bool]:
+    """Resolve ``raw`` against the manifest directory only (absolute wins)."""
     path = Path(raw)
-    if path.is_absolute():
-        return path
-    local = manifest_dir / path
-    if local.exists():
-        return local.resolve()
-    canonical = ROOT / path
-    if canonical.exists():
-        return canonical.resolve()
-    return local.resolve()
+    if not path.is_absolute():
+        path = manifest_dir / path
+    resolved = path.resolve()
+    return resolved, resolved.is_dir()
 
 
 def _read_result(session: Path | None) -> dict:
@@ -1012,9 +1017,24 @@ def _normalize_criteria(value: object) -> dict[str, str]:
     }
 
 
-def _session_record(entry: object, manifest_dir: Path) -> dict:
-    raw, overrides = _session_entry(entry)
-    path = _session_path(raw, manifest_dir)
+def _session_record(
+    entry: object, manifest_dir: Path, index: int, manifest_revision: str | None
+) -> dict:
+    raw, overrides = _session_entry(entry, index)
+    path, exists = _session_path(raw, manifest_dir)
+    if not exists:
+        return {
+            "path": str(path),
+            "index": index,
+            "overrides": overrides,
+            "exists": False,
+            "status": "unknown",
+            "criteria": {},
+            "turns": None,
+            "duration_ms": None,
+            "revision": None,
+            "reason": f"oturum dizini yok: {path}",
+        }
     result = _read_result(path)
 
     status = overrides.get("status", result.get("status", "unknown"))
@@ -1025,27 +1045,95 @@ def _session_record(entry: object, manifest_dir: Path) -> dict:
     if isinstance(overrides.get("criteria"), dict):
         criteria.update(_normalize_criteria(overrides["criteria"]))
 
+    revision = overrides.get("revision", result.get("revision", manifest_revision))
+    if not isinstance(revision, str) or not revision.strip():
+        revision = None
+
     return {
-        "path": path,
+        "path": str(path),
+        "index": index,
+        "overrides": overrides,
+        "exists": True,
         "status": status,
         "criteria": criteria,
         "turns": overrides.get("turns", result.get("turns")),
         "duration_ms": overrides.get("duration_ms", result.get("duration_ms")),
-        "revision": overrides.get("revision", result.get("revision")),
+        "revision": revision,
+        "reason": None,
     }
+
+
+def _collect_records(
+    manifest: dict, manifest_dir: Path, side: str, warnings: list[str]
+) -> list[dict]:
+    """Build records, deduplicating by resolved path (ADV-2) and validating entries (ADV-3)."""
+    manifest_revision = manifest.get("revision")
+    if not isinstance(manifest_revision, str) or not manifest_revision.strip():
+        manifest_revision = None
+    records: list[dict] = []
+    seen: dict[str, dict] = {}
+    duplicates = 0
+    for index, entry in enumerate(manifest["sessions"]):
+        record = _session_record(entry, manifest_dir, index, manifest_revision)
+        previous = seen.get(record["path"])
+        if previous is not None:
+            if record["overrides"] != previous["overrides"]:
+                raise CompareError(
+                    f"sessions[{index}]: {record['path']} tekrar ediyor ve override "
+                    f"çakışıyor (ilk: sessions[{previous['index']}])"
+                )
+            duplicates += 1
+            continue
+        seen[record["path"]] = record
+        records.append(record)
+    if duplicates:
+        warnings.append(f"{side}: {duplicates} yinelenen oturum girdisi tekilleştirildi")
+    return records
+
+
+def _filter_revision(
+    records: list[dict], revision: str | None, side: str, warnings: list[str]
+) -> list[dict]:
+    """Keep only records carrying ``revision``; missing revisions are counted (ADV-1)."""
+    if revision is None:
+        return records
+    kept: list[dict] = []
+    mismatched = 0
+    missing = 0
+    for record in records:
+        current = record["revision"]
+        if current is None:
+            missing += 1
+        elif current == revision:
+            kept.append(record)
+        else:
+            mismatched += 1
+    warnings.append(
+        f"{side}: revision filtresi ({revision}): {len(kept)} eşleşti; "
+        f"{mismatched} farklı revision ve {missing} revision taşımayan oturum dışlandı"
+    )
+    return kept
 
 
 def _rate(passed: int, judged: int) -> float | None:
     return None if judged == 0 else round(passed / judged, 4)
 
 
-def build_compare_side(batch_id: str, manifest_path: Path) -> dict:
+def build_compare_side(
+    batch_id: str,
+    manifest_path: Path,
+    *,
+    revision: str | None = None,
+    side: str = "",
+    warnings: list[str] | None = None,
+) -> dict:
+    if warnings is None:
+        warnings = []
     manifest = load_batch_manifest(manifest_path)
     manifest_dir = manifest_path.parent
-    records = [
-        _session_record(entry, manifest_dir) for entry in manifest["sessions"]
-    ]
-    records.sort(key=lambda record: str(record["path"] or ""))
+    records = _collect_records(manifest, manifest_dir, side or batch_id, warnings)
+    records = _filter_revision(records, revision, side or batch_id, warnings)
+    records.sort(key=lambda record: str(record["path"]))
 
     criteria: dict[str, dict] = {}
     for record in records:
@@ -1087,8 +1175,16 @@ def build_compare_side(batch_id: str, manifest_path: Path) -> dict:
             "pass": total_pass,
             "judged": total_judged,
             "value": _rate(total_pass, total_judged),
+            "basis": "criteria",
         },
         "criteria": criterion_output,
+        "revision": revision,
+        "session_paths": [record["path"] for record in records],
+        "unresolved": [
+            {"path": record["path"], "reason": record["reason"]}
+            for record in records
+            if not record["exists"]
+        ],
     }
 
 
@@ -1100,17 +1196,37 @@ def build_compare(
 ) -> dict:
     """Build the deterministic CP-1 comparison of two batches.
 
-    Median/delta/revision handling arrives with CP-2; ``revision`` is accepted
-    here so the command line stays stable.
+    ``revision`` narrows both sides to sessions carrying that exact revision;
+    sessions without a revision are excluded and counted in ``warnings``.
     """
+    if revision is not None:
+        if not revision.strip():
+            raise CompareError("--revision boş olamaz")
+        revision = revision.strip()
     root = BATCH_ROOT if batch_root is None else batch_root
     baseline_path = resolve_batch(root, baseline_id)
     candidate_path = resolve_batch(root, candidate_id)
+    warnings: list[str] = []
+    baseline = build_compare_side(
+        baseline_id,
+        baseline_path,
+        revision=revision,
+        side="baseline",
+        warnings=warnings,
+    )
+    candidate = build_compare_side(
+        candidate_id,
+        candidate_path,
+        revision=revision,
+        side="candidate",
+        warnings=warnings,
+    )
     return {
         "mode": "compare",
-        "baseline": build_compare_side(baseline_id, baseline_path),
-        "candidate": build_compare_side(candidate_id, candidate_path),
-        "warnings": [],
+        "revision": revision,
+        "baseline": baseline,
+        "candidate": candidate,
+        "warnings": warnings,
     }
 
 
@@ -1160,7 +1276,8 @@ def _compare_command(argv: list[str]) -> int:
         data = report[side]
         print(
             f"{side} ({data['batch']}): {data['sessions']} oturum, "
-            f"{data['completed']} tamamlanan; pass rate {_format_rate(data['pass_rate'])}"
+            f"{data['completed']} tamamlanan; pass rate (kriter ağırlıklı) "
+            f"{_format_rate(data['pass_rate'])}"
         )
         for name in sorted(data["criteria"]):
             counts = data["criteria"][name]
@@ -1169,6 +1286,8 @@ def _compare_command(argv: list[str]) -> int:
                 f"unknown {counts['unknown']}, unassessable {counts['unassessable']} "
                 f"→ {_format_rate(counts)}"
             )
+    for warning in report["warnings"]:
+        print(f"uyarı: {warning}")
     return 0
 
 
