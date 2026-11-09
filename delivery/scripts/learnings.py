@@ -4,7 +4,7 @@
 Hedef projelerdeki `learning` issue'ları ve closure metriklerini hasat eder,
 normalize edip 2+ projede tekrar eden dersleri genel kural adayına dönüştürür.
 Beyaz listedeki **ekleme** sınıfı değişiklikler otomatik uygulanır; kural
-azaltma/silme ve kod değişikliği otomatik yazılmaz (I13 kapsamı: ürün teslimatı;
+azaltma/silme ve kod değişikliği otomatik yazılmaz (I22 kapsamı: ürün teslimatı;
 kit self-improvement lane'de kabul doctor + testtir).
 
 Usage:

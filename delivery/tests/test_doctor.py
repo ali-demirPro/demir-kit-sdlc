@@ -1660,5 +1660,67 @@ class ExplainTests(DoctorTestCase):
         self.assertIn("bilinmeyen kontrol: nope", unknown.stderr + unknown.stdout)
 
 
+class RiskBaselineInvariantTest(unittest.TestCase):
+    """I24: rigor seviyesi risk tabanını ve insan kapısını düşüremez."""
+
+    COUNTS = {"low": 1, "medium": 1, "high": 2, "critical": 2}
+
+    def test_reviewer_count_is_risk_only(self) -> None:
+        for risk, count in self.COUNTS.items():
+            self.assertEqual(doctor.rigor_lib.reviewer_count(risk), count, risk)
+
+    def test_high_and_critical_keep_human_reviewer_and_gate(self) -> None:
+        for risk in ("high", "critical"):
+            reviewers = doctor.routing.evidence_reviewers({}, risk)
+            self.assertIn("human", reviewers, risk)
+            self.assertFalse(
+                reviewer_count_breach(risk, reviewers),
+                f"{risk}: gating reviewer sayısı risk tabanının altında",
+            )
+            self.assertTrue(doctor.routing.human_gates(risk, False), risk)
+
+    def test_rigor_level_cannot_lower_baseline(self) -> None:
+        for level in ("minimal", "standard", "full"):
+            with tempfile.TemporaryDirectory() as raw:
+                root = Path(raw)
+                (root / "kit.config.yaml").write_text(
+                    f"process:\n  rigor: {level}\n", encoding="utf-8"
+                )
+                effective = doctor.rigor_lib.load_effective(root)
+            # Seviye gerçekten uygulandı; test boş bir yapılandırmayı ölçmüyor.
+            self.assertEqual(effective["level"], level)
+            self.assertEqual(
+                effective["knobs"]["modes.workflow"]["value"], level, level
+            )
+            for risk, count in self.COUNTS.items():
+                label = f"{level}/{risk}"
+                self.assertEqual(
+                    doctor.rigor_lib.reviewer_count(risk), count, label
+                )
+                reviewers = doctor.routing.evidence_reviewers({}, risk)
+                gates = doctor.routing.human_gates(risk, False)
+                if risk in {"high", "critical"}:
+                    self.assertIn("human", reviewers, label)
+                    self.assertFalse(
+                        reviewer_count_breach(risk, reviewers),
+                        f"{label}: gating reviewer sayısı risk tabanının altında",
+                    )
+                    self.assertTrue(gates, label)
+                else:
+                    self.assertNotIn("human", reviewers, label)
+                    self.assertEqual(
+                        len(reviewers),
+                        1,
+                        f"{label}: full ikinci gating reviewer üretti",
+                    )
+                    self.assertEqual(len(reviewers), count, label)
+
+
+def reviewer_count_breach(risk: str, reviewers: list[str]) -> bool:
+    """Gating rolleri (human hariç) risk tabanının altına düştü mü."""
+    gating = [role for role in reviewers if not role.startswith("human")]
+    return len(gating) < RiskBaselineInvariantTest.COUNTS[risk]
+
+
 if __name__ == "__main__":
     unittest.main()

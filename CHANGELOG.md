@@ -1,5 +1,19 @@
 # Changelog
 
+## 2.63.0 — 2026-11-09
+
+- **Risk tabanı değişmezi (Epic #290, #327)** — CONTRACT'ta çakışan ikinci
+  `I11-I14` bloğu `I20-I23` olarak yeniden numaralandı; `I24` rigor seviyesinin
+  risk tabanını, `auto_escalate` glob'larını veya insan kapısını
+  düşüremeyeceğini yazar. Gating reviewer sayısı yalnız riskten gelir
+  (low/medium 1, high/critical 2).
+- `learnings.py` epic-done insan kabulü atfı `I22`'ye bağlandı;
+  Self-improvement lane aynı numarayı kullanır.
+- Testler minimal/standard/full seviyelerinde reviewer sayısının ve
+  high/critical insan kapısının değişmediğini gerçek `rigor` ve `routing`
+  fonksiyonlarıyla kanıtlar (`test_doctor.py`).
+- Sürüm 2.63.0.
+
 ## 2.62.0 — 2026-11-09
 
 - **Otonomi ve delegated kabul (Epic N, #283)** — `delivery/policies/autonomy.md`
