@@ -291,6 +291,27 @@ class EnsureMetricsTests(unittest.TestCase):
         self.assertFalse(ok)
         self.assertEqual(message, "uyari: context-metrics satiri yok")
 
+    def test_broken_usage_file_is_a_warning(self) -> None:
+        """Invalid UTF-8 usage is ``unknown``; leaf-done still does not crash."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            usage_path = root / ".kit" / "usage-321.json"
+            usage_path.parent.mkdir(parents=True, exist_ok=True)
+            usage_path.write_bytes(b"\xff\xfe bozuk\n")
+            stderr = io.StringIO()
+            with contextlib.redirect_stderr(stderr):
+                transition.ensure_context_metrics(321, "CP-1", root=root)
+            metrics = root / ".kit" / "context-metrics.jsonl"
+            self.assertFalse(metrics.exists())
+            self.assertEqual(
+                sorted(item.name for item in (root / ".kit").iterdir()),
+                ["usage-321.json"],
+            )
+            row = context_metrics.build_row(321, "CP-1", root=root)
+        self.assertIn("uyari: context-metrics satiri yok", stderr.getvalue())
+        self.assertEqual(row["tokens"], "unknown")
+        self.assertEqual(row["method"], "tokens:unknown")
+
 
 class ConcurrencyTests(unittest.TestCase):
     """Two writers serialize on the lock instead of dropping rows."""

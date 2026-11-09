@@ -874,13 +874,13 @@ def main() -> int:
         return 0
 
     if args.to == "leaf-done":
+        close_leaf_gate(issue, args)
+        check_push(args)
         ensure_context_metrics(
             args.issue,
             metrics_cp(args.cp, issue),
             require=args.require_metrics,
         )
-        close_leaf_gate(issue, args)
-        check_push(args)
 
     run_id = datetime.now(timezone.utc).strftime("run-%Y%m%dT%H%M%SZ")
     transition_comment = (

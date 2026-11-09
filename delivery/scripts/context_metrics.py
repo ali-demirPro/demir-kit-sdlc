@@ -153,7 +153,7 @@ def load_usage(path: Path) -> dict | None:
     """Parsed usage JSON, or ``None`` when missing or invalid."""
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
         return None
     return data if isinstance(data, dict) else None
 
@@ -173,7 +173,7 @@ def session_delta(issue: int, root: Path | None = None) -> dict | None:
     """Session delta from ``usage.py`` rooted at ``root``; ``None`` when unavailable."""
     try:
         return usage.session_delta(issue, project=resolve_root(root))
-    except Exception:  # noqa: BLE001 - missing snapshot/session is ``unknown``
+    except (Exception, SystemExit):  # noqa: BLE001 - missing/unreachable is ``unknown``
         return None
 
 

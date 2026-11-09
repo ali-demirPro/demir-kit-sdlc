@@ -134,6 +134,8 @@ değer liste değilse `unknown` yazılır, `false`/`0` uydurulmaz. `config_diges
 CP brief seçimini `.kit/brief-<issue>-<cp>.json` dosyasına da yazar; anahtarlar
 `issue`, `cp`, `armed`, `unarmed`, `fallbacks`, `selected_docs` ve değerler
 deterministiktir. Bu dosya yalnız seçimi bilir; kullanım kanıtı üretmez.
+`.kit/brief-*.json` ve `.kit/context-metrics.jsonl` ana checkout `.kit` altında
+yaşar (cycle.jsonl gibi); epic worktree kaldırılınca kaybolmaz.
 
 `usage_known` / `split:unknown` kuralı: brief metadata'sı yalnız seçimi bilir.
 Kullanım kanıtı yoksa `brief_docs` ve `unused_brief_docs` boş, `miss_rate` ve

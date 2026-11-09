@@ -103,7 +103,16 @@ def config_body(seal: dict | None = None) -> str:
 class ConfigTests(unittest.TestCase):
     """Effective configuration banner (issue 313)."""
 
-    def run_brief(self, argv, index_path=None, title="config", seal=None, patch_repo=True):
+    def run_brief(
+        self,
+        argv,
+        index_path=None,
+        title="config",
+        seal=None,
+        patch_repo=True,
+        context_root=None,
+        set_context_root=True,
+    ):
         issue = json.dumps(
             {
                 "title": title,
@@ -115,9 +124,13 @@ class ConfigTests(unittest.TestCase):
         err = io.StringIO()
         with contextlib.ExitStack() as stack:
             runtime = stack.enter_context(tempfile.TemporaryDirectory())
-            stack.enter_context(
-                patch.dict(os.environ, {"DEMIR_KIT_CONTEXT_ROOT": runtime})
-            )
+            stack.enter_context(patch.dict(os.environ, {}))
+            if set_context_root:
+                os.environ["DEMIR_KIT_CONTEXT_ROOT"] = str(
+                    context_root if context_root is not None else runtime
+                )
+            else:
+                os.environ.pop("DEMIR_KIT_CONTEXT_ROOT", None)
             if patch_repo:
                 stack.enter_context(
                     patch.object(brief, "repo_name", return_value="x/y")
@@ -333,6 +346,25 @@ class ConfigTests(unittest.TestCase):
         self.assertTrue(out.startswith("config:\n"))
         self.assertIn("fallback: ecosystem yok", out)
         self.assertIn("fallback: priorities yok", out)
+
+    def test_meta_path_uses_the_cycle_root(self) -> None:
+        """Brief metadata follows cycle.jsonl to the main checkout (issue 321)."""
+        with tempfile.TemporaryDirectory() as main_dir, tempfile.TemporaryDirectory() as worktree_dir:
+            main = Path(main_dir).resolve()
+            worktree = Path(worktree_dir).resolve()
+            with patch.object(
+                brief.cycle, "project_root", return_value=main
+            ), patch.object(brief.routing, "project_root", return_value=worktree):
+                code, out, err = self.run_brief(
+                    ["321", "--cp", "CP-1"], set_context_root=False
+                )
+            self.assertEqual(code, 0, err)
+            self.assertIn("CP brief — CP-1", out)
+            meta = main / ".kit" / "brief-321-CP-1.json"
+            self.assertTrue(meta.is_file())
+            payload = json.loads(meta.read_text(encoding="utf-8"))
+            self.assertEqual((payload["issue"], payload["cp"]), (321, "CP-1"))
+            self.assertFalse((worktree / ".kit").exists())
 
 
 class CpBriefTests(unittest.TestCase):
