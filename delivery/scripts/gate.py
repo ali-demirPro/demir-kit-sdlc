@@ -37,6 +37,7 @@ CONFIG_SUFFIXES = (".yaml", ".yml", ".json")
 CACHE_NAME = "gate-cache.json"
 CACHE_TTL = 86_400
 CACHE_MAX = 50
+DIGEST_CHUNK = 64 * 1024
 CHECKPOINT_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 
 
@@ -122,6 +123,22 @@ def working_tree_changes(project: Path) -> set[str]:
     return {line[3:].strip() for line in lines if line.strip()}
 
 
+def _file_digest(path: Path) -> str:
+    """SHA-256 of a file's full contents, read in fixed-size chunks.
+
+    Streaming keeps large untracked files out of memory; an unreadable file
+    degrades to the hash of empty content, matching the old cache behaviour.
+    """
+    digest = hashlib.sha256()
+    try:
+        with open(path, "rb") as handle:
+            for chunk in iter(lambda: handle.read(DIGEST_CHUNK), b""):
+                digest.update(chunk)
+    except OSError:
+        return hashlib.sha256(b"").hexdigest()
+    return digest.hexdigest()
+
+
 def tree_state(project: Path) -> str:
     """HEAD + dirty diff + untracked list, hashed."""
     names = [
@@ -133,12 +150,7 @@ def tree_state(project: Path) -> str:
     ]
     untracked = []
     for name in names:
-        path = project / name
-        try:
-            data = path.read_bytes()[:200_000]
-        except OSError:
-            data = b""
-        untracked.append(name + "\0" + hashlib.sha256(data).hexdigest())
+        untracked.append(name + "\0" + _file_digest(project / name))
     payload = [
         _git_text(["rev-parse", "HEAD"], project),
         _git_text(["diff", "--binary", "HEAD"], project),

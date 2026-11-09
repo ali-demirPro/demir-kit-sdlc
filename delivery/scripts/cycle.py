@@ -181,6 +181,8 @@ def review_minutes(rows: list[dict]) -> int:
 
     A multi-checkpoint leaf records one review row per checkpoint; summing every
     review row would count the next checkpoint's implementation as review time.
+    An approval wait after the last review is not review work either: the tail
+    ends at the first `wait` row, or at leaf-done when no wait intervenes.
     """
     ordered = sorted(rows, key=lambda item: str(item.get("ts")))
     done = _first(ordered, "leaf-done")
@@ -194,7 +196,15 @@ def review_minutes(rows: list[dict]) -> int:
                 last = stamp
     if not last:
         return 0
-    return max(0, int((done - last).total_seconds() // 60))
+    end = done
+    for row in ordered:
+        if row.get("stage") != "wait":
+            continue
+        stamp = parse_ts(row.get("ts"))
+        if stamp and last < stamp < done:
+            end = stamp
+            break
+    return max(0, int((end - last).total_seconds() // 60))
 
 
 def summary(rows: list[dict]) -> dict:

@@ -224,6 +224,8 @@ def prepare_worktree(number: int, epic: int | None) -> int:
         f"[worktree] {record.get('name')}: {path} · branch {record.get('branch')}",
         file=sys.stderr,
     )
+    if record.get("run_warning"):
+        print(f"next-leaf: {record['run_warning']}", file=sys.stderr)
     if record.get("run_error"):
         print(f"next-leaf: {record['run_error']}", file=sys.stderr)
         return 1

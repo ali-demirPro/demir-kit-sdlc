@@ -65,6 +65,30 @@ class CacheTests(unittest.TestCase):
         entry = gate.load_cache(self.project)["k"]
         self.assertEqual(entry["command"], "gate.sh --issue 1 --checkpoint CP-1")
 
+    def _untracked_git(self, args: list[str], project: Path) -> str:
+        if "ls-files" in args:
+            return "big.bin\n"
+        if "rev-parse" in args:
+            return "0123456789abcdef\n"
+        return ""
+
+    def test_tree_state_hashes_untracked_past_the_200kb_cut(self) -> None:
+        target = self.project / "big.bin"
+        target.write_bytes(b"a" * 300_000)
+        # Any full read of the untracked file would trip this patch; the digest
+        # must come from chunked reads only.
+        with mock.patch.object(
+            gate, "_git_text", side_effect=self._untracked_git
+        ), mock.patch.object(
+            Path, "read_bytes", side_effect=AssertionError("full file read")
+        ):
+            first = gate.tree_state(self.project)
+            with open(target, "r+b") as handle:
+                handle.seek(250_000)
+                handle.write(b"b")
+            second = gate.tree_state(self.project)
+        self.assertNotEqual(first, second)
+
     def test_main_stores_the_executed_command(self) -> None:
         from unittest import mock
 

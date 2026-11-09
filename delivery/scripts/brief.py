@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -489,6 +490,53 @@ def evidence_skeleton(reviewers: list[str], risk: str) -> list[str]:
     return lines
 
 
+def _string_list(value) -> list[str] | None:
+    """Copy of a ``list[str]``; any other value is ``None`` (not coerced)."""
+    if not isinstance(value, list) or not all(
+        isinstance(item, str) for item in value
+    ):
+        return None
+    return list(value)
+
+
+def write_brief_meta(
+    path: Path,
+    issue: int,
+    cp_id: str,
+    control: dict | None,
+    brief_docs: list[str],
+    unarmed: list[str] | None = None,
+) -> None:
+    """Write the machine-readable CP brief metadata (deterministic JSON).
+
+    Only ``list[str]`` control values become keys; a wrongly typed value is
+    omitted entirely so the reader yields ``unknown`` instead of a fabricated
+    False/0 (``list("no")`` must never turn a string into characters).
+    """
+    control = control or {}
+    payload: dict = {"issue": issue, "cp": cp_id}
+    armed = _string_list(control.get("armed"))
+    if armed is not None:
+        payload["armed"] = armed
+    unarmed_value = unarmed if unarmed is not None else control.get("unarmed")
+    unarmed_list = _string_list(unarmed_value)
+    if unarmed_list is not None:
+        payload["unarmed"] = unarmed_list
+    fallbacks = _string_list(control.get("fallbacks"))
+    if fallbacks is not None:
+        payload["fallbacks"] = fallbacks
+    payload["selected_docs"] = [str(item) for item in brief_docs]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    # Temp + atomic replace: a crash mid-write leaves the previous metadata
+    # intact instead of a half-written JSON file.
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(
+        json.dumps(payload, ensure_ascii=False, sort_keys=True, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    os.replace(tmp, path)
+
+
 def render_cp_brief(
     data: dict,
     seal: dict,
@@ -501,6 +549,7 @@ def render_cp_brief(
     control: dict | None = None,
     docs: list[str] | None = None,
     route: list[dict] | None = None,
+    meta_path: Path | None = None,
 ) -> str:
     """Compact per-checkpoint brief: scope, AC, tests, evidence skeleton."""
     cp, cases = cp_selection(seal, cp_id)
@@ -563,6 +612,26 @@ def render_cp_brief(
         window=window_docs(docs, role),
         route=cp_route_items(route),
     )
+    brief_docs = sorted(
+        {
+            str(item["path"])
+            for item in reading
+            if item.get("class") in READ_CLASSES
+        }
+    )
+    if meta_path is not None:
+        try:
+            write_brief_meta(
+                meta_path,
+                data["issue"],
+                cp_id,
+                control,
+                brief_docs,
+                (control or {}).get("unarmed"),
+            )
+        except OSError as exc:
+            # Metrics are optional; a read-only .kit must not lose the brief.
+            print(f"brief: metadata yazilamadi — {exc}", file=sys.stderr)
     if sink_paths:
         lines.append("Yollar:")
         lines += [
@@ -616,7 +685,7 @@ def render_cp_brief(
         "Okuma: bu brief yeterli; ek dosyayı yalnız ilgili satır için aç "
         "(`rg -n`), CONTRACT.md ve quality-gates.md tamamını okuma.",
         "Kurallar: yalnız bu CP; başka CP/contract/CI dosyasına dokunma; tam dosya "
-        "dökme; bağlam 120k'da uyar, 200k'da dur ve kısa özet yaz.",
+        "dökme; bağlam 200k'da uyar, 300k'da dur ve kısa özet yaz.",
     ]
     return "\n".join(lines) + "\n"
 
@@ -894,6 +963,9 @@ def main() -> int:
                 control=cp_control,
                 docs=data["docs"],
                 route=cp_route,
+                meta_path=context_metrics.brief_meta_path(
+                    data["issue"], args.cp
+                ),
             )
         except ValueError as exc:
             sys.exit(f"brief: {exc}")

@@ -33,6 +33,19 @@ findings:
   problem: küçük
 """
 
+INVALID_SEVERITY = """approved: true
+findings:
+- severity: medium
+  file: a.py:1
+  problem: orta
+"""
+
+MISSING_SEVERITY = """approved: true
+findings:
+- file: a.py:1
+  problem: etiketsiz
+"""
+
 
 class SeverityTests(unittest.TestCase):
     def test_findings_are_split_by_severity(self) -> None:
@@ -50,6 +63,18 @@ class SeverityTests(unittest.TestCase):
 
     def test_unlabelled_approval_is_unchanged(self) -> None:
         self.assertTrue(wave.parse_verdict("approved: true"))
+
+    def test_invalid_severity_rejects_approval(self) -> None:
+        self.assertFalse(wave.parse_verdict(INVALID_SEVERITY))
+        self.assertEqual(len(wave.invalid_findings(INVALID_SEVERITY)), 1)
+
+    def test_missing_severity_rejects_approval(self) -> None:
+        self.assertFalse(wave.parse_verdict(MISSING_SEVERITY))
+        self.assertEqual(len(wave.invalid_findings(MISSING_SEVERITY)), 1)
+
+    def test_valid_findings_have_no_invalid_entries(self) -> None:
+        self.assertEqual(wave.invalid_findings(ONLY_NITS), [])
+        self.assertEqual(wave.invalid_findings(BLOCKING), [])
 
     def test_skill_documents_the_round_policy(self) -> None:
         text = (ROOT / "skills" / "adversarial-review" / "SKILL.md").read_text(encoding="utf-8")

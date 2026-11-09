@@ -240,6 +240,83 @@ def leaf(number: int, created: str, epic: int = 11, path: str | None = None) -> 
     }
 
 
+class ClaimRunIdTests(unittest.TestCase):
+    """#319: a claim must never repoint an epic run that already owns tasks."""
+
+    def ensure(self, record: dict, responses: dict) -> tuple[dict, list[list[str]]]:
+        calls: list[list[str]] = []
+
+        def fake_orca_json(args, _project):
+            calls.append(args)
+            return responses.get(args[1])
+
+        with patch.object(
+            next_leaf.epic_worktree, "orca_json", side_effect=fake_orca_json
+        ):
+            result = next_leaf.epic_worktree.ensure_run(
+                Path("/tmp/repo"), 323, record
+            )
+        return result, calls
+
+    def test_existing_run_with_tasks_is_kept(self) -> None:
+        record = {"epic": 323, "mode": "orca", "run_id": "run_keep", "tasks": []}
+        responses = {
+            "task-list": {"ok": True, "result": {"tasks": [{"id": "task_1"}]}},
+            "run-current": {
+                "ok": True,
+                "result": {"runId": "run_other", "objective": "epic #323"},
+            },
+        }
+        result, calls = self.ensure(record, responses)
+        self.assertEqual(result["run_id"], "run_keep")
+        self.assertNotIn("run_warning", result)
+        self.assertFalse(any("run-current" in call for call in calls))
+
+    def test_existing_run_without_tasks_warns_and_is_kept(self) -> None:
+        record = {"epic": 323, "mode": "orca", "run_id": "run_empty", "tasks": []}
+        responses = {
+            "task-list": {"ok": True, "result": {"tasks": []}},
+            "run-current": {
+                "ok": True,
+                "result": {"runId": "run_other", "objective": "epic #323"},
+            },
+        }
+        result, calls = self.ensure(record, responses)
+        self.assertEqual(result["run_id"], "run_empty")
+        self.assertIn("run_warning", result)
+        self.assertFalse(any("run-current" in call for call in calls))
+
+    def test_empty_run_id_is_written(self) -> None:
+        record = {"epic": 323, "mode": "orca", "run_id": None, "tasks": []}
+        responses = {
+            "run-current": {
+                "ok": True,
+                "result": {"runId": "run_new", "objective": "epic #323"},
+            },
+        }
+        result, _ = self.ensure(record, responses)
+        self.assertEqual(result["run_id"], "run_new")
+        self.assertNotIn("run_warning", result)
+
+    def test_prepare_worktree_surfaces_run_warning(self) -> None:
+        record = {
+            "name": "epic-44",
+            "path": "/tmp/epic-44",
+            "branch": "epic-44",
+            "run_warning": "run empty-run task içermiyor",
+        }
+        err = io.StringIO()
+        with patch.object(
+            next_leaf.epic_worktree, "epic_worktree_enabled", return_value=True
+        ), patch.object(
+            next_leaf.epic_worktree, "ensure", return_value=record
+        ), patch.object(
+            next_leaf.budget, "load", return_value={}
+        ), redirect_stderr(err):
+            self.assertEqual(next_leaf.prepare_worktree(46, 44), 0)
+        self.assertIn("task içermiyor", err.getvalue())
+
+
 class ExplicitIssueTests(unittest.TestCase):
     def test_explicit_issue_ignores_other_leaves_budget(self) -> None:
         # gh returns newest first; the older explicit leaf must still be eligible.

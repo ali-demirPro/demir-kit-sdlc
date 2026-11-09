@@ -1,6 +1,6 @@
 # Dependencies
 
-Label agent-approved; issue reference + checkpoints.
+Human `demir-kit-accept` then `transition.sh --to agent-approved`; issue reference + checkpoints.
 
 ## Legacy
 
