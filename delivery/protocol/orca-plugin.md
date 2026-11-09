@@ -57,9 +57,14 @@ Detay görünümü dolu alanlardan tek satır çizer:
 - bulgular: `friction`, `objection`, `opportunity` içinde yalnız **0'dan büyük**
   olanlar `3 friction`, `1 objection`, `2 opportunity` biçiminde.
 
-`null` alan satıra girmez. Hiçbir parça yoksa (tüm alanlar `null` ya da bulgular
-sıfır) satır çizilmez; panel çökmez. Eski `status.py` `evaluations` alanını
-taşımaz: aynı şekilde satır çizilmez. Satır salt-okurdur; düğme ya da yeni
+`null` alan satıra girmez. Sayı tabanı panelde de denetlenir: `cases_*` ve
+bulgular yalnız negatif olmayan tam sayıysa, `discovery_rate` yalnız `0..1`
+aralığında sonlu sayıysa çizilir; sözleşme dışı değer parçayı atlar. Hiçbir
+parça yoksa (tüm alanlar `null` ya da bulgular sıfır) satır çizilmez; panel
+çökmez. Eski `status.py` alanı hiç taşımaz (`undefined`); üretici kayıt yoksa
+`null` da gönderebilir. İki durumda da satır çizilmez. Yardımcılar saf
+`src/eval.ts` modülündedir; `orca plugin test plugins/orca` bu çıktıları
+`node:test` ile birebir doğrular. Satır salt-okurdur; düğme ya da yeni
 `plugin.request` aksiyonu eklemez.
 
 ## Aksiyonlar
@@ -219,7 +224,7 @@ yoksa normalize karşılaştırmaya (sondaki `/`, büyük/küçük harf) düşü
 Doğrula:
 
 ```bash
-orca plugin check plugins/orca     # yedi senaryo: fresh, detail, legacy, evalEmpty, sameName, focusMissing, empty
+orca plugin check plugins/orca     # sekiz senaryo: fresh, detail, evalPartial, legacy, evalEmpty, sameName, focusMissing, empty
 orca plugin inspect plugins/orca   # katkılar, izinler, içerik özeti
 python3 -m unittest delivery.tests.test_orca_plugin
 ```

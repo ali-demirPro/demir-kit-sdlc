@@ -83,8 +83,11 @@ export interface StatusEpic {
   open_findings?: number
   approvals?: { agent_approved: boolean; human_qa: boolean }
   next_action?: string | null
-  /** Eval özeti; eski `status.py` bu alanı taşımaz, panel satır çizmez. */
-  evaluations?: StatusEvaluations
+  /**
+   * Eval özeti. Eski `status.py` alanı hiç taşımaz (`undefined`); üretici kayıt
+   * yoksa `null` da gönderebilir. İki durumda da panel eval satırı çizmez.
+   */
+  evaluations?: StatusEvaluations | null
 }
 
 export interface StatusCounts {
