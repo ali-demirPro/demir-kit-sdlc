@@ -1,6 +1,7 @@
 # Onay politikası
 
-Onay = GitHub issue + label. Sohbet onayı yalnız bilgi eksikse.
+Onay = GitHub issue + label. Sohbet onayı yalnız bilgi eksikse. Eşikler ve
+sahip yokken vekâlet: [autonomy.md](autonomy.md).
 
 ## Otonom devam (soru yok)
 

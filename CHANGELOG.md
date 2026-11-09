@@ -1,5 +1,16 @@
 # Changelog
 
+## 2.62.0 — 2026-11-09
+
+- **Otonomi ve delegated kabul (Epic N, #283)** — `delivery/policies/autonomy.md`
+  eşikleri (A2 otonom), durma koşullarını (A0 insan kapısı), vekâleten kabul
+  sınırını (A1) ve dönüş özetini tanımlar; CONTRACT Yürütme bölümü ve registry
+  politikaya bağlanır.
+- Sahip yokken `low`/`medium` leaf, review, closure ve PR vekâleten kapatılır ve
+  `delegated: coordinator` ile işaretlenir; geri dönülemez iş ve ürün
+  teslimatında epic kabulü insanda kalır.
+- Sürüm 2.62.0.
+
 ## 2.61.0 — 2026-11-08
 
 - **Orca'ya devret (Epic N, #277)** — kit makine kapısı olmaktan çıktı:
