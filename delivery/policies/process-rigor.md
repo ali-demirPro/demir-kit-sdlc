@@ -5,6 +5,10 @@ düğmenin hangi davranışı değiştirdiğini, nerede okunduğunu ve neyi **as
 değiştirmediğini yazar. Sözleşme: [CONTRACT.md](../CONTRACT.md) I24 · Risk
 matrisi: [quality-gates.md](quality-gates.md).
 
+Bu sayfa rigor sözleşmesini tanımlar. Minimal bölümü tanımlı etkiyi anlatır;
+bugün otomatik uygulanan kısım `docs.density`'dir. Diğer düğmelerin tanımlı
+etkisi, tüketici bağlanana kadar gate/kanıt üretimini otomatik değiştirmez.
+
 ## Tek kapı
 
 - Seçim: `kit.config.yaml` → `process.rigor` = `minimal` | `standard` | `full`.
@@ -56,6 +60,11 @@ göstermez.
 ## Minimal neyi kısaltır?
 
 `minimal` daha az tören seçer, daha az kapı değil.
+
+Bu bölüm tanımlı etkiyi anlatır: aşağıdaki listeler `minimal`in hedeflediği
+kısalmaları ve koruduğu tabanı verir. Bugün otomatik uygulanan kısım
+`docs.density`'dir; diğer düğmelerin tanımlı etkisi, tüketici bağlanana kadar
+gate/kanıt üretimini otomatik değiştirmez.
 
 ### Kısalttığı
 

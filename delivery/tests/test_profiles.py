@@ -484,6 +484,7 @@ class ProcessRigorPolicyTests(unittest.TestCase):
     """AC-1/AC-3: etki haritası tablosu rigor tablosuyla birebir aynı."""
 
     POLICY = ROOT / "delivery" / "policies" / "process-rigor.md"
+    QUALITY_GATES = ROOT / "delivery" / "policies" / "quality-gates.md"
     UNBOUND = "yok (yalnız doctor --explain rigor matrisinde görünür)"
     # Bugün gerçekten okuyan dosyalar; hedef sütunu bunu kanıtlamaz.
     BOUND_READERS = {"docs.density": ("resolver.py", "brief.py")}
@@ -564,6 +565,39 @@ class ProcessRigorPolicyTests(unittest.TestCase):
         """AC-1: not, bugün bağlı tek düğmenin docs.density olduğunu yazar."""
         self.assertIn("Bugün gerçekten bağlı tek düğme `docs.density`", self.text)
         self.assertIn("ayrı iştir", self.text)
+
+    def test_defined_effect_stays_separate_from_bound_today(self) -> None:
+        """Review: tanımlı etki ile bugün bağlı tüketici ayrı okunur."""
+        normalized = " ".join(self.text.split())
+        # Genel giriş notu.
+        self.assertIn("Bu sayfa rigor sözleşmesini tanımlar.", normalized)
+        self.assertIn("Minimal bölümü tanımlı etkiyi anlatır", normalized)
+        self.assertIn("bugün otomatik uygulanan kısım `docs.density`'dir", normalized)
+        self.assertIn(
+            "tüketici bağlanana kadar gate/kanıt üretimini otomatik değiştirmez",
+            normalized,
+        )
+        # Minimal bölümü aynı ayrımı tekrar eder; liste hedefi anlatır.
+        minimal = self.text.split("## Minimal neyi kısaltır?", 1)[1]
+        minimal = minimal.split("\n## ", 1)[0]
+        minimal_flat = " ".join(minimal.split())
+        self.assertIn("Bu bölüm tanımlı etkiyi anlatır", minimal_flat)
+        self.assertIn("Bugün otomatik uygulanan kısım", minimal_flat)
+        self.assertIn(
+            "tüketici bağlanana kadar gate/kanıt üretimini otomatik değiştirmez",
+            minimal_flat,
+        )
+
+    def test_quality_gates_cites_this_policy_for_bound_knobs(self) -> None:
+        """Review: quality-gates Rigor bölümü 'tanımlar' der ve bu sayfaya atıf yapar."""
+        gates = self.QUALITY_GATES.read_text(encoding="utf-8")
+        rigor = gates.split("## Rigor", 1)[1].split("\n## ", 1)[0]
+        normalized = " ".join(rigor.split())
+        self.assertIn("tanımlar", normalized)
+        self.assertNotIn("değiştirir", normalized)
+        self.assertIn("[process-rigor.md](process-rigor.md)", normalized)
+        self.assertIn("hangi düğmenin bugün tüketiciye bağlı olduğunu", normalized)
+        self.assertIn("`docs.density`", normalized)
 
     def test_minimal_shortened_and_preserved_separate(self) -> None:
         """T-3: kısalttığı ve kısaltmadığı ayrı başlıklar; kapılar korunur."""

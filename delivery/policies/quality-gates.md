@@ -21,9 +21,11 @@ her checkpoint'te zorunludur; `verification.refactor` olmadan `leaf-done` geçme
 
 Tören ağırlığı `kit.config.yaml` → `process.rigor` ile bir kez seçilir
 (`minimal` | `standard` | `full`; alan yoksa `standard`). Yayma tablosu:
-[rigor.yaml](../rigor.yaml). Rigor yalnız doküman derinliğini, kanıt kümesini,
-leaf/CP granülerliğini, aktif roster'ı ve ek test kanıtını değiştirir; bu
-matristeki risk tabanı ve insan kapısı değişmez. Gating reviewer sayısı
+[rigor.yaml](../rigor.yaml). Rigor doküman derinliğini, kanıt kümesini,
+leaf/CP granülerliğini, aktif roster'ı ve ek test kanıtını tanımlar; bu
+matristeki risk tabanı ve insan kapısı değişmez. Bugün otomatik uygulanan kısım
+`docs.density`'dir; hangi düğmenin bugün tüketiciye bağlı olduğunu
+[process-rigor.md](process-rigor.md) yazar. Gating reviewer sayısı
 risk-only kalır; sayılar matriste ve [rigor.yaml](../rigor.yaml) `gating`
 bölümündedir. `modes.review_mode` saklanır, sayıyı ve `gate_level`'ı değiştirmez.
 

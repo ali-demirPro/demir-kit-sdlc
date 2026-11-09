@@ -1945,6 +1945,39 @@ class ProcessRigorPolicyTest(unittest.TestCase):
         self.assertEqual(verdicts, [item["verdict"] for item in plan["risk_conflict"]])
         self.assertEqual(len(verdicts), 5)
 
+    def test_quality_gates_rigor_defines_and_cites_policy(self) -> None:
+        """Review: Rigor bölümü etkiyi tanımlar, bağlı düğme için bu sayfaya atıf yapar."""
+        gates = self.QUALITY_GATES.read_text(encoding="utf-8")
+        rigor = gates.split("## Rigor", 1)[1].split("\n## ", 1)[0]
+        flat = " ".join(rigor.split())
+        self.assertIn("tanımlar", flat)
+        self.assertNotIn("değiştirir", flat)
+        self.assertIn("[process-rigor.md](process-rigor.md) yazar", flat)
+        self.assertIn("Bugün otomatik uygulanan kısım `docs.density`'dir", flat)
+        # Risk tabanı / reviewer sayısı cümlesi aynen korunur.
+        self.assertIn("bu matristeki risk tabanı ve insan kapısı değişmez", flat)
+        self.assertIn("Gating reviewer sayısı risk-only kalır", flat)
+
+    def test_only_density_is_bound_today(self) -> None:
+        """Review: politika uydurma tüketici iddiası taşımaz."""
+        flat = " ".join(self.text.split())
+        self.assertIn("bugün otomatik uygulanan kısım `docs.density`'dir", flat)
+        knob_table = self.section("## Düğme tablosu", "## `modes.review_mode`")
+        for line in knob_table.splitlines():
+            cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
+            if len(cells) != 7 or not cells[0].startswith("`"):
+                continue
+            reader = cells[5]
+            if cells[0].strip("`") == "docs.density":
+                self.assertIn("resolver.py", reader)
+                self.assertIn("brief.py", reader)
+                continue
+            self.assertEqual(
+                reader,
+                "yok (yalnız doctor --explain rigor matrisinde görünür)",
+                cells[0],
+            )
+
 
 class RiskBaselineInvariantTest(unittest.TestCase):
     """I24: rigor seviyesi risk tabanını, reviewer sayısını ve insan kapısını düşüremez."""
