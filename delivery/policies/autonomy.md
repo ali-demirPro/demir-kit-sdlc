@@ -26,7 +26,7 @@ vekâlet istenemez.
 | CP gate'leri + evidence `pass` | sonraki CP |
 | Tüm CP'ler + risk `low`/`medium` + review onayı | `leaf-done` |
 | Tüm leaf'ler `leaf-done`/`deferred` | closure (`runbooks/epic-closure.md`) |
-| Onay sorusu yanıtsız | `approval.md` süresi dolunca not yaz, devam |
+| Onay isteği süresi doldu ve cevap yok | `approval_sweep.py` notu; A1 sınırında devam |
 | Bağlam eşiği | `context-budget.md`: uyarıda özet, sert sınırda yeni oturum + `handoff.py` |
 | Claim lease'i doldu | `escalation.md` `STALE`: `-executing` + not, başka leaf'e geç |
 
@@ -39,7 +39,7 @@ vekâlet istenemez.
 | Güvenlik/auth/veri bulgusu | `SEC` | her zaman insan |
 | AC belirsiz/çelişkili veya issue/label eksik | `AC` | tek soru, iki net seçenek |
 | Kapsam kayması | `SCOPE` | follow-up issue; sessiz büyütme yok |
-| Gate 3 turda geçmedi | `BUDGET` | böl / ertele / waive sorusu |
+| İlgili kapının tur bütçesi doldu | `BUDGET` | böl / ertele / waive sorusu (`quality-gates.md`) |
 | Bağlam sert sınırı | — | oturumu kapat, devir notu yaz |
 
 Aynı soru ikinci kez sorulmaz: cevap issue'da yoksa önce oraya yazılır. İnsan
@@ -49,16 +49,18 @@ kapısı "otonomi" gerekçesiyle atlanmaz.
 
 Sahip yokken koordinatör şu işleri **vekaleten** kapatabilir:
 
-- `low`/`medium` leaf `leaf-done`, review onayı, closure `pass`, epic PR merge
-  ve sürüm bump'ı — hepsi geri alınabilir ve makine kapısıyla kanıtlı.
-- Kit-internal / self-improvement lane'de `epic-done`: kabul makine kapısıdır
-  (`doctor.sh --strict` + testler + merge edilmiş PR), `I13` kapsamı ürün
-  teslimatıdır.
+- `low`/`medium` leaf'te review onayı, `leaf-done`, closure `pass`, epic PR
+  merge ve sürüm bump'ı — hepsi geri alınabilir ve makine kapısıyla kanıtlı.
+
+Sahip **yok** sayılır: onay isteği `approval_sweep.py` süresini doldurmuş
+(`low`/`medium` 60 dk, `high` 240 dk) ve insan cevabı yoksa. `critical` ve geri
+dönülemez iş süresizdir; vekâlet istenemez.
 
 Sınır:
 
-- **Ürün teslimatında `epic-done` kabulü insanda kalır.** Vekâlet leaf, closure
-  ve PR'ı bitirir; epic closure `pass` + merge edilmiş PR ile bekler, iş durmaz.
+- **`epic-done` kabulü insanda kalır (T9).** Vekâlet closure `pass` + merge
+  edilmiş PR'da durur; iş kilitlenmez, epic teslim edilmiş sayılır, yalnız tek
+  satır kabul bekler.
 - A0 durumları vekâletle kapatılamaz; geri dönülemez iş bekler.
 - Vekâlet iki kez devredilmez: vekil, başka bir vekil atayamaz.
 - Sahip döndüğünde vekâleten verilen kararlar tek tek gösterilir; itiraz edilen
@@ -71,9 +73,9 @@ delegated: coordinator
 reason: sahip yok; low/medium, geri alınabilir
 ```
 
-Evidence veya closure `notes` alanına bu iki satır yazılır; issue'ya kısa Türkçe
-"vekaleten kabul" yorumu düşülür. `human-qa` etiketi sahip karar verene kadar
-kalır.
+Bu iki satır evidence `notes` alanına veya closure raporunun metnine yazılır;
+issue'ya kısa Türkçe "vekaleten kabul" yorumu düşülür. Karar issue'da kalır;
+`approval_sweep.py` süre dolunca `human-qa` yerine `approval-timeout` yazar.
 
 ## Dönüş özeti
 
@@ -95,7 +97,8 @@ sohbete yazılır; en fazla altı satır:
 
 - Politika `delivery/registry.yaml → policies.autonomy` ile kayıtlıdır;
   `CONTRACT.md` Yürütme bölümü bu dosyaya bağlanır.
-- `handoff.py` dönüş özetini ve successor devrini yazar; eşikler
+- `handoff.py` devir notunu (`Leaf`/`Bitti`/`Sıradaki`/`Kararlar`) yazar;
+  dönüş özeti aynı bilgiyi altı satırda issue'ya ve sohbete verir. Eşikler
   `context-budget.md` ile aynıdır.
 - `approval_sweep.py` süresi dolan onayı kapatır; vekâlet kararı ayrı ve
   işaretli kalır.
