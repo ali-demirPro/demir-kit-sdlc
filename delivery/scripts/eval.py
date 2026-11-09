@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -25,6 +26,11 @@ CASE_REQUIRED = ("id", "intent", "criteria", "targets")
 MIN_ROWS = 10
 RESULT_VALUES = {"pass", "fail", "skip"}
 VERIFY_STATES = ("yes", "no", "unknown")
+SKILLS = ROOT / "skills"
+RUNS_DIR = ROOT / ".kit" / "eval-runs"
+DISCOVERY_STATES = ("triggered", "not_triggered", "unknown")
+EVENTS_ARTIFACT = "session/events.ndjson"
+MAX_EVIDENCE = 20
 
 
 def load_yaml(path: Path) -> dict:
@@ -472,6 +478,319 @@ def run_case(
     )
 
 
+# ---------------------------------------------------------------------------
+# discovery measurement
+
+
+class DiscoveryError(ValueError):
+    """Raised when a skill description cannot be read."""
+
+
+def read_skill_description(name: str, skills_root: Path | None = None) -> dict:
+    """Read only ``skills/<name>/SKILL.md`` frontmatter; never write it."""
+    base = SKILLS if skills_root is None else Path(skills_root)
+    if not name or "/" in name or name in {".", ".."}:
+        raise DiscoveryError(f"geçersiz skill adı: {name!r}")
+    path = base / name / "SKILL.md"
+    if not path.is_file():
+        raise DiscoveryError(f"skill yok: {name}")
+    try:
+        text = path.read_text(encoding="utf-8").lstrip("\ufeff")
+    except OSError as exc:
+        raise DiscoveryError(f"{name}: SKILL.md okunamadı ({exc})") from exc
+    frontmatter, _body, error = split_frontmatter(text)
+    if error:
+        raise DiscoveryError(f"{name}: {error}")
+    if frontmatter is None:
+        raise DiscoveryError(f"{name}: frontmatter yok")
+    description = frontmatter.get("description")
+    if not isinstance(description, str) or not description.strip():
+        raise DiscoveryError(f"{name}: description boş")
+    description = description.strip()
+    try:
+        source = str(path.relative_to(base.parent))
+    except ValueError:
+        source = str(path)
+    return {
+        "name": name,
+        "source": source,
+        "description": description,
+        "description_sha256": content_sha256(description.encode("utf-8")),
+    }
+
+
+def _looks_like_session(path: Path) -> bool:
+    return (
+        (path / "spec.json").is_file()
+        or (path / "result.json").is_file()
+        or (path / "session").is_dir()
+    )
+
+
+def _read_mapping(path: Path) -> dict:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _session_case(session_dir: Path) -> str:
+    for name in ("spec.json", "result.json"):
+        value = _read_mapping(session_dir / name).get("case")
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return ""
+
+
+def _matches_case_value(value: str, case_path: Path) -> bool:
+    if value == str(case_path) or value == case_path.name:
+        return True
+    candidate = Path(value)
+    if candidate.name == case_path.name:
+        return True
+    if not candidate.is_absolute():
+        candidate = case_path.parent / candidate
+    try:
+        return candidate.resolve() == case_path.resolve()
+    except OSError:
+        return False
+
+
+def _runs_for_case(case_path: Path, runs_dir: Path) -> list[Path]:
+    if not runs_dir.is_dir():
+        return []
+    matched: list[Path] = []
+    for entry in sorted(runs_dir.iterdir()):
+        if not entry.is_dir() or not _looks_like_session(entry):
+            continue
+        if _matches_case_value(_session_case(entry), case_path):
+            matched.append(entry)
+    return matched
+
+
+def _case_sessions(path: Path, runs_dir: Path) -> list[Path]:
+    if path.is_dir():
+        if _looks_like_session(path):
+            return [path]
+        return sorted(
+            entry
+            for entry in path.iterdir()
+            if entry.is_dir() and _looks_like_session(entry)
+        )
+    if path.is_file():
+        return _runs_for_case(path, runs_dir)
+    return []
+
+
+def discovery_sessions(
+    cases: list[Path], runs: Path | None = None
+) -> tuple[list[Path], list[str]]:
+    """Resolve case arguments to unique sessions, sorted by resolved path."""
+    runs_dir = RUNS_DIR if runs is None else Path(runs)
+    found: dict[str, Path] = {}
+    empty_cases: list[str] = []
+    for raw in cases:
+        path = Path(raw).expanduser()
+        matched = _case_sessions(path, runs_dir)
+        if not matched:
+            empty_cases.append(str(path))
+        for item in matched:
+            try:
+                resolved = item.resolve()
+            except OSError:
+                resolved = item
+            found[str(resolved)] = resolved
+    return [found[key] for key in sorted(found)], empty_cases
+
+
+def _load_events(path: Path) -> tuple[list[tuple[int, object]], str]:
+    if not path.is_file():
+        return [], "session/events.ndjson yok"
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        return [], f"session/events.ndjson okunamadı ({exc})"
+    events: list[tuple[int, object]] = []
+    for number, line in enumerate(text.splitlines(), 1):
+        if not line.strip():
+            continue
+        try:
+            events.append((number, json.loads(line)))
+        except json.JSONDecodeError:
+            continue
+    if not events:
+        return [], "geçerli olay yok"
+    return events, ""
+
+
+def _result_readable(path: Path) -> tuple[bool, str]:
+    if not path.is_file():
+        return False, "result.json yok"
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except OSError as exc:
+        return False, f"result.json okunamadı ({exc})"
+    except json.JSONDecodeError:
+        return False, "result.json geçersiz JSON"
+    if not isinstance(data, dict):
+        return False, "result.json mapping değil"
+    return True, ""
+
+
+def _event_payload(event: object) -> object:
+    if isinstance(event, dict) and isinstance(event.get("payload"), dict):
+        return event["payload"]
+    return event
+
+
+def event_matches_skill(event: object, skill: str) -> bool:
+    """Deterministic match: explicit field, tool name, or a word-boundary hit."""
+    payload = _event_payload(event)
+    if isinstance(payload, dict):
+        if payload.get("skill") == skill or payload.get("name") == skill:
+            return True
+    text = json.dumps(payload, sort_keys=True, ensure_ascii=False)
+    pattern = r"(?<![\w-])" + re.escape(skill) + r"(?![\w-])"
+    return bool(re.search(pattern, text)) or f"skills/{skill}" in text
+
+
+def _artifact_evidence(line: int) -> dict:
+    return {"kind": "artifact", "artifact": EVENTS_ARTIFACT, "line": line}
+
+
+def classify_session(session_dir: Path, skill: str) -> dict:
+    """Classify one session; missing evidence is ``unknown``, never ``not_triggered``."""
+    session_dir = Path(session_dir)
+    events, events_error = _load_events(session_dir / "session" / "events.ndjson")
+    analyzable = bool(events)
+    reason = "" if analyzable else events_error
+    if analyzable:
+        readable, result_error = _result_readable(session_dir / "result.json")
+        if not readable:
+            analyzable = False
+            reason = result_error
+    record = {
+        "session": str(session_dir),
+        "case": _session_case(session_dir),
+        "status": "unknown",
+        "analyzable": analyzable,
+        "event_count": len(events),
+        "evidence": [],
+        "reason": reason,
+    }
+    if not analyzable:
+        return record
+    lines = sorted(
+        {
+            number
+            for number, event in events
+            if event_matches_skill(event, skill)
+        }
+    )
+    if lines:
+        record["status"] = "triggered"
+        record["evidence"] = [_artifact_evidence(line) for line in lines[:MAX_EVIDENCE]]
+    else:
+        record["status"] = "not_triggered"
+        record["evidence"] = [_artifact_evidence(events[0][0])]
+    return record
+
+
+def _missing_session_record(case: str) -> dict:
+    return {
+        "session": case,
+        "case": case,
+        "status": "unknown",
+        "analyzable": False,
+        "event_count": 0,
+        "evidence": [],
+        "reason": "oturum yok",
+    }
+
+
+def _ratio(numerator: int, denominator: int) -> dict:
+    value = None if denominator == 0 else round(numerator / denominator, 4)
+    return {"numerator": numerator, "denominator": denominator, "value": value}
+
+
+def _tally(rows: list[dict]) -> dict:
+    counts = {status: 0 for status in DISCOVERY_STATES}
+    for row in rows:
+        counts[row["status"]] += 1
+    counts["total"] = len(rows)
+    counts["analyzable"] = sum(1 for row in rows if row["analyzable"])
+    return counts
+
+
+def build_discovery(
+    skills: list[str],
+    cases: list[Path],
+    runs: Path | None = None,
+    skills_root: Path | None = None,
+) -> dict:
+    """Build the deterministic discovery report for one or more skills."""
+    sessions, empty_cases = discovery_sessions(cases, runs)
+    reports: list[dict] = []
+    totals = {status: 0 for status in DISCOVERY_STATES}
+    totals["total"] = 0
+    totals["analyzable"] = 0
+    for name in dict.fromkeys(skills):
+        meta = read_skill_description(name, skills_root)
+        rows = [classify_session(session, name) for session in sessions]
+        rows.extend(_missing_session_record(case) for case in empty_cases)
+        counts = _tally(rows)
+        for key in totals:
+            totals[key] += counts[key]
+        reports.append(
+            {
+                "name": name,
+                "source": meta["source"],
+                "description_sha256": meta["description_sha256"],
+                "sessions": rows,
+                "counts": counts,
+                "rate": _ratio(counts["triggered"], counts["analyzable"]),
+                "unknown_rate": _ratio(counts["unknown"], counts["total"]),
+            }
+        )
+    return {
+        "mode": "discovery",
+        "executed": True,
+        "skills": reports,
+        "totals": totals,
+    }
+
+
+def _discovery_command(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(
+        prog="eval.py discovery", description="skill discovery measurement"
+    )
+    parser.add_argument("--skill", action="append", required=True)
+    parser.add_argument("--case", action="append", required=True, dest="cases")
+    parser.add_argument("--runs", type=Path, default=RUNS_DIR)
+    parser.add_argument("--json", action="store_true")
+    parser.add_argument("-o", "--output", choices=("text", "json"))
+    args = parser.parse_args(argv)
+    as_json = args.json or args.output == "json"
+    try:
+        report = build_discovery(args.skill, args.cases, runs=args.runs)
+    except DiscoveryError as exc:
+        print(f"eval: {exc}", file=sys.stderr)
+        return 2
+    if as_json:
+        _emit_json(report)
+    else:
+        for skill in report["skills"]:
+            rate = skill["rate"]
+            unknown = skill["unknown_rate"]
+            value = "-" if rate["value"] is None else f"{rate['value']:.4f}"
+            print(
+                f"{skill['name']}: triggered {rate['numerator']}/{rate['denominator']} "
+                f"({value}); bilinmiyor {unknown['numerator']}/{unknown['denominator']}"
+            )
+    return 0
+
+
 def agent_variants() -> list[dict]:
     records: list[dict] = []
     for path in sorted(AGENTS.rglob("agent.yaml")):
@@ -615,6 +934,10 @@ def _run_command(paths: list[Path], log: Path | None, as_json: bool) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    args_list = list(sys.argv[1:] if argv is None else argv)
+    if args_list and args_list[0] == "discovery":
+        return _discovery_command(args_list[1:])
+
     parser = argparse.ArgumentParser(description="capability eval runner")
     parser.add_argument("--check", action="store_true")
     parser.add_argument("--list", action="store_true")
@@ -630,7 +953,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("-o", "--output", choices=("text", "json"))
     parser.add_argument("--revision-log", type=Path)
     parser.add_argument("cases", nargs="*", metavar="CASE")
-    args = parser.parse_args(argv)
+    args = parser.parse_args(args_list)
 
     modes = [args.verify, args.dry_run, args.run]
     if sum(bool(mode) for mode in modes) > 1:

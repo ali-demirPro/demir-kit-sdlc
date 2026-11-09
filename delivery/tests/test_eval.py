@@ -109,6 +109,40 @@ def case_record(**overrides) -> dict:
     return record
 
 
+def write_skill(root: Path, name: str, description: str = "Use when testing.") -> Path:
+    path = root / name / "SKILL.md"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        "---\n"
+        f"name: {name}\n"
+        "description: >-\n"
+        f"  {description}\n"
+        "---\n\n"
+        f"# {name}\n",
+        encoding="utf-8",
+    )
+    return path
+
+
+def write_session(
+    runs: Path,
+    name: str,
+    events: list[str] | None = None,
+    *,
+    case: str = "",
+    result: str = "{}",
+) -> Path:
+    session = runs / name
+    (session / "session").mkdir(parents=True, exist_ok=True)
+    (session / "spec.json").write_text(
+        json.dumps({"case": case}), encoding="utf-8"
+    )
+    (session / "result.json").write_text(result, encoding="utf-8")
+    body = "".join(line + "\n" for line in (events or []))
+    (session / "session" / "events.ndjson").write_text(body, encoding="utf-8")
+    return session
+
+
 class EvalTests(unittest.TestCase):
     def test_real_evals_pass(self) -> None:
         self.assertEqual(eval_mod.check_all(), [])
@@ -359,6 +393,161 @@ class EvalModeTests(unittest.TestCase):
             self.assertEqual(payload["mode"], "run")
             self.assertEqual(payload["records"][0]["id"], "case-1")
             self.assertEqual(len(eval_mod.read_revisions(log)), 1)
+
+
+class DiscoveryTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self._directory = tempfile.TemporaryDirectory()
+        self.root = Path(self._directory.name)
+        self.skills = self.root / "skills"
+        self.runs = self.root / "runs"
+        self.skills.mkdir()
+        self.runs.mkdir()
+        write_skill(self.skills, "behavior-gate")
+        write_session(
+            self.runs,
+            "01-triggered",
+            [
+                '{"seq": 0, "payload": {"tool": "read"}}',
+                '{"seq": 1, "payload": {"skill": "behavior-gate"}}',
+            ],
+        )
+        write_session(
+            self.runs,
+            "02-plain",
+            ['{"seq": 0, "payload": {"tool": "read", "text": "merhaba"}}'],
+        )
+        write_session(self.runs, "03-empty", [])
+
+    def tearDown(self) -> None:
+        self._directory.cleanup()
+
+    def report(self) -> dict:
+        return eval_mod.build_discovery(
+            ["behavior-gate"],
+            [self.runs],
+            runs=self.runs,
+            skills_root=self.skills,
+        )
+
+    def test_t1_sessions_classify_as_triggered_plain_unknown(self) -> None:
+        rows = self.report()["skills"][0]["sessions"]
+        self.assertEqual(
+            [row["status"] for row in rows],
+            ["triggered", "not_triggered", "unknown"],
+        )
+        self.assertEqual([row["analyzable"] for row in rows], [True, True, False])
+
+    def test_t2_unknown_is_counted_separately_from_not_triggered(self) -> None:
+        skill = self.report()["skills"][0]
+        self.assertEqual(skill["counts"]["unknown"], 1)
+        self.assertEqual(skill["counts"]["not_triggered"], 1)
+        self.assertEqual(skill["counts"]["triggered"], 1)
+        self.assertEqual(skill["counts"]["analyzable"], 2)
+        self.assertEqual(skill["rate"]["denominator"], 2)
+        self.assertEqual(skill["rate"]["numerator"], 1)
+        self.assertAlmostEqual(skill["rate"]["value"], 0.5)
+        self.assertEqual(skill["unknown_rate"]["numerator"], 1)
+        self.assertEqual(skill["unknown_rate"]["denominator"], 3)
+        self.assertAlmostEqual(skill["unknown_rate"]["value"], 0.3333, places=4)
+        unknown_row = next(
+            row for row in skill["sessions"] if row["status"] == "unknown"
+        )
+        self.assertEqual(unknown_row["status"], "unknown")
+        self.assertEqual(unknown_row["evidence"], [])
+        self.assertTrue(unknown_row["reason"])
+
+    def test_t3_evidence_points_at_the_matching_event_line(self) -> None:
+        rows = self.report()["skills"][0]["sessions"]
+        triggered, plain, unknown = rows
+        self.assertEqual(
+            triggered["evidence"],
+            [{"kind": "artifact", "artifact": "session/events.ndjson", "line": 2}],
+        )
+        events_path = Path(triggered["session"]) / "session" / "events.ndjson"
+        lines = events_path.read_text(encoding="utf-8").splitlines()
+        self.assertIn('"skill": "behavior-gate"', lines[1])
+        self.assertEqual(
+            plain["evidence"],
+            [{"kind": "artifact", "artifact": "session/events.ndjson", "line": 1}],
+        )
+        self.assertEqual(unknown["evidence"], [])
+
+    def test_committed_case_matches_runs_by_case_field(self) -> None:
+        case = write_case(
+            self.root,
+            case_record(),
+            name="behavior.md",
+        )
+        write_session(
+            self.runs,
+            "04-case",
+            ['{"seq": 0, "payload": {"name": "behavior-gate"}}'],
+            case="behavior.md",
+        )
+        report = eval_mod.build_discovery(
+            ["behavior-gate"],
+            [case],
+            runs=self.runs,
+            skills_root=self.skills,
+        )
+        rows = report["skills"][0]["sessions"]
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["case"], "behavior.md")
+        self.assertEqual(rows[0]["status"], "triggered")
+
+    def test_case_without_sessions_is_unknown_not_an_error(self) -> None:
+        case = write_case(self.root, case_record(), name="unused.md")
+        stream = io.StringIO()
+        with contextlib.redirect_stdout(stream):
+            code = eval_mod.main(
+                [
+                    "discovery",
+                    "--skill",
+                    "behavior-gate",
+                    "--case",
+                    str(case),
+                    "--runs",
+                    str(self.runs),
+                    "-o",
+                    "json",
+                ]
+            )
+        self.assertEqual(code, 0)
+        payload = json.loads(stream.getvalue())
+        rows = payload["skills"][0]["sessions"]
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["status"], "unknown")
+        self.assertEqual(rows[0]["reason"], "oturum yok")
+        self.assertEqual(rows[0]["evidence"], [])
+
+    def test_missing_skill_exits_two_without_touching_files(self) -> None:
+        skill_path = self.skills / "behavior-gate" / "SKILL.md"
+        before = skill_path.read_bytes()
+        errors = io.StringIO()
+        with contextlib.redirect_stderr(errors):
+            code = eval_mod.main(
+                [
+                    "discovery",
+                    "--skill",
+                    "does-not-exist",
+                    "--case",
+                    str(self.runs),
+                    "--runs",
+                    str(self.runs),
+                    "-o",
+                    "json",
+                ]
+            )
+        self.assertEqual(code, 2)
+        self.assertIn("skill yok", errors.getvalue())
+        self.assertEqual(skill_path.read_bytes(), before)
+
+    def test_skill_file_stays_byte_identical(self) -> None:
+        skill_path = self.skills / "behavior-gate" / "SKILL.md"
+        before = skill_path.read_bytes()
+        self.report()
+        self.assertEqual(skill_path.read_bytes(), before)
 
 
 class NoCopiedSourceTests(unittest.TestCase):
