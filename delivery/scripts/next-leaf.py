@@ -14,11 +14,13 @@ from pathlib import Path
 import yaml
 
 SCRIPTS = Path(__file__).resolve().parent
+ROOT = SCRIPTS.parents[1]
 sys.path.insert(0, str(SCRIPTS))
 import budget  # noqa: E402
 import cycle  # noqa: E402
 import epic_worktree  # noqa: E402
 import process_gate  # noqa: E402
+import routing  # noqa: E402
 
 SKIP_LABELS = {"executing", "blocked", "deferred", "leaf-done", "epic-done"}
 CLAIM_PREFIX = "run claim:"
@@ -350,6 +352,7 @@ def release(number: int, force: bool, reason: str) -> int:
             f"run release: `{run_id}`\nreason: {reason}",
         ]
     )
+    print("\n".join(routing.render_config(routing.control_config(ROOT))))
     print(f"released #{number} ({run_id})")
     return 0
 
@@ -548,11 +551,13 @@ def main() -> int:
                         "eligible": [],
                         "skipped": skipped,
                         "budget": budget.load(epic_worktree.project_root()),
+                        "config": routing.control_config(ROOT),
                     },
                     indent=2,
                 )
             )
         else:
+            print("\n".join(routing.render_config(routing.control_config(ROOT))))
             print("no work")
             for item in skipped:
                 print(f"  - #{item['number']}: {item['reason']}", file=sys.stderr)
@@ -571,6 +576,7 @@ def main() -> int:
                     "eligible": eligible,
                     "skipped": skipped,
                     "budget": budget.load(epic_worktree.project_root()),
+                    "config": routing.control_config(ROOT),
                 },
                 indent=2,
             )
@@ -578,6 +584,7 @@ def main() -> int:
         return 0
 
     if args.list and not args.claim:
+        print("\n".join(routing.render_config(routing.control_config(ROOT))))
         for item in eligible:
             print(f"#{item['number']}  {item['title']}  [{item['risk']}]")
         for item in skipped:
@@ -603,9 +610,11 @@ def main() -> int:
                     "epic worktree/run hazır değil; claim geri alındı",
                 )
                 return 1
+            print("\n".join(routing.render_config(routing.control_config(ROOT))))
             print(target["number"])
         return status
 
+    print("\n".join(routing.render_config(routing.control_config(ROOT))))
     print(eligible[0]["number"])
     return 0
 

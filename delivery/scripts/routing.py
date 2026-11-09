@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import math
 import re
 from pathlib import Path
 
@@ -127,12 +129,22 @@ def strip_seal(body: str) -> str:
     return re.sub(r"```yaml\s+demir-kit(?:-epic)?\s*\n.*?```", "", body, flags=re.S)
 
 
-def detect_path(registry: dict, title: str, body: str, seal: dict | None = None):
+def detect_path_detail(
+    registry: dict, title: str, body: str, seal: dict | None = None
+) -> tuple[str, dict | None, str]:
+    """Like :func:`detect_path`, plus the provenance of the selection.
+
+    ``path_source`` is ``signal`` when a registry signal matched, ``keyword``
+    when the title/body keyword score picked the path, ``entry`` when the seal
+    entry kind selected it, and ``default`` only for the last-resort
+    DEFAULT_PATH fallback. The original two-value signature stays intact for
+    existing callers.
+    """
     seal = seal_body(body) if seal is None else seal
     paths = registry.get("paths") or {}
     signal = detect_signal(registry, seal)
     if signal and signal.get("default_path") in paths:
-        return signal["default_path"], signal
+        return signal["default_path"], signal, "signal"
 
     text = f"{title}\n{strip_seal(body)}".lower()
     scores: dict[str, int] = {}
@@ -147,13 +159,18 @@ def detect_path(registry: dict, title: str, body: str, seal: dict | None = None)
         candidates = [name for name, score in scores.items() if score == best]
         for name in NARROW_ORDER:
             if name in candidates:
-                return name, None
-        return sorted(candidates)[0], None
+                return name, None, "keyword"
+        return sorted(candidates)[0], None, "keyword"
 
     entry_kind = (seal.get("entry") or {}).get("kind")
     if entry_kind in ENTRY_PATHS and ENTRY_PATHS[entry_kind] in paths:
-        return ENTRY_PATHS[entry_kind], None
-    return DEFAULT_PATH, None
+        return ENTRY_PATHS[entry_kind], None, "entry"
+    return DEFAULT_PATH, None, "default"
+
+
+def detect_path(registry: dict, title: str, body: str, seal: dict | None = None):
+    path_id, signal, _ = detect_path_detail(registry, title, body, seal)
+    return path_id, signal
 
 
 def resolve_agents(registry: dict, path_id: str, signal: dict | None = None) -> dict:
@@ -276,3 +293,344 @@ def _dedupe(items) -> list[str]:
         seen.add(item)
         result.append(item)
     return result
+
+
+ROUTE_INDEX_VERSION = 1
+ROUTE_INDEX_KEYS = {"version", "entries"}
+ROUTE_ENTRY_KEYS = {"surface", "path", "tags", "weight"}
+ROUTE_CLASSES = ("sink", "window", "retrieved", "candidate")
+ROUTE_SOURCES = {"seal", "resolver", "index", "static"}
+# One line per path: sink beats window, window beats retrieved/candidate.
+ROUTE_PRIORITY = {"sink": 4, "window": 3, "retrieved": 2, "candidate": 1}
+# Matching entries below this weight stay visible as candidates with a reason.
+ROUTE_MIN_WEIGHT = 2
+
+
+class RouteIndexError(ValueError):
+    """Invalid delivery/context/index.yaml — the brief exits 2."""
+
+
+def route_index_path(root: Path) -> Path:
+    return Path(root) / "delivery" / "context" / "index.yaml"
+
+
+def registry_sha256(root: Path) -> str:
+    """Digest of the active registry; ``yok`` when the file cannot be read."""
+    try:
+        data = (Path(root) / "delivery" / "registry.yaml").read_bytes()
+    except OSError:
+        return "yok"
+    return hashlib.sha256(data).hexdigest()
+
+
+def route_index_version_ok(version) -> bool:
+    """One validation shared by the banner and :func:`load_route_index`."""
+    return (
+        isinstance(version, int)
+        and not isinstance(version, bool)
+        and version == ROUTE_INDEX_VERSION
+    )
+
+
+def route_index_version(path: Path) -> str:
+    """Index version for the config banner; ``yok`` when missing/invalid.
+
+    The route itself stays strict: :func:`load_route_index` raises for the same
+    invalid version so ``--route`` can exit 2.
+    """
+    try:
+        data = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
+    except (OSError, yaml.YAMLError):
+        return "yok"
+    version = data.get("version") if isinstance(data, dict) else None
+    return str(version) if route_index_version_ok(version) else "yok"
+
+
+def route_index_version_fallback(path: Path) -> str | None:
+    """``index surumu gecersiz`` when a present index has an unusable version."""
+    path = Path(path)
+    if not path.is_file():
+        return None
+    try:
+        data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except (OSError, yaml.YAMLError):
+        return "index surumu gecersiz"
+    version = data.get("version") if isinstance(data, dict) else None
+    return None if route_index_version_ok(version) else "index surumu gecersiz"
+
+
+def policy_files(root: Path, registry: dict) -> list[str]:
+    """Registry policies in order; a missing file is labelled ``missing:<path>``."""
+    result: list[str] = []
+    for value in (registry.get("policies") or {}).values():
+        path = str(value)
+        label = path if (Path(root) / path).is_file() else f"missing:{path}"
+        if label not in result:
+            result.append(label)
+    return result
+
+
+def config_snapshot(
+    root: Path,
+    registry: dict,
+    path_id: str,
+    path_source: str,
+    index_path: Path,
+) -> dict:
+    """Effective configuration for a brief: registry digest, route and policies."""
+    return {
+        "registry_sha256": registry_sha256(root),
+        "path": path_id,
+        "path_source": path_source,
+        "index_version": route_index_version(index_path),
+        "policies": policy_files(root, registry),
+    }
+
+
+def control_config(root: Path) -> dict:
+    """Minimal banner used by next-leaf/orca_plan/handoff."""
+    return {
+        "registry_sha256": registry_sha256(root),
+        "index_version": route_index_version(route_index_path(root)),
+    }
+
+
+def render_config(config: dict | None) -> list[str]:
+    """One ``config:`` block; keys stay on a single line each."""
+    if not config:
+        return []
+    lines = ["config:"]
+    for key in ("registry_sha256", "path", "path_source", "index_version"):
+        if key in config:
+            lines.append(f"  {key}: {config[key]}")
+    if "policies" in config:
+        policies = [str(item) for item in config.get("policies") or []]
+        lines.append("  policies: " + (", ".join(policies) or "yok"))
+    return lines
+
+
+def _is_number(value) -> bool:
+    return (
+        isinstance(value, (int, float))
+        and not isinstance(value, bool)
+        and math.isfinite(value)
+    )
+
+
+def _entry_path(base: Path, entry_path: str, label: str) -> Path:
+    """Resolve one index path inside ``base``; escapes are errors, not fallbacks."""
+    candidate = Path(entry_path)
+    if candidate.is_absolute():
+        raise RouteIndexError(f"{label}: yol kök dışında: {entry_path}")
+    if ".." in candidate.parts:
+        raise RouteIndexError(f"{label}: yol kök dışında: {entry_path}")
+    try:
+        root = base.resolve()
+        resolved = (base / candidate).resolve()
+    except OSError as exc:
+        raise RouteIndexError(f"{label}: yol çözülemedi: {entry_path}") from exc
+    try:
+        resolved.relative_to(root)
+    except ValueError:
+        # Symlink that points outside the kit root.
+        raise RouteIndexError(f"{label}: yol kök dışında: {entry_path}") from None
+    return resolved
+
+
+def load_route_index(path: Path, root: Path | None = None) -> dict | None:
+    """Load and validate the route index; ``None`` means "index yok".
+
+    Missing file is the documented fallback. Any malformed shape raises
+    ``RouteIndexError`` so the caller can exit 2 instead of degrading silently.
+    """
+    path = Path(path)
+    if not path.is_file():
+        return None
+    base = Path(root) if root is not None else path.resolve().parents[2]
+    try:
+        data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except (OSError, yaml.YAMLError) as exc:
+        raise RouteIndexError(f"{path}: okunamadı ({exc})") from exc
+    if not isinstance(data, dict):
+        raise RouteIndexError(f"{path}: üst düzey mapping olmalı")
+    unknown = sorted(set(data) - ROUTE_INDEX_KEYS)
+    if unknown:
+        raise RouteIndexError(f"{path}: bilinmeyen anahtar: {', '.join(unknown)}")
+    missing = sorted(ROUTE_INDEX_KEYS - set(data))
+    if missing:
+        raise RouteIndexError(f"{path}: eksik anahtar: {', '.join(missing)}")
+    version = data.get("version")
+    if not route_index_version_ok(version):
+        raise RouteIndexError(f"{path}: version {ROUTE_INDEX_VERSION} olmalı")
+    entries = data.get("entries")
+    if not isinstance(entries, list):
+        raise RouteIndexError(f"{path}: entries liste olmalı")
+
+    result: list[dict] = []
+    for position, entry in enumerate(entries):
+        label = f"{path}: entries[{position}]"
+        if not isinstance(entry, dict):
+            raise RouteIndexError(f"{label}: mapping olmalı")
+        unknown = sorted(set(entry) - ROUTE_ENTRY_KEYS)
+        if unknown:
+            raise RouteIndexError(f"{label}: bilinmeyen anahtar: {', '.join(unknown)}")
+        missing = sorted(ROUTE_ENTRY_KEYS - set(entry))
+        if missing:
+            raise RouteIndexError(f"{label}: eksik anahtar: {', '.join(missing)}")
+        surface = entry.get("surface")
+        if not isinstance(surface, str) or not surface.strip():
+            raise RouteIndexError(f"{label}: surface boş olamaz")
+        entry_path = entry.get("path")
+        if not isinstance(entry_path, str) or not entry_path.strip():
+            raise RouteIndexError(f"{label}: path boş olamaz")
+        resolved = _entry_path(base, entry_path, label)
+        if not resolved.is_file():
+            raise RouteIndexError(f"{label}: çözülmeyen yol: {entry_path}")
+        tags = entry.get("tags")
+        if not isinstance(tags, list) or any(
+            not isinstance(tag, str) or not tag.strip() for tag in tags
+        ):
+            raise RouteIndexError(f"{label}: tags string listesi olmalı")
+        weight = entry.get("weight")
+        if not _is_number(weight) or weight <= 0:
+            raise RouteIndexError(f"{label}: weight pozitif sayı olmalı")
+        result.append(
+            {
+                "surface": surface.strip(),
+                "path": entry_path,
+                "tags": list(tags),
+                "weight": weight,
+            }
+        )
+
+    return {"version": version, "entries": result}
+
+
+def _surface_match(left: str, right: str) -> bool:
+    left = left.lower()
+    right = right.lower()
+    return (
+        left == right
+        or left.startswith(right + ".")
+        or right.startswith(left + ".")
+    )
+
+
+def build_route(
+    seal: dict,
+    docs: list[str],
+    index: dict | None,
+    prefix: str = "",
+) -> tuple[list[dict], str | None]:
+    """Explainable sink/window/retrieved/candidate selection for one brief.
+
+    Deterministic: same seal + same docs + same index version yield the same
+    ordered list. No clock, HEAD or environment value participates. Every path
+    appears once; a higher class wins (sink > window > retrieved > candidate).
+    """
+    seal = seal if isinstance(seal, dict) else {}
+    docs = [str(doc) for doc in docs or []]
+    route: dict[str, dict] = {}
+
+    def add(item: dict) -> None:
+        current = route.get(item["path"])
+        if current is None or ROUTE_PRIORITY[item["class"]] > ROUTE_PRIORITY[
+            current["class"]
+        ]:
+            route[item["path"]] = item
+
+    reference = (seal.get("reference") or {}).get("paths") or []
+    for path in reference:
+        add(
+            {
+                "class": "sink",
+                "path": f"{prefix}{path}",
+                "source": "seal",
+                "reason": "seal reference.paths (zorunlu çekirdek)",
+            }
+        )
+    for doc in docs:
+        add(
+            {
+                "class": "window",
+                "path": doc,
+                "source": "resolver",
+                "reason": "aktif rol dokümanı",
+            }
+        )
+
+    surfaces = [str(item) for item in seal.get("surfaces") or []]
+    if index is None:
+        # The static list overlaps the window docs; window wins so no path is
+        # listed twice. The explicit fallback line keeps the degrade visible.
+        for doc in docs:
+            add(
+                {
+                    "class": "retrieved",
+                    "path": doc,
+                    "source": "static",
+                    "reason": "index yok; statik resolver listesi",
+                }
+            )
+        return list(route.values()), "index yok"
+
+    selected: list[dict] = []
+    candidates: list[dict] = []
+    for entry in index.get("entries") or []:
+        matched = any(
+            _surface_match(entry["surface"], surface) for surface in surfaces
+        )
+        weight = float(entry["weight"])
+        if matched and weight >= ROUTE_MIN_WEIGHT:
+            selected.append(entry)
+        elif matched:
+            candidates.append(
+                {
+                    "class": "candidate",
+                    "path": f"{prefix}{entry['path']}",
+                    "source": "index",
+                    "reason": (
+                        f"surface {entry['surface']} eşleşti ama düşük weight "
+                        f"({entry['weight']} < {ROUTE_MIN_WEIGHT})"
+                    ),
+                }
+            )
+        else:
+            candidates.append(
+                {
+                    "class": "candidate",
+                    "path": f"{prefix}{entry['path']}",
+                    "source": "index",
+                    "reason": "surface eşleşmiyor",
+                }
+            )
+
+    selected.sort(key=lambda entry: (-float(entry["weight"]), str(entry["path"])))
+    for entry in selected:
+        add(
+            {
+                "class": "retrieved",
+                "path": f"{prefix}{entry['path']}",
+                "source": "index",
+                "reason": (
+                    f"surface {entry['surface']} eşleşti "
+                    f"(weight {entry['weight']})"
+                ),
+            }
+        )
+    candidates.sort(key=lambda item: (item["path"], item["reason"]))
+    for item in candidates:
+        add(item)
+    return list(route.values()), None
+
+
+def render_route(route: list[dict], fallback: str | None = None) -> str:
+    lines: list[str] = []
+    if fallback:
+        lines.append(f"fallback: {fallback}")
+    for item in route:
+        lines.append(
+            f"{item['class']} {item['path']} "
+            f"(source: {item['source']}, reason: {item['reason']})"
+        )
+    return "\n".join(lines) + ("\n" if lines else "")

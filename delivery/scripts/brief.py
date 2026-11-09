@@ -23,6 +23,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import resolver  # noqa: E402
 import routing  # noqa: E402
 import profiles  # noqa: E402
+import context_metrics  # noqa: E402
 
 
 def gh(args: list[str]) -> str:
@@ -34,11 +35,16 @@ def gh(args: list[str]) -> str:
 
 def repo_name() -> str:
     project = routing.project_root(ROOT)
-    ecosystem = yaml.safe_load((project / "ecosystem.yaml").read_text(encoding="utf-8")) or {}
-    repo = (ecosystem.get("tracker") or {}).get("repo")
-    if not repo:
-        sys.exit("brief: ecosystem.yaml tracker.repo yok")
-    return repo
+    try:
+        ecosystem = yaml.safe_load(
+            (project / "ecosystem.yaml").read_text(encoding="utf-8")
+        ) or {}
+    except (OSError, yaml.YAMLError):
+        ecosystem = {}
+    repo = (ecosystem.get("tracker") or {}).get("repo") if isinstance(ecosystem, dict) else None
+    # gh api expands these placeholders from the current repository; a missing
+    # ecosystem must not stop the brief before its banner is printed.
+    return str(repo) if repo else "{owner}/{repo}"
 
 
 def project_ecosystem() -> dict:
@@ -63,6 +69,174 @@ def project_priorities() -> dict:
     return priorities if isinstance(priorities, dict) else {}
 
 
+def _unique(items) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for item in items:
+        text = str(item)
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        result.append(text)
+    return result
+
+
+READ_CLASSES = ("sink", "window", "retrieved")
+READ_TAGS = {
+    "sink": "[sink]",
+    "window": "[window]",
+    "retrieved": "[retrieved]",
+}
+READ_UNKNOWN = "[unknown]"
+SINK_LIMIT = 4
+WINDOW_LIMIT = 3
+RETRIEVED_LIMIT = 5
+WINDOW_DOC_ORDER = ("ROLE.md", "how.md", "SKILL.md", "communicates.md", "dependencies.md")
+
+
+def read_tag(value) -> str:
+    """Tag for one reading class; an unrecognised class is ``[unknown]``."""
+    text = str(value or "").strip()
+    return READ_TAGS.get(text, READ_UNKNOWN)
+
+
+def reading_items(
+    sink: list[str] | None = None,
+    window: list[str] | None = None,
+    route: list[dict] | None = None,
+) -> list[dict]:
+    """Classify paths for a CP brief: sink > window > retrieved > unknown.
+
+    Every path keeps one class. Route candidates are already explained by
+    ``--route`` and are not re-listed; a route item without a known reading
+    class stays visible as ``unknown`` instead of joining ``retrieved``.
+    """
+    items: list[dict] = []
+    seen: set[str] = set()
+
+    def add(kind: str, path) -> None:
+        text = str(path or "")
+        if not text or text in seen:
+            return
+        seen.add(text)
+        items.append({"class": kind, "path": text})
+
+    for path in sink or []:
+        add("sink", path)
+    for path in window or []:
+        add("window", path)
+    for item in route or []:
+        if not isinstance(item, dict):
+            continue
+        kind = str(item.get("class") or "").strip()
+        if kind == "candidate":
+            continue
+        add(kind if kind in READ_CLASSES else "unknown", item.get("path"))
+    return items
+
+
+def window_docs(docs: list[str] | None, role: str) -> list[str]:
+    """Active CP role documents, at most ``WINDOW_LIMIT``, core files first."""
+    selected = [
+        str(doc)
+        for doc in docs or []
+        if f"/agents/{role}/" in f"/{doc}"
+    ]
+    selected.sort(
+        key=lambda doc: (
+            WINDOW_DOC_ORDER.index(Path(doc).name)
+            if Path(doc).name in WINDOW_DOC_ORDER
+            else len(WINDOW_DOC_ORDER),
+            doc,
+        )
+    )
+    return selected[:WINDOW_LIMIT]
+
+
+def cp_route_items(route: list[dict] | None) -> list[dict]:
+    """Route items the CP brief lists: sink/retrieved/unknown, capped budget.
+
+    Window paths come from :func:`window_docs`; candidates stay in ``--route``
+    output so the CP brief does not re-list them as reading material.
+    """
+    items: list[dict] = []
+    retrieved = 0
+    for item in route or []:
+        if not isinstance(item, dict):
+            continue
+        kind = str(item.get("class") or "").strip()
+        if kind in ("window", "candidate"):
+            continue
+        if kind == "retrieved":
+            retrieved += 1
+            if retrieved > RETRIEVED_LIMIT:
+                continue
+        items.append(item)
+    return items
+
+
+def render_reading_items(items: list[dict]) -> list[str]:
+    return [f"- {read_tag(item['class'])} {item['path']}" for item in items]
+
+
+def control_fields(
+    path_id: str,
+    path_source: str,
+    fallbacks: list[str] | None = None,
+    route_requested: bool = False,
+    route_count: int = 0,
+    index_version: str = "yok",
+    cp_id: str | None = None,
+    cp_applied: bool = False,
+) -> dict:
+    """armed/indexing/unarmed banner fields for one brief invocation.
+
+    ``armed`` only claims a selection that actually happened (signal/keyword
+    path, checkpoint lookup, route consumption); ``indexing`` is written only
+    when ``--route`` really consumed the index. Every missing piece becomes an
+    ``unarmed`` reason instead of a silent absence.
+    """
+    armed: list[str] = []
+    reasons: list[str] = []
+    if path_source in ("signal", "keyword", "entry"):
+        armed.append(f"path {path_id}")
+    else:
+        reasons.append("path default")
+    if cp_applied and cp_id:
+        armed.append(f"cp {cp_id}")
+    indexing = None
+    if route_requested:
+        if not index_version or index_version == "yok":
+            reasons.append("index yok")
+        else:
+            indexing = f"v{index_version}"
+            armed.append(f"route {route_count}")
+    else:
+        reasons.append("route tuketilmedi")
+    return {
+        "armed": armed,
+        "indexing": indexing,
+        "unarmed": reasons,
+        "fallbacks": _unique(fallbacks or []),
+    }
+
+
+def header_lines(data: dict) -> list[str]:
+    """config/armed/indexing/unarmed/fallback lines prepended to every output."""
+    lines = routing.render_config(data.get("config"))
+    armed = data.get("armed") or []
+    if armed:
+        lines.append("armed: " + ", ".join(armed))
+    if data.get("indexing"):
+        lines.append(f"indexing: {data['indexing']}")
+    reasons = data.get("unarmed") or []
+    if reasons:
+        lines.append("unarmed: " + "; ".join(reasons))
+    for reason in data.get("fallbacks") or []:
+        lines.append(f"fallback: {reason}")
+    return lines
+
+
 def build_brief(
     registry: dict,
     number: int,
@@ -72,10 +246,14 @@ def build_brief(
     prefix: str = "",
     ecosystem: dict | None = None,
     priorities: dict | None = None,
+    fallbacks: list[str] | None = None,
 ) -> dict:
+    resolver.reset_fallbacks()
     seal = routing.seal_body(body)
     epic = routing.is_epic(body) or ("scope-confirmed" in labels and not seal)
-    path_id, signal = routing.detect_path(registry, title, body, seal)
+    path_id, signal, path_source = routing.detect_path_detail(
+        registry, title, body, seal
+    )
     agents = routing.resolve_agents(registry, path_id, signal)
     risk = (seal.get("risk") or {}).get("level", "n/a")
     signals = (
@@ -94,12 +272,24 @@ def build_brief(
         declared=resolver.load_declared(routing.project_root(ROOT)),
     )
     docs = [f"{prefix}{doc}" for doc in resolution["docs"]]
+    config = routing.config_snapshot(
+        ROOT, registry, path_id, path_source, index_file()
+    )
+    reasons = list(fallbacks or [])
+    if path_source == "default":
+        reasons.append("path default")
+    version_fallback = routing.route_index_version_fallback(index_file())
+    if version_fallback:
+        reasons.append(version_fallback)
+    reasons += resolver.fallbacks()
+    reasons = _unique(reasons)
 
-    return {
+    data = {
         "issue": number,
         "title": title,
         "state": "epic" if epic else "leaf",
         "path_id": path_id,
+        "path_source": path_source,
         "signal": signal.get("id") if signal else None,
         "agents": agents,
         "active_roles": resolution["active_roles"],
@@ -123,7 +313,135 @@ def build_brief(
         "next_action": routing.next_action(labels, epic),
         "human_gates": routing.human_gates(risk, epic),
         "docs": docs,
+        "config": config,
     }
+    data.update(
+        control_fields(path_id, path_source, fallbacks=reasons)
+    )
+    return data
+
+
+def index_file() -> Path:
+    """Route index shipped with the kit; patched in tests."""
+    return routing.route_index_path(ROOT)
+
+
+def frequency_file() -> Path:
+    """Learned frequency table shipped with the kit; patched in tests."""
+    return ROOT / "delivery" / "context" / "frequency.yaml"
+
+
+def load_frequency() -> dict | None:
+    """Learned frequency table; ``None`` when absent, invalid shape raises."""
+    return context_metrics.load_frequency(frequency_file(), ROOT)
+
+
+def _route_doc(path: str, prefix: str) -> str:
+    text = str(path)
+    if prefix and text.startswith(prefix):
+        return text[len(prefix) :]
+    return text
+
+
+def _route_number(value: float) -> str:
+    return str(int(value)) if float(value).is_integer() else str(value)
+
+
+def apply_frequency(
+    route: list[dict],
+    frequency: dict | None,
+    index: dict | None,
+    prefix: str = "",
+) -> list[dict]:
+    """Re-rank retrieved items: frequency first, index weight otherwise.
+
+    A document with a frequency row always precedes index-only candidates;
+    frequency rows sort by observed ratio descending, index candidates by
+    weight descending, ties by path ascending. ``source`` becomes ``frequency``
+    or ``index`` and the reason carries the raw ratio/weight, so ``--route``
+    explains the choice. Items outside ``retrieved`` keep their order and class.
+    """
+    if not frequency:
+        return route
+    by_doc: dict[str, list[dict]] = {}
+    for row in frequency.get("rows") or []:
+        if isinstance(row, dict):
+            by_doc.setdefault(str(row.get("doc")), []).append(row)
+    weights = {
+        str(entry["path"]): float(entry["weight"])
+        for entry in (index or {}).get("entries") or []
+        if isinstance(entry, dict) and "path" in entry and "weight" in entry
+    }
+    decorated: list[dict] = []
+    for item in route:
+        if item.get("class") != "retrieved":
+            decorated.append(item)
+            continue
+        doc = _route_doc(item.get("path", ""), prefix)
+        matches = by_doc.get(doc) or []
+        if matches:
+            chosen = sorted(
+                matches, key=lambda row: (-float(row["ratio"]), str(row["surface"]))
+            )[0]
+            ratio = float(chosen["ratio"])
+            decorated.append(
+                {
+                    **item,
+                    "source": "frequency",
+                    "reason": (
+                        f"frequency {chosen['used']}/{chosen['selected']} "
+                        f"ratio {ratio:.2f}"
+                    ),
+                    "_group": 0,
+                    "_order": ratio,
+                }
+            )
+            continue
+        weight = weights.get(doc)
+        reason = item.get("reason")
+        score = weight if weight is not None else 0.0
+        if weight is not None:
+            reason = f"index weight {_route_number(weight)}"
+        decorated.append(
+            {
+                **item,
+                "source": "index",
+                "reason": reason,
+                "_group": 1,
+                "_order": score,
+            }
+        )
+    selected = sorted(
+        (item for item in decorated if item["class"] == "retrieved"),
+        key=lambda item: (item["_group"], -item["_order"], str(item["path"])),
+    )
+    result: list[dict] = []
+    inserted = False
+    for item in decorated:
+        if item["class"] != "retrieved":
+            result.append(item)
+            continue
+        if inserted:
+            continue
+        result.extend(
+            {
+                key: value
+                for key, value in choice.items()
+                if key not in ("_group", "_order")
+            }
+            for choice in selected
+        )
+        inserted = True
+    if not inserted:
+        result.extend(
+            {
+                key: value
+                for key, value in choice.items()
+                if key not in ("_group", "_order")
+            }
+            for choice in selected
+        )
+    return result
 
 
 def cp_role(gates: dict) -> str:
@@ -180,6 +498,9 @@ def render_cp_brief(
     risk: str | None = None,
     profile_gates: dict | None = None,
     include_evidence: bool = True,
+    control: dict | None = None,
+    docs: list[str] | None = None,
+    route: list[dict] | None = None,
 ) -> str:
     """Compact per-checkpoint brief: scope, AC, tests, evidence skeleton."""
     cp, cases = cp_selection(seal, cp_id)
@@ -213,7 +534,8 @@ def render_cp_brief(
     ]
     gate_text = "behavior" + (", " + ", ".join(active) if active else "")
 
-    lines = [
+    lines = header_lines(control or {})
+    lines += [
         f"## CP brief — {cp_id} · {cp.get('title', '')}",
         f"Epic: {seal.get('epic')} · Risk: {effective_risk} · Rol: {role}",
         f"Yüzey: {surfaces} · Gate: {gate_text}",
@@ -234,9 +556,32 @@ def render_cp_brief(
             )
     else:
         lines.append("Testler: seal'de bu CP için case yok — seal'i düzelt.")
-    if reference:
+    sink_paths = [f"{prefix}{path}" for path in reference[:SINK_LIMIT]]
+    overflow = [f"{prefix}{path}" for path in reference[SINK_LIMIT:]]
+    reading = reading_items(
+        sink=sink_paths,
+        window=window_docs(docs, role),
+        route=cp_route_items(route),
+    )
+    if sink_paths:
         lines.append("Yollar:")
-        lines += [f"- {prefix}{path}" if prefix else f"- {path}" for path in reference]
+        lines += [
+            f"- {READ_TAGS['sink']} {path}" for path in sink_paths
+        ]
+    if overflow:
+        lines.append("Sink limiti aşan referanslar:")
+        lines += [
+            f"- {READ_UNKNOWN} (sink limiti) {path}" for path in overflow
+        ]
+    overflow_set = set(overflow)
+    extra = [
+        item
+        for item in reading
+        if item["class"] != "sink" and item["path"] not in overflow_set
+    ]
+    if extra:
+        lines.append("Okuma sınıfları:")
+        lines += render_reading_items(extra)
 
     if include_evidence and cases:
         lines += [
@@ -277,7 +622,8 @@ def render_cp_brief(
 
 
 def render(data: dict) -> str:
-    lines = [
+    lines = header_lines(data)
+    lines += [
         f"#{data['issue']} {data['title']}",
         f"state: {data['state']}",
         f"path: {data['path_id']}"
@@ -375,6 +721,11 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="delivery agent brief")
     parser.add_argument("issue", type=int)
     parser.add_argument("--cp", help="compact brief for one checkpoint (CP-1)")
+    parser.add_argument(
+        "--route",
+        action="store_true",
+        help="sink/window/retrieved doküman seçimini kaynak ve gerekçeyle yaz",
+    )
     parser.add_argument("--write", type=Path, help="write the CP brief to this directory")
     parser.add_argument("--json", action="store_true")
     parser.add_argument("--post", action="store_true")
@@ -384,6 +735,13 @@ def main() -> int:
     issue = json.loads(gh(["api", f"repos/{repo}/issues/{args.issue}"]))
     labels = {item.get("name") for item in issue.get("labels", [])}
     body = issue.get("body", "") or ""
+    ecosystem = project_ecosystem()
+    priorities = project_priorities()
+    initial_fallbacks: list[str] = []
+    if not ecosystem:
+        initial_fallbacks.append("ecosystem yok")
+    if not priorities:
+        initial_fallbacks.append("priorities yok")
     data = build_brief(
         routing.load_registry(ROOT),
         args.issue,
@@ -391,9 +749,100 @@ def main() -> int:
         body,
         labels,
         routing.kit_prefix(ROOT),
-        project_ecosystem(),
-        project_priorities(),
+        ecosystem,
+        priorities,
+        fallbacks=initial_fallbacks,
     )
+
+    if args.route:
+        seal = routing.seal_body(body)
+        if args.cp:
+            try:
+                cp_selection(seal, args.cp)
+            except ValueError as exc:
+                sys.exit(f"brief: {exc}")
+        try:
+            index = routing.load_route_index(index_file(), ROOT)
+        except routing.RouteIndexError as exc:
+            print(f"brief: {exc}", file=sys.stderr)
+            return 2
+        prefix = routing.kit_prefix(ROOT)
+        route, fallback = routing.build_route(seal, data["docs"], index, prefix)
+        try:
+            route = apply_frequency(route, load_frequency(), index, prefix)
+        except context_metrics.FrequencyError as exc:
+            print(f"brief: {exc}", file=sys.stderr)
+            return 2
+        version = str(index["version"]) if index else "yok"
+        fallbacks = list(data["fallbacks"])
+        if fallback:
+            fallbacks.append(fallback)
+        route_data = {
+            **data,
+            **control_fields(
+                data["path_id"],
+                data["path_source"],
+                fallbacks=fallbacks,
+                route_requested=True,
+                route_count=len(route),
+                index_version=version,
+                cp_id=args.cp,
+                cp_applied=bool(args.cp),
+            ),
+        }
+        if args.json:
+            print(
+                json.dumps(
+                    {
+                        "issue": data["issue"],
+                        "route": route,
+                        "fallback": fallback,
+                        "config": route_data["config"],
+                        "armed": route_data["armed"],
+                        "indexing": route_data["indexing"],
+                        "unarmed": route_data["unarmed"],
+                        "fallbacks": route_data["fallbacks"],
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                )
+            )
+        else:
+            lines = header_lines(route_data)
+            output = (
+                "\n".join(lines) + ("\n" if lines else "")
+                + routing.render_route(route, None)
+            )
+            if args.cp:
+                cp, _ = cp_selection(seal, args.cp)
+                role = cp_role(cp.get("gates") or {})
+                reading = reading_items(
+                    sink=[
+                        str(item["path"])
+                        for item in route
+                        if item.get("class") == "sink"
+                    ],
+                    window=window_docs(
+                        [
+                            str(item["path"])
+                            for item in route
+                            if item.get("class") == "window"
+                        ],
+                        role,
+                    ),
+                    route=cp_route_items(
+                        [
+                            item
+                            for item in route
+                            if item.get("class") not in ("sink", "window", "candidate")
+                        ]
+                    ),
+                )
+                if reading:
+                    output += "Okuma sınıfları:\n"
+                    output += "\n".join(render_reading_items(reading)) + "\n"
+            sys.stdout.write(output)
+        return 0
 
     if args.cp:
         seal = routing.seal_body(body)
@@ -408,6 +857,32 @@ def main() -> int:
                 str((seal.get("risk") or {}).get("level") or "low"),
                 str(data.get("risk_floor") or "low"),
             )
+            cp_control = {
+                **data,
+                **control_fields(
+                    data["path_id"],
+                    data["path_source"],
+                    fallbacks=list(data["fallbacks"]),
+                    cp_id=args.cp,
+                    cp_applied=True,
+                ),
+            }
+            cp_route: list[dict] = []
+            try:
+                index = routing.load_route_index(index_file(), ROOT)
+            except routing.RouteIndexError:
+                index = None
+            if index is not None:
+                prefix = routing.kit_prefix(ROOT)
+                cp_route, _ = routing.build_route(
+                    seal, data["docs"], index, prefix
+                )
+                try:
+                    frequency = load_frequency()
+                except context_metrics.FrequencyError as exc:
+                    print(f"brief: {exc}", file=sys.stderr)
+                    return 2
+                cp_route = apply_frequency(cp_route, frequency, index, prefix)
             text = render_cp_brief(
                 {"issue": data["issue"], "risk": effective},
                 seal,
@@ -416,6 +891,9 @@ def main() -> int:
                 gates=cp.get("gates") or {},
                 risk=effective,
                 profile_gates=profile_gates,
+                control=cp_control,
+                docs=data["docs"],
+                route=cp_route,
             )
         except ValueError as exc:
             sys.exit(f"brief: {exc}")
@@ -433,6 +911,11 @@ def main() -> int:
                         "role": cp_role(cp.get("gates") or {}),
                         "chars": len(text),
                         "brief": text,
+                        "config": cp_control["config"],
+                        "armed": cp_control["armed"],
+                        "indexing": cp_control["indexing"],
+                        "unarmed": cp_control["unarmed"],
+                        "fallbacks": cp_control["fallbacks"],
                     },
                     ensure_ascii=False,
                     indent=2,

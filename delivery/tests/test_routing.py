@@ -57,10 +57,12 @@ class RoutingTests(unittest.TestCase):
         self.assertEqual(path, "landing_only")
 
     def test_entry_kind_fallback(self) -> None:
-        path, _ = routing.detect_path(
+        path, signal, source = routing.detect_path_detail(
             REGISTRY, "unrelated title", "", {"surfaces": ["other"], "entry": {"kind": "chore"}}
         )
         self.assertEqual(path, "pure_technical")
+        self.assertIsNone(signal)
+        self.assertEqual(source, "entry")
 
     def test_no_stack_substring_hijack(self) -> None:
         path, _ = routing.detect_path(

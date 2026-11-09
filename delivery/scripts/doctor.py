@@ -19,6 +19,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import approvals as approvals_lib  # noqa: E402
 import capabilities as capabilities_lib  # noqa: E402
+import context_metrics  # noqa: E402
 import delivery_block  # noqa: E402
 import doctor_compat  # noqa: E402
 import doctor_mcp  # noqa: E402
@@ -220,6 +221,7 @@ def check_schemas() -> None:
             error(f"{rel(path)}: $schema yok")
         if data.get("type") != "object":
             error(f"{rel(path)}: kök tip object değil")
+    context_metrics.report_frequency(DELIVERY / "context" / "frequency.yaml", error)
 
 
 def check_registry() -> None:

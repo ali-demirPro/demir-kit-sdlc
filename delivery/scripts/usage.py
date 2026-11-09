@@ -163,8 +163,8 @@ def write_snapshot(issue: int) -> dict:
     return data
 
 
-def read_snapshot(issue: int) -> dict | None:
-    path = snapshot_path(issue)
+def read_snapshot(issue: int, project: Path | None = None) -> dict | None:
+    path = snapshot_path(issue, project)
     if not path.is_file():
         return None
     return json.loads(path.read_text(encoding="utf-8"))
@@ -189,8 +189,9 @@ def compute_delta(snapshot: dict, current: dict) -> dict:
     }
 
 
-def session_delta(issue: int) -> dict:
-    snapshot = read_snapshot(issue)
+def session_delta(issue: int, project: Path | None = None) -> dict:
+    project = project or project_root()
+    snapshot = read_snapshot(issue, project)
     if not snapshot:
         raise ValueError("no snapshot")
     current = api_session_info(snapshot["session_id"])

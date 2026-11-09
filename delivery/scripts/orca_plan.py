@@ -102,19 +102,26 @@ def build_plan(
         raise ValueError("issue seal (`demir-kit` bloğu) yok")
     if "agent-approved" not in labels:
         raise ValueError("leaf agent-approved değil")
-    path_id, signal = routing.detect_path(registry, title, body, seal)
+    resolver.reset_fallbacks()
+    path_id, signal, path_source = routing.detect_path_detail(
+        registry, title, body, seal
+    )
     agents = routing.resolve_agents(registry, path_id, signal)
     surfaces = ", ".join(seal.get("surfaces") or []) or "n/a"
     epic = seal.get("epic")
     risk = (seal.get("risk") or {}).get("level", "n/a")
     project = routing.project_root(ROOT)
     seal_profile = str((seal.get("factory") or {}).get("profile") or "")
+    fallbacks: list[str] = []
+    if path_source == "default":
+        fallbacks.append("path default")
     if seal_profile:
         profile_data = profiles_mod.load_profile(seal_profile)
     else:
         try:
             profile_data = profiles_mod.compose(project)
-        except ValueError:
+        except ValueError as exc:
+            fallbacks.append(f"profiles compose ({exc})")
             profile_data = {}
     profile_gates = profiles_mod.gates_for(project, seal_profile)
     profile_docs = [
@@ -138,6 +145,13 @@ def build_plan(
     )
     capabilities = resolution["capabilities"]
     active_variants = resolution["active_variants"]
+    config = routing.config_snapshot(
+        ROOT, registry, path_id, path_source, routing.route_index_path(ROOT)
+    )
+    fallbacks = brief_mod._unique(
+        fallbacks
+        + resolver.fallbacks()
+    )
     risk_order = {"low": 0, "medium": 1, "high": 2, "critical": 3}
     effective_risk = routing.effective_risk(
         risk if risk in risk_order else "low",
@@ -181,6 +195,16 @@ def build_plan(
             }
         deps = [f"task:{item}" for item in cp.get("depends_on") or []]
         try:
+            cp_control = {
+                "config": config,
+                **brief_mod.control_fields(
+                    path_id,
+                    path_source,
+                    fallbacks=fallbacks,
+                    cp_id=str(cp_id),
+                    cp_applied=True,
+                ),
+            }
             cp_brief = brief_mod.render_cp_brief(
                 {"issue": issue, "risk": effective_risk},
                 seal,
@@ -192,8 +216,12 @@ def build_plan(
             )
         except ValueError:
             cp_brief = ""
+            cp_control = {}
         spec = (
-            f"demir-kit #{issue} {cp_id}: {cp.get('title', '')}\n"
+            "".join(
+                line + "\n" for line in brief_mod.header_lines(cp_control)
+            )
+            + f"demir-kit #{issue} {cp_id}: {cp.get('title', '')}\n"
             f"Target: issue #{issue}, epic #{epic}, surfaces: {surfaces}\n"
             f"Role: {role}\n"
             f"Capabilities: {', '.join(capabilities) or '-'}\n"
@@ -236,9 +264,16 @@ def build_plan(
         "title": title,
         "epic": epic,
         "path_id": path_id,
+        "path_source": path_source,
         "signal": signal.get("id") if signal else None,
         "risk": risk,
         "effective_risk": effective_risk,
+        **{
+            "config": config,
+            **brief_mod.control_fields(
+                path_id, path_source, fallbacks=fallbacks
+            ),
+        },
         "active_agents": agents["active"],
         "capability_agents": resolution["active_roles"],
         "capabilities": capabilities,
@@ -294,6 +329,9 @@ def main() -> int:
     elif args.json:
         print(json.dumps(plan, ensure_ascii=False, indent=2))
     else:
+        header = brief_mod.header_lines(plan)
+        if header:
+            print("\n".join(header))
         print(f"#{plan['issue']} {plan['title']}")
         print(f"path: {plan['path_id']} · risk: {plan['risk']} · tasks: {len(plan['tasks'])}")
         for task in plan["tasks"]:

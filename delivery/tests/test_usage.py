@@ -442,6 +442,20 @@ class ContextBudgetTests(unittest.TestCase):
         self.assertIn("300k token", text)
         self.assertIn("200k token", text)
 
+    def test_policy_names_the_three_read_classes(self) -> None:
+        text = (ROOT / "delivery" / "policies" / "context-budget.md").read_text(encoding="utf-8")
+        for name in ("`sink`", "`window`", "`retrieved`", "`unknown`"):
+            self.assertIn(f"| {name} |", text)
+        self.assertIn("4 dosya / 10k token", text)
+        self.assertIn("3 dosya / 8k token", text)
+        self.assertIn("5 dosya / 20k token", text)
+        self.assertIn("Worker başına okunan doküman | 3 dosya | 5 dosya", text)
+        self.assertIn("en fazla 5 dosyadır", text)
+        self.assertIn("2k token", text)
+        self.assertIn("8k token", text)
+        self.assertIn("CP başına zorunlu sink", text)
+        self.assertIn("Retrieved seçim kuralı", text)
+
 class CaptureSessionTests(unittest.TestCase):
     def test_new_session_is_recorded(self) -> None:
         session = {"id": "ses_new", "created": 1000}
