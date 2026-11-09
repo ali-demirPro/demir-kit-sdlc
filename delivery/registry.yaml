@@ -181,6 +181,7 @@ policies:
   path_routing: delivery/policies/path-routing.md
   human_qa: delivery/policies/human-qa-done.md
   quality_gates: delivery/policies/quality-gates.md
+  process_rigor: delivery/policies/process-rigor.md
   escalation: delivery/policies/escalation.md
   project_priorities: delivery/policies/project-priorities.md
   skill_writing: delivery/policies/skill-writing.md

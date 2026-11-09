@@ -480,5 +480,83 @@ class ResolverMergeTests(unittest.TestCase):
             self.assertEqual(declared["include"], ["platform.web"])
 
 
+class ProcessRigorPolicyTests(unittest.TestCase):
+    """AC-1/AC-3: etki haritası tablosu rigor tablosuyla birebir aynı."""
+
+    POLICY = ROOT / "delivery" / "policies" / "process-rigor.md"
+    READERS = (
+        "delivery/rigor.yaml",
+        "brief.py",
+        "resolver.py",
+        "profiles.py",
+        "context-budget.md",
+        "leaf.schema.json",
+        "capabilities.py",
+        "variants.py",
+        "gate.sh",
+        "doctor --explain rigor",
+    )
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.text = cls.POLICY.read_text(encoding="utf-8")
+        cls.levels = rigor.load_rigor()["levels"]
+
+    def knob_rows(self) -> dict[str, list[str]]:
+        rows: dict[str, list[str]] = {}
+        for line in self.text.splitlines():
+            cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
+            if len(cells) != 6 or not cells[0].startswith("`"):
+                continue
+            name = cells[0].strip("`")
+            if name in rigor.KNOBS:
+                rows[name] = cells
+        return rows
+
+    def test_table_matches_rigor_levels(self) -> None:
+        """T-1: altı düğme × üç seviye değerleri load_rigor() ile aynı."""
+        rows = self.knob_rows()
+        self.assertEqual(set(rows), set(rigor.KNOBS))
+        self.assertIn("| Düğme | minimal | standard | full |", self.text)
+        for name, cells in rows.items():
+            for index, level in enumerate(rigor.LEVELS, start=1):
+                self.assertEqual(
+                    cells[index].strip("`"), self.levels[level][name], f"{name}/{level}"
+                )
+
+    def test_every_knob_names_a_reader(self) -> None:
+        """T-1: her düğme satırı bir okuyan dosya/komut adı taşır."""
+        for name, cells in self.knob_rows().items():
+            reader = cells[5]
+            self.assertTrue(reader, name)
+            self.assertTrue(
+                any(token in reader for token in self.READERS),
+                f"{name}: okuyan dosya/komut yok — {reader}",
+            )
+
+    def test_minimal_shortened_and_preserved_separate(self) -> None:
+        """T-3: kısalttığı ve kısaltmadığı ayrı başlıklar; kapılar korunur."""
+        self.assertIn("### Kısalttığı", self.text)
+        self.assertIn("### Kısaltmadığı", self.text)
+        before, after = self.text.split("### Kısaltmadığı", 1)
+        shortened = before.split("### Kısalttığı", 1)[1]
+        preserved = after.split("\n## ", 1)[0]
+        for word in ("doküman", "kanıt", "cp"):
+            self.assertIn(word, shortened.lower(), word)
+        for phrase in ("behavior gate", "en az 1 reviewer", "risk tabanı", "insan kapısı"):
+            self.assertIn(phrase, preserved.lower(), phrase)
+
+    def test_fallback_is_documented(self) -> None:
+        """AC-4: uyarı + standard fallback + exit 2 yazılıdır."""
+        self.assertIn("`uyarı:`", self.text)
+        self.assertIn("`fallback: standard", self.text)
+        self.assertIn("**exit 2**", self.text)
+        self.assertIn("sessiz", self.text)
+
+    def test_review_mode_is_not_a_lever(self) -> None:
+        self.assertIn("`modes.review_mode`: saklanır, kaldıraç değil", self.text)
+        self.assertIn("Gating reviewer sayısını değiştirmez", self.text)
+
+
 if __name__ == "__main__":
     unittest.main()

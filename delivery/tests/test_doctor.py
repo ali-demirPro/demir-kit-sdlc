@@ -1856,6 +1856,96 @@ class LocalOverridesTests(DoctorTestCase):
         self.assertTrue(all(isinstance(item, str) for item in data["docs"]))
 
 
+class ProcessRigorPolicyTest(unittest.TestCase):
+    """AC-2/AC-4: politika registry'de, I24 ve risk tabanıyla çelişmiyor."""
+
+    POLICY = ROOT / "delivery" / "policies" / "process-rigor.md"
+    P3_PATH = ROOT / "delivery" / "plans" / "P3.yaml"
+    CONTRACT = ROOT / "delivery" / "CONTRACT.md"
+    QUALITY_GATES = ROOT / "delivery" / "policies" / "quality-gates.md"
+    I24 = (
+        "Rigor seviyesi risk tabanını, `auto_escalate` glob'larını veya insan "
+        "kapısını düşüremez; gating reviewer sayısı yalnız riskten gelir "
+        "(low/medium 1, high/critical 2)."
+    )
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.text = cls.POLICY.read_text(encoding="utf-8")
+        cls.registry = yaml.safe_load(
+            (ROOT / "delivery" / "registry.yaml").read_text(encoding="utf-8")
+        )
+
+    def section(self, heading: str, next_heading: str) -> str:
+        return self.text.split(heading, 1)[1].split(next_heading, 1)[0]
+
+    def table_rows(self, text: str) -> list[list[str]]:
+        rows = []
+        for line in text.splitlines():
+            if not line.startswith("|"):
+                continue
+            cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
+            if not cells or cells[0].startswith("---") or cells[0] in {"Risk", "CCGS"}:
+                continue
+            rows.append(cells)
+        return rows
+
+    def test_policy_is_registered(self) -> None:
+        """T-4: registry policies process_rigor kaydı ve dosya varlığı."""
+        self.assertEqual(
+            (self.registry.get("policies") or {}).get("process_rigor"),
+            "delivery/policies/process-rigor.md",
+        )
+        self.assertTrue(self.POLICY.is_file())
+
+    def test_reviewer_counts_match_risk_baseline(self) -> None:
+        """T-2/T-4: low/medium 1, high/critical 2; quality-gates ile aynı."""
+        risk_section = self.section("## Risk tabanı sınırı", "## CCGS")
+        rows = self.table_rows(risk_section)
+        self.assertEqual({row[0].strip("`") for row in rows}, {
+            "low", "medium", "high", "critical"
+        })
+        gate_rows = {}
+        for line in self.QUALITY_GATES.read_text(encoding="utf-8").splitlines():
+            match = re.match(r"^\|\s*`(low|medium|high|critical)`\s*\|(.+)\|\s*$", line)
+            if match:
+                gate_rows[match.group(1)] = [
+                    cell.strip() for cell in match.group(2).split("|")
+                ]
+        for row in rows:
+            risk = row[0].strip("`")
+            count = int(row[1])
+            self.assertEqual(count, doctor.rigor_lib.reviewer_count(risk), risk)
+            gate_count = re.search(r"(\d+)\s*reviewer", gate_rows[risk][4])
+            self.assertIsNotNone(gate_count, risk)
+            self.assertEqual(int(gate_count.group(1)), count, risk)
+            if risk in {"high", "critical"}:
+                self.assertIn("reviews.human", row[2], risk)
+            else:
+                self.assertNotIn("reviews.human", row[2], risk)
+
+    def test_i24_is_quoted_verbatim(self) -> None:
+        """T-2: CONTRACT I24 ve politika aynı cümleyi taşır."""
+        contract = self.CONTRACT.read_text(encoding="utf-8")
+        line = next(
+            (item for item in contract.splitlines() if item.startswith("| I24 |")),
+            "",
+        )
+        self.assertIn(self.I24, line)
+        normalized = " ".join(self.text.split())
+        self.assertIn(self.I24, normalized)
+        self.assertIn("`gate_level`", self.text)
+        self.assertIn("auto_escalate", self.text)
+
+    def test_conflict_verdicts_match_p3(self) -> None:
+        """T-2: beş çelişki kararı P3.yaml ile aynı verdict."""
+        conflict = self.section("## CCGS çelişki tablosu", "## Fallback")
+        verdicts = [row[-1].strip("`") for row in self.table_rows(conflict)]
+        plan = yaml.safe_load(self.P3_PATH.read_text(encoding="utf-8"))
+        self.assertEqual(verdicts, [item["verdict"] for item in plan["risk_conflict"]])
+        self.assertEqual(len(verdicts), 5)
+
+
 class RiskBaselineInvariantTest(unittest.TestCase):
     """I24: rigor seviyesi risk tabanını, reviewer sayısını ve insan kapısını düşüremez."""
 
