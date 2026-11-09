@@ -926,6 +926,7 @@ def _discovery_command(argv: list[str]) -> int:
 BATCH_ROOT = ROOT / ".kit" / "eval-batches"
 CRITERION_STATES = ("pass", "fail", "unknown", "unassessable")
 COMPLETED_STATES = ("pass", "fail")
+SESSION_OVERRIDE_KEYS = ("status", "criteria", "turns", "duration_ms", "revision")
 
 
 class CompareError(ValueError):
@@ -980,11 +981,17 @@ def _session_entry(entry: object, index: int) -> tuple[str, dict]:
                 f"sessions[{index}] 'session' alanı string olmalı: {entry!r}"
             )
         overrides = {key: value for key, value in entry.items() if key != "session"}
+        unknown = sorted(key for key in overrides if key not in SESSION_OVERRIDE_KEYS)
+        if unknown:
+            raise CompareError(
+                f"sessions[{index}] bilinmeyen override anahtarı: {', '.join(unknown)}"
+            )
     else:
         raise CompareError(
             f"sessions[{index}] string ya da nesne olmalı: {type(entry).__name__}"
         )
-    if not raw.strip():
+    raw = raw.strip()
+    if not raw:
         raise CompareError(f"sessions[{index}] session yolu boş olamaz")
     return raw, overrides
 
@@ -1017,12 +1024,24 @@ def _normalize_criteria(value: object) -> dict[str, str]:
     }
 
 
+def _normalize_revision(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+    value = value.strip()
+    return value or None
+
+
 def _session_record(
     entry: object, manifest_dir: Path, index: int, manifest_revision: str | None
 ) -> dict:
     raw, overrides = _session_entry(entry, index)
     path, exists = _session_path(raw, manifest_dir)
     if not exists:
+        # The revision still resolves before the directory check, so an override
+        # on a missing session survives ``--revision`` narrowing (ADV-7).
+        revision = _normalize_revision(
+            overrides.get("revision", manifest_revision)
+        )
         return {
             "path": str(path),
             "index": index,
@@ -1032,7 +1051,7 @@ def _session_record(
             "criteria": {},
             "turns": None,
             "duration_ms": None,
-            "revision": None,
+            "revision": revision,
             "reason": f"oturum dizini yok: {path}",
         }
     result = _read_result(path)
@@ -1045,9 +1064,9 @@ def _session_record(
     if isinstance(overrides.get("criteria"), dict):
         criteria.update(_normalize_criteria(overrides["criteria"]))
 
-    revision = overrides.get("revision", result.get("revision", manifest_revision))
-    if not isinstance(revision, str) or not revision.strip():
-        revision = None
+    revision = _normalize_revision(
+        overrides.get("revision", result.get("revision", manifest_revision))
+    )
 
     return {
         "path": str(path),
@@ -1070,6 +1089,8 @@ def _collect_records(
     manifest_revision = manifest.get("revision")
     if not isinstance(manifest_revision, str) or not manifest_revision.strip():
         manifest_revision = None
+    else:
+        manifest_revision = manifest_revision.strip()
     records: list[dict] = []
     seen: dict[str, dict] = {}
     duplicates = 0
@@ -1132,6 +1153,13 @@ def build_compare_side(
     manifest = load_batch_manifest(manifest_path)
     manifest_dir = manifest_path.parent
     records = _collect_records(manifest, manifest_dir, side or batch_id, warnings)
+    # Unresolved sessions are reported even when ``--revision`` excludes them
+    # from the compared set (ADV-7).
+    unresolved = [
+        {"path": record["path"], "reason": record["reason"]}
+        for record in sorted(records, key=lambda record: str(record["path"]))
+        if not record["exists"]
+    ]
     records = _filter_revision(records, revision, side or batch_id, warnings)
     records.sort(key=lambda record: str(record["path"]))
 
@@ -1180,11 +1208,7 @@ def build_compare_side(
         "criteria": criterion_output,
         "revision": revision,
         "session_paths": [record["path"] for record in records],
-        "unresolved": [
-            {"path": record["path"], "reason": record["reason"]}
-            for record in records
-            if not record["exists"]
-        ],
+        "unresolved": unresolved,
     }
 
 

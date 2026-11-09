@@ -1434,6 +1434,140 @@ class CompareTests(unittest.TestCase):
         self.assertIn("pass rate (kriter ağırlıklı)", text)
 
 
+    def test_adv6_unknown_override_keys_are_rejected(self) -> None:
+        write_batch_session(
+            self.batches, "a", status="pass", criteria={"AC-1": "pass"}
+        )
+        write_batch_manifest(self.batches, "cand", [])
+        cases = [
+            ({"session": "sessions/a", "critera": {"AC-1": "pass"}}, "critera"),
+            ({"session": "sessions/a", "status": "pass", "extra": 1}, "extra"),
+        ]
+        for entry, key in cases:
+            with self.subTest(entry=entry):
+                write_batch_manifest(self.batches, "base", [entry])
+                code, _, errors = self.run_compare(
+                    "--baseline", "batch=base", "--candidate", "batch=cand"
+                )
+                self.assertEqual(code, 2)
+                self.assertIn("sessions[0]", errors)
+                self.assertIn("bilinmeyen override anahtarı", errors)
+                self.assertIn(key, errors)
+
+    def test_adv7_missing_session_keeps_override_revision_and_unresolved(self) -> None:
+        write_batch_session(
+            self.batches,
+            "a",
+            status="pass",
+            criteria={"AC-1": "pass"},
+            revision="sha256:a",
+        )
+        write_batch_manifest(
+            self.batches,
+            "base",
+            [
+                "sessions/a",
+                {"session": "sessions/ghost", "revision": "sha256:a"},
+                "sessions/ghost-no-rev",
+                {"session": "sessions/ghost-b", "revision": "sha256:b"},
+            ],
+        )
+        write_batch_manifest(self.batches, "cand", [])
+
+        code, stdout, _ = self.run_compare(
+            "--baseline",
+            "batch=base",
+            "--candidate",
+            "batch=cand",
+            "--revision",
+            "sha256:a",
+            "--json",
+        )
+        self.assertEqual(code, 0)
+        baseline = json.loads(stdout)["baseline"]
+        self.assertEqual(baseline["sessions"], 2)
+        self.assertEqual(
+            baseline["pass_rate"],
+            {"pass": 1, "judged": 1, "value": 1.0, "basis": "criteria"},
+        )
+        unresolved_paths = sorted(item["path"] for item in baseline["unresolved"])
+        self.assertEqual(
+            unresolved_paths,
+            [
+                str((self.batches / "sessions" / "ghost").resolve()),
+                str((self.batches / "sessions" / "ghost-b").resolve()),
+                str((self.batches / "sessions" / "ghost-no-rev").resolve()),
+            ],
+        )
+        ghost = next(
+            item
+            for item in baseline["unresolved"]
+            if item["path"].endswith("sessions/ghost")
+        )
+        self.assertIn("oturum dizini yok", ghost["reason"])
+
+    def test_adv8_session_path_and_revision_are_stripped(self) -> None:
+        write_batch_session(
+            self.batches,
+            "a",
+            status="pass",
+            criteria={"AC-1": "pass"},
+            revision="  sha256:a  ",
+        )
+        write_batch_manifest(
+            self.batches,
+            "base",
+            [{"session": "  sessions/a  ", "revision": "  sha256:a  "}],
+        )
+        write_batch_manifest(self.batches, "cand", [])
+
+        code, stdout, _ = self.run_compare(
+            "--baseline",
+            "batch=base",
+            "--candidate",
+            "batch=cand",
+            "--revision",
+            "  sha256:a  ",
+            "--json",
+        )
+        self.assertEqual(code, 0)
+        payload = json.loads(stdout)
+        self.assertEqual(payload["revision"], "sha256:a")
+        baseline = payload["baseline"]
+        self.assertEqual(baseline["sessions"], 1)
+        self.assertEqual(baseline["revision"], "sha256:a")
+        self.assertEqual(
+            baseline["session_paths"],
+            [str((self.batches / "sessions" / "a").resolve())],
+        )
+        self.assertEqual(
+            baseline["pass_rate"],
+            {"pass": 1, "judged": 1, "value": 1.0, "basis": "criteria"},
+        )
+
+    def test_adv8_manifest_revision_is_stripped(self) -> None:
+        write_batch_session(
+            self.batches, "a", status="pass", criteria={"AC-1": "pass"}
+        )
+        write_batch_manifest(
+            self.batches, "base", ["sessions/a"], revision="  sha256:m  "
+        )
+        write_batch_manifest(self.batches, "cand", [])
+
+        code, stdout, _ = self.run_compare(
+            "--baseline",
+            "batch=base",
+            "--candidate",
+            "batch=cand",
+            "--revision",
+            "sha256:m",
+            "--json",
+        )
+        self.assertEqual(code, 0)
+        baseline = json.loads(stdout)["baseline"]
+        self.assertEqual(baseline["sessions"], 1)
+        self.assertEqual(baseline["revision"], "sha256:m")
+
 class NoCopiedSourceTests(unittest.TestCase):
     def test_eval_imports_stay_stdlib_and_yaml(self) -> None:
         import ast
