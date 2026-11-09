@@ -670,8 +670,7 @@ class UnexpectedDeathTests(unittest.TestCase):
                 sys.executable,
                 "-c",
                 (
-                    "import sys, time; sys.stdout.close(); sys.stderr.close();"
-                    " time.sleep(5)"
+                    "import os, time; os.close(1); os.close(2); time.sleep(5)"
                 ),
             ]
             started = time.monotonic()
@@ -679,7 +678,7 @@ class UnexpectedDeathTests(unittest.TestCase):
                 base_spec(command=command, timeout=0.5, attempts=2),
                 out_dir=session_dir,
             )
-            self.assertLess(time.monotonic() - started, 3)
+            self.assertLess(time.monotonic() - started, 1.5)
             self.assertEqual(result["status"], "blocked")
             self.assertTrue(result["timed_out"])
             self.assertIn("zaman aşımı", result["recovery"]["reason"])
