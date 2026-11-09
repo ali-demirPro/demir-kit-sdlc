@@ -512,7 +512,8 @@ def check(
         return False, "uyari: context-metrics satiri yok"
     try:
         lines = path.read_text(encoding="utf-8").splitlines()
-    except OSError:
+    except (UnicodeDecodeError, OSError):
+        # A broken file must not crash the leaf-done warning path.
         return False, "uyari: context-metrics satiri yok"
     for raw in lines:
         if not raw.strip():

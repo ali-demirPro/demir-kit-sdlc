@@ -670,6 +670,30 @@ def warn_context_metrics(number: int, cp: str | None = None) -> None:
         print(message, file=sys.stderr)
 
 
+def ensure_context_metrics(
+    number: int,
+    cp: str | None = None,
+    require: bool = False,
+    root: Path | None = None,
+) -> None:
+    """Auto-record the CP row from the brief metadata, then check it.
+
+    ``require`` turns a still-missing row into a hard stop; otherwise the
+    warning is printed and the leaf-done transition continues.
+    """
+    root = root or cycle.project_root(ROOT)
+    if cp:
+        context_metrics.record_from_brief(number, cp, root)
+    ok, message = context_metrics.check(number, cp, root)
+    if ok:
+        return
+    if not cp:
+        message += " (checkpoint bilinmiyor; yalnız issue kontrol edildi)"
+    if require:
+        sys.exit(f"transition: {message} (--require-metrics)")
+    print(message, file=sys.stderr)
+
+
 def close_leaf_gate(issue: dict, args) -> None:
     """Full leaf gate before leaf-done, or an explicit, recorded degrade."""
     if args.no_gate:
@@ -749,6 +773,11 @@ def main() -> int:
     parser.add_argument("--by", default="coordinator")
     parser.add_argument(
         "--cp", help="leaf-done context-metrics kontrolü için CP kimliği (ör. CP-1)"
+    )
+    parser.add_argument(
+        "--require-metrics",
+        action="store_true",
+        help="leaf-done için context-metrics satırı yoksa dur",
     )
     parser.add_argument("--reason", default="")
     parser.add_argument("--issue-link", default="")
@@ -836,7 +865,11 @@ def main() -> int:
         return 0
 
     if args.to == "leaf-done":
-        warn_context_metrics(args.issue, metrics_cp(args.cp, issue))
+        ensure_context_metrics(
+            args.issue,
+            metrics_cp(args.cp, issue),
+            require=args.require_metrics,
+        )
         close_leaf_gate(issue, args)
         check_push(args)
 

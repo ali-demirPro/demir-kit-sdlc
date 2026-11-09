@@ -281,6 +281,18 @@ class TransitionTests(unittest.TestCase):
         self.assertEqual(transition.orca_status_for("leaf-done"), "in-review")
         self.assertEqual(transition.orca_status_for("epic-done"), "completed")
 
+    def test_require_metrics_flag_is_registered(self) -> None:
+        import contextlib
+        import io
+
+        output = io.StringIO()
+        with patch.object(sys, "argv", ["transition.py", "--help"]):
+            with contextlib.redirect_stdout(output):
+                with self.assertRaises(SystemExit) as error:
+                    transition.main()
+        self.assertEqual(error.exception.code, 0)
+        self.assertIn("--require-metrics", output.getvalue())
+
 
 if __name__ == "__main__":
     unittest.main()

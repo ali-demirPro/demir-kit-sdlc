@@ -194,6 +194,72 @@ class RecordTests(unittest.TestCase):
         self.assertIsNone(transition.metrics_cp(None, {"body": ""}))
 
 
+class EnsureMetricsTests(unittest.TestCase):
+    """leaf-done auto-records the CP row from the brief metadata."""
+
+    def write_brief(self, root: Path, issue: int, cp: str, **payload) -> Path:
+        data = {
+            "issue": issue,
+            "cp": cp,
+            "armed": ["path pure_technical"],
+            "unarmed": [],
+            "fallbacks": ["ecosystem yok"],
+            "selected_docs": ["delivery/scripts/brief.py"],
+            **payload,
+        }
+        path = root / ".kit" / f"brief-{issue}-{cp}.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(data), encoding="utf-8")
+        return path
+
+    def test_leaf_done_writes_the_row_from_brief_metadata(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.write_brief(root, 321, "CP-1")
+            write_usage(root, 321, {"input": 250, "output": 0, "reasoning": 0})
+            transition.ensure_context_metrics(321, "CP-1", root=root)
+            path = root / ".kit" / "context-metrics.jsonl"
+            lines = path.read_text(encoding="utf-8").splitlines()
+        self.assertEqual(len(lines), 1)
+        row = json.loads(lines[0])
+        self.assertEqual((row["issue"], row["cp"]), (321, "CP-1"))
+        self.assertEqual(row["armed"], True)
+        self.assertEqual(row["fallback_count"], 1)
+        self.assertEqual(row["tokens"], 250)
+
+    def test_missing_row_stops_only_with_require_metrics(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            stderr = io.StringIO()
+            with contextlib.redirect_stderr(stderr):
+                transition.ensure_context_metrics(321, "CP-1", root=root)
+            self.assertIn("uyari: context-metrics satiri yok", stderr.getvalue())
+            self.assertFalse((root / ".kit" / "context-metrics.jsonl").exists())
+            with self.assertRaises(SystemExit) as error:
+                transition.ensure_context_metrics(
+                    321, "CP-1", require=True, root=root
+                )
+        self.assertIn("--require-metrics", str(error.exception))
+
+    def test_unknown_checkpoint_is_labelled(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            stderr = io.StringIO()
+            with contextlib.redirect_stderr(stderr):
+                transition.ensure_context_metrics(321, None, root=root)
+        self.assertIn("checkpoint bilinmiyor", stderr.getvalue())
+
+    def test_broken_metrics_file_is_a_warning_not_a_crash(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            path = root / ".kit" / "context-metrics.jsonl"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(b"\xff\xfe bozuk\n")
+            ok, message = context_metrics.check(321, "CP-1", root)
+        self.assertFalse(ok)
+        self.assertEqual(message, "uyari: context-metrics satiri yok")
+
+
 class ConcurrencyTests(unittest.TestCase):
     """Two writers serialize on the lock instead of dropping rows."""
 
