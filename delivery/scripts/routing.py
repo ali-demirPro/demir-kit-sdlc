@@ -282,8 +282,12 @@ def _dedupe(items) -> list[str]:
 ROUTE_INDEX_VERSION = 1
 ROUTE_INDEX_KEYS = {"version", "entries"}
 ROUTE_ENTRY_KEYS = {"surface", "path", "tags", "weight"}
-ROUTE_CLASSES = ("sink", "window", "retrieved")
+ROUTE_CLASSES = ("sink", "window", "retrieved", "candidate")
 ROUTE_SOURCES = {"seal", "resolver", "index", "static"}
+# One line per path: sink beats window, window beats retrieved/candidate.
+ROUTE_PRIORITY = {"sink": 4, "window": 3, "retrieved": 2, "candidate": 1}
+# Matching entries below this weight stay visible as candidates with a reason.
+ROUTE_MIN_WEIGHT = 2
 
 
 class RouteIndexError(ValueError):
@@ -300,6 +304,26 @@ def _is_number(value) -> bool:
         and not isinstance(value, bool)
         and math.isfinite(value)
     )
+
+
+def _entry_path(base: Path, entry_path: str, label: str) -> Path:
+    """Resolve one index path inside ``base``; escapes are errors, not fallbacks."""
+    candidate = Path(entry_path)
+    if candidate.is_absolute():
+        raise RouteIndexError(f"{label}: yol kök dışında: {entry_path}")
+    if ".." in candidate.parts:
+        raise RouteIndexError(f"{label}: yol kök dışında: {entry_path}")
+    try:
+        root = base.resolve()
+        resolved = (base / candidate).resolve()
+    except OSError as exc:
+        raise RouteIndexError(f"{label}: yol çözülemedi: {entry_path}") from exc
+    try:
+        resolved.relative_to(root)
+    except ValueError:
+        # Symlink that points outside the kit root.
+        raise RouteIndexError(f"{label}: yol kök dışında: {entry_path}") from None
+    return resolved
 
 
 def load_route_index(path: Path, root: Path | None = None) -> dict | None:
@@ -352,7 +376,8 @@ def load_route_index(path: Path, root: Path | None = None) -> dict | None:
         entry_path = entry.get("path")
         if not isinstance(entry_path, str) or not entry_path.strip():
             raise RouteIndexError(f"{label}: path boş olamaz")
-        if not (base / entry_path).is_file():
+        resolved = _entry_path(base, entry_path, label)
+        if not resolved.is_file():
             raise RouteIndexError(f"{label}: çözülmeyen yol: {entry_path}")
         tags = entry.get("tags")
         if not isinstance(tags, list) or any(
@@ -390,18 +415,26 @@ def build_route(
     index: dict | None,
     prefix: str = "",
 ) -> tuple[list[dict], str | None]:
-    """Explainable sink/window/retrieved selection for one brief.
+    """Explainable sink/window/retrieved/candidate selection for one brief.
 
     Deterministic: same seal + same docs + same index version yield the same
-    ordered list. No clock, HEAD or environment value participates.
+    ordered list. No clock, HEAD or environment value participates. Every path
+    appears once; a higher class wins (sink > window > retrieved > candidate).
     """
     seal = seal if isinstance(seal, dict) else {}
     docs = [str(doc) for doc in docs or []]
-    route: list[dict] = []
+    route: dict[str, dict] = {}
+
+    def add(item: dict) -> None:
+        current = route.get(item["path"])
+        if current is None or ROUTE_PRIORITY[item["class"]] > ROUTE_PRIORITY[
+            current["class"]
+        ]:
+            route[item["path"]] = item
 
     reference = (seal.get("reference") or {}).get("paths") or []
     for path in reference:
-        route.append(
+        add(
             {
                 "class": "sink",
                 "path": f"{prefix}{path}",
@@ -410,7 +443,7 @@ def build_route(
             }
         )
     for doc in docs:
-        route.append(
+        add(
             {
                 "class": "window",
                 "path": doc,
@@ -421,8 +454,10 @@ def build_route(
 
     surfaces = [str(item) for item in seal.get("surfaces") or []]
     if index is None:
+        # The static list overlaps the window docs; window wins so no path is
+        # listed twice. The explicit fallback line keeps the degrade visible.
         for doc in docs:
-            route.append(
+            add(
                 {
                     "class": "retrieved",
                     "path": doc,
@@ -430,16 +465,42 @@ def build_route(
                     "reason": "index yok; statik resolver listesi",
                 }
             )
-        return route, "index yok"
+        return list(route.values()), "index yok"
 
-    selected = [
-        entry
-        for entry in index.get("entries") or []
-        if any(_surface_match(entry["surface"], surface) for surface in surfaces)
-    ]
+    selected: list[dict] = []
+    candidates: list[dict] = []
+    for entry in index.get("entries") or []:
+        matched = any(
+            _surface_match(entry["surface"], surface) for surface in surfaces
+        )
+        weight = float(entry["weight"])
+        if matched and weight >= ROUTE_MIN_WEIGHT:
+            selected.append(entry)
+        elif matched:
+            candidates.append(
+                {
+                    "class": "candidate",
+                    "path": f"{prefix}{entry['path']}",
+                    "source": "index",
+                    "reason": (
+                        f"surface {entry['surface']} eşleşti ama düşük weight "
+                        f"({entry['weight']} < {ROUTE_MIN_WEIGHT})"
+                    ),
+                }
+            )
+        else:
+            candidates.append(
+                {
+                    "class": "candidate",
+                    "path": f"{prefix}{entry['path']}",
+                    "source": "index",
+                    "reason": "surface eşleşmiyor",
+                }
+            )
+
     selected.sort(key=lambda entry: (-float(entry["weight"]), str(entry["path"])))
     for entry in selected:
-        route.append(
+        add(
             {
                 "class": "retrieved",
                 "path": f"{prefix}{entry['path']}",
@@ -450,7 +511,10 @@ def build_route(
                 ),
             }
         )
-    return route, None
+    candidates.sort(key=lambda item: (item["path"], item["reason"]))
+    for item in candidates:
+        add(item)
+    return list(route.values()), None
 
 
 def render_route(route: list[dict], fallback: str | None = None) -> str:

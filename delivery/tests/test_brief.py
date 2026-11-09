@@ -312,6 +312,12 @@ class RouteTests(unittest.TestCase):
                 "tags": ["code"],
                 "weight": 9,
             },
+            {
+                "surface": "kit.docs",
+                "path": "delivery/policies/human-communication.md",
+                "tags": ["docs"],
+                "weight": 1,
+            },
         ]
         with tempfile.TemporaryDirectory() as tmp:
             index_path = self.write_index(tmp, entries)
@@ -335,8 +341,27 @@ class RouteTests(unittest.TestCase):
             self.assertNotIn("delivery/scripts/routing.py", retrieved)
             self.assertEqual(
                 {item["class"] for item in first},
-                {"sink", "window", "retrieved"},
+                {"sink", "window", "retrieved", "candidate"},
             )
+            candidates = {
+                item["path"]: item
+                for item in first
+                if item["class"] == "candidate"
+            }
+            self.assertIn("delivery/scripts/routing.py", candidates)
+            self.assertIn(
+                "surface eşleşmiyor",
+                candidates["delivery/scripts/routing.py"]["reason"],
+            )
+            self.assertIn(
+                "delivery/policies/human-communication.md", candidates
+            )
+            self.assertIn(
+                "düşük weight",
+                candidates["delivery/policies/human-communication.md"]["reason"],
+            )
+            paths = [item["path"] for item in first]
+            self.assertEqual(len(paths), len(set(paths)))
             for item in first:
                 self.assertIn(item["source"], brief.routing.ROUTE_SOURCES)
                 self.assertTrue(item["reason"])
@@ -359,7 +384,7 @@ class RouteTests(unittest.TestCase):
             self.assertTrue(
                 all(
                     re.match(
-                        r"^(sink|window|retrieved) \S+ "
+                        r"^(sink|window|retrieved|candidate) \S+ "
                         r"\(source: (seal|resolver|index|static), reason: .+\)$",
                         line,
                     )
@@ -406,6 +431,44 @@ class RouteTests(unittest.TestCase):
                     self.assertEqual(code, 2)
                     self.assertTrue(err.strip())
 
+    def test_index_path_escape_exits_two(self) -> None:
+        valid = {
+            "surface": "kit.docs",
+            "path": "delivery/scripts/brief.py",
+            "tags": [],
+            "weight": 1,
+        }
+        link = ROOT / "delivery" / "tests" / "_route_escape_link"
+        if link.is_symlink() or link.exists():
+            link.unlink()
+        link.symlink_to("/etc/hosts")
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                cases = {
+                    "absolute": "/etc/hosts",
+                    "parent": "../../../etc/hosts",
+                    "symlink": "delivery/tests/_route_escape_link",
+                }
+                for name, bad_path in cases.items():
+                    with self.subTest(name=name):
+                        path = Path(tmp) / f"{name}.yaml"
+                        path.write_text(
+                            yaml.safe_dump(
+                                {
+                                    "version": 1,
+                                    "entries": [{**valid, "path": bad_path}],
+                                },
+                                sort_keys=False,
+                            ),
+                            encoding="utf-8",
+                        )
+                        code, _, err = self.run_route(["312", "--route"], path)
+                        self.assertEqual(code, 2)
+                        self.assertIn("kök dışında", err)
+        finally:
+            if link.is_symlink() or link.exists():
+                link.unlink()
+
     def test_missing_index_reports_fallback(self) -> None:
         missing = ROOT / "delivery" / "context" / "yok-boyle-index.yaml"
         self.assertFalse(missing.exists())
@@ -415,20 +478,21 @@ class RouteTests(unittest.TestCase):
         self.assertEqual(lines[0], "fallback: index yok")
         self.assertTrue(
             any(
-                line.startswith("retrieved ") and "(source: static," in line
-                for line in lines[1:]
-            )
-        )
-        self.assertTrue(
-            any(
                 line.startswith("window ") and "(source: resolver," in line
                 for line in lines[1:]
             )
         )
+        # Fallback docs are already window lines: the static list must not add
+        # a second line for the same path (window wins over retrieved).
+        self.assertFalse(
+            any(line.startswith("retrieved ") for line in lines[1:])
+        )
+        paths = [line.split()[1] for line in lines[1:]]
+        self.assertEqual(len(paths), len(set(paths)))
         for line in lines[1:]:
             self.assertRegex(
                 line,
-                r"^(sink|window|retrieved) \S+ "
+                r"^(sink|window|retrieved|candidate) \S+ "
                 r"\(source: (seal|resolver|index|static), reason: .+\)$",
             )
 
