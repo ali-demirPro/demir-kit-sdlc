@@ -42,9 +42,9 @@ mechanisms:
       Karşılıklar var ama adları ve sınırları yok: workflow → zorunlu
       doküman/kanıt kümesi (kalite kapıları sabit), docs.density →
       context-budget okuma bütçesi, qa.level → tests_plan `check` türleri,
-      story_granularity → leaf/CP boyutu, review_mode → kanıt derinliği
-      (`gate_level`; gating reviewer sayısı yalnız riskten), team.size → agent
-      varyantları ve capability matrisi.
+      story_granularity → leaf/CP boyutu, review_mode → kit'te ayrı kaldıraç
+      yok (gating reviewer sayısı risk-only; `gate_level` CP'ye özel açık
+      seçim), team.size → agent varyantları ve capability matrisi.
     gap: >-
       Altı düğmenin üç değeri (minimal/standard/full) tek tabloda
       tanımlanmıyor; açık düğme değerinin yaymayı iki yönde ezmesi
@@ -120,9 +120,9 @@ knobs:
     modes.story_granularity: >-
       Leaf/CP boyutu; minimal'de daha büyük CP, full'de daha küçük CP.
     modes.review_mode: >-
-      Kanıt derinliği: `solo`/`lean` → `gate_level: selected`, `full` →
-      `gate_level: full`. Rigor yalnız bu düğmenin varsayılanını verir; açık
-      değer iki yönde ezer. Gating reviewer sayısı yalnız riskten gelir.
+      Kit'te kaldıraç yok: değer yalnız CCGS eşlemesi için saklanır. Gating
+      reviewer sayısı risk-only kalır; `gate_level` CP'ye özel açık seçimdir
+      (`fast|selected|full`), rigor'dan türetilmez.
     team.size: >-
       Aktif agent/varyant kümesi; risk tabanı ve insan kapısı değişmez.
   kit_semantics:
@@ -130,11 +130,11 @@ knobs:
       Gating reviewer sayısı yalnız riskten gelir: low/medium 1, high/critical 2
       (quality-gates.md + CONTRACT; değişmez). `modes.review_mode` bu sayıyı
       değiştirmez; rigor paneli ne azaltır ne artırır.
-    proof_depth: >-
-      Kanıt derinliği etkin `review_mode` değerinden gelir: `solo`/`lean` →
-      `selected`, `full` → `full` (tam süit). `cp_close` varsayılanı `fast`
-      değil `selected` olur; `transition` leaf kapısı aynı seviyeyi kullanır;
-      `fast` yalnız açık `--fast` ile. `selected` behavior gate'ini korur.
+    review_mode: >-
+      Kit'te uygulanmaz. Kanıt derinliği `gate_level` ile CP bazında açıkça
+      seçilir ve evidence'ta saklanır; rigor bu seçimi ezmez veya türetmez.
+      `fast` yalnız açık seçimdir ve behavior gate'i atlar; bu yüzden leaf
+      kapanışında `fast` kullanılmaz.
 
 risk_conflict:
   - ccgs: "modes.review_mode: solo — hiçbir director/specialist gate açılmaz"
@@ -142,8 +142,8 @@ risk_conflict:
     verdict: reject
     reason: >-
       Gate'siz mod risk düşürme kaçağıdır. Bizde `modes.review_mode` gating
-      reviewer sayısını değiştirmez; sayı yalnız riskten gelir. Kanıt derinliği
-      `gate_level` ile değişir.
+      reviewer sayısını ve `gate_level`'ı değiştirmez; sayı riskten, kanıt
+      derinliği CP'nin açık seçiminden gelir.
 
   - ccgs: "qa.level: minimal — logic/integration hikâyelerinde test istenmez"
     ours: "behavior gate her riskte zorunlu; tests_plan case'leri çalışır"
@@ -201,7 +201,7 @@ children:
     risk: medium
     depends_on: [291]
     ac:
-      - "`delivery/rigor.yaml` üç seviyeyi ve altı düğme için yayma tablosunu taşır; şema bilinmeyen seviyeyi ve eksik düğmeyi reddeder. Gating reviewer sayısı risk-only yazılır; `modes.review_mode` kanıt derinliğini (`solo`/`lean`→selected, `full`→full) belirler, sayıyı değiştirmez."
+      - "`delivery/rigor.yaml` üç seviyeyi ve altı düğme için yayma tablosunu taşır; şema bilinmeyen seviyeyi ve eksik düğmeyi reddeder. Gating reviewer sayısı risk-only yazılır; `modes.review_mode` sayıyı ve `gate_level`'ı değiştirmez, yalnız CCGS eşlemesi için saklanır."
       - "`kit.config.yaml` `process.rigor` alanını taşır; alan yoksa `standard` etkin olur ve kaynak `default` olarak raporlanır."
       - "Açık düğme değeri yaymayı iki yönde de ezer; kaynak `kit.config.yaml`, türetilmiş değer için `rigor:<level>` yazılır."
       - "`./delivery/scripts/doctor.sh --strict` 0 uyarı verir; şema testi geçersiz seviyeyi exit 1 ile reddeder."
@@ -212,16 +212,14 @@ children:
     intent: >-
       Rigor'u profillere bağla: compose() etkin seviyeyi ve türetilmiş altı
       düğmeyi döndürsün; doctor --explain her düğmenin değerini ve kaynağını
-      tek matriste yazsın. Etkin `gate_level` uçtan uca kapansın: brief/
-      orca_plan, cp_close ve transition aynı seviyeyi kullansın.
+      tek matriste yazsın.
     risk: medium
     depends_on: [291, 325]
     ac:
       - "`profiles.compose()` çıktısı `rigor` bloğu taşır: etkin seviye, kaynak ve altı düğmenin değeri."
       - "`doctor.sh --explain` etkin matrisi basar; her satır düğme, değer ve kaynak taşır; `--json` aynı veriyi verir."
       - "Geçersiz `process.rigor` veya çözülemeyen düğme uyarı satırı üretir; varsayılana düşerken nedeni yazar."
-      - "`brief.py`/`orca_plan.py` evidence iskeleti `gate_level` alanını etkin `review_mode` değerinden yazar (solo/lean→selected, full→full). `cp_close` varsayılanı `selected` olur ve etkin seviyeyi kullanır; `transition` leaf kapısı aynı seviyeyi kullanır; `fast` yalnız açık `--fast` ile çalışır; behavior gate `selected`da korunur."
-      - "`./delivery/scripts/doctor.sh --strict` 0 uyarı verir; `standard` ve açık `minimal` için matris kanıtlanır."
+      - "`./delivery/scripts/doctor.sh --strict` 0 uyarı verir; `standard`, açık `minimal` ve açık `full` için matris kanıtlanır (off-diagonal dâhil)."
 
   - slug: p3-4-risk-invariant
     issue: 327
@@ -275,6 +273,6 @@ not_taking:
   - "`qa.level: minimal`ın behavior gate'i veya test çalıştırmayı kaldırması"
   - "Risk tabanı, auto_escalate glob'ları ve insan kapılarının rigor ile düşmesi"
   - "Reviewer sayısını rigor ile değiştirmek (sayı risk-only kalır)"
-  - "`gate_level: fast` ile behavior gate'i atlamak"
+  - "Rigor'u `gate_level` türeticisi yapmak (CP'ye özel açık seçim kalır)"
   - "Repo kodunu kit'e kopyalamak"
   - "`workflow_overrides` / per-system tier mekanizmasının birebir alınması"
