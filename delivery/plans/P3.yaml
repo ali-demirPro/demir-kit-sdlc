@@ -129,12 +129,12 @@ knobs:
     reviewer_count: >-
       Gating reviewer sayısı yalnız riskten gelir: low/medium 1, high/critical 2
       (quality-gates.md + CONTRACT; değişmez). `modes.review_mode` bu sayıyı
-      değiştirmez; rigor paneli ne azaltır ne artırır.
+      değiştirmez; rigor gating reviewer sayısını değiştirmez, aktif roster
+      değişebilir.
     review_mode: >-
-      Kit'te uygulanmaz. Kanıt derinliği `gate_level` ile CP bazında açıkça
-      seçilir ve evidence'ta saklanır; rigor bu seçimi ezmez veya türetmez.
-      `fast` yalnız açık seçimdir ve behavior gate'i atlar; bu yüzden leaf
-      kapanışında `fast` kullanılmaz.
+      Kit'te uygulanmaz. Bugün `cp_close` varsayılanı `fast`; leaf kapanışında
+      `--gate-level selected|full` açıkça verilir, `fast` yalnız CP içi hızlı
+      denetim içindir. Varsayılanı değiştirmek bu planın kapsamı dışında.
 
 risk_conflict:
   - ccgs: "modes.review_mode: solo — hiçbir director/specialist gate açılmaz"
@@ -197,13 +197,15 @@ children:
     title: "P3-2 delivery/rigor.yaml + kit.config.yaml process.rigor + şema"
     intent: >-
       Tek kapıyı kur: process.rigor bir kez seçilir, altı düğmeyi türetir;
-      varsayılan standard, minimal açık seçim, full yüksek güvence.
+      varsayılan standard, minimal açık seçim. full; doküman derinliği, kanıt
+      kümesi, leaf/CP boyutu, aktif roster ve ek testleri artırır; gating
+      reviewer sayısını değiştirmez.
     risk: medium
     depends_on: [291]
     ac:
       - "`delivery/rigor.yaml` üç seviyeyi ve altı düğme için yayma tablosunu taşır; şema bilinmeyen seviyeyi ve eksik düğmeyi reddeder. Gating reviewer sayısı risk-only yazılır; `modes.review_mode` sayıyı ve `gate_level`'ı değiştirmez, yalnız CCGS eşlemesi için saklanır."
       - "`kit.config.yaml` `process.rigor` alanını taşır; alan yoksa `standard` etkin olur ve kaynak `default` olarak raporlanır."
-      - "Açık düğme değeri yaymayı iki yönde de ezer; kaynak `kit.config.yaml`, türetilmiş değer için `rigor:<level>` yazılır."
+      - "Canlı düğmelerde (workflow, docs.density, qa.level, story_granularity, team.size) açık değer yaymayı iki yönde de ezer; kaynak `kit.config.yaml`, türetilmiş değer için `rigor:<level>` yazılır. `review_mode` saklanır, etkisi yoktur."
       - "`./delivery/scripts/doctor.sh --strict` 0 uyarı verir; şema testi geçersiz seviyeyi exit 1 ile reddeder."
 
   - slug: p3-3-effective-matrix
@@ -219,7 +221,7 @@ children:
       - "`profiles.compose()` çıktısı `rigor` bloğu taşır: etkin seviye, kaynak ve altı düğmenin değeri."
       - "`doctor.sh --explain` etkin matrisi basar; her satır düğme, değer ve kaynak taşır; `--json` aynı veriyi verir."
       - "Geçersiz `process.rigor` veya çözülemeyen düğme uyarı satırı üretir; varsayılana düşerken nedeni yazar."
-      - "`./delivery/scripts/doctor.sh --strict` 0 uyarı verir; `standard`, açık `minimal` ve açık `full` için matris kanıtlanır (off-diagonal dâhil)."
+      - "`./delivery/scripts/doctor.sh --strict` 0 uyarı verir; matris canlı düğmelerde `standard`, açık `minimal`, açık `full` ve iki off-diagonal vakada (`full` + `docs.density: terse`, `minimal` + `qa.level: full`) kanıtlanır; `routing.evidence_reviewers` ile reviewer sayısının değişmediği doğrulanır."
 
   - slug: p3-4-risk-invariant
     issue: 327
@@ -274,5 +276,6 @@ not_taking:
   - "Risk tabanı, auto_escalate glob'ları ve insan kapılarının rigor ile düşmesi"
   - "Reviewer sayısını rigor ile değiştirmek (sayı risk-only kalır)"
   - "Rigor'u `gate_level` türeticisi yapmak (CP'ye özel açık seçim kalır)"
+  - "`cp_close` varsayılanını değiştirmek (bugün `fast`; leaf kapanışında açık `--gate-level` verilir)"
   - "Repo kodunu kit'e kopyalamak"
   - "`workflow_overrides` / per-system tier mekanizmasının birebir alınması"
