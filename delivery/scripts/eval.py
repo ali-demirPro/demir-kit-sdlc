@@ -10,8 +10,13 @@ from pathlib import Path
 
 import yaml
 
+from schema_lite import validate_schema
+
 ROOT = Path(__file__).resolve().parents[2]
 AGENTS = ROOT / "delivery" / "agents"
+FINDINGS = ROOT / "delivery" / "findings"
+FINDING_SCHEMA = ROOT / "delivery" / "schemas" / "finding.schema.json"
+FINDING_SUFFIXES = (".finding.yaml", ".finding.yml", ".finding.json")
 MIN_ROWS = 10
 RESULT_VALUES = {"pass", "fail", "skip"}
 
@@ -22,6 +27,64 @@ def load_yaml(path: Path) -> dict:
     except (OSError, yaml.YAMLError):
         return {}
     return data if isinstance(data, dict) else {}
+
+
+def load_finding_schema() -> dict:
+    try:
+        data = json.loads(FINDING_SCHEMA.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def load_finding_record(path: Path) -> tuple[dict, list[str]]:
+    try:
+        raw = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        return {}, [f"{path}: okunamadı ({exc})"]
+    try:
+        data = json.loads(raw) if path.suffix == ".json" else yaml.safe_load(raw)
+    except (json.JSONDecodeError, yaml.YAMLError):
+        return {}, [f"{path}: ayrıştırılamadı"]
+    if not isinstance(data, dict):
+        return {}, [f"{path}: kök mapping değil"]
+    return data, []
+
+
+def finding_files(directory: Path | None = None) -> list[Path]:
+    base = FINDINGS if directory is None else directory
+    if not base.is_dir():
+        return []
+    return sorted(
+        path
+        for path in base.iterdir()
+        if path.is_file() and path.name.endswith(FINDING_SUFFIXES)
+    )
+
+
+def check_finding_file(path: Path, schema: dict | None = None) -> list[str]:
+    """Validate one finding record; UNKNOWN is a result, never a failure."""
+    if not path.is_file():
+        return [f"bulgu dosyası yok: {path}"]
+    record, errors = load_finding_record(path)
+    if errors:
+        return errors
+    schema = load_finding_schema() if schema is None else schema
+    if not schema:
+        return [f"bulgu şeması yok: {FINDING_SCHEMA}"]
+    messages = validate_schema(record, schema, "$")
+    evidence = record.get("evidence")
+    if not isinstance(evidence, list) or not evidence:
+        messages.append("$.evidence: kanıt referansı yok")
+    return [f"{path}: {message}" for message in messages]
+
+
+def check_findings(directory: Path | None = None) -> list[str]:
+    schema = load_finding_schema()
+    errors: list[str] = []
+    for path in finding_files(directory):
+        errors.extend(check_finding_file(path, schema))
+    return errors
 
 
 def parse_eval(path: Path) -> list[dict]:
@@ -97,6 +160,7 @@ def check_all() -> list[str]:
             if eval_rel
             else [f"{record['role']}.{record['capability']}: eval yok"]
         )
+    errors.extend(check_findings())
     return errors
 
 

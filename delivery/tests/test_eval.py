@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
+import contextlib
 import importlib.util
+import io
 import json
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
+
+import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPTS = ROOT / "delivery" / "scripts"
@@ -40,6 +45,15 @@ def finding(**overrides) -> dict:
     }
     record.update(overrides)
     return record
+
+
+def write_finding(root: Path, record: dict, name: str = "FND-1.finding.yaml") -> Path:
+    path = root / name
+    path.write_text(
+        yaml.safe_dump(record, allow_unicode=True, sort_keys=False),
+        encoding="utf-8",
+    )
+    return path
 
 
 # Fixture: kanıt yetersiz olduğu için etki ve neden UNKNOWN kalır.
@@ -146,6 +160,56 @@ class FindingSchemaTests(unittest.TestCase):
         )
         self.assertTrue(any("artifact: eksik" in item for item in errors))
         self.assertTrue(any("line: eksik" in item for item in errors))
+
+
+class FindingCheckTests(unittest.TestCase):
+    def test_valid_finding_file_passes(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = write_finding(Path(directory), finding())
+            self.assertEqual(eval_mod.check_finding_file(path), [])
+
+    def test_unknown_finding_file_is_not_a_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = write_finding(Path(directory), FIXTURE_UNKNOWN_EVIDENCE)
+            self.assertEqual(eval_mod.check_finding_file(path), [])
+
+    def test_invalid_record_reports_schema_error(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = write_finding(Path(directory), finding(kind="BUG"))
+            errors = eval_mod.check_finding_file(path)
+            self.assertTrue(any("enum dışında" in item for item in errors))
+
+    def test_finding_without_evidence_is_rejected(self) -> None:
+        record = finding()
+        record.pop("evidence")
+        with tempfile.TemporaryDirectory() as directory:
+            path = write_finding(Path(directory), record)
+            errors = eval_mod.check_finding_file(path)
+            self.assertTrue(any("kanıt referansı yok" in item for item in errors))
+
+    def test_only_finding_suffixes_are_scanned(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            write_finding(root, finding())
+            (root / "notes.md").write_text("serbest metin", encoding="utf-8")
+            (root / "payload.json").write_text("{}", encoding="utf-8")
+            self.assertEqual(eval_mod.check_findings(root), [])
+
+    def test_check_command_exits_one_on_invalid_file(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            write_finding(Path(directory), finding(effect="FAIL"))
+            with mock.patch.object(eval_mod, "FINDINGS", Path(directory)):
+                with mock.patch.object(sys, "argv", ["eval.py", "--check"]):
+                    with contextlib.redirect_stdout(io.StringIO()):
+                        self.assertEqual(eval_mod.main(), 1)
+
+    def test_check_command_exits_zero_with_unknown_finding(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            write_finding(Path(directory), FIXTURE_UNKNOWN_EVIDENCE)
+            with mock.patch.object(eval_mod, "FINDINGS", Path(directory)):
+                with mock.patch.object(sys, "argv", ["eval.py", "--check"]):
+                    with contextlib.redirect_stdout(io.StringIO()):
+                        self.assertEqual(eval_mod.main(), 0)
 
 
 if __name__ == "__main__":
