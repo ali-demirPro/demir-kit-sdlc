@@ -80,6 +80,32 @@ def write_eval(root: Path, rows: list[str]) -> Path:
     return path
 
 
+def write_case(root: Path, frontmatter: dict, body: str = "Case istemi.") -> Path:
+    path = root / "case.md"
+    path.write_text(
+        "---\n"
+        + yaml.safe_dump(frontmatter, allow_unicode=True, sort_keys=False)
+        + "---\n"
+        + body
+        + "\n",
+        encoding="utf-8",
+    )
+    return path
+
+
+def case_record(**overrides) -> dict:
+    record = {
+        "id": "case-1",
+        "intent": "Case sözleşmesini doğrula",
+        "criteria": ["Dosya değişir", "Testler yeşil"],
+        "targets": ["delivery/scripts/eval.py"],
+        "tools": ["python3"],
+        "inputs": ["delivery/scripts/eval.py"],
+    }
+    record.update(overrides)
+    return record
+
+
 class EvalTests(unittest.TestCase):
     def test_real_evals_pass(self) -> None:
         self.assertEqual(eval_mod.check_all(), [])
@@ -115,6 +141,65 @@ class EvalTests(unittest.TestCase):
             {"results": [{"id": "A", "result": "skip"}]}, ["A"]
         )
         self.assertTrue(any("A: skip" in item for item in errors))
+
+
+class CaseContractTests(unittest.TestCase):
+    def test_legacy_table_format_still_parses(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = write_eval(
+                Path(directory),
+                [f"| X-{index} | senaryo | beklenen | fail |" for index in range(1, 11)],
+            )
+            rows = eval_mod.parse_eval(path)
+            self.assertEqual(len(rows), 10)
+            self.assertEqual(rows[0]["id"], "X-1")
+            self.assertEqual(eval_mod.check_eval_file(path), [])
+
+    def test_frontmatter_fields_are_parsed(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = write_case(Path(directory), case_record())
+            case = eval_mod.parse_case(path)
+            self.assertEqual(case["id"], "case-1")
+            self.assertEqual(case["intent"], "Case sözleşmesini doğrula")
+            self.assertEqual(len(case["criteria"]), 2)
+            self.assertEqual(case["targets"], ["delivery/scripts/eval.py"])
+            self.assertTrue(case["body"].startswith("Case istemi."))
+
+    def test_missing_required_field_exits_one(self) -> None:
+        record = case_record()
+        record.pop("criteria")
+        with tempfile.TemporaryDirectory() as directory:
+            path = write_case(Path(directory), record)
+            errors = eval_mod.check_case_file(path)
+            self.assertTrue(any("criteria" in item for item in errors))
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(eval_mod.main(["--check", str(path)]), 1)
+
+    def test_valid_case_passes_check(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = write_case(Path(directory), case_record())
+            self.assertEqual(eval_mod.check_case_file(path), [])
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(eval_mod.main(["--check", str(path)]), 0)
+
+
+class NoCopiedSourceTests(unittest.TestCase):
+    def test_eval_imports_stay_stdlib_and_yaml(self) -> None:
+        import ast
+
+        source = (SCRIPTS / "eval.py").read_text(encoding="utf-8")
+        tree = ast.parse(source)
+        imported: set[str] = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                imported.update(alias.name.split(".")[0] for alias in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.module:
+                imported.add(node.module.split(".")[0])
+        allowed = set(sys.stdlib_module_names) | {"yaml", "schema_lite"}
+        self.assertEqual(imported - allowed, set(), imported - allowed)
+        lowered = source.lower()
+        self.assertNotIn("withgauge", lowered)
+        self.assertNotIn("createhash", lowered)
 
 
 class FindingSchemaTests(unittest.TestCase):

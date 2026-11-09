@@ -4,8 +4,10 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 import yaml
@@ -16,7 +18,9 @@ ROOT = Path(__file__).resolve().parents[2]
 AGENTS = ROOT / "delivery" / "agents"
 FINDINGS = ROOT / "delivery" / "findings"
 FINDING_SCHEMA = ROOT / "delivery" / "schemas" / "finding.schema.json"
+CASE_SCHEMA = ROOT / "delivery" / "schemas" / "eval_case.schema.json"
 FINDING_SUFFIXES = (".finding.yaml", ".finding.yml", ".finding.json")
+CASE_REQUIRED = ("id", "intent", "criteria", "targets")
 MIN_ROWS = 10
 RESULT_VALUES = {"pass", "fail", "skip"}
 
@@ -35,6 +39,107 @@ def load_finding_schema() -> dict:
     except (OSError, json.JSONDecodeError):
         return {}
     return data if isinstance(data, dict) else {}
+
+
+def load_case_schema() -> dict:
+    try:
+        data = json.loads(CASE_SCHEMA.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+class CaseError(ValueError):
+    """Raised when a committed case cannot be parsed."""
+
+
+def split_frontmatter(text: str) -> tuple[dict | None, str, str | None]:
+    """Return ``(frontmatter, body, error)`` without changing the legacy table."""
+    lines = text.splitlines()
+    if not lines or lines[0].strip() != "---":
+        return None, text, None
+    for index in range(1, len(lines)):
+        if lines[index].strip() in {"---", "..."}:
+            raw = "\n".join(lines[1:index])
+            try:
+                data = yaml.safe_load(raw)
+            except yaml.YAMLError as exc:
+                return None, "", f"frontmatter ayrıştırılamadı: {exc}"
+            if not isinstance(data, dict):
+                return None, "", "frontmatter mapping değil"
+            return data, "\n".join(lines[index + 1 :]), None
+    return None, "", "frontmatter kapanmadı"
+
+
+def has_frontmatter(path: Path) -> bool:
+    try:
+        return path.read_text(encoding="utf-8").lstrip("\ufeff").startswith("---")
+    except OSError:
+        return False
+
+
+def parse_case(path: Path) -> dict:
+    """Parse one committed case; the body is the agent prompt."""
+    try:
+        raw = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise CaseError(f"okunamadı: {exc}") from exc
+    frontmatter, body, error = split_frontmatter(raw)
+    if error:
+        raise CaseError(error)
+    if frontmatter is None:
+        raise CaseError("frontmatter yok")
+    case = dict(frontmatter)
+    case["body"] = body.strip()
+    case["path"] = str(path)
+    case["revision"] = content_sha256(raw.encode("utf-8"))
+    return case
+
+
+def content_sha256(data: bytes) -> str:
+    return "sha256:" + hashlib.sha256(data).hexdigest()
+
+
+def path_sha256(path: Path) -> str:
+    """Hash a file's bytes, or a directory's sorted relative paths and bytes."""
+    if path.is_dir():
+        digest = hashlib.sha256()
+        for item in sorted(path.rglob("*")):
+            if not item.is_file():
+                continue
+            digest.update(str(item.relative_to(path)).encode("utf-8") + b"\0")
+            digest.update(item.read_bytes())
+            digest.update(b"\0")
+        return "sha256:" + digest.hexdigest()
+    return content_sha256(path.read_bytes())
+
+
+def resolve_input(entry: str, case_dir: Path, root: Path = ROOT) -> Path | None:
+    """Resolve a case input relative to the case, then the kit root."""
+    candidate = Path(entry).expanduser()
+    if candidate.is_absolute():
+        return candidate if candidate.exists() else None
+    for base in (case_dir, root):
+        resolved = base / candidate
+        if resolved.exists():
+            return resolved
+    return None
+
+
+def check_case_file(path: Path, schema: dict | None = None) -> list[str]:
+    """Validate one committed case; missing required fields are failures."""
+    if not path.is_file():
+        return [f"case dosyası yok: {path}"]
+    try:
+        case = parse_case(path)
+    except CaseError as exc:
+        return [f"{path}: {exc}"]
+    schema = load_case_schema() if schema is None else schema
+    if not schema:
+        return [f"case şeması yok: {CASE_SCHEMA}"]
+    record = {key: value for key, value in case.items() if key not in {"body", "path", "revision"}}
+    messages = validate_schema(record, schema, "$")
+    return [f"{path}: {message}" for message in messages]
 
 
 def load_finding_record(path: Path) -> tuple[dict, list[str]]:
@@ -114,6 +219,8 @@ def check_eval_file(path: Path, minimum: int = MIN_ROWS) -> list[str]:
     errors: list[str] = []
     if not path.is_file():
         return [f"eval dosyası yok: {path}"]
+    if has_frontmatter(path):
+        return check_case_file(path)
     rows = parse_eval(path)
     if len(rows) < minimum:
         errors.append(f"{path}: en az {minimum} senaryo (şu an {len(rows)})")
@@ -197,7 +304,7 @@ def validate_results(payload: dict, expected: list[str], allow_skip: bool = Fals
     return errors
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="capability eval runner")
     parser.add_argument("--check", action="store_true")
     parser.add_argument("--list", action="store_true")
@@ -207,10 +314,20 @@ def main() -> int:
     parser.add_argument("--results", type=Path)
     parser.add_argument("--allow-skip", action="store_true")
     parser.add_argument("--json", action="store_true")
-    args = parser.parse_args()
+    parser.add_argument("cases", nargs="*", metavar="CASE")
+    args = parser.parse_args(argv)
+
+    paths = [Path(item) for item in args.cases]
 
     if args.check:
-        errors = check_all()
+        if paths:
+            errors = [
+                message
+                for path in paths
+                for message in check_eval_file(path)
+            ]
+        else:
+            errors = check_all()
         for message in errors:
             print(f"[fail] {message}")
         print(f"{len(errors)} hata")
