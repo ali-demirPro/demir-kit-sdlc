@@ -375,7 +375,15 @@ class RigorProfileTests(unittest.TestCase):
                 self.assertEqual(block["knobs"][name], item, name)
 
     def test_matrix_levels_and_off_diagonals(self) -> None:
-        """T-4: standart, açık minimal/full ve iki off-diagonal vakası."""
+        """T-4: standart, açık minimal/full ve iki off-diagonal vakası.
+
+        Her vaka kendi etkin rigor bloğunu ve profil gate kümesini kullanır:
+        (a) gating reviewer sayısı yalnız riskten gelir, (b) evidence_reviewers
+        aynı gate/risk için seviyeden bağımsız aynı rolleri verir, (c) düğme
+        değerleri seviyeleri gerçekten ayırır.
+        """
+        gates = {"behavior": True}
+        risks = ("medium", "high")
         cases = {
             "standard": ("  rigor: standard\n", "standard", "kit.config.yaml", {}),
             "minimal": ("  rigor: minimal\n", "minimal", "kit.config.yaml", {}),
@@ -394,11 +402,21 @@ class RigorProfileTests(unittest.TestCase):
             ),
         }
         table = rigor.load_rigor()["levels"]
-        reviewers: dict[str, set[tuple[str, ...]]] = {}
+        reviewers: dict[str, set[tuple[str, ...]]] = {risk: set() for risk in risks}
+        matrices: dict[str, tuple[tuple[str, str], ...]] = {}
         for label, (process, level, source, overrides) in cases.items():
             with self.subTest(case=label), tempfile.TemporaryDirectory() as directory:
                 root = rigor_project(Path(directory), process)
                 block = profiles.compose(root)["rigor"]
+                profile_gates = profiles.gates_for(root, "web-app")
+                counts = {risk: rigor.reviewer_count(risk) for risk in risks}
+                roles = {
+                    risk: tuple(
+                        routing.evidence_reviewers(gates, risk, profile_gates)
+                    )
+                    for risk in risks
+                }
+            self.assertTrue(profile_gates, label)
             self.assertEqual(block["level"], level)
             self.assertEqual(block["source"], source)
             self.assertEqual(block["warnings"], [])
@@ -409,14 +427,24 @@ class RigorProfileTests(unittest.TestCase):
                 )
                 self.assertEqual(block["knobs"][name]["value"], expected_value, name)
                 self.assertEqual(block["knobs"][name]["source"], expected_source, name)
-            for risk in ("medium", "high"):
-                roles = tuple(
-                    routing.evidence_reviewers({"behavior": True}, risk, {})
-                )
-                reviewers.setdefault(risk, set()).add(roles)
-        # Reviewer sayısı rigor seviyesinden bağımsız: her risk tek küme üretir.
-        self.assertEqual(len(reviewers["medium"]), 1, reviewers["medium"])
-        self.assertEqual(len(reviewers["high"]), 1, reviewers["high"])
+            # (a) Gating sayısı risk-only: seviye tablosunda da düğmeden başka
+            # anahtar yok; düğme değerleri bu sayıya girmiyor.
+            self.assertEqual(counts, {"medium": 1, "high": 2}, label)
+            self.assertEqual(set(table[level]), set(rigor.KNOBS), label)
+            # (b) Aynı gate/risk girdisi seviyeden bağımsız aynı rolleri verir.
+            for risk in risks:
+                reviewers[risk].add(roles[risk])
+            matrices[label] = tuple(
+                (name, block["knobs"][name]["value"]) for name in rigor.KNOBS
+            )
+        for risk in risks:
+            self.assertEqual(len(reviewers[risk]), 1, f"{risk}: {reviewers[risk]}")
+        # (c) Düğmeler gerçekten ayrışıyor; yoksa test seviyeleri ayırmaz.
+        self.assertEqual(len(set(matrices.values())), len(cases), matrices)
+        self.assertNotEqual(matrices["minimal"], matrices["standard"])
+        self.assertNotEqual(matrices["standard"], matrices["full"])
+        self.assertNotEqual(matrices["full+terse"], matrices["full"])
+        self.assertNotEqual(matrices["minimal+qa-full"], matrices["minimal"])
 
 
 class ResolverMergeTests(unittest.TestCase):
