@@ -430,6 +430,15 @@ class StateMachineTests(unittest.TestCase):
             with self.assertRaises(eval_run.StateError):
                 machine.transition("waiting")
 
+    def test_blocked_can_retry_running(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            machine = eval_run.SessionStateMachine(Path(directory))
+            machine.transition("running")
+            machine.transition("blocked", "süreç öldü")
+            machine.transition("running", "yeniden deneme")
+            machine.transition("terminal")
+            self.assertEqual(machine.state, "terminal")
+
 
 class UnexpectedDeathTests(unittest.TestCase):
     def test_unexpected_death_preserves_evidence_and_reports_recovery(self) -> None:
@@ -449,7 +458,9 @@ class UnexpectedDeathTests(unittest.TestCase):
             self.assertTrue(result["unexpected_death"])
             self.assertIsNotNone(result["recovery"])
             self.assertTrue(result["recovery"]["evidence_intact"])
-            self.assertIn("resume_command", result["recovery"])
+            self.assertEqual(result["recovery"]["attempts_left"], 0)
+            self.assertIn("restart_command", result["recovery"])
+            self.assertNotIn("resume_command", result["recovery"])
 
             for relative in eval_run.EVIDENCE_FILES:
                 self.assertTrue(
@@ -463,6 +474,106 @@ class UnexpectedDeathTests(unittest.TestCase):
             )
             self.assertEqual(state["state"], "blocked")
             self.assertIn("blocked", [entry["to"] for entry in state["history"]])
+
+    def test_blocked_session_can_resume_and_keeps_attempt_one(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            session_dir = Path(directory) / "session"
+            death = [
+                sys.executable,
+                "-c",
+                "import os, signal; os.kill(os.getpid(), signal.SIGKILL)",
+            ]
+            blocked = eval_run.run_session(
+                base_spec(command=death, attempts=2), out_dir=session_dir
+            )
+            self.assertEqual(blocked["status"], "blocked")
+            self.assertEqual(blocked["recovery"]["attempts_left"], 1)
+            self.assertIn("resume_command", blocked["recovery"])
+
+            retried = eval_run.run_session(
+                base_spec(
+                    command=[sys.executable, "-c", "print('recovered')"],
+                    attempts=2,
+                ),
+                out_dir=session_dir,
+            )
+            self.assertEqual(retried["attempt"], 2)
+            self.assertEqual(retried["status"], "pass")
+
+            archived = session_dir / "attempts" / "1" / "session" / "events.ndjson"
+            self.assertTrue(archived.is_file())
+            events = eval_run.read_ndjson(archived)
+            exits = [
+                event["payload"].get("returncode")
+                for event in events
+                if event["payload"].get("type") == "process.exit"
+            ]
+            self.assertLess(exits[0], 0)
+
+            for attempt in (1, 2):
+                self.assertEqual(
+                    eval_run.validate_evidence(
+                        {
+                            "kind": "artifact",
+                            "artifact": "session/events.ndjson",
+                            "attempt": attempt,
+                            "line": 1,
+                        },
+                        events,
+                        session_dir,
+                        2,
+                    ),
+                    [],
+                )
+
+    def test_missing_command_blocks_but_keeps_files(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            session_dir = Path(directory) / "session"
+            result = eval_run.run_session(
+                base_spec(command=["/definitely/not/a/command"]),
+                out_dir=session_dir,
+            )
+            self.assertEqual(result["status"], "blocked")
+            self.assertTrue(result["unexpected_death"])
+            self.assertIsNotNone(result["recovery"])
+            for relative in eval_run.EVIDENCE_FILES:
+                self.assertTrue((session_dir / relative).is_file(), relative)
+
+    def test_sandbox_failure_blocks_but_keeps_files(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            session_dir = Path(directory) / "session"
+            result = eval_run.run_session(
+                base_spec(
+                    sandbox="clone",
+                    source=str(Path(directory) / "missing-source"),
+                ),
+                out_dir=session_dir,
+            )
+            self.assertEqual(result["status"], "blocked")
+            self.assertIn("sandbox", result["recovery"]["reason"])
+            for relative in eval_run.EVIDENCE_FILES:
+                self.assertTrue((session_dir / relative).is_file(), relative)
+
+    def test_waiting_marker_is_recorded_in_state_history(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            session_dir = Path(directory) / "session"
+            command = [
+                sys.executable,
+                "-c",
+                "print('demir-kit:waiting')\nprint('done')",
+            ]
+            result = eval_run.run_session(
+                base_spec(command=command), out_dir=session_dir
+            )
+            self.assertEqual(result["status"], "pass")
+            self.assertEqual(result["state"], "terminal")
+            state = json.loads(
+                (session_dir / "state.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(
+                [entry["to"] for entry in state["history"]],
+                ["preparing", "running", "waiting", "running", "terminal"],
+            )
 
 
 class SpecValidationTests(unittest.TestCase):

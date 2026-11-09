@@ -373,7 +373,7 @@ def prepare_sandbox(
         raise SessionError("sandbox için kaynak dizin gerekli")
     source = Path(source)
     if not source.is_dir():
-        raise SessionError(f"kaynak dizin yok: {source}")
+        raise SessionError(f"sandbox kaynak dizin yok: {source}")
     if mode == "clone":
         result = subprocess.run(
             ["git", "clone", "--quiet", "--shared", str(source), str(sandbox)],
@@ -453,13 +453,17 @@ def collect_diff(sandbox: Path, session_dir: Path) -> Path:
 
 
 def capture_process(
-    command: list[str], cwd: Path, timeout: float | int | None
+    command: list[str],
+    cwd: Path,
+    timeout: float | int | None,
+    waiting_marker: str = "demir-kit:waiting",
 ) -> dict:
     """Run a command list without a shell and turn its output into raw events."""
     raw: list[dict] = [
         {"payload": {"type": "process.start", "command": list(command)}}
     ]
     timed_out = False
+    waiting = False
     try:
         result = subprocess.run(
             list(command),
@@ -486,11 +490,15 @@ def capture_process(
             "returncode": None,
             "timed_out": False,
             "unexpected_death": True,
+            "waiting": False,
             "reason": "süreç başlatılamadı",
         }
 
+    marker = (waiting_marker or "").strip()
     for stream, text in (("stdout", stdout), ("stderr", stderr)):
         for number, line in enumerate(text.splitlines(), 1):
+            if marker and line.strip() == marker:
+                waiting = True
             raw.append(
                 {
                     "payload": {
@@ -513,6 +521,7 @@ def capture_process(
         "returncode": returncode,
         "timed_out": timed_out,
         "unexpected_death": unexpected,
+        "waiting": waiting,
         "reason": reason,
     }
 
@@ -637,6 +646,9 @@ def _normalize_spec(spec: dict) -> dict:
     inputs = spec.get("inputs", [])
     if not isinstance(inputs, list):
         raise SessionError("spec.inputs liste olmalı")
+    waiting_marker = spec.get("waiting_marker", "demir-kit:waiting")
+    if not isinstance(waiting_marker, str) or not waiting_marker.strip():
+        raise SessionError("spec.waiting_marker boş olmayan string olmalı")
     normalized = dict(spec)
     normalized.update(
         {
@@ -647,6 +659,7 @@ def _normalize_spec(spec: dict) -> dict:
             "attempts": attempts,
             "timeout": timeout,
             "inputs": list(inputs),
+            "waiting_marker": waiting_marker.strip(),
         }
     )
     return normalized
@@ -698,17 +711,27 @@ def _mirror_attempt(session_dir: Path, attempt: int) -> None:
 
 def _recovery(session_dir: Path, reason: str, attempt: int, maximum: int) -> dict:
     script = Path(__file__).resolve()
-    return {
+    left = max(0, maximum - attempt)
+    recovery = {
         "reason": reason,
         "evidence_dir": str(session_dir),
         "evidence_intact": True,
         "attempt": attempt,
-        "attempts_left": max(0, maximum - attempt),
-        "resume_command": (
+        "attempts_left": left,
+        "restart_command": (
             f"python3 {script} --spec {session_dir / 'spec.json'}"
-            f" --out {session_dir}"
+        ),
+        "note": (
+            "kanıt dizini silinmez; yeni deneme eski denemeyi "
+            "attempts/<n>/ altında korur"
         ),
     }
+    if left > 0:
+        recovery["resume_command"] = (
+            f"python3 {script} --spec {session_dir / 'spec.json'}"
+            f" --out {session_dir}"
+        )
+    return recovery
 
 
 def run_session(
@@ -764,12 +787,18 @@ def run_session(
         )
         machine.transition("running", "sandbox hazır")
         capture = capture_process(
-            normalized["command"], sandbox, normalized["timeout"]
+            normalized["command"],
+            sandbox,
+            normalized["timeout"],
+            normalized["waiting_marker"],
         )
         if capture["unexpected_death"]:
             blocked_reason = capture["reason"] or "beklenmedik süreç sonu"
             machine.transition("blocked", blocked_reason)
         else:
+            if capture.get("waiting"):
+                machine.transition("waiting", "agent girdi bekledi")
+                machine.transition("running", "girdi sağlandı")
             machine.transition("terminal", "süreç bitti")
     except SessionError as exc:
         blocked_reason = str(exc)
