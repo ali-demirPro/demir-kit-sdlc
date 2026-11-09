@@ -153,6 +153,13 @@ class NotifyTests(unittest.TestCase):
         )
         budget.start()
         self.addCleanup(budget.stop)
+        # Dispatch touches the session map; unit tests must not call the CLI.
+        sessions = patch.object(orca_wave.usage, "sessions_in", return_value=[])
+        capture = patch.object(orca_wave.usage, "capture_session", return_value=None)
+        sessions.start()
+        capture.start()
+        self.addCleanup(sessions.stop)
+        self.addCleanup(capture.stop)
 
     SUMMARY = {
         "dry_run": False,
