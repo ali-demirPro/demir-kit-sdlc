@@ -151,6 +151,8 @@ def write_batch_session(
     criteria: dict | None = None,
     result: str | None = None,
     revision: str | None = None,
+    turns: object = None,
+    duration_ms: object = None,
 ) -> Path:
     session = root / "sessions" / name
     session.mkdir(parents=True, exist_ok=True)
@@ -164,6 +166,10 @@ def write_batch_session(
             data["criteria"] = criteria
         if revision is not None:
             data["revision"] = revision
+        if turns is not None:
+            data["turns"] = turns
+        if duration_ms is not None:
+            data["duration_ms"] = duration_ms
         payload = json.dumps(data)
     (session / "result.json").write_text(payload, encoding="utf-8")
     return session
@@ -1012,8 +1018,14 @@ class CompareTests(unittest.TestCase):
         return code, stdout.getvalue(), stderr.getvalue()
 
     def test_t1_selectors_reject_missing_empty_duplicate_and_unknown(self) -> None:
-        write_batch_manifest(self.batches, "base", [])
-        write_batch_manifest(self.batches, "cand", [])
+        write_batch_session(
+            self.batches, "base-ok", status="pass", criteria={"AC-1": "pass"}
+        )
+        write_batch_session(
+            self.batches, "cand-ok", status="pass", criteria={"AC-1": "pass"}
+        )
+        write_batch_manifest(self.batches, "base", ["sessions/base-ok"])
+        write_batch_manifest(self.batches, "cand", ["sessions/cand-ok"])
 
         code, _, errors = self.run_compare("--candidate", "batch=cand")
         self.assertEqual(code, 2)
@@ -1144,7 +1156,10 @@ class CompareTests(unittest.TestCase):
                 "sessions/done-unassessable",
             ],
         )
-        write_batch_manifest(self.batches, "cand", [])
+        write_batch_session(
+            self.batches, "cand-done", status="pass", criteria={"AC-1": "pass"}
+        )
+        write_batch_manifest(self.batches, "cand", ["sessions/cand-done"])
 
         code, stdout, _ = self.run_compare(
             "--baseline", "batch=base", "--candidate", "batch=cand", "-o", "json"
@@ -1176,7 +1191,10 @@ class CompareTests(unittest.TestCase):
                 {"session": "sessions/broken-2", "criteria": {"AC-1": "pass"}},
             ],
         )
-        write_batch_manifest(self.batches, "cand", [])
+        write_batch_session(
+            self.batches, "cand-ok", status="pass", criteria={"AC-1": "pass"}
+        )
+        write_batch_manifest(self.batches, "cand", ["sessions/cand-ok"])
 
         code, stdout, _ = self.run_compare(
             "--baseline", "batch=base", "--candidate", "batch=cand", "-o", "json"
@@ -1209,10 +1227,17 @@ class CompareTests(unittest.TestCase):
             status="pass",
             criteria={"AC-1": "pass"},
         )
+        write_batch_session(
+            self.batches,
+            "cand-a",
+            status="pass",
+            criteria={"AC-1": "pass"},
+            revision="sha256:a",
+        )
         write_batch_manifest(
             self.batches, "base", ["sessions/a", "sessions/b", "sessions/c"]
         )
-        write_batch_manifest(self.batches, "cand", [])
+        write_batch_manifest(self.batches, "cand", ["sessions/cand-a"])
 
         code, stdout, _ = self.run_compare(
             "--baseline",
@@ -1238,7 +1263,7 @@ class CompareTests(unittest.TestCase):
             [
                 "baseline: revision filtresi (sha256:a): 1 eşleşti; "
                 "1 farklı revision ve 1 revision taşımayan oturum dışlandı",
-                "candidate: revision filtresi (sha256:a): 0 eşleşti; "
+                "candidate: revision filtresi (sha256:a): 1 eşleşti; "
                 "0 farklı revision ve 0 revision taşımayan oturum dışlandı",
             ],
         )
@@ -1253,10 +1278,17 @@ class CompareTests(unittest.TestCase):
         write_batch_session(
             self.batches, "a", status="pass", criteria={"AC-1": "pass"}
         )
+        write_batch_session(
+            self.batches,
+            "cand-a",
+            status="pass",
+            criteria={"AC-1": "pass"},
+            revision="sha256:m",
+        )
         write_batch_manifest(
             self.batches, "base", ["sessions/a"], revision="sha256:m"
         )
-        write_batch_manifest(self.batches, "cand", [])
+        write_batch_manifest(self.batches, "cand", ["sessions/cand-a"])
 
         code, stdout, _ = self.run_compare(
             "--baseline",
@@ -1284,7 +1316,10 @@ class CompareTests(unittest.TestCase):
                 {"session": "sessions/a"},
             ],
         )
-        write_batch_manifest(self.batches, "cand", [])
+        write_batch_session(
+            self.batches, "cand-ok", status="pass", criteria={"AC-1": "pass"}
+        )
+        write_batch_manifest(self.batches, "cand", ["sessions/cand-ok"])
 
         code, stdout, _ = self.run_compare(
             "--baseline", "batch=base", "--candidate", "batch=cand", "--json"
@@ -1357,7 +1392,10 @@ class CompareTests(unittest.TestCase):
             "base",
             ["sessions/a", "sessions/absent", str(outside)],
         )
-        write_batch_manifest(self.batches, "cand", [])
+        write_batch_session(
+            self.batches, "cand-ok", status="pass", criteria={"AC-1": "pass"}
+        )
+        write_batch_manifest(self.batches, "cand", ["sessions/cand-ok"])
 
         code, stdout, _ = self.run_compare(
             "--baseline", "batch=base", "--candidate", "batch=cand", "--json"
@@ -1387,7 +1425,10 @@ class CompareTests(unittest.TestCase):
         write_batch_manifest(
             self.batches, "base", ["sessions/ghost"]
         )
-        write_batch_manifest(self.batches, "cand", [])
+        write_batch_session(
+            self.batches, "cand-ok", status="pass", criteria={"AC-1": "pass"}
+        )
+        write_batch_manifest(self.batches, "cand", ["sessions/cand-ok"])
 
         code, stdout, _ = self.run_compare(
             "--baseline", "batch=base", "--candidate", "batch=cand", "-o", "json"
@@ -1413,8 +1454,11 @@ class CompareTests(unittest.TestCase):
         write_batch_session(
             self.batches, "single", status="pass", criteria={"AC-1": "pass"}
         )
+        write_batch_session(
+            self.batches, "cand-ok", status="pass", criteria={"AC-1": "pass"}
+        )
         write_batch_manifest(self.batches, "base", ["sessions/multi", "sessions/single"])
-        write_batch_manifest(self.batches, "cand", [])
+        write_batch_manifest(self.batches, "cand", ["sessions/cand-ok"])
 
         code, stdout, _ = self.run_compare(
             "--baseline", "batch=base", "--candidate", "batch=cand", "--json"
@@ -1472,7 +1516,14 @@ class CompareTests(unittest.TestCase):
                 {"session": "sessions/ghost-b", "revision": "sha256:b"},
             ],
         )
-        write_batch_manifest(self.batches, "cand", [])
+        write_batch_session(
+            self.batches,
+            "cand-a",
+            status="pass",
+            criteria={"AC-1": "pass"},
+            revision="sha256:a",
+        )
+        write_batch_manifest(self.batches, "cand", ["sessions/cand-a"])
 
         code, stdout, _ = self.run_compare(
             "--baseline",
@@ -1519,7 +1570,14 @@ class CompareTests(unittest.TestCase):
             "base",
             [{"session": "  sessions/a  ", "revision": "  sha256:a  "}],
         )
-        write_batch_manifest(self.batches, "cand", [])
+        write_batch_session(
+            self.batches,
+            "cand-a",
+            status="pass",
+            criteria={"AC-1": "pass"},
+            revision="sha256:a",
+        )
+        write_batch_manifest(self.batches, "cand", ["sessions/cand-a"])
 
         code, stdout, _ = self.run_compare(
             "--baseline",
@@ -1549,10 +1607,17 @@ class CompareTests(unittest.TestCase):
         write_batch_session(
             self.batches, "a", status="pass", criteria={"AC-1": "pass"}
         )
+        write_batch_session(
+            self.batches,
+            "cand-a",
+            status="pass",
+            criteria={"AC-1": "pass"},
+            revision="sha256:m",
+        )
         write_batch_manifest(
             self.batches, "base", ["sessions/a"], revision="  sha256:m  "
         )
-        write_batch_manifest(self.batches, "cand", [])
+        write_batch_manifest(self.batches, "cand", ["sessions/cand-a"])
 
         code, stdout, _ = self.run_compare(
             "--baseline",
@@ -1567,6 +1632,269 @@ class CompareTests(unittest.TestCase):
         baseline = json.loads(stdout)["baseline"]
         self.assertEqual(baseline["sessions"], 1)
         self.assertEqual(baseline["revision"], "sha256:m")
+
+    def test_t4_medians_and_delta_are_computed(self) -> None:
+        write_batch_session(
+            self.batches,
+            "base-1",
+            status="pass",
+            criteria={"AC-1": "pass"},
+            turns=2,
+            duration_ms=100,
+        )
+        write_batch_session(
+            self.batches,
+            "base-2",
+            status="pass",
+            criteria={"AC-1": "pass"},
+            turns=4,
+            duration_ms=200,
+        )
+        write_batch_session(
+            self.batches,
+            "base-3",
+            status="fail",
+            criteria={"AC-1": "fail"},
+            turns=6,
+            duration_ms=300,
+        )
+        # Missing duration is skipped instead of becoming zero.
+        write_batch_session(
+            self.batches,
+            "base-4",
+            status="pass",
+            criteria={"AC-1": "pass"},
+            turns=8,
+        )
+        write_batch_manifest(
+            self.batches,
+            "base",
+            [
+                "sessions/base-1",
+                "sessions/base-2",
+                "sessions/base-3",
+                "sessions/base-4",
+            ],
+        )
+        write_batch_session(
+            self.batches,
+            "cand-1",
+            status="pass",
+            criteria={"AC-1": "pass"},
+            turns=3,
+            duration_ms=150,
+        )
+        write_batch_session(
+            self.batches,
+            "cand-2",
+            status="pass",
+            criteria={"AC-1": "pass"},
+            turns=5,
+            duration_ms=250,
+        )
+        write_batch_manifest(
+            self.batches, "cand", ["sessions/cand-1", "sessions/cand-2"]
+        )
+
+        code, stdout, _ = self.run_compare(
+            "--baseline", "batch=base", "--candidate", "batch=cand", "--json"
+        )
+        self.assertEqual(code, 0)
+        payload = json.loads(stdout)
+        baseline = payload["baseline"]
+        candidate = payload["candidate"]
+
+        # Even count averages the middle pair; odd count takes the middle value.
+        self.assertEqual(baseline["median_turns"], 5.0)
+        self.assertEqual(baseline["median_duration_ms"], 200.0)
+        self.assertEqual(candidate["median_turns"], 4.0)
+        self.assertEqual(candidate["median_duration_ms"], 200.0)
+        self.assertEqual(
+            payload["delta"],
+            {
+                "pass_rate": 0.25,
+                "criteria": {"AC-1": 0.25},
+                "median_turns": -1.0,
+                "median_duration_ms": 0.0,
+                "judged": -2,
+            },
+        )
+
+        code, text, _ = self.run_compare(
+            "--baseline", "batch=base", "--candidate", "batch=cand"
+        )
+        self.assertEqual(code, 0)
+        self.assertIn("medyan tur: 5.00", text)
+        self.assertIn("medyan süre: 200.00 ms", text)
+        self.assertIn("delta: pass rate +0.2500", text)
+        self.assertIn("medyan tur -1.00", text)
+
+        # Invalid (string, bool) metrics are skipped; no values means null.
+        write_batch_session(
+            self.batches,
+            "invalid",
+            result=json.dumps(
+                {
+                    "status": "pass",
+                    "criteria": {"AC-1": "pass"},
+                    "turns": "3",
+                    "duration_ms": True,
+                }
+            ),
+        )
+        write_batch_manifest(self.batches, "null", ["sessions/invalid"])
+        code, stdout, _ = self.run_compare(
+            "--baseline", "batch=null", "--candidate", "batch=cand", "--json"
+        )
+        self.assertEqual(code, 0)
+        payload = json.loads(stdout)
+        self.assertIsNone(payload["baseline"]["median_turns"])
+        self.assertIsNone(payload["baseline"]["median_duration_ms"])
+        self.assertIsNone(payload["delta"]["median_turns"])
+        self.assertIsNone(payload["delta"]["median_duration_ms"])
+
+    def test_t5_mixed_revision_warns_and_revision_narrows(self) -> None:
+        write_batch_session(
+            self.batches,
+            "base-r1",
+            status="pass",
+            criteria={"AC-1": "pass"},
+            revision="r1",
+        )
+        write_batch_session(
+            self.batches,
+            "base-r2",
+            status="fail",
+            criteria={"AC-1": "fail"},
+            revision="r2",
+        )
+        write_batch_manifest(
+            self.batches, "base", ["sessions/base-r1", "sessions/base-r2"]
+        )
+        write_batch_session(
+            self.batches,
+            "cand-r1",
+            status="pass",
+            criteria={"AC-1": "pass"},
+            revision="r1",
+        )
+        write_batch_manifest(self.batches, "cand", ["sessions/cand-r1"])
+
+        code, stdout, _ = self.run_compare(
+            "--baseline", "batch=base", "--candidate", "batch=cand", "--json"
+        )
+        self.assertEqual(code, 0)
+        payload = json.loads(stdout)
+        self.assertEqual(
+            payload["warnings"],
+            [
+                "baseline: birden fazla revision (r1, r2); "
+                "--revision <hash> ile daralt"
+            ],
+        )
+        # Both revisions are still counted, but never silently: the warning names them.
+        self.assertEqual(payload["baseline"]["sessions"], 2)
+        self.assertEqual(payload["baseline"]["criteria"]["AC-1"]["judged"], 2)
+        self.assertEqual(payload["baseline"]["criteria"]["AC-1"]["value"], 0.5)
+
+        code, text, _ = self.run_compare(
+            "--baseline", "batch=base", "--candidate", "batch=cand"
+        )
+        self.assertEqual(code, 0)
+        self.assertIn("birden fazla revision (r1, r2)", text)
+        self.assertIn("--revision <hash> ile daralt", text)
+
+        code, stdout, _ = self.run_compare(
+            "--baseline",
+            "batch=base",
+            "--candidate",
+            "batch=cand",
+            "--revision",
+            "r1",
+            "--json",
+        )
+        self.assertEqual(code, 0)
+        payload = json.loads(stdout)
+        self.assertEqual(payload["baseline"]["sessions"], 1)
+        self.assertEqual(payload["baseline"]["criteria"]["AC-1"]["value"], 1.0)
+        self.assertFalse(
+            any("birden fazla revision" in warning for warning in payload["warnings"])
+        )
+
+    def test_t6_empty_side_is_no_match_without_invented_zeros(self) -> None:
+        write_batch_session(
+            self.batches, "base-ok", status="pass", criteria={"AC-1": "pass"}
+        )
+        write_batch_manifest(self.batches, "base", ["sessions/base-ok"])
+        write_batch_manifest(self.batches, "cand", [])
+
+        code, stdout, errors = self.run_compare(
+            "--baseline", "batch=base", "--candidate", "batch=cand", "--json"
+        )
+        self.assertEqual(code, 1)
+        self.assertIn("eşleşme yok: candidate", errors)
+        payload = json.loads(stdout)
+        self.assertEqual(
+            payload,
+            {
+                "mode": "compare",
+                "status": "no-match",
+                "side": "candidate",
+                "error": "eşleşme yok",
+            },
+        )
+        self.assertNotIn("pass_rate", payload)
+        self.assertNotIn("delta", payload)
+
+        # Text mode reports the same and prints no invented metrics.
+        code, stdout, errors = self.run_compare(
+            "--baseline", "batch=base", "--candidate", "batch=cand"
+        )
+        self.assertEqual(code, 1)
+        self.assertEqual(stdout, "")
+        self.assertIn("eşleşme yok: candidate", errors)
+
+        # The other side being empty is reported symmetrically.
+        write_batch_manifest(self.batches, "base", [])
+        code, stdout, errors = self.run_compare(
+            "--baseline", "batch=base", "--candidate", "batch=cand", "--json"
+        )
+        self.assertEqual(code, 1)
+        self.assertIn("eşleşme yok: baseline", errors)
+        self.assertEqual(json.loads(stdout)["side"], "baseline")
+
+        # A revision filter that empties a side is also a no-match.
+        write_batch_session(
+            self.batches,
+            "base-r1",
+            status="pass",
+            criteria={"AC-1": "pass"},
+            revision="r1",
+        )
+        write_batch_session(
+            self.batches,
+            "cand-r1",
+            status="pass",
+            criteria={"AC-1": "pass"},
+            revision="r1",
+        )
+        write_batch_manifest(self.batches, "base", ["sessions/base-r1"])
+        write_batch_manifest(self.batches, "cand", ["sessions/cand-r1"])
+        code, stdout, errors = self.run_compare(
+            "--baseline",
+            "batch=base",
+            "--candidate",
+            "batch=cand",
+            "--revision",
+            "r2",
+            "--json",
+        )
+        self.assertEqual(code, 1)
+        self.assertIn("eşleşme yok: baseline", errors)
+        payload = json.loads(stdout)
+        self.assertEqual(payload["status"], "no-match")
+        self.assertNotIn("pass_rate", payload)
+
 
 class NoCopiedSourceTests(unittest.TestCase):
     def test_eval_imports_stay_stdlib_and_yaml(self) -> None:

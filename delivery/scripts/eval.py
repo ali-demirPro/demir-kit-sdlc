@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import os
 import sys
 from datetime import datetime, timezone
@@ -933,6 +934,14 @@ class CompareError(ValueError):
     """Raised when a batch selector or manifest cannot be compared."""
 
 
+class CompareNoMatch(Exception):
+    """Raised when one side has no session left to compare (AC-5)."""
+
+    def __init__(self, side: str):
+        super().__init__(f"eşleşme yok: {side}")
+        self.side = side
+
+
 def _batch_id(flag: str, value: str | None) -> str:
     if value is None:
         raise CompareError(f"{flag} zorunlu; değer 'batch=<id>' olmalı")
@@ -1140,6 +1149,55 @@ def _rate(passed: int, judged: int) -> float | None:
     return None if judged == 0 else round(passed / judged, 4)
 
 
+def _numeric_metric(value: object) -> float | None:
+    """Return a finite, non-boolean number or ``None`` (CP-2)."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    if not math.isfinite(value):
+        return None
+    return float(value)
+
+
+def _median(values: list[object]) -> float | None:
+    """Median of the valid numbers, rounded to two decimals (CP-2)."""
+    numbers = sorted(
+        number for number in map(_numeric_metric, values) if number is not None
+    )
+    if not numbers:
+        return None
+    middle = len(numbers) // 2
+    if len(numbers) % 2:
+        median = numbers[middle]
+    else:
+        median = (numbers[middle - 1] + numbers[middle]) / 2
+    return round(median, 2)
+
+
+def _delta_value(candidate: object, baseline: object, digits: int) -> float | None:
+    """Signed candidate minus baseline; ``None`` when either side is null."""
+    if candidate is None or baseline is None:
+        return None
+    result = round(candidate - baseline, digits)
+    return 0.0 if result == 0 else result
+
+
+def _revision_warning(
+    records: list[dict], revision: str | None, side: str
+) -> str | None:
+    """Mixed revisions stay visible; ``--revision`` narrowing silences this (CP-2)."""
+    if revision is not None:
+        return None
+    revisions = sorted(
+        {record["revision"] for record in records if record["revision"]}
+    )
+    if len(revisions) < 2:
+        return None
+    return (
+        f"{side}: birden fazla revision ({', '.join(revisions)}); "
+        "--revision <hash> ile daralt"
+    )
+
+
 def build_compare_side(
     batch_id: str,
     manifest_path: Path,
@@ -1160,7 +1218,11 @@ def build_compare_side(
         for record in sorted(records, key=lambda record: str(record["path"]))
         if not record["exists"]
     ]
-    records = _filter_revision(records, revision, side or batch_id, warnings)
+    side_label = side or batch_id
+    records = _filter_revision(records, revision, side_label, warnings)
+    mixed = _revision_warning(records, revision, side_label)
+    if mixed is not None:
+        warnings.append(mixed)
     records.sort(key=lambda record: str(record["path"]))
 
     criteria: dict[str, dict] = {}
@@ -1206,6 +1268,10 @@ def build_compare_side(
             "basis": "criteria",
         },
         "criteria": criterion_output,
+        "median_turns": _median([record["turns"] for record in records]),
+        "median_duration_ms": _median(
+            [record["duration_ms"] for record in records]
+        ),
         "revision": revision,
         "session_paths": [record["path"] for record in records],
         "unresolved": unresolved,
@@ -1218,10 +1284,11 @@ def build_compare(
     batch_root: Path | None = None,
     revision: str | None = None,
 ) -> dict:
-    """Build the deterministic CP-1 comparison of two batches.
+    """Build the deterministic comparison of two batches.
 
     ``revision`` narrows both sides to sessions carrying that exact revision;
     sessions without a revision are excluded and counted in ``warnings``.
+    An empty side raises :class:`CompareNoMatch` instead of inventing zeros.
     """
     if revision is not None:
         if not revision.strip():
@@ -1245,11 +1312,41 @@ def build_compare(
         side="candidate",
         warnings=warnings,
     )
+    for side, data in (("baseline", baseline), ("candidate", candidate)):
+        if data["sessions"] == 0:
+            raise CompareNoMatch(side)
+
+    delta_criteria = {
+        name: _delta_value(
+            candidate["criteria"].get(name, {}).get("value"),
+            baseline["criteria"].get(name, {}).get("value"),
+            4,
+        )
+        for name in sorted(set(baseline["criteria"]) | set(candidate["criteria"]))
+    }
     return {
         "mode": "compare",
         "revision": revision,
         "baseline": baseline,
         "candidate": candidate,
+        "delta": {
+            "pass_rate": _delta_value(
+                candidate["pass_rate"]["value"],
+                baseline["pass_rate"]["value"],
+                4,
+            ),
+            "criteria": delta_criteria,
+            "median_turns": _delta_value(
+                candidate["median_turns"], baseline["median_turns"], 2
+            ),
+            "median_duration_ms": _delta_value(
+                candidate["median_duration_ms"],
+                baseline["median_duration_ms"],
+                2,
+            ),
+            "judged": candidate["pass_rate"]["judged"]
+            - baseline["pass_rate"]["judged"],
+        },
         "warnings": warnings,
     }
 
@@ -1257,6 +1354,14 @@ def build_compare(
 def _format_rate(rate: dict) -> str:
     value = "-" if rate["value"] is None else f"{rate['value']:.4f}"
     return f"{rate['pass']}/{rate['judged']} ({value})"
+
+
+def _format_metric(value: float | None, digits: int = 2) -> str:
+    return "-" if value is None else f"{value:.{digits}f}"
+
+
+def _format_delta(value: float | None, digits: int = 4) -> str:
+    return "-" if value is None else f"{value:+.{digits}f}"
 
 
 def _compare_command(argv: list[str]) -> int:
@@ -1288,6 +1393,18 @@ def _compare_command(argv: list[str]) -> int:
             batch_root=args.batch_root,
             revision=args.revision,
         )
+    except CompareNoMatch as exc:
+        print(f"eşleşme yok: {exc.side}", file=sys.stderr)
+        if as_json:
+            _emit_json(
+                {
+                    "mode": "compare",
+                    "status": "no-match",
+                    "side": exc.side,
+                    "error": "eşleşme yok",
+                }
+            )
+        return 1
     except CompareError as exc:
         print(f"eval: {exc}", file=sys.stderr)
         return 2
@@ -1303,6 +1420,10 @@ def _compare_command(argv: list[str]) -> int:
             f"{data['completed']} tamamlanan; pass rate (kriter ağırlıklı) "
             f"{_format_rate(data['pass_rate'])}"
         )
+        print(
+            f"  medyan tur: {_format_metric(data['median_turns'])}, "
+            f"medyan süre: {_format_metric(data['median_duration_ms'])} ms"
+        )
         for name in sorted(data["criteria"]):
             counts = data["criteria"][name]
             print(
@@ -1310,6 +1431,13 @@ def _compare_command(argv: list[str]) -> int:
                 f"unknown {counts['unknown']}, unassessable {counts['unassessable']} "
                 f"→ {_format_rate(counts)}"
             )
+    delta = report["delta"]
+    print(
+        f"delta: pass rate {_format_delta(delta['pass_rate'])}, "
+        f"judged {delta['judged']:+d}, "
+        f"medyan tur {_format_delta(delta['median_turns'], 2)}, "
+        f"medyan süre {_format_delta(delta['median_duration_ms'], 2)}"
+    )
     for warning in report["warnings"]:
         print(f"uyarı: {warning}")
     return 0
