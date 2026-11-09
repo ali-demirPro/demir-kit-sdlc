@@ -132,6 +132,36 @@ checkpoints:
   - {id: CP-2, title: iki}
 ```"""
 
+EVALUATION_KEYS = {
+    "batch",
+    "cases_pass",
+    "cases_total",
+    "discovery_rate",
+    "findings",
+    "updated_at",
+}
+FINDING_KEYS = {"friction", "objection", "opportunity"}
+NULL_EVALUATIONS = {
+    "batch": None,
+    "cases_pass": None,
+    "cases_total": None,
+    "discovery_rate": None,
+    "findings": {"friction": None, "objection": None, "opportunity": None},
+    "updated_at": None,
+}
+
+
+def write_evaluations(project: Path, payload: object) -> Path:
+    path = project / ".kit" / "evaluations.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    text = payload if isinstance(payload, str) else json.dumps(payload)
+    path.write_text(text, encoding="utf-8")
+    return path
+
+
+def evaluations_doc(epics: dict) -> dict:
+    return {"demir_kit_version": "2", "epics": epics}
+
 
 class ContractTests(unittest.TestCase):
     def test_project_contract(self) -> None:
@@ -521,6 +551,218 @@ class DataTests(unittest.TestCase):
             data = payload(proc)
             self.assertIsNone(data["epics"][0]["cost_delta"])
             self.assertTrue(any("maliyet" in item for item in data["warnings"]))
+
+
+class EvaluationsTests(unittest.TestCase):
+    """CP-1: `.kit/evaluations.json` salt-okur sözleşmesi."""
+
+    RECORD = {
+        "batch": "batch-7",
+        "cases_pass": 12,
+        "cases_total": 14,
+        "discovery_rate": 0.8,
+        "findings": {"friction": 3, "objection": 0, "opportunity": 0},
+        "updated_at": "2026-11-09T10:00:00Z",
+    }
+
+    def setup_project(
+        self, tmp: str, payload: object | None = None
+    ) -> tuple[Path, Path]:
+        project = project_dir(tmp)
+        if payload is not None:
+            write_evaluations(project, payload)
+        stub = gh_fixture(
+            Path(tmp) / "bin",
+            [
+                issue(12, "Epic", ("executing",), EPIC_BODY),
+                issue(13, "Leaf", ("agent-approved",), LEAF_BODY),
+            ],
+        )
+        return project, stub
+
+    def epic_of(self, proc: subprocess.CompletedProcess[str]) -> dict:
+        return payload(proc)["epics"][0]
+
+    def test_t1_file_values_and_types(self) -> None:
+        """T-1: dosya okunur; tüm alanlar doğru değer ve tipte çıkar."""
+        with tempfile.TemporaryDirectory() as tmp:
+            project, stub = self.setup_project(
+                tmp, evaluations_doc({"12": self.RECORD})
+            )
+            proc = run("--json", cwd=project, path=stub)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            block = self.epic_of(proc)["evaluations"]
+            self.assertEqual(set(block), EVALUATION_KEYS)
+            self.assertEqual(block, self.RECORD)
+            self.assertIsInstance(block["batch"], str)
+            self.assertIsInstance(block["cases_pass"], int)
+            self.assertIsInstance(block["cases_total"], int)
+            self.assertIsInstance(block["discovery_rate"], float)
+            self.assertEqual(set(block["findings"]), FINDING_KEYS)
+            self.assertTrue(
+                all(isinstance(value, int) for value in block["findings"].values())
+            )
+            self.assertEqual(block["updated_at"], "2026-11-09T10:00:00Z")
+
+    def test_t2_missing_file_is_all_null(self) -> None:
+        """T-2: dosya yok → alanlar null; sıfır uydurulmaz."""
+        with tempfile.TemporaryDirectory() as tmp:
+            project, stub = self.setup_project(tmp)
+            proc = run("--json", cwd=project, path=stub)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            self.assertEqual(self.epic_of(proc)["evaluations"], NULL_EVALUATIONS)
+
+    def test_t2_corrupt_file_warns(self) -> None:
+        """T-2: bozuk JSON → null + uyarı; komut çökmez."""
+        with tempfile.TemporaryDirectory() as tmp:
+            project, stub = self.setup_project(tmp, "{bozuk json")
+            proc = run("--json", cwd=project, path=stub)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            data = payload(proc)
+            self.assertEqual(data["epics"][0]["evaluations"], NULL_EVALUATIONS)
+            self.assertTrue(any("evaluations" in item for item in data["warnings"]))
+
+    def test_t2_invalid_fields_null_with_warnings(self) -> None:
+        """T-2: eksik/yanlış tip/aralık dışı alan null + uyarı; sıfır yok."""
+        with tempfile.TemporaryDirectory() as tmp:
+            broken = {
+                "batch": 7,
+                "cases_pass": -1,
+                "cases_total": "14",
+                "discovery_rate": 1.5,
+                "findings": {"friction": -2, "objection": "0"},
+                "updated_at": "dün",
+            }
+            project, stub = self.setup_project(tmp, evaluations_doc({"12": broken}))
+            proc = run("--json", cwd=project, path=stub)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            data = payload(proc)
+            self.assertEqual(data["epics"][0]["evaluations"], NULL_EVALUATIONS)
+            field_warnings = [
+                item for item in data["warnings"] if item.startswith("evaluations 12:")
+            ]
+            self.assertGreaterEqual(len(field_warnings), 6, field_warnings)
+
+    def test_t2_explicit_nulls_are_valid(self) -> None:
+        """T-2: açık `null` geçerli; uyarı üretmez, sıfıra çevrilmez."""
+        with tempfile.TemporaryDirectory() as tmp:
+            project, stub = self.setup_project(
+                tmp, evaluations_doc({"12": NULL_EVALUATIONS})
+            )
+            proc = run("--json", cwd=project, path=stub)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            data = payload(proc)
+            self.assertEqual(data["epics"][0]["evaluations"], NULL_EVALUATIONS)
+            self.assertFalse(
+                any(item.startswith("evaluations") for item in data["warnings"]),
+                data["warnings"],
+            )
+
+    def test_t2_missing_fields_warn(self) -> None:
+        """T-2: eksik alan null + uyarı; kayıt nesne değilse de çökmez."""
+        with tempfile.TemporaryDirectory() as tmp:
+            project, stub = self.setup_project(
+                tmp, evaluations_doc({"12": {"batch": "batch-7"}, "13": "bozuk"})
+            )
+            proc = run("--json", cwd=project, path=stub)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            data = payload(proc)
+            self.assertEqual(data["epics"][0]["evaluations"]["batch"], "batch-7")
+            self.assertEqual(
+                data["epics"][0]["evaluations"]["cases_pass"], None
+            )
+            self.assertTrue(
+                any("evaluations 12:" in item for item in data["warnings"])
+            )
+            self.assertTrue(
+                any("evaluations 13:" in item for item in data["warnings"])
+            )
+
+    def test_t3_existing_fields_and_text_output(self) -> None:
+        """T-3: mevcut alanlar aynı ad/tip; düz metin çıktısı değişmez."""
+        with tempfile.TemporaryDirectory() as tmp:
+            project, stub = self.setup_project(
+                tmp, evaluations_doc({"12": self.RECORD})
+            )
+            proc = run("--json", cwd=project, path=stub)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            epic = self.epic_of(proc)
+            self.assertEqual(
+                set(epic),
+                {
+                    "number",
+                    "title",
+                    "state",
+                    "risk",
+                    "checkpoints",
+                    "updated_at",
+                    "url",
+                    "leaves",
+                    "gate",
+                    "open_findings",
+                    "approvals",
+                    "next_action",
+                    "cycle_minutes",
+                    "cost_delta",
+                    "evaluations",
+                },
+            )
+            self.assertIsInstance(epic["number"], int)
+            self.assertIsInstance(epic["title"], str)
+            self.assertIsInstance(epic["state"], str)
+            self.assertIsNone(epic["risk"])
+            self.assertIsInstance(epic["checkpoints"], list)
+            self.assertIsNone(epic["updated_at"])
+            self.assertIsNone(epic["url"])
+            self.assertIsInstance(epic["leaves"], list)
+            self.assertIsNone(epic["gate"])
+            self.assertIsInstance(epic["open_findings"], int)
+            self.assertEqual(set(epic["approvals"]), {"agent_approved", "human_qa"})
+            self.assertTrue(all(isinstance(v, bool) for v in epic["approvals"].values()))
+            self.assertIsNone(epic["next_action"])
+            self.assertIsNone(epic["cycle_minutes"])
+            self.assertIsNone(epic["cost_delta"])
+
+            text = run(cwd=project, path=stub)
+            self.assertEqual(text.returncode, 0, text.stderr)
+            self.assertIn("epic 12:", text.stdout)
+            self.assertNotIn("evaluations", text.stdout)
+
+    def test_t3_offline_cache_keeps_evaluations(self) -> None:
+        """T-3: `--offline` önbellekten aynı evaluations bloğunu döner."""
+        with tempfile.TemporaryDirectory() as tmp:
+            project, stub = self.setup_project(
+                tmp, evaluations_doc({"12": self.RECORD})
+            )
+            warm = run("--json", "--cache-ttl", "60", cwd=project, path=stub)
+            self.assertEqual(warm.returncode, 0, warm.stderr)
+            offline = run("--json", "--offline", cwd=project, path=stub)
+            self.assertEqual(offline.returncode, 0, offline.stderr)
+            data = payload(offline)
+            self.assertEqual(data["source"], "cache")
+            self.assertFalse(data["stale"])
+            self.assertEqual([epic["number"] for epic in data["epics"]], [12])
+            self.assertEqual(data["epics"][0]["evaluations"], self.RECORD)
+
+    def test_t3_old_cache_without_evaluations_recomputes(self) -> None:
+        """T-3: evaluations taşımayan eski önbellek geçersiz sayılır."""
+        with tempfile.TemporaryDirectory() as tmp:
+            project, stub = self.setup_project(
+                tmp, evaluations_doc({"12": self.RECORD})
+            )
+            first = run("--json", "--cache-ttl", "60", cwd=project, path=stub)
+            self.assertEqual(first.returncode, 0, first.stderr)
+            cache = project / ".orchestration" / "status-cache.json"
+            envelope = json.loads(cache.read_text(encoding="utf-8"))
+            for epic in envelope["data"]["epics"]:
+                epic.pop("evaluations", None)
+            cache.write_text(json.dumps(envelope), encoding="utf-8")
+
+            second = run("--json", "--cache-ttl", "60", cwd=project, path=stub)
+            self.assertEqual(second.returncode, 0, second.stderr)
+            data = payload(second)
+            self.assertEqual(data["source"], "live")
+            self.assertEqual(data["epics"][0]["evaluations"], self.RECORD)
 
 
 class ProgressTests(unittest.TestCase):

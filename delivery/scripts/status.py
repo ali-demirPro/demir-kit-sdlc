@@ -15,12 +15,17 @@ Varsayılan olarak yalnız aktif epic'ler listelenir: `epic-done` etiketli ya da
 kapalı issue'lar `epics[]` dışında kalır. `--all-epics` hepsini gösterir.
 `counts.epics` listelenen epic sayısı, `counts.leaves` bu epic'lerin `leaves[]`
 toplamıdır; `counts.blocked` tüm issue'ları saymaya devam eder.
+
+Her epic `evaluations` bloğu taşır: `.kit/evaluations.json` salt-okur; dosya ya
+da kayıt yoksa tüm alanlar `null` (sıfır uydurulmaz), geçersiz alan `null` +
+uyarı olur. Düz metin çıktısı bu blokta değişmez; yalnız `--json` genişler.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import math
 import re
 import subprocess
 import sys
@@ -43,6 +48,17 @@ GH_TIMEOUT = 30
 DOCTOR_TIMEOUT = 120
 EPIC_BLOCK = "demir-kit-epic"
 LEAF_BLOCK = "demir-kit"
+# Eval özeti: proje kökünde `.kit/evaluations.json`, salt-okur.
+EVALUATIONS_PATH = Path(".kit") / "evaluations.json"
+EVALUATION_KEYS = {
+    "batch",
+    "cases_pass",
+    "cases_total",
+    "discovery_rate",
+    "findings",
+    "updated_at",
+}
+FINDING_KEYS = ("friction", "objection", "opportunity")
 # `updated_at` yalnız ISO-8601 kabul eder; başka metin `null` olur.
 ISO_8601 = re.compile(
     r"^\d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])"
@@ -364,6 +380,128 @@ def epic_url(number: int, repo: str) -> str | None:
     return f"https://github.com/{repo}/issues/{number}" if repo else None
 
 
+def empty_evaluations() -> dict:
+    """Tüm alanları `null`; kayıt yoksa sıfır uydurulmaz."""
+    return {
+        "batch": None,
+        "cases_pass": None,
+        "cases_total": None,
+        "discovery_rate": None,
+        "findings": {key: None for key in FINDING_KEYS},
+        "updated_at": None,
+    }
+
+
+def evaluation_block(value: object) -> dict:
+    """Geçerli kaydı kanonik bloğa kopyalar; eksik/bozuk alan `null` kalır."""
+    block = empty_evaluations()
+    if not isinstance(value, dict):
+        return block
+    for key in ("batch", "cases_pass", "cases_total", "discovery_rate", "updated_at"):
+        if key in value:
+            block[key] = value[key]
+    findings = value.get("findings")
+    if isinstance(findings, dict):
+        for key in FINDING_KEYS:
+            if key in findings:
+                block["findings"][key] = findings[key]
+    return block
+
+
+def non_negative_int(value: object) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and value >= 0
+
+
+def valid_discovery_rate(value: object) -> bool:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return False
+    return math.isfinite(value) and 0 <= value <= 1
+
+
+def valid_updated_at(value: object) -> bool:
+    return isinstance(value, str) and bool(ISO_8601.match(value.strip()))
+
+
+def eval_field(
+    raw: dict,
+    epic: str,
+    key: str,
+    check,
+    warnings: list[str],
+) -> object:
+    """Tek alan: eksik/geçersiz → `null` + kısa uyarı; açık `null` geçerli."""
+    if key not in raw:
+        warnings.append(f"evaluations {epic}: {key} eksik, null")
+        return None
+    value = raw[key]
+    if value is None or check(value):
+        return value
+    warnings.append(f"evaluations {epic}: {key} geçersiz, null")
+    return None
+
+
+def normalize_evaluations(raw: object, epic: str, warnings: list[str]) -> dict:
+    """Tek epic kaydını doğrular; her alan bağımsız olarak `null`a düşer."""
+    block = empty_evaluations()
+    if not isinstance(raw, dict):
+        warnings.append(f"evaluations {epic}: kayıt eşleme değil, null")
+        return block
+    block["batch"] = eval_field(
+        raw, epic, "batch", lambda value: isinstance(value, str), warnings
+    )
+    for key in ("cases_pass", "cases_total"):
+        block[key] = eval_field(raw, epic, key, non_negative_int, warnings)
+    block["discovery_rate"] = eval_field(
+        raw, epic, "discovery_rate", valid_discovery_rate, warnings
+    )
+    findings = raw.get("findings")
+    if "findings" not in raw:
+        warnings.append(f"evaluations {epic}: findings eksik, null")
+    elif findings is not None and not isinstance(findings, dict):
+        warnings.append(f"evaluations {epic}: findings geçersiz, null")
+    elif isinstance(findings, dict):
+        for key in FINDING_KEYS:
+            block["findings"][key] = eval_field(
+                findings, epic, key, non_negative_int, warnings
+            )
+    updated_at = eval_field(raw, epic, "updated_at", valid_updated_at, warnings)
+    block["updated_at"] = updated_at.strip() if isinstance(updated_at, str) else None
+    return block
+
+
+def load_evaluations(project: Path) -> tuple[dict[int, dict], list[str]]:
+    """`.kit/evaluations.json` → epic numarası → doğrulanmış blok.
+
+    Dosya yoksa boş eşleme döner (uyarı yok); bozuk dosyada tüm alanlar `null`
+    kalır ve tek bir uyarı eklenir. Komut hiçbir durumda çökmez.
+    """
+    warnings: list[str] = []
+    path = project / EVALUATIONS_PATH
+    if not path.is_file():
+        return {}, warnings
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        warnings.append("evaluations okunamadı: JSON geçersiz, tüm alanlar null")
+        return {}, warnings
+    if not isinstance(data, dict):
+        warnings.append("evaluations kökü eşleme değil, tüm alanlar null")
+        return {}, warnings
+    epics = data.get("epics")
+    if not isinstance(epics, dict):
+        warnings.append("evaluations epics eşlemesi yok, tüm alanlar null")
+        return {}, warnings
+    records: dict[int, dict] = {}
+    for key, raw in epics.items():
+        try:
+            number = int(str(key))
+        except (TypeError, ValueError):
+            warnings.append(f"evaluations epic anahtarı geçersiz: {key}")
+            continue
+        records[number] = normalize_evaluations(raw, str(key), warnings)
+    return records, warnings
+
+
 def epic_entry(
     number: int,
     title: str,
@@ -373,6 +511,7 @@ def epic_entry(
     url: str | None,
     issue_state: str = "",
     leaves: list[dict] | None = None,
+    evaluations: dict | None = None,
 ) -> dict:
     return {
         "number": number,
@@ -392,6 +531,7 @@ def epic_entry(
         "next_action": None,
         "cycle_minutes": None,
         "cost_delta": None,
+        "evaluations": evaluation_block(evaluations),
     }
 
 
@@ -405,14 +545,19 @@ def issue_updated_at(issue: dict) -> str | None:
 
 
 def collect_issues(
-    issues: list[dict], all_epics: bool = False, repo: str = ""
+    issues: list[dict],
+    all_epics: bool = False,
+    repo: str = "",
+    evaluations: dict[int, dict] | None = None,
 ) -> tuple[list[dict], dict]:
     """Issue listesinden epics + counts; epic/leaf bloklarına göre ayırır.
 
     `all_epics` kapalıyken `epic-done` etiketli veya kapalı issue'lar listeye
     girmez; `counts.leaves` yalnız listelenen epic'lerin `leaves[]` toplamıdır.
     `leaves[]` seal şartı aramaz; seal yalnız checkpoint listesini besler.
+    `evaluations` epic numarasıyla eşleştirilir; kayıt yoksa alanlar `null`.
     """
+    eval_by_number = evaluations or {}
     seals: dict[int, dict] = {}
     issues_by_number: dict[int, dict] = {}
     labels_by_number: dict[int, set[str]] = {}
@@ -458,6 +603,7 @@ def collect_issues(
             epic_url(number, repo),
             issue_state,
             epic_leaves(block, issues_by_number),
+            eval_by_number.get(number),
         )
         for number, block, labels, title, issue_state, updated_at in sorted(
             active_rows, key=lambda row: row[0]
@@ -528,6 +674,8 @@ def gate_state(
 
 def build_status(project: Path, args: argparse.Namespace) -> dict:
     warnings: list[str] = []
+    evaluations, eval_warnings = load_evaluations(project)
+    warnings.extend(eval_warnings)
     config = load_config(project)
     if not (project / CONFIG_NAME).is_file():
         warnings.append(f"{CONFIG_NAME} yok: {project}")
@@ -555,6 +703,7 @@ def build_status(project: Path, args: argparse.Namespace) -> dict:
                 issues,
                 all_epics=args.all_epics,
                 repo=str(section(config, "tracker").get("repo") or ""),
+                evaluations=evaluations,
             )
     if args.with_gate:
         if not epics:
@@ -600,6 +749,7 @@ EPIC_KEYS = {
     "next_action",
     "cycle_minutes",
     "cost_delta",
+    "evaluations",
 }
 
 
@@ -613,6 +763,28 @@ def valid_checkpoint(item: object) -> bool:
         and isinstance(item.get("leaf"), int)
         and not isinstance(item.get("leaf"), bool)
     )
+
+
+def valid_evaluations(item: object) -> bool:
+    if not isinstance(item, dict) or set(item) != EVALUATION_KEYS:
+        return False
+    if item.get("batch") is not None and not isinstance(item.get("batch"), str):
+        return False
+    for key in ("cases_pass", "cases_total"):
+        value = item.get(key)
+        if value is not None and not non_negative_int(value):
+            return False
+    rate = item.get("discovery_rate")
+    if rate is not None and not valid_discovery_rate(rate):
+        return False
+    findings = item.get("findings")
+    if not isinstance(findings, dict) or set(findings) != set(FINDING_KEYS):
+        return False
+    if not all(
+        value is None or non_negative_int(value) for value in findings.values()
+    ):
+        return False
+    return item.get("updated_at") is None or valid_updated_at(item.get("updated_at"))
 
 
 def valid_epic(item: object) -> bool:
@@ -648,6 +820,8 @@ def valid_epic(item: object) -> bool:
     if not isinstance(approvals, dict) or set(approvals) != {"agent_approved", "human_qa"}:
         return False
     if not all(isinstance(value, bool) for value in approvals.values()):
+        return False
+    if not valid_evaluations(item.get("evaluations")):
         return False
     return all(
         item.get(key) is None or isinstance(item.get(key), (str, int, float))
