@@ -138,7 +138,14 @@ capability `risk_floor` seal riskinin altına inemez (`doctor`).
 ## Komutlar
 
 ```bash
-./delivery/scripts/gate.sh --issue 12 --checkpoint CP-1   # behavior + seal + suite
+./delivery/scripts/gate.sh --issue 12 --checkpoint CP-1        # doctor + değişen dosyanın test modülleri
+./delivery/scripts/gate.sh --issue 12 --checkpoint CP-1 --full # tam unittest paketi (closure/CI)
+./delivery/scripts/gate.sh --issue 12 --checkpoint CP-1 --fast # yalnız doctor (CP)
 ./delivery/scripts/doctor.sh --issue 12                     # seal + evidence
 ./delivery/scripts/guard.sh --issue 12                      # G1 + risk escalation
 ```
+
+Varsayılan seviye **selected**: değişen test dosyası kendini, değişen betik onu
+adlandıran test modüllerini, değişen şema/config onu anan testleri seçer. Tam
+paket yalnız `--full` ile koşar. `leaf-done` kapısını `transition` Orca
+terminalinde koşturur ve sonucu dosyadan okur.

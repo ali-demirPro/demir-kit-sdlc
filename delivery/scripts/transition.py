@@ -7,8 +7,11 @@ import argparse
 import json
 import os
 import re
+import shlex
+import shutil
 import subprocess
 import sys
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -21,6 +24,7 @@ import routing
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPTS = Path(__file__).resolve().parent
+GATE_TIMEOUT_MS = 900_000
 
 TARGETS = {
     "scope-confirmed",
@@ -497,6 +501,117 @@ def post_comment(number: int, body: str) -> None:
     gh(["issue", "comment", str(number), "--body", body])
 
 
+def terminal_handle(payload: object) -> str:
+    """Extract the runtime-issued terminal handle from an Orca envelope."""
+    if not isinstance(payload, dict):
+        return ""
+    result = payload.get("result")
+    result = result if isinstance(result, dict) else {}
+    terminal = result.get("terminal")
+    terminal = terminal if isinstance(terminal, dict) else {}
+    for value in (
+        terminal.get("handle"),
+        result.get("handle"),
+        result.get("terminalId"),
+    ):
+        if value:
+            return str(value)
+    return ""
+
+
+def run_gate_in_orca(
+    project: Path,
+    command: list[str],
+    timeout_ms: int = GATE_TIMEOUT_MS,
+    root: Path | None = None,
+) -> tuple[int | None, str]:
+    """Run the gate in an Orca terminal and read the exit code from a file.
+
+    Returns ``(None, "")`` only when Orca cannot create the terminal, so the
+    caller may fall back to a direct run. A created terminal that never writes
+    its result file is a gate failure, not a fallback.
+    """
+    if not shutil.which("orca"):
+        return None, ""
+    directory = Path(root) if root else Path(
+        tempfile.mkdtemp(prefix="demir-kit-gate-")
+    )
+    directory.mkdir(parents=True, exist_ok=True)
+    log = directory / "gate.log"
+    code_file = directory / "gate.exit"
+    for path in (log, code_file):
+        try:
+            path.unlink()
+        except FileNotFoundError:
+            pass
+    shell = (
+        f"{shlex.join(command)} > {shlex.quote(str(log))} 2>&1; "
+        f"printf '%s' $? > {shlex.quote(str(code_file))}"
+    )
+    try:
+        created = subprocess.run(
+            [
+                "orca",
+                "terminal",
+                "create",
+                "--worktree",
+                f"path:{project}",
+                "--title",
+                "demir-kit gate",
+                "--command",
+                shell,
+                "--json",
+            ],
+            cwd=str(project),
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None, ""
+    if created.returncode != 0:
+        return None, ""
+    try:
+        payload = json.loads(created.stdout)
+    except json.JSONDecodeError:
+        return None, ""
+    handle = terminal_handle(payload)
+    if not handle:
+        return None, ""
+    try:
+        subprocess.run(
+            [
+                "orca",
+                "terminal",
+                "wait",
+                "--terminal",
+                handle,
+                "--for",
+                "exit",
+                "--timeout-ms",
+                str(timeout_ms),
+                "--json",
+            ],
+            cwd=str(project),
+            capture_output=True,
+            text=True,
+            timeout=timeout_ms / 1000 + 60,
+        )
+    except subprocess.TimeoutExpired:
+        return 124, "terminal wait timeout"
+    except OSError as exc:
+        return 127, str(exc)
+    try:
+        output = log.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        output = ""
+    try:
+        code = int(code_file.read_text(encoding="utf-8").strip())
+    except (OSError, ValueError):
+        return 1, (output or "gate sonucu dosyadan okunamadı")[-4000:]
+    return code, output[-4000:]
+
+
 def close_leaf_gate(issue: dict, args) -> None:
     """Full leaf gate before leaf-done, or an explicit, recorded degrade."""
     if args.no_gate:
@@ -518,18 +633,20 @@ def close_leaf_gate(issue: dict, args) -> None:
     except ValueError as exc:
         sys.exit(f"transition: {exc}")
     print(f"gate: {' '.join(command)}", flush=True)
-    try:
-        result = subprocess.run(
-            command, cwd=str(Path.cwd()), capture_output=True, text=True
-        )
-    except OSError as exc:
-        sys.exit(f"transition: leaf kapısı koşulamadı — {exc}")
-    if result.returncode != 0:
+    code, output = run_gate_in_orca(Path.cwd(), command)
+    if code is None:
+        try:
+            result = subprocess.run(
+                command, cwd=str(Path.cwd()), capture_output=True, text=True
+            )
+        except OSError as exc:
+            sys.exit(f"transition: leaf kapısı koşulamadı — {exc}")
+        code, output = result.returncode, result.stdout + result.stderr
+    if code != 0:
         sys.exit(
-            "transition: leaf tam kapısı düştü — "
-            + (result.stdout + result.stderr).strip()[-400:]
+            "transition: leaf tam kapısı düştü — " + (output or "").strip()[-400:]
         )
-    print("gate: full exit 0", flush=True)
+    print("gate: exit 0", flush=True)
 
 
 def check_push(args) -> None:

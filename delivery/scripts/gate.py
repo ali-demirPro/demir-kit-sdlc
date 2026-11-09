@@ -28,8 +28,11 @@ KIT_ROOT = Path(__file__).resolve().parents[2]
 
 STEP_TIMEOUT = 900
 TEST_ROOT = "delivery/tests"
+TEST_MODULE_PREFIX = "delivery.tests."
+SCRIPT_ROOT = "delivery/scripts"
 PLUGIN_ROOT = "plugins"
 PLUGIN_PATH = "plugins/orca"
+CONFIG_SUFFIXES = (".yaml", ".yml", ".json")
 
 CACHE_NAME = "gate-cache.json"
 CACHE_TTL = 86_400
@@ -296,15 +299,85 @@ def product_fix(project: Path, checkpoint: str) -> list[str]:
     return commands
 
 
-def suites_for(paths: list[str]) -> list[str]:
-    """Suites selected by changed paths, in run order."""
+def suites_for(
+    paths: list[str], project: Path | None = None, full: bool = False
+) -> list[str]:
+    """Suites selected by changed paths, in run order.
+
+    By default a changed file selects only the test modules that cover it; the
+    whole unittest package runs only with ``full``. Plugin files select the
+    Orca plugin suite.
+    """
     normalized = [_normalize(path) for path in paths]
     suites: list[str] = []
-    if any(_under(path, TEST_ROOT) for path in normalized):
+    if full:
         suites.append("unittest")
+    else:
+        suites.extend(
+            f"unittest:{module}"
+            for module in selected_test_modules(normalized, project)
+        )
     if any(_under(path, PLUGIN_ROOT) for path in normalized):
         suites.append("plugin")
     return suites
+
+
+def _test_module(file_name: str) -> str | None:
+    path = Path(file_name)
+    if not path.name.startswith("test_") or path.suffix != ".py":
+        return None
+    return TEST_MODULE_PREFIX + path.name[: -len(".py")]
+
+
+def _test_sources(project: Path) -> list[tuple[str, str]]:
+    root = project / TEST_ROOT
+    if not root.is_dir():
+        return []
+    sources: list[tuple[str, str]] = []
+    for path in sorted(root.glob("test_*.py")):
+        module = _test_module(path.name)
+        if not module:
+            continue
+        try:
+            sources.append((module, path.read_text(encoding="utf-8")))
+        except OSError:
+            continue
+    return sources
+
+
+def selected_test_modules(
+    paths: list[str], project: Path | None = None
+) -> list[str]:
+    """Test modules that cover the changed files.
+
+    A changed test file selects itself, a changed script selects the tests that
+    name its stem, and a delivery config/schema selects the tests that mention
+    the file name.
+    """
+    project = project or Path.cwd()
+    sources = _test_sources(project)
+    modules: set[str] = set()
+    for raw in paths:
+        path = _normalize(raw)
+        in_tests = _under(path, TEST_ROOT)
+        module = _test_module(path) if in_tests else None
+        if module:
+            if (project / path).is_file():
+                modules.add(module)
+            continue
+        if _under(path, SCRIPT_ROOT) and path.endswith((".py", ".sh")):
+            stem = Path(path).stem
+            pattern = re.compile(rf"(?<![\w-]){re.escape(stem)}\b")
+            for name, text in sources:
+                if pattern.search(text):
+                    modules.add(name)
+            continue
+        if _under(path, "delivery") and path.endswith(CONFIG_SUFFIXES):
+            base = Path(path).name
+            for name, text in sources:
+                if base in text:
+                    modules.add(name)
+    return sorted(modules)
 
 
 def doctor_command(
@@ -331,6 +404,11 @@ def step_command(
         return doctor_command(project, issue, checkpoint)
     if step == "unittest":
         return ["python3", "-m", "unittest", "discover", "-s", TEST_ROOT]
+    if step.startswith("unittest:"):
+        module = step.split(":", 1)[1]
+        if not module.startswith(TEST_MODULE_PREFIX):
+            raise ValueError(f"geçersiz test modülü: {module}")
+        return ["python3", "-m", "unittest", module]
     if step == "plugin":
         return ["orca", "plugin", "test", PLUGIN_PATH]
     raise ValueError(f"bilinmeyen adım: {step}")
@@ -356,7 +434,15 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--issue", type=int, help="seal + evidence doğrula (opsiyonel)")
     parser.add_argument("--checkpoint", required=True)
     parser.add_argument("--plan", action="store_true", help="adımları yaz, çalıştırma")
-    parser.add_argument("--fast", action="store_true", help="yalnız statik doctor (CP)")
+    level = parser.add_mutually_exclusive_group()
+    level.add_argument(
+        "--fast", action="store_true", help="yalnız statik doctor (CP)"
+    )
+    level.add_argument(
+        "--full",
+        action="store_true",
+        help="tam unittest paketi; varsayılan değişen dosyaya göre modül seçer",
+    )
     parser.add_argument("--cached", action="store_true", help="tree hash cache'ini kullan")
     parser.add_argument("--no-cache", action="store_true", help="cache'i baypas et")
     parser.add_argument("--fix", action="store_true", help="düzeltici adımlara izin ver")
@@ -391,11 +477,30 @@ def main(argv: list[str] | None = None) -> int:
                     flush=True,
                 )
     behavior = [] if args.fast else product_behavior(project, args.checkpoint)
-    steps = ["doctor"] if args.fast else ["doctor", *suites_for(paths)]
-    if not args.fast:
+    suites = [] if args.fast else suites_for(paths, project, full=args.full)
+    steps = ["doctor", *suites]
+    level_name = "fast" if args.fast else ("full" if args.full else "selected")
+    if args.fast:
+        print("[gate] level fast", flush=True)
+    elif args.full:
         print("[gate] level full", flush=True)
     else:
-        print("[gate] level fast", flush=True)
+        print("[gate] level selected", flush=True)
+        changed_scripts = [
+            path
+            for path in paths
+            if _under(_normalize(path), SCRIPT_ROOT)
+            and _normalize(path).endswith((".py", ".sh"))
+        ]
+        if changed_scripts and not any(
+            step.startswith("unittest:") for step in suites
+        ):
+            print(
+                "[gate] uyarı: değişen betik için test modülü eşleşmedi; "
+                "tam paket için --full",
+                file=sys.stderr,
+                flush=True,
+            )
 
     if args.plan:
         for command in behavior:
@@ -470,7 +575,7 @@ def main(argv: list[str] | None = None) -> int:
                     actor="gate",
                     reason=(
                         f"{args.checkpoint or '-'} "
-                        f"{'fast' if args.fast else 'full'} "
+                        f"{level_name} "
                         f"exit={1 if failed else 0}"
                     ),
                 ),

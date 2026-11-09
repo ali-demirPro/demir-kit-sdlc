@@ -25,11 +25,15 @@ class LevelTests(unittest.TestCase):
         import json
 
         schema = json.loads((ROOT / "delivery" / "schemas" / "evidence.schema.json").read_text(encoding="utf-8"))
-        self.assertEqual(schema["properties"]["gate_level"]["enum"], ["fast", "full"])
+        self.assertEqual(
+            schema["properties"]["gate_level"]["enum"],
+            ["fast", "selected", "full"],
+        )
 
     def test_gate_reason_carries_the_level(self) -> None:
         source = (SCRIPTS / "gate.py").read_text(encoding="utf-8")
-        self.assertIn("'fast' if args.fast else 'full'", source)
+        self.assertIn("level_name", source)
+        self.assertIn('level_name = "fast" if args.fast', source)
 
 
 if __name__ == "__main__":

@@ -591,6 +591,7 @@
     "gate_level": {
       "enum": [
         "fast",
+        "selected",
         "full"
       ],
       "description": "CP'de koşan kapı seviyesi"
