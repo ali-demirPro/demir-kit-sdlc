@@ -20,6 +20,8 @@ ROOT = Path(__file__).resolve().parents[2]
 SCRIPTS = ROOT / "delivery" / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
+import context_metrics  # noqa: E402
+
 spec = importlib.util.spec_from_file_location("brief", SCRIPTS / "brief.py")
 brief = importlib.util.module_from_spec(spec)
 assert spec.loader is not None
@@ -743,7 +745,7 @@ class RouteTests(unittest.TestCase):
                 all(
                     re.match(
                         r"^(sink|window|retrieved|candidate) \S+ "
-                        r"\(source: (seal|resolver|index|static), reason: .+\)$",
+                        r"\(source: (seal|resolver|index|static|frequency), reason: .+\)$",
                         line,
                     )
                     for line in plain_route
@@ -894,6 +896,273 @@ class RouteTests(unittest.TestCase):
         self.assertEqual(payload["config"]["index_version"], "yok")
         self.assertIsNone(payload["indexing"])
         self.assertIn("index yok", payload["unarmed"])
+
+
+class FrequencyTests(unittest.TestCase):
+    """Learned frequency table and frequency-first router (issue 315)."""
+
+    def write_index(self, directory, entries, version=1) -> Path:
+        path = Path(directory) / "index.yaml"
+        path.write_text(
+            yaml.safe_dump(
+                {"version": version, "entries": entries}, sort_keys=False
+            ),
+            encoding="utf-8",
+        )
+        return path
+
+    def write_metrics(self, path: Path, rows: list[dict]) -> Path:
+        text = "\n".join(json.dumps(row) for row in rows)
+        path.write_text(text + ("\n" if rows else ""), encoding="utf-8")
+        return path
+
+    def write_frequency(self, directory, rows) -> Path:
+        path = Path(directory) / "frequency.yaml"
+        path.write_text(
+            yaml.safe_dump(
+                {
+                    "version": 1,
+                    "source": ".kit/context-metrics.jsonl",
+                    "rows": rows,
+                },
+                sort_keys=False,
+            ),
+            encoding="utf-8",
+        )
+        return path
+
+    def route_lines(self, text: str) -> list[str]:
+        return [
+            line
+            for line in text.splitlines()
+            if line.startswith("retrieved ")
+        ]
+
+    def run_route(self, argv, index_path, frequency_path):
+        issue = json.dumps(
+            {
+                "title": "frequency",
+                "body": (
+                    "```yaml demir-kit\n"
+                    + yaml.safe_dump(RouteTests.ROUTE_SEAL, sort_keys=False)
+                    + "```"
+                ),
+                "labels": [],
+            }
+        )
+        out = io.StringIO()
+        err = io.StringIO()
+        with patch.object(brief, "repo_name", return_value="x/y"), patch.object(
+            brief, "gh", return_value=issue
+        ), patch.object(
+            brief, "index_file", return_value=index_path
+        ), patch.object(
+            brief, "frequency_file", return_value=frequency_path
+        ), patch.object(
+            sys, "argv", ["brief.py", *argv]
+        ), contextlib.redirect_stdout(
+            out
+        ), contextlib.redirect_stderr(
+            err
+        ):
+            code = brief.main()
+        return code, out.getvalue(), err.getvalue()
+
+    def test_table_rows_have_counts_and_ratio(self) -> None:
+        entries = [
+            {
+                "surface": "kit.scripts",
+                "path": "delivery/scripts/brief.py",
+                "tags": ["brief"],
+                "weight": 6,
+            },
+            {
+                "surface": "kit.docs",
+                "path": "delivery/policies/context-budget.md",
+                "tags": ["context"],
+                "weight": 6,
+            },
+        ]
+        metrics = [
+            {
+                "brief_docs": ["delivery/scripts/brief.py"],
+                "unused_brief_docs": ["delivery/policies/context-budget.md"],
+            },
+            {
+                "brief_docs": ["delivery/scripts/brief.py"],
+                "unused_brief_docs": [],
+            },
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            index_path = self.write_index(tmp, entries)
+            metrics_path = self.write_metrics(Path(tmp) / "metrics.jsonl", metrics)
+            document, target = context_metrics.learn(
+                metrics_path, index_path, Path(tmp) / "frequency.yaml"
+            )
+            self.assertIsNotNone(target)
+            written = yaml.safe_load(target.read_text(encoding="utf-8"))
+
+        self.assertEqual(document, written)
+        self.assertEqual(document["version"], 1)
+        self.assertEqual(document["source"], metrics_path.resolve().as_posix())
+        rows = {row["doc"]: row for row in document["rows"]}
+        self.assertEqual(set(rows), {
+            "delivery/scripts/brief.py",
+            "delivery/policies/context-budget.md",
+        })
+        code_row = rows["delivery/scripts/brief.py"]
+        self.assertEqual(code_row["surface"], "kit.scripts")
+        self.assertEqual((code_row["selected"], code_row["used"]), (2, 2))
+        self.assertEqual(code_row["ratio"], 1.0)
+        doc_row = rows["delivery/policies/context-budget.md"]
+        self.assertEqual(doc_row["surface"], "kit.docs")
+        self.assertEqual((doc_row["selected"], doc_row["used"]), (1, 0))
+        self.assertEqual(doc_row["ratio"], 0.0)
+        for row in document["rows"]:
+            self.assertEqual(
+                set(row), {"doc", "surface", "selected", "used", "ratio"}
+            )
+
+    def test_router_prefers_frequency_and_reports_source(self) -> None:
+        entries = [
+            {
+                "surface": "kit.scripts",
+                "path": "delivery/scripts/gate.py",
+                "tags": ["gate"],
+                "weight": 9,
+            },
+            {
+                "surface": "kit.scripts",
+                "path": "delivery/scripts/routing.py",
+                "tags": ["route"],
+                "weight": 2,
+            },
+        ]
+        frequency_rows = [
+            {
+                "doc": "delivery/scripts/gate.py",
+                "surface": "kit.scripts",
+                "selected": 10,
+                "used": 1,
+                "ratio": 0.1,
+            },
+            {
+                "doc": "delivery/scripts/routing.py",
+                "surface": "kit.scripts",
+                "selected": 10,
+                "used": 9,
+                "ratio": 0.9,
+            },
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            index_path = self.write_index(tmp, entries)
+            frequency_path = self.write_frequency(tmp, frequency_rows)
+            code, out, err = self.run_route(
+                ["315", "--route"], index_path, frequency_path
+            )
+            self.assertEqual(code, 0, err)
+            learned = self.route_lines(out)
+            self.assertTrue(learned)
+            self.assertEqual(
+                learned[0],
+                "retrieved delivery/scripts/routing.py "
+                "(source: frequency, reason: frequency 9/10)",
+            )
+            self.assertTrue(
+                all("(source: frequency," in line for line in learned)
+            )
+
+            missing = Path(tmp) / "yok-boyle-frequency.yaml"
+            code, out, err = self.run_route(
+                ["315", "--route"], index_path, missing
+            )
+        self.assertEqual(code, 0, err)
+        static = self.route_lines(out)
+        self.assertTrue(
+            static[0].startswith(
+                "retrieved delivery/scripts/gate.py (source: index"
+            )
+        )
+        self.assertTrue(
+            static[1].startswith(
+                "retrieved delivery/scripts/routing.py (source: index"
+            )
+        )
+
+    def test_same_trace_same_table(self) -> None:
+        entries = [
+            {
+                "surface": "kit.scripts",
+                "path": "delivery/scripts/brief.py",
+                "tags": ["brief"],
+                "weight": 6,
+            }
+        ]
+        metrics = [
+            {
+                "brief_docs": ["delivery/scripts/brief.py"],
+                "unused_brief_docs": [],
+            },
+            {
+                "brief_docs": [],
+                "unused_brief_docs": ["delivery/scripts/brief.py"],
+            },
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            index_path = self.write_index(tmp, entries)
+            metrics_path = self.write_metrics(Path(tmp) / "metrics.jsonl", metrics)
+            first_doc, first_path = context_metrics.learn(
+                metrics_path, index_path, Path(tmp) / "first.yaml"
+            )
+            second_doc, second_path = context_metrics.learn(
+                metrics_path, index_path, Path(tmp) / "second.yaml"
+            )
+            third_doc, third_path = context_metrics.learn(
+                metrics_path, index_path, Path(tmp) / "third.yaml"
+            )
+            first = first_path.read_bytes()
+            self.assertEqual(first, second_path.read_bytes())
+            self.assertEqual(first, third_path.read_bytes())
+
+        self.assertEqual(first_doc, second_doc)
+        self.assertEqual(first_doc, third_doc)
+        self.assertEqual(first_doc["version"], 1)
+        self.assertEqual(first_doc["rows"][0]["selected"], 2)
+        self.assertEqual(first_doc["rows"][0]["used"], 1)
+        text = first.decode("utf-8")
+        for forbidden in ("prompt", "agent", "session", "issue", "message"):
+            self.assertNotIn(forbidden, text)
+
+    def test_invalid_frequency_shape_is_reported(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "frequency.yaml"
+            path.write_text(
+                yaml.safe_dump(
+                    {
+                        "version": 2,
+                        "extra": True,
+                        "rows": [
+                            {
+                                "doc": "delivery/scripts/brief.py",
+                                "surface": "kit.scripts",
+                                "selected": 2,
+                                "used": 3,
+                                "ratio": 1.5,
+                            }
+                        ],
+                    },
+                    sort_keys=False,
+                ),
+                encoding="utf-8",
+            )
+            errors = context_metrics.frequency_errors(path)
+            with self.assertRaises(context_metrics.FrequencyError):
+                context_metrics.load_frequency(path)
+        text = "\n".join(errors)
+        self.assertIn("version 1", text)
+        self.assertIn("bilinmeyen anahtar: extra", text)
+        self.assertIn("ratio 0..1", text)
+        self.assertIn("used selected'dan büyük olamaz", text)
 
 
 if __name__ == "__main__":

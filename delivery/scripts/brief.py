@@ -23,6 +23,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import resolver  # noqa: E402
 import routing  # noqa: E402
 import profiles  # noqa: E402
+import context_metrics  # noqa: E402
 
 
 def gh(args: list[str]) -> str:
@@ -323,6 +324,112 @@ def build_brief(
 def index_file() -> Path:
     """Route index shipped with the kit; patched in tests."""
     return routing.route_index_path(ROOT)
+
+
+def frequency_file() -> Path:
+    """Learned frequency table shipped with the kit; patched in tests."""
+    return ROOT / "delivery" / "context" / "frequency.yaml"
+
+
+def load_frequency(strict: bool = False) -> dict | None:
+    """Learned frequency table; ``None`` when absent (or invalid without strict)."""
+    try:
+        return context_metrics.load_frequency(frequency_file(), ROOT)
+    except context_metrics.FrequencyError:
+        if strict:
+            raise
+        return None
+
+
+def _route_doc(path: str, prefix: str) -> str:
+    text = str(path)
+    if prefix and text.startswith(prefix):
+        return text[len(prefix) :]
+    return text
+
+
+def _route_number(value: float) -> str:
+    return str(int(value)) if float(value).is_integer() else str(value)
+
+
+def apply_frequency(
+    route: list[dict],
+    frequency: dict | None,
+    index: dict | None,
+    prefix: str = "",
+) -> list[dict]:
+    """Re-rank retrieved items: frequency ratio first, index weight otherwise.
+
+    ``source`` becomes ``frequency`` or ``index`` and the reason carries the
+    observed counts or the static weight, so ``--route`` explains the choice.
+    Items outside ``retrieved`` keep their order and class.
+    """
+    if not frequency:
+        return route
+    by_doc: dict[str, list[dict]] = {}
+    for row in frequency.get("rows") or []:
+        if isinstance(row, dict):
+            by_doc.setdefault(str(row.get("doc")), []).append(row)
+    weights = {
+        str(entry["path"]): float(entry["weight"])
+        for entry in (index or {}).get("entries") or []
+        if isinstance(entry, dict) and "path" in entry and "weight" in entry
+    }
+    decorated: list[dict] = []
+    for item in route:
+        if item.get("class") != "retrieved":
+            decorated.append(item)
+            continue
+        doc = _route_doc(item.get("path", ""), prefix)
+        matches = by_doc.get(doc) or []
+        if matches:
+            chosen = sorted(
+                matches, key=lambda row: (-float(row["ratio"]), str(row["surface"]))
+            )[0]
+            decorated.append(
+                {
+                    **item,
+                    "source": "frequency",
+                    "reason": f"frequency {chosen['used']}/{chosen['selected']}",
+                    "_order": float(chosen["ratio"]),
+                }
+            )
+            continue
+        weight = weights.get(doc)
+        reason = item.get("reason")
+        if weight is not None:
+            reason = f"index weight {_route_number(weight)}"
+        decorated.append(
+            {
+                **item,
+                "source": "index",
+                "reason": reason,
+                "_order": weight if weight is not None else 0.0,
+            }
+        )
+    selected = sorted(
+        (item for item in decorated if item["class"] == "retrieved"),
+        key=lambda item: (-item["_order"], str(item["path"])),
+    )
+    result: list[dict] = []
+    inserted = False
+    for item in decorated:
+        if item["class"] != "retrieved":
+            result.append(item)
+            continue
+        if inserted:
+            continue
+        result.extend(
+            {key: value for key, value in choice.items() if key != "_order"}
+            for choice in selected
+        )
+        inserted = True
+    if not inserted:
+        result.extend(
+            {key: value for key, value in choice.items() if key != "_order"}
+            for choice in selected
+        )
+    return result
 
 
 def cp_role(gates: dict) -> str:
@@ -647,9 +754,13 @@ def main() -> int:
         except routing.RouteIndexError as exc:
             print(f"brief: {exc}", file=sys.stderr)
             return 2
-        route, fallback = routing.build_route(
-            seal, data["docs"], index, routing.kit_prefix(ROOT)
-        )
+        prefix = routing.kit_prefix(ROOT)
+        route, fallback = routing.build_route(seal, data["docs"], index, prefix)
+        try:
+            route = apply_frequency(route, load_frequency(strict=True), index, prefix)
+        except context_metrics.FrequencyError as exc:
+            print(f"brief: {exc}", file=sys.stderr)
+            return 2
         version = str(index["version"]) if index else "yok"
         fallbacks = list(data["fallbacks"])
         if fallback:
@@ -750,8 +861,12 @@ def main() -> int:
             except routing.RouteIndexError:
                 index = None
             if index is not None:
+                prefix = routing.kit_prefix(ROOT)
                 cp_route, _ = routing.build_route(
-                    seal, data["docs"], index, routing.kit_prefix(ROOT)
+                    seal, data["docs"], index, prefix
+                )
+                cp_route = apply_frequency(
+                    cp_route, load_frequency(), index, prefix
                 )
             text = render_cp_brief(
                 {"issue": data["issue"], "risk": effective},

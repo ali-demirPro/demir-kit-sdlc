@@ -162,7 +162,7 @@ children:
 
   - slug: p2-6-learned-router
     issue: 315
-    title: "P2-6 trace'ten öğrenilen router (frekans tablosu)"
+    title: "P2-6: trace'ten ogrenilen router (frekans listesi)"
     intent: >-
       Leaf kapanış kayıtları, gate ilk-deneme sonucu ve review bulgularından
       açıklanabilir frekans tablosu öğren; route ağırlığını sayıma dayandır.

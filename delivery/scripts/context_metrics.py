@@ -28,11 +28,21 @@ import sys
 from pathlib import Path
 
 import usage
+import yaml
 
 UNKNOWN = "unknown"
 METRICS_PATH = Path(".kit") / "context-metrics.jsonl"
 ROOT = Path(__file__).resolve().parents[2]
 INDEX_VERSION_RE = re.compile(r"^version:\s*(\S+)\s*$", re.M)
+FREQUENCY_VERSION = 1
+FREQUENCY_PATH = Path("delivery") / "context" / "frequency.yaml"
+INDEX_PATH = Path("delivery") / "context" / "index.yaml"
+FREQUENCY_KEYS = {"version", "source", "rows"}
+FREQUENCY_ROW_KEYS = {"doc", "surface", "selected", "used", "ratio"}
+
+
+class FrequencyError(ValueError):
+    """Invalid ``delivery/context/frequency.yaml`` shape."""
 
 
 def resolve_root(project: Path | str | None = None) -> Path:
@@ -324,6 +334,241 @@ def check(
     return False, "uyari: context-metrics satiri yok"
 
 
+def _is_int(value) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def _is_number(value) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def _normalize_doc(value) -> str:
+    text = str(value or "").replace("\\", "/").strip()
+    while text.startswith("./"):
+        text = text[2:]
+    return text
+
+
+def _label(path: Path, root: Path | None = None) -> str:
+    try:
+        return Path(path).resolve().relative_to(resolve_root(root)).as_posix()
+    except (OSError, ValueError):
+        return Path(path).as_posix()
+
+
+def surface_map(
+    index_file: str | Path | None = None, root: Path | None = None
+) -> dict[str, str]:
+    """``doc -> surface`` from the route index; unreadable index means no map."""
+    path = _target(index_file or INDEX_PATH, root)
+    try:
+        data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except (OSError, yaml.YAMLError):
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    mapping: dict[str, str] = {}
+    for entry in data.get("entries") or []:
+        if not isinstance(entry, dict):
+            continue
+        doc = _normalize_doc(entry.get("path"))
+        surface = str(entry.get("surface") or "").strip()
+        if doc and surface:
+            mapping[doc] = surface
+    return mapping
+
+
+def _metrics_lines(path: Path):
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return
+    for raw in lines:
+        if not raw.strip():
+            continue
+        try:
+            row = json.loads(raw)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(row, dict):
+            yield row
+
+
+def learn_rows(
+    metrics_file: str | Path | None = None,
+    index_file: str | Path | None = None,
+    root: Path | None = None,
+) -> list[dict]:
+    """Observed ``(document, surface)`` counts from metrics lines.
+
+    ``brief_docs`` are selected *and* used; ``unused_brief_docs`` are selected
+    but not used. Both map to a surface through the route index; a document the
+    index does not name is not counted because the row needs a surface. Rows are
+    sorted by ``(surface, doc)`` so the same trace always yields the same list.
+    """
+    surfaces = surface_map(index_file, root)
+    counts: dict[tuple[str, str], list[int]] = {}
+    for row in _metrics_lines(_target(metrics_file or METRICS_PATH, root)):
+        used = row.get("brief_docs") if isinstance(row.get("brief_docs"), list) else []
+        unused = (
+            row.get("unused_brief_docs")
+            if isinstance(row.get("unused_brief_docs"), list)
+            else []
+        )
+        for doc in [*used, *unused]:
+            if not isinstance(doc, str):
+                continue
+            key = _normalize_doc(doc)
+            surface = surfaces.get(key)
+            if surface is None:
+                continue
+            entry = counts.setdefault((surface, key), [0, 0])
+            entry[0] += 1
+            if doc in used:
+                entry[1] += 1
+    learned: list[dict] = []
+    for (surface, doc), (selected, used) in sorted(counts.items()):
+        if selected <= 0:
+            continue
+        learned.append(
+            {
+                "doc": doc,
+                "surface": surface,
+                "selected": selected,
+                "used": used,
+                "ratio": round(used / selected, 4),
+            }
+        )
+    return learned
+
+
+def frequency_document(
+    metrics_file: str | Path | None = None,
+    index_file: str | Path | None = None,
+    root: Path | None = None,
+) -> dict:
+    """Deterministic, versioned frequency table (counts only, no identity)."""
+    base = resolve_root(root)
+    metrics = metrics_file if metrics_file is not None else METRICS_PATH
+    return {
+        "version": FREQUENCY_VERSION,
+        "source": display_path(metrics, base),
+        "rows": learn_rows(metrics, index_file, base),
+    }
+
+
+def frequency_errors(path: str | Path, root: Path | None = None) -> list[str]:
+    """Shape errors for ``frequency.yaml``; an absent file has no errors."""
+    target = Path(path)
+    if not target.is_file():
+        return []
+    label = _label(target, root)
+    try:
+        data = yaml.safe_load(target.read_text(encoding="utf-8"))
+    except (OSError, yaml.YAMLError) as exc:
+        return [f"{label}: okunamadı ({exc})"]
+    if not isinstance(data, dict):
+        return [f"{label}: üst düzey mapping olmalı"]
+    errors: list[str] = []
+    unknown = sorted(set(data) - FREQUENCY_KEYS)
+    if unknown:
+        errors.append(f"{label}: bilinmeyen anahtar: {', '.join(unknown)}")
+    missing = sorted({"version", "rows"} - set(data))
+    if missing:
+        errors.append(f"{label}: eksik anahtar: {', '.join(missing)}")
+    version = data.get("version")
+    if not _is_int(version) or version != FREQUENCY_VERSION:
+        errors.append(f"{label}: version {FREQUENCY_VERSION} olmalı")
+    if "source" in data and (
+        not isinstance(data.get("source"), str) or not data.get("source").strip()
+    ):
+        errors.append(f"{label}: source boş olamaz")
+    rows = data.get("rows")
+    if not isinstance(rows, list):
+        errors.append(f"{label}: rows liste olmalı")
+        return errors
+    for position, row in enumerate(rows):
+        where = f"{label}: rows[{position}]"
+        if not isinstance(row, dict):
+            errors.append(f"{where}: mapping olmalı")
+            continue
+        unknown = sorted(set(row) - FREQUENCY_ROW_KEYS)
+        if unknown:
+            errors.append(f"{where}: bilinmeyen anahtar: {', '.join(unknown)}")
+        missing = sorted(FREQUENCY_ROW_KEYS - set(row))
+        if missing:
+            errors.append(f"{where}: eksik anahtar: {', '.join(missing)}")
+            continue
+        for key in ("doc", "surface"):
+            value = row.get(key)
+            if not isinstance(value, str) or not value.strip():
+                errors.append(f"{where}: {key} boş olamaz")
+        selected = row.get("selected")
+        used = row.get("used")
+        if not _is_int(selected) or selected <= 0:
+            errors.append(f"{where}: selected pozitif tam sayı olmalı")
+        if not _is_int(used) or used < 0:
+            errors.append(f"{where}: used negatif olmayan tam sayı olmalı")
+        if _is_int(selected) and _is_int(used) and used > selected:
+            errors.append(f"{where}: used selected'dan büyük olamaz")
+        ratio = row.get("ratio")
+        if not _is_number(ratio) or not 0 <= float(ratio) <= 1:
+            errors.append(f"{where}: ratio 0..1 aralığında olmalı")
+    return errors
+
+
+def load_frequency(path: str | Path, root: Path | None = None) -> dict | None:
+    """Parsed frequency table, ``None`` when absent; invalid shape raises."""
+    target = Path(path)
+    if not target.is_file():
+        return None
+    errors = frequency_errors(target, root)
+    if errors:
+        raise FrequencyError("; ".join(errors))
+    try:
+        data = yaml.safe_load(target.read_text(encoding="utf-8"))
+    except (OSError, yaml.YAMLError) as exc:
+        raise FrequencyError(f"{_label(target, root)}: okunamadı ({exc})") from exc
+    return data if isinstance(data, dict) else None
+
+
+def report_frequency(
+    path: str | Path, report, root: Path | None = None
+) -> None:
+    """Send each frequency shape error to ``report`` (doctor's error sink)."""
+    for message in frequency_errors(path, root):
+        report(message)
+
+
+def write_frequency(
+    path: str | Path, document: dict, root: Path | None = None
+) -> Path:
+    """Write the frequency table deterministically; returns the path."""
+    target = _target(path, root)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(
+        yaml.safe_dump(document, sort_keys=False, allow_unicode=True),
+        encoding="utf-8",
+    )
+    return target
+
+
+def learn(
+    metrics_file: str | Path | None = None,
+    index_file: str | Path | None = None,
+    output: str | Path | None = None,
+    root: Path | None = None,
+    write: bool = True,
+) -> tuple[dict, Path | None]:
+    """Learn the frequency table and optionally write it."""
+    base = resolve_root(root)
+    document = frequency_document(metrics_file, index_file, base)
+    target = None
+    if write:
+        target = write_frequency(output or FREQUENCY_PATH, document, base)
+    return document, target
+
+
 def parse_brief(value: str) -> tuple[str, bool]:
     """``path[:used|:unused]`` -> ``(path, unused)``."""
     for suffix, unused in ((":unused", True), (":used", False)):
@@ -353,8 +598,32 @@ def main(argv: list[str] | None = None) -> int:
     check_parser.add_argument("--issue", type=int, required=True)
     check_parser.add_argument("--cp", help="ayni issue ve cp satirini ara")
 
+    learn_parser = sub.add_parser(
+        "learn", help="derive delivery/context/frequency.yaml from metrics"
+    )
+    learn_parser.add_argument("--metrics", default=str(METRICS_PATH))
+    learn_parser.add_argument("--index", default=str(INDEX_PATH))
+    learn_parser.add_argument("--output", default=str(FREQUENCY_PATH))
+    learn_parser.add_argument("--dry-run", action="store_true")
+
     args = parser.parse_args(argv)
     root = resolve_root(args.project)
+
+    if args.command == "learn":
+        document, target = learn(
+            args.metrics,
+            args.index,
+            args.output,
+            root,
+            write=not args.dry_run,
+        )
+        if args.dry_run:
+            sys.stdout.write(
+                yaml.safe_dump(document, sort_keys=False, allow_unicode=True)
+            )
+        else:
+            print(display_path(target, root))
+        return 0
 
     if args.command == "check":
         ok, message = check(args.issue, args.cp, root)

@@ -48,7 +48,7 @@ CHECK_ALIASES = {"worktree": "check_worktree_management"}
 
 SUMMARIES = {
     "files": "Zorunlu dosyaların repoda bulunduğunu doğrular.",
-    "schemas": "JSON şemalarının $schema ve object kökünü doğrular.",
+    "schemas": "JSON şemalarının $schema/object kökünü ve frequency.yaml şeklini doğrular.",
     "registry": "registry.yaml yol, sinyal ve agent dizinlerini doğrular.",
     "capabilities": "Capability registry ile rol matrisini şemaya göre doğrular.",
     "profiles": "Profil tanımlarını ve proje profil seçimini doğrular.",
