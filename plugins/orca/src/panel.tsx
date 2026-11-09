@@ -93,6 +93,41 @@ function cpText(epic: StatusEpic): string {
   return `${done}/${checkpoints.length}`
 }
 
+/** Sayı mı? Null güvenliği tek yerde: `null`/eksik/başka tip satıra girmez. */
+function isCount(value: number | null | undefined): value is number {
+  return typeof value === 'number' && Number.isFinite(value)
+}
+
+/**
+ * Eval özeti: `eval 12/14 · discovery %80 · 3 friction`.
+ * Parça yalnız dolu alanlardan oluşur; hiç parça yoksa satır çizilmez (`null`).
+ * Eski `status.py` `evaluations` taşımaz: aynı şekilde satır yok, panel çökmez.
+ */
+function evalText(epic: StatusEpic): string | null {
+  const evaluations = epic.evaluations
+  if (evaluations === undefined || evaluations === null) return null
+
+  const parts: string[] = []
+  const pass = evaluations.cases_pass
+  const total = evaluations.cases_total
+  if (isCount(pass) && isCount(total)) parts.push(`eval ${pass}/${total}`)
+
+  const rate = evaluations.discovery_rate
+  if (isCount(rate)) parts.push(`discovery %${Math.round(rate * 100)}`)
+
+  // Sabit sıra; yalnız sıfırdan büyük sayılar yazılır.
+  const findings: Array<[number | null | undefined, string]> = [
+    [evaluations.findings?.friction, 'friction'],
+    [evaluations.findings?.objection, 'objection'],
+    [evaluations.findings?.opportunity, 'opportunity']
+  ]
+  for (const [count, label] of findings) {
+    if (isCount(count) && count > 0) parts.push(`${count} ${label}`)
+  }
+
+  return parts.length === 0 ? null : parts.join(' · ')
+}
+
 /** `updated_at` kısa biçim: `04.11 10:00`; çözülemeyen değer olduğu gibi kalır. */
 function shortTime(value?: string | null): string {
   const text = (value ?? '').trim()
@@ -331,6 +366,8 @@ function EpicDetail({
   const checkpoints = Array.isArray(epic.checkpoints) ? epic.checkpoints : []
   const approvals = epic.approvals
   const url = epic.url ?? ''
+  // Evaluations yoksa ya da tüm parçalar boşsa `null`: satır çizilmez.
+  const evalLine = evalText(epic)
 
   return (
     <Stack gap="xs">
@@ -348,6 +385,13 @@ function EpicDetail({
       </Row>
 
       <Text muted size="xs">{`sıradaki iş: ${epic.next_action ?? '-'}`}</Text>
+
+      {/* Salt-okur eval özeti; parça yoksa hiç çizilmez. */}
+      {evalLine !== null && (
+        <Text muted size="xs">
+          {evalLine}
+        </Text>
+      )}
 
       {checkpoints.length === 0 && (
         <Text muted size="xs">

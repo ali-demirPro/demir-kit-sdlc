@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import unittest
 from pathlib import Path
 
@@ -214,6 +215,98 @@ class PanelTests(unittest.TestCase):
         self.assertNotIn("leaves", detail)
         list_source = source.split("function ProjectGroup", 1)[1].split("export default function Panel", 1)[0]
         self.assertIn("(epic.leaves ?? [])", list_source)
+
+
+class EvaluationPanelTests(unittest.TestCase):
+    """CP-2 (#310): eval özeti detayda tek satır; null güvenli, eski biçim uyumlu."""
+
+    def sources(self) -> tuple[str, str, str]:
+        return (
+            PANEL.read_text(encoding="utf-8"),
+            (PLUGIN / "src" / "protocol.ts").read_text(encoding="utf-8"),
+            (PLUGIN / "src" / "panel.check.ts").read_text(encoding="utf-8"),
+        )
+
+    def test_eval_line_from_filled_fields(self) -> None:
+        """T-4 / AC-2: dolu alanlar tek satır; null alan atlanır, tümü null ise yok."""
+        panel, _, _ = self.sources()
+
+        # Yardımcı yalnız `evaluations` alanını okur.
+        self.assertIn("function evalText", panel)
+        helper = panel.split("function evalText", 1)[1].split("/** `updated_at`", 1)[0]
+        self.assertIn("epic.evaluations", helper)
+        # `eval P/T` iki sayı da doluysa; `discovery %N` yuvarlanır.
+        self.assertIn("isCount(pass) && isCount(total)", helper)
+        self.assertIn("`eval ${pass}/${total}`", helper)
+        self.assertIn("isCount(rate)", helper)
+        self.assertIn("Math.round(rate * 100)", helper)
+        # Bulgular null kontrolünden geçer ve sabit sırayla yazılır.
+        for field in ("friction", "objection", "opportunity"):
+            self.assertIn(field, helper)
+        self.assertIn("isCount(count) && count > 0", helper)
+        # Hiçbir parça yoksa satır çizilmez: boş liste `null` döner.
+        self.assertIn("parts.length === 0 ? null : parts.join(' · ')", helper)
+        # Detay satırı yalnız doluysa çizilir; salt-okur Text.
+        detail = panel.split("function EpicDetail", 1)[1].split("function isActive", 1)[0]
+        self.assertIn("const evalLine = evalText(epic)", detail)
+        self.assertIn("{evalLine !== null && (", detail)
+        self.assertIn("{evalLine}", detail)
+
+    def test_check_fixtures(self) -> None:
+        """T-4: panel.check dolu fixture'ı ve tümü null ikinci senaryoyu çizer."""
+        _, _, check = self.sources()
+
+        # Dolu eval: `eval 12/14 · discovery %80 · 3 friction` üretir; 0 atlanır.
+        self.assertIn("cases_pass: 12", check)
+        self.assertIn("cases_total: 14", check)
+        self.assertIn("discovery_rate: 0.8", check)
+        self.assertIn("findings: { friction: 3, objection: 0, opportunity: 0 }", check)
+        self.assertIn("detail:", check)
+        # Tümü null ikinci senaryo: satır çizilmez, çökme yok.
+        self.assertIn("evalEmpty:", check)
+        self.assertIn("epicNumber: 189", check)
+        self.assertIn("cases_pass: null", check)
+
+    def test_legacy_without_evaluations(self) -> None:
+        """T-5 / AC-3: alan opsiyonel; eski snapshot alanı taşımaz, panel çalışır."""
+        panel, protocol, check = self.sources()
+
+        self.assertIn("export interface StatusEvaluations", protocol)
+        self.assertIn("evaluations?: StatusEvaluations", protocol)
+        for field in (
+            "batch: string | null",
+            "cases_pass: number | null",
+            "cases_total: number | null",
+            "discovery_rate: number | null",
+            "updated_at: string | null",
+        ):
+            self.assertIn(field, protocol)
+        for finding in ("friction: number | null", "objection: number | null", "opportunity: number | null"):
+            self.assertIn(finding, protocol)
+        # Eski `status.py` biçimi alanı taşımaz; legacy senaryosu korunur.
+        legacy = check.split("const legacySnapshot", 1)[1].split("/** Aynı adlı", 1)[0]
+        self.assertNotIn("evaluations", legacy)
+        self.assertIn("legacy:", check)
+        self.assertIn("epicNumber: 188", check)
+        # Alan yoksa satır çizilmez: aynı `null` koşulu.
+        self.assertIn("evaluations === undefined || evaluations === null", panel)
+
+    def test_read_only_no_new_request(self) -> None:
+        """T-6 / AC-4: yeni plugin.request yok; panel yazma/ağ çağrısı yapmaz."""
+        panel, protocol, _ = self.sources()
+
+        expected = {"status.snapshot", "workspace.open", "epic.decision", "leaf.claim"}
+        names = set(re.findall(r"plugin\s*\.\s*request\(\s*'([^']+)'", panel))
+        self.assertEqual(names, expected)
+        # Sözleşme aynı dört istekle sınırlı: yeni aksiyon eklenmedi.
+        requests = protocol.split("interface PluginRequests", 1)[1]
+        declared = set(re.findall(r"'([a-z.]+)':\s*\{", requests))
+        self.assertEqual(declared, expected)
+        # Panel yazma ya da ağ yolu açmaz; eval satırı düğme değil.
+        for forbidden in ("writeFile", "appendFile", "mkdir", "fetch(", "fs."):
+            self.assertNotIn(forbidden, panel)
+        detail = panel.split("function EpicDetail", 1)[1].split("function isActive", 1)[0]
+        self.assertIn("<Text muted size=\"xs\">", detail)
 
 
 class ActionTests(unittest.TestCase):
