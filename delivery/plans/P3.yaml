@@ -2,6 +2,7 @@ source:
   repo: https://github.com/Donchitos/Claude-Code-Game-Studios
   commit: abc0de79d6ceb0b5d7aa693945849b3937afbe6a
   read_at: "2026-11-09"
+  plan: delivery/plans/P3.yaml
   files:
     - .claude/docs/effects-map.md
     - .claude/hooks/yaml-helper.sh
@@ -122,10 +123,15 @@ knobs:
     team.size: >-
       Aktif agent/varyant kümesi; risk tabanı ve insan kapısı değişmez.
   kit_semantics:
+    reviewer_composition: >-
+      Etkin adversarial reviewer sayısı = min(2, risk_tabanı + ek).
+      risk_tabanı: low/medium 1, high/critical 2 (quality-gates.md; değişmez).
+      ek: solo 0, lean 0, full +1. Bu yüzden solo ve lean bizde aynı panele
+      düşer (CCGS'nin gate'siz solo'su alınmaz); full yalnız low/medium'da
+      ikinci reviewer ekler, high/critical zaten 2'dir.
     modes.review_mode: >-
-      Kit'te `solo` gate'siz değildir: taban 1 adversarial reviewer demektir.
-      `lean`/`full` paneli genişletir; hiçbiri behavior gate'ini veya insan
-      kapısını kaldırmaz.
+      Hiçbir değer behavior gate'ini veya insan kapısını kaldırmaz; panel
+      yalnız risk tabanının üstüne ek yapar.
 
 risk_conflict:
   - ccgs: "modes.review_mode: solo — hiçbir director/specialist gate açılmaz"
@@ -133,7 +139,7 @@ risk_conflict:
     verdict: reject
     reason: >-
       Gate'siz mod risk düşürme kaçağıdır. Bizde review_mode yalnız panel
-      genişliğini değiştirir; taban 1 reviewer sabittir.
+      genişliğini değiştirir (min(2, risk_tabanı + ek)); risk tabanı sabittir.
 
   - ccgs: "qa.level: minimal — logic/integration hikâyelerinde test istenmez"
     ours: "behavior gate her riskte zorunlu; tests_plan case'leri çalışır"
@@ -158,7 +164,7 @@ risk_conflict:
       kilitlidir.
 
   - ccgs: "varsayılan modes.rigor: minimal"
-    ours: "varsayılan process.rigor: standard (bugünkü davranış)"
+    ours: "varsayılan process.rigor: standard (bugünkü davranış; lean = risk tabanı, ek yok)"
     verdict: diverge
     reason: >-
       CCGS'nin ölçümü ağır törenin daha iyi sonuç vermediğini söylüyor; bizde
@@ -190,7 +196,7 @@ children:
     risk: medium
     depends_on: [291]
     ac:
-      - "`delivery/rigor.yaml` üç seviyeyi ve altı düğme için yayma tablosunu taşır; şema bilinmeyen seviyeyi ve eksik düğmeyi reddeder. `modes.review_mode` değerlerinin kit semantiği (`solo` = taban 1 reviewer) dosyada yazılır."
+      - "`delivery/rigor.yaml` üç seviyeyi ve altı düğme için yayma tablosunu taşır; şema bilinmeyen seviyeyi ve eksik düğmeyi reddeder. `modes.review_mode` için reviewer bileşimi yazılır: etkin = min(2, risk_tabanı + ek), ek solo 0 / lean 0 / full +1; hiçbir değer gate veya insan kapısı kaldırmaz."
       - "`kit.config.yaml` `process.rigor` alanını taşır; alan yoksa `standard` etkin olur ve kaynak `default` olarak raporlanır."
       - "Açık düğme değeri yaymayı iki yönde de ezer; kaynak `kit.config.yaml`, türetilmiş değer için `rigor:<level>` yazılır."
       - "`./delivery/scripts/doctor.sh --strict` 0 uyarı verir; şema testi geçersiz seviyeyi exit 1 ile reddeder."
@@ -222,7 +228,7 @@ children:
     ac:
       - "CONTRACT'ta I20-I23 çakışmasız yeniden numaralanır; I24 rigor'un risk tabanını, auto_escalate'i veya insan kapısını düşüremediğini yazar."
       - "`learnings.py` I13 atfı doğru maddeye işaret eder; `rg -n \"I13|I20|I24\"` çıktısı tek anlamlıdır."
-      - "Testte `minimal` rigor ile high/critical leaf'in insan kapısını ve 2 reviewer'ını koruduğu kanıtlanır; low/medium da değişmez."
+      - "Testte `minimal` rigor ile high/critical leaf'in insan kapısını ve 2 reviewer'ını koruduğu kanıtlanır; low/medium da değişmez. Ayrıca `full` + low/medium'un 2 reviewer'a çıktığı ve `lean`/`solo`nun risk tabanında kaldığı doğrulanır."
       - "`./delivery/scripts/doctor.sh --strict` 0 uyarı verir; sözleşme değişikliği VERSION + CHANGELOG ile eşlenir."
 
   - slug: p3-5-local-override
