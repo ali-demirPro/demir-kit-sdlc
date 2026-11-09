@@ -197,13 +197,13 @@ children:
     title: "P3-2 delivery/rigor.yaml + kit.config.yaml process.rigor + şema"
     intent: >-
       Tek kapıyı kur: process.rigor bir kez seçilir, altı düğmeyi türetir;
-      varsayılan standard, minimal açık seçim. full; doküman derinliği, kanıt
-      kümesi, leaf/CP boyutu, aktif roster ve ek testleri artırır; gating
-      reviewer sayısını değiştirmez.
+      varsayılan standard, minimal açık seçim. full; doküman derinliğini, kanıt
+      kümesini, leaf/CP granülerliğini (daha küçük CP), aktif roster'ı ve ek
+      testleri artırır; gating reviewer sayısını değiştirmez.
     risk: medium
     depends_on: [291]
     ac:
-      - "`delivery/rigor.yaml` üç seviyeyi ve altı düğme için yayma tablosunu taşır; şema bilinmeyen seviyeyi ve eksik düğmeyi reddeder. Gating reviewer sayısı risk-only yazılır; `modes.review_mode` sayıyı ve `gate_level`'ı değiştirmez, yalnız CCGS eşlemesi için saklanır."
+      - "`delivery/rigor.yaml` üç seviyeyi ve altı düğme için yayma tablosunu taşır; şema bilinmeyen seviyeyi ve eksik düğmeyi reddeder. Gating reviewer sayısı risk-only yazılır; `modes.review_mode` sayıyı ve `gate_level`'ı değiştirmez, yalnız CCGS eşlemesi için saklanır. `story_granularity` yönü sabittir: minimal `coarse` (daha büyük CP), full `fine` (daha küçük CP)."
       - "`kit.config.yaml` `process.rigor` alanını taşır; alan yoksa `standard` etkin olur ve kaynak `default` olarak raporlanır."
       - "Canlı düğmelerde (workflow, docs.density, qa.level, story_granularity, team.size) açık değer yaymayı iki yönde de ezer; kaynak `kit.config.yaml`, türetilmiş değer için `rigor:<level>` yazılır. `review_mode` saklanır, etkisi yoktur."
       - "`./delivery/scripts/doctor.sh --strict` 0 uyarı verir; şema testi geçersiz seviyeyi exit 1 ile reddeder."
