@@ -484,17 +484,25 @@ class ProcessRigorPolicyTests(unittest.TestCase):
     """AC-1/AC-3: etki haritası tablosu rigor tablosuyla birebir aynı."""
 
     POLICY = ROOT / "delivery" / "policies" / "process-rigor.md"
-    READERS = (
-        "delivery/rigor.yaml",
-        "brief.py",
-        "resolver.py",
-        "profiles.py",
-        "context-budget.md",
-        "leaf.schema.json",
+    UNBOUND = "yok (yalnız doctor --explain rigor matrisinde görünür)"
+    # Bugün gerçekten okuyan dosyalar; hedef sütunu bunu kanıtlamaz.
+    BOUND_READERS = {"docs.density": ("resolver.py", "brief.py")}
+    TARGETS = {
+        "modes.workflow": ("kalite kapı", "kanıt"),
+        "qa.level": ("leaf.schema.json", "tests_plan"),
+        "modes.story_granularity": ("leaf.schema.json", "checkpoints"),
+        "modes.review_mode": ("rigor.yaml", "kit_semantics"),
+        "team.size": ("capabilities.py", "variants.py"),
+    }
+    # Satırda "bugün okuyan" diye yazılmaması gereken dosyalar.
+    NOT_TODAY_READERS = (
+        "gate.sh",
         "capabilities.py",
         "variants.py",
-        "gate.sh",
-        "doctor --explain rigor",
+        "leaf.schema.json",
+        "profiles.py",
+        "context-budget.md",
+        "rigor.yaml",
     )
 
     @classmethod
@@ -506,7 +514,7 @@ class ProcessRigorPolicyTests(unittest.TestCase):
         rows: dict[str, list[str]] = {}
         for line in self.text.splitlines():
             cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
-            if len(cells) != 6 or not cells[0].startswith("`"):
+            if len(cells) != 7 or not cells[0].startswith("`"):
                 continue
             name = cells[0].strip("`")
             if name in rigor.KNOBS:
@@ -525,14 +533,37 @@ class ProcessRigorPolicyTests(unittest.TestCase):
                 )
 
     def test_every_knob_names_a_reader(self) -> None:
-        """T-1: her düğme satırı bir okuyan dosya/komut adı taşır."""
-        for name, cells in self.knob_rows().items():
+        """T-1: her düğme satırı ya gerçek okuyanı ya 'yok' işaretini taşır."""
+        rows = self.knob_rows()
+        self.assertEqual(set(rows), set(rigor.KNOBS))
+        self.assertIn(
+            "| Düğme | minimal | standard | full | Etki | Bugün okuyan | Hedef tüketici |",
+            self.text,
+        )
+        for name, cells in rows.items():
             reader = cells[5]
-            self.assertTrue(reader, name)
-            self.assertTrue(
-                any(token in reader for token in self.READERS),
-                f"{name}: okuyan dosya/komut yok — {reader}",
-            )
+            if name in self.BOUND_READERS:
+                for token in self.BOUND_READERS[name]:
+                    self.assertIn(token, reader, f"{name}: {token} okumuyor — {reader}")
+            else:
+                self.assertEqual(reader, self.UNBOUND, name)
+            for token in self.NOT_TODAY_READERS:
+                self.assertNotIn(
+                    token, reader, f"{name}: bugün okumayan dosya yazılmış — {token}"
+                )
+
+    def test_target_consumers_are_planned_surfaces(self) -> None:
+        """AC-1: hedef tüketici sütunu planlanan yüzeyi adlandırır."""
+        for name, cells in self.knob_rows().items():
+            target = cells[6]
+            self.assertTrue(target, f"{name}: hedef tüketici boş")
+            for token in self.TARGETS.get(name, ()):
+                self.assertIn(token, target, f"{name}: {token} — {target}")
+
+    def test_note_states_only_density_is_bound(self) -> None:
+        """AC-1: not, bugün bağlı tek düğmenin docs.density olduğunu yazar."""
+        self.assertIn("Bugün gerçekten bağlı tek düğme `docs.density`", self.text)
+        self.assertIn("ayrı iştir", self.text)
 
     def test_minimal_shortened_and_preserved_separate(self) -> None:
         """T-3: kısalttığı ve kısaltmadığı ayrı başlıklar; kapılar korunur."""

@@ -23,18 +23,25 @@ matrisi: [quality-gates.md](quality-gates.md).
 
 ## Düğme tablosu
 
-`Etki` sütunu tören ağırlığını, `Okuyan` sütunu değerin etkilediği yüzeyi ve
-onu bugün çözen dosya ya da komutu verir. Beş canlı düğmenin ortak tüketicisi
-`profiles.compose()` çıktısıdır; `docs.density` ayrıca doğrudan okunur.
+`Etki` sütunu tören ağırlığını, `Bugün okuyan` sütunu değeri **bugün** çözen
+dosya ya da komutu, `Hedef tüketici` sütunu ise değerin bağlanacağı planlanan
+yüzeyi verir. İki sütun ayrıdır: hedef, bugünkü okumanın kanıtı değildir.
 
-| Düğme | minimal | standard | full | Etki | Okuyan |
-|-------|---------|----------|------|------|--------|
-| `modes.workflow` | `minimal` | `standard` | `full` | Zorunlu doküman ve kanıt kümesi; minimal yalnız brief/CP kanıtı, full tam zincir. Kalite kapıları sabit. | `delivery/scripts/profiles.py`, `doctor --explain rigor` |
-| `docs.density` | `terse` | `balanced` | `thorough` | Doküman ve yorum derinliği; okuma sınıfları ve "dilim oku" kuralı korunur. | `delivery/scripts/resolver.py`, `delivery/scripts/brief.py`, `delivery/policies/context-budget.md` |
-| `qa.level` | `minimal` | `standard` | `full` | Fazladan test kanıtı ayrıntısı; behavior gate ve test çalıştırma her seviyede zorunlu. | `delivery/schemas/leaf.schema.json` (`tests_plan`), `delivery/scripts/gate.sh` |
-| `modes.story_granularity` | `coarse` | `balanced` | `fine` | Leaf/CP boyutu; minimal daha büyük CP, full daha küçük CP. | `delivery/schemas/leaf.schema.json` (`checkpoints`), `delivery/scripts/brief.py` |
-| `modes.review_mode` | `solo` | `lean` | `full` | Kit'te kaldıraç değil; yalnız CCGS eşlemesi için saklanır. | `delivery/rigor.yaml` (`kit_semantics`), `doctor --explain rigor` |
-| `team.size` | `individual` | `individual` | `studio` | Aktif agent/varyant kümesi; risk tabanı ve insan kapısı değişmez. | `delivery/scripts/capabilities.py`, `delivery/scripts/variants.py` |
+| Düğme | minimal | standard | full | Etki | Bugün okuyan | Hedef tüketici |
+|-------|---------|----------|------|------|--------------|----------------|
+| `modes.workflow` | `minimal` | `standard` | `full` | Zorunlu doküman ve kanıt kümesi; minimal yalnız brief/CP kanıtı, full tam zincir. Kalite kapıları sabit. | yok (yalnız doctor --explain rigor matrisinde görünür) | kalite kapı/kanıt seti |
+| `docs.density` | `terse` | `balanced` | `thorough` | Doküman ve yorum derinliği; okuma sınıfları ve "dilim oku" kuralı korunur. | `delivery/scripts/resolver.py` (`effective_docs_density`), `delivery/scripts/brief.py` | bağlı — doküman ve bağlam derinliği |
+| `qa.level` | `minimal` | `standard` | `full` | Fazladan test kanıtı ayrıntısı; behavior gate ve test çalıştırma her seviyede zorunlu. | yok (yalnız doctor --explain rigor matrisinde görünür) | `delivery/schemas/leaf.schema.json` (`tests_plan`) |
+| `modes.story_granularity` | `coarse` | `balanced` | `fine` | Leaf/CP boyutu; minimal daha büyük CP, full daha küçük CP. | yok (yalnız doctor --explain rigor matrisinde görünür) | `delivery/schemas/leaf.schema.json` (`checkpoints`) |
+| `modes.review_mode` | `solo` | `lean` | `full` | Kit'te kaldıraç değil; yalnız CCGS eşlemesi için saklanır. | yok (yalnız doctor --explain rigor matrisinde görünür) | `delivery/rigor.yaml` (`kit_semantics`, saklanır) |
+| `team.size` | `individual` | `individual` | `studio` | Aktif agent/varyant kümesi; risk tabanı ve insan kapısı değişmez. | yok (yalnız doctor --explain rigor matrisinde görünür) | `delivery/scripts/capabilities.py`, `delivery/scripts/variants.py` |
+
+Bugün gerçekten bağlı tek düğme `docs.density`'dir: değeri `resolver.py` ve
+`brief.py` üzerinden doküman/bağlam derinliğine iner. Diğer beş düğme
+`delivery/rigor.yaml` üzerinden yayılır ve `doctor --explain rigor` matrisinde
+görünür, ama onları okuyan bir tüketici henüz yok; tablodaki hedefler planlanan
+yüzeylerdir. Tüketici bağlantısı ayrı iştir ve bu politika onu bağlanmış gibi
+göstermez.
 
 ## `modes.review_mode`: saklanır, kaldıraç değil
 
