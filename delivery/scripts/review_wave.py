@@ -72,7 +72,7 @@ def reviewer_spec(name: str, packet: str, issue: int, cp_id: str) -> str:
         "Son mesaj biçimi:\n"
         "approved: true|false\n"
         "findings:\n"
-        "- {severity, location, reason}\n"
+        "- {severity: blocking|nit, location, reason}\n"
         "not: tek cümle\n"
     )
 
@@ -99,6 +99,36 @@ def blocking_count(text: str) -> int:
     return sum(1 for item in parse_findings(text) if item["severity"] == "blocking")
 
 
+FINDINGS_HEADER_RE = re.compile(r"^\s*findings\s*:\s*$", re.I)
+FINDINGS_END_RE = re.compile(r"^\s*(?:approved|not)\s*:", re.I)
+BULLET_RE = re.compile(r"^\s*-\s*(.*)$")
+SEVERITY_LABEL_RE = re.compile(r"^severity\s*:\s*(blocking|nit)\b", re.I)
+
+
+def invalid_findings(text: str) -> list[str]:
+    """Bullets in the ``findings:`` block without a valid severity label.
+
+    The documented contract is that every finding carries
+    ``severity: blocking|nit``; a bullet that is missing the field, leaves it
+    empty, or gives another value cannot be trusted to be a nit.
+    """
+    invalid: list[str] = []
+    in_block = False
+    for line in (text or "").splitlines():
+        if FINDINGS_HEADER_RE.match(line):
+            in_block = True
+            continue
+        if not in_block:
+            continue
+        if FINDINGS_END_RE.match(line):
+            in_block = False
+            continue
+        bullet = BULLET_RE.match(line)
+        if bullet and not SEVERITY_LABEL_RE.match(bullet.group(1).strip()):
+            invalid.append(line.strip())
+    return invalid
+
+
 def parse_verdict(text: str) -> bool | None:
     value = text or ""
     matches = re.findall(
@@ -106,7 +136,7 @@ def parse_verdict(text: str) -> bool | None:
     )
     if matches:
         approved = matches[-1].lower() == "true"
-        if approved and blocking_count(value):
+        if approved and (blocking_count(value) or invalid_findings(value)):
             return False
         return approved
     if "true|false" in value.lower():
