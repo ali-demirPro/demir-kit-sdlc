@@ -331,14 +331,9 @@ def frequency_file() -> Path:
     return ROOT / "delivery" / "context" / "frequency.yaml"
 
 
-def load_frequency(strict: bool = False) -> dict | None:
-    """Learned frequency table; ``None`` when absent (or invalid without strict)."""
-    try:
-        return context_metrics.load_frequency(frequency_file(), ROOT)
-    except context_metrics.FrequencyError:
-        if strict:
-            raise
-        return None
+def load_frequency() -> dict | None:
+    """Learned frequency table; ``None`` when absent, invalid shape raises."""
+    return context_metrics.load_frequency(frequency_file(), ROOT)
 
 
 def _route_doc(path: str, prefix: str) -> str:
@@ -360,9 +355,11 @@ def apply_frequency(
 ) -> list[dict]:
     """Re-rank retrieved items: frequency ratio first, index weight otherwise.
 
-    ``source`` becomes ``frequency`` or ``index`` and the reason carries the
-    observed counts or the static weight, so ``--route`` explains the choice.
-    Items outside ``retrieved`` keep their order and class.
+    Both scores share the 0..1 scale: frequency uses the observed ratio and the
+    index uses ``weight / max index weight``. ``source`` becomes ``frequency``
+    or ``index`` and the reason carries both the raw value and the score, so
+    ``--route`` explains the choice. Items outside ``retrieved`` keep their
+    order and class.
     """
     if not frequency:
         return route
@@ -375,6 +372,7 @@ def apply_frequency(
         for entry in (index or {}).get("entries") or []
         if isinstance(entry, dict) and "path" in entry and "weight" in entry
     }
+    max_weight = max(weights.values(), default=0.0)
     decorated: list[dict] = []
     for item in route:
         if item.get("class") != "retrieved":
@@ -386,25 +384,30 @@ def apply_frequency(
             chosen = sorted(
                 matches, key=lambda row: (-float(row["ratio"]), str(row["surface"]))
             )[0]
+            ratio = float(chosen["ratio"])
             decorated.append(
                 {
                     **item,
                     "source": "frequency",
-                    "reason": f"frequency {chosen['used']}/{chosen['selected']}",
-                    "_order": float(chosen["ratio"]),
+                    "reason": (
+                        f"frequency {chosen['used']}/{chosen['selected']} "
+                        f"score {ratio:.2f}"
+                    ),
+                    "_order": ratio,
                 }
             )
             continue
         weight = weights.get(doc)
         reason = item.get("reason")
+        score = weight / max_weight if weight is not None and max_weight else 0.0
         if weight is not None:
-            reason = f"index weight {_route_number(weight)}"
+            reason = f"index weight {_route_number(weight)} score {score:.2f}"
         decorated.append(
             {
                 **item,
                 "source": "index",
                 "reason": reason,
-                "_order": weight if weight is not None else 0.0,
+                "_order": score,
             }
         )
     selected = sorted(
@@ -757,7 +760,7 @@ def main() -> int:
         prefix = routing.kit_prefix(ROOT)
         route, fallback = routing.build_route(seal, data["docs"], index, prefix)
         try:
-            route = apply_frequency(route, load_frequency(strict=True), index, prefix)
+            route = apply_frequency(route, load_frequency(), index, prefix)
         except context_metrics.FrequencyError as exc:
             print(f"brief: {exc}", file=sys.stderr)
             return 2
@@ -865,9 +868,12 @@ def main() -> int:
                 cp_route, _ = routing.build_route(
                     seal, data["docs"], index, prefix
                 )
-                cp_route = apply_frequency(
-                    cp_route, load_frequency(), index, prefix
-                )
+                try:
+                    frequency = load_frequency()
+                except context_metrics.FrequencyError as exc:
+                    print(f"brief: {exc}", file=sys.stderr)
+                    return 2
+                cp_route = apply_frequency(cp_route, frequency, index, prefix)
             text = render_cp_brief(
                 {"issue": data["issue"], "risk": effective},
                 seal,

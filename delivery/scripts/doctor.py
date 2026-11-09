@@ -215,12 +215,14 @@ def check_schemas() -> None:
     check("schemas")
     for path in sorted((DELIVERY / "schemas").glob("*.json")):
         data = load_json(path)
-        if data is None: continue
+        if data is None:
+            continue
         if "$schema" not in data:
             error(f"{rel(path)}: $schema yok")
         if data.get("type") != "object":
             error(f"{rel(path)}: kök tip object değil")
     context_metrics.report_frequency(DELIVERY / "context" / "frequency.yaml", error)
+
 
 def check_registry() -> None:
     check("registry")

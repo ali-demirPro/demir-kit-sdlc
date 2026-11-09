@@ -1029,7 +1029,7 @@ class FrequencyTests(unittest.TestCase):
                 "surface": "kit.scripts",
                 "path": "delivery/scripts/gate.py",
                 "tags": ["gate"],
-                "weight": 9,
+                "weight": 6,
             },
             {
                 "surface": "kit.scripts",
@@ -1037,6 +1037,27 @@ class FrequencyTests(unittest.TestCase):
                 "tags": ["route"],
                 "weight": 2,
             },
+            {
+                "surface": "web.app",
+                "path": "delivery/scripts/context_metrics.py",
+                "tags": ["route"],
+                "weight": 9,
+            },
+        ]
+        entries += [
+            {
+                "surface": "kit.scripts",
+                "path": f"delivery/scripts/{name}",
+                "tags": ["gate"],
+                "weight": 6,
+            }
+            for name in (
+                "doctor.py",
+                "guard.sh",
+                "transition.sh",
+                "verify.py",
+                "adopt.py",
+            )
         ]
         frequency_rows = [
             {
@@ -1063,13 +1084,40 @@ class FrequencyTests(unittest.TestCase):
             self.assertEqual(code, 0, err)
             learned = self.route_lines(out)
             self.assertTrue(learned)
+            # ratio 0.9 beats weight 6 once both share the 0..1 scale
+            # (6 / 9 = 0.67); raw values stay visible in the reason.
             self.assertEqual(
                 learned[0],
                 "retrieved delivery/scripts/routing.py "
-                "(source: frequency, reason: frequency 9/10)",
+                "(source: frequency, reason: frequency 9/10 score 0.90)",
+            )
+            self.assertIn(
+                "retrieved delivery/scripts/gate.py "
+                "(source: frequency, reason: frequency 1/10 score 0.10)",
+                learned,
             )
             self.assertTrue(
-                all("(source: frequency," in line for line in learned)
+                any(
+                    "reason: index weight 6 score 0.67" in line
+                    for line in learned
+                )
+            )
+
+            cp_code, cp_out, cp_err = self.run_route(
+                ["315", "--cp", "CP-1"], index_path, frequency_path
+            )
+            self.assertEqual(cp_code, 0, cp_err)
+            self.assertIn(
+                "[retrieved] delivery/scripts/routing.py", cp_out
+            )
+            cp_retrieved = [
+                line
+                for line in cp_out.splitlines()
+                if line.startswith("- [retrieved] ")
+            ]
+            self.assertEqual(len(cp_retrieved), 5)
+            self.assertEqual(
+                cp_retrieved[0], "- [retrieved] delivery/scripts/routing.py"
             )
 
             missing = Path(tmp) / "yok-boyle-frequency.yaml"
@@ -1077,17 +1125,37 @@ class FrequencyTests(unittest.TestCase):
                 ["315", "--route"], index_path, missing
             )
         self.assertEqual(code, 0, err)
-        static = self.route_lines(out)
-        self.assertTrue(
-            static[0].startswith(
-                "retrieved delivery/scripts/gate.py (source: index"
+        static = [
+            line
+            for line in self.route_lines(out)
+            if line.startswith("retrieved ")
+        ]
+        self.assertTrue(static)
+        self.assertTrue(static[-1].startswith("retrieved delivery/scripts/routing.py "))
+        self.assertIn("(source: index, reason: surface kit.scripts eşleşti", static[-1])
+
+    def test_cp_brief_rejects_broken_frequency(self) -> None:
+        entries = [
+            {
+                "surface": "kit.scripts",
+                "path": "delivery/scripts/gate.py",
+                "tags": ["gate"],
+                "weight": 3,
+            }
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            index_path = self.write_index(tmp, entries)
+            frequency_path = Path(tmp) / "frequency.yaml"
+            frequency_path.write_text(
+                yaml.safe_dump({"version": 2, "rows": []}, sort_keys=False),
+                encoding="utf-8",
             )
-        )
-        self.assertTrue(
-            static[1].startswith(
-                "retrieved delivery/scripts/routing.py (source: index"
+            code, out, err = self.run_route(
+                ["315", "--cp", "CP-1"], index_path, frequency_path
             )
-        )
+        self.assertEqual(code, 2)
+        self.assertIn("brief: ", err)
+        self.assertIn("version 1", err)
 
     def test_same_trace_same_table(self) -> None:
         entries = [
