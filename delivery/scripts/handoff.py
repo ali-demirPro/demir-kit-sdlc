@@ -17,6 +17,11 @@ import subprocess
 import sys
 from pathlib import Path
 
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import routing  # noqa: E402
+
 
 def handoff_note(
     issue: int, leaf: str, done: str, next_step: str, decisions: str = ""
@@ -98,8 +103,10 @@ def main() -> int:
         "ve son devir yorumunu oku; kaldığın yerden devam et. Sohbet geçmişi yok."
     )
     launch = launch_command(worktree, prompt, args.retry_launch)
+    config = routing.control_config(ROOT)
     plan = {
         "issue": args.issue,
+        "config": config,
         "note": note,
         "launch": launch,
         "close": close_command(args.close_terminal) if args.close_terminal else [],
@@ -108,6 +115,9 @@ def main() -> int:
         if args.json:
             print(json.dumps(plan, ensure_ascii=False, indent=2))
         else:
+            header = routing.render_config(config)
+            if header:
+                print("\n".join(header))
             print(note)
             print("\n" + shlex.join(launch))
             if plan["close"]:
@@ -126,6 +136,7 @@ def main() -> int:
     if args.close_terminal and not close_terminal(args.close_terminal):
         sys.exit("handoff: eski terminal kapatılamadı; elle kontrol et")
     # Launch success is treated as ready: Orca opens the agent tab synchronously.
+    print("\n".join(routing.render_config(config)))
     print("handoff: devir yazıldı, successor başlatıldı")
     return 0
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import math
 import re
 from pathlib import Path
@@ -128,12 +129,21 @@ def strip_seal(body: str) -> str:
     return re.sub(r"```yaml\s+demir-kit(?:-epic)?\s*\n.*?```", "", body, flags=re.S)
 
 
-def detect_path(registry: dict, title: str, body: str, seal: dict | None = None):
+def detect_path_detail(
+    registry: dict, title: str, body: str, seal: dict | None = None
+) -> tuple[str, dict | None, str]:
+    """Like :func:`detect_path`, plus the provenance of the selection.
+
+    ``path_source`` is ``signal`` when a registry signal matched, ``keyword``
+    when the title/body keyword score picked the path, and ``default`` for the
+    entry-kind/DEFAULT_PATH fallback. The original two-value signature stays
+    intact for existing callers.
+    """
     seal = seal_body(body) if seal is None else seal
     paths = registry.get("paths") or {}
     signal = detect_signal(registry, seal)
     if signal and signal.get("default_path") in paths:
-        return signal["default_path"], signal
+        return signal["default_path"], signal, "signal"
 
     text = f"{title}\n{strip_seal(body)}".lower()
     scores: dict[str, int] = {}
@@ -148,13 +158,18 @@ def detect_path(registry: dict, title: str, body: str, seal: dict | None = None)
         candidates = [name for name, score in scores.items() if score == best]
         for name in NARROW_ORDER:
             if name in candidates:
-                return name, None
-        return sorted(candidates)[0], None
+                return name, None, "keyword"
+        return sorted(candidates)[0], None, "keyword"
 
     entry_kind = (seal.get("entry") or {}).get("kind")
     if entry_kind in ENTRY_PATHS and ENTRY_PATHS[entry_kind] in paths:
-        return ENTRY_PATHS[entry_kind], None
-    return DEFAULT_PATH, None
+        return ENTRY_PATHS[entry_kind], None, "default"
+    return DEFAULT_PATH, None, "default"
+
+
+def detect_path(registry: dict, title: str, body: str, seal: dict | None = None):
+    path_id, signal, _ = detect_path_detail(registry, title, body, seal)
+    return path_id, signal
 
 
 def resolve_agents(registry: dict, path_id: str, signal: dict | None = None) -> dict:
@@ -296,6 +311,81 @@ class RouteIndexError(ValueError):
 
 def route_index_path(root: Path) -> Path:
     return Path(root) / "delivery" / "context" / "index.yaml"
+
+
+def registry_sha256(root: Path) -> str:
+    """Digest of the active registry; ``yok`` when the file cannot be read."""
+    try:
+        data = (Path(root) / "delivery" / "registry.yaml").read_bytes()
+    except OSError:
+        return "yok"
+    return hashlib.sha256(data).hexdigest()
+
+
+def route_index_version(path: Path) -> str:
+    """Lenient index version for the config banner; ``yok`` when unreadable.
+
+    The route itself stays strict: :func:`load_route_index` still raises for a
+    malformed index so ``--route`` can exit 2.
+    """
+    try:
+        data = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
+    except (OSError, yaml.YAMLError):
+        return "yok"
+    version = data.get("version") if isinstance(data, dict) else None
+    if isinstance(version, int) and not isinstance(version, bool):
+        return str(version)
+    return "yok"
+
+
+def policy_files(root: Path, registry: dict) -> list[str]:
+    """Registry policies in order; a missing file is labelled ``missing:<path>``."""
+    result: list[str] = []
+    for value in (registry.get("policies") or {}).values():
+        path = str(value)
+        label = path if (Path(root) / path).is_file() else f"missing:{path}"
+        if label not in result:
+            result.append(label)
+    return result
+
+
+def config_snapshot(
+    root: Path,
+    registry: dict,
+    path_id: str,
+    path_source: str,
+    index_path: Path,
+) -> dict:
+    """Effective configuration for a brief: registry digest, route and policies."""
+    return {
+        "registry_sha256": registry_sha256(root),
+        "path": path_id,
+        "path_source": path_source,
+        "index_version": route_index_version(index_path),
+        "policies": policy_files(root, registry),
+    }
+
+
+def control_config(root: Path) -> dict:
+    """Minimal banner used by next-leaf/orca_plan/handoff."""
+    return {
+        "registry_sha256": registry_sha256(root),
+        "index_version": route_index_version(route_index_path(root)),
+    }
+
+
+def render_config(config: dict | None) -> list[str]:
+    """One ``config:`` block; keys stay on a single line each."""
+    if not config:
+        return []
+    lines = ["config:"]
+    for key in ("registry_sha256", "path", "path_source", "index_version"):
+        if key in config:
+            lines.append(f"  {key}: {config[key]}")
+    if "policies" in config:
+        policies = [str(item) for item in config.get("policies") or []]
+        lines.append("  policies: " + (", ".join(policies) or "yok"))
+    return lines
 
 
 def _is_number(value) -> bool:

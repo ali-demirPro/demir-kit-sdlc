@@ -63,6 +63,76 @@ def project_priorities() -> dict:
     return priorities if isinstance(priorities, dict) else {}
 
 
+def _unique(items) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for item in items:
+        text = str(item)
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        result.append(text)
+    return result
+
+
+def control_fields(
+    path_id: str,
+    path_source: str,
+    fallbacks: list[str] | None = None,
+    route_requested: bool = False,
+    route_count: int = 0,
+    index_version: str = "yok",
+    cp_id: str | None = None,
+    cp_applied: bool = False,
+) -> dict:
+    """armed/indexing/unarmed banner fields for one brief invocation.
+
+    ``armed`` only claims a selection that actually happened (signal/keyword
+    path, checkpoint lookup, route consumption); ``indexing`` is written only
+    when ``--route`` really consumed the index. Every missing piece becomes an
+    ``unarmed`` reason instead of a silent absence.
+    """
+    armed: list[str] = []
+    reasons: list[str] = []
+    if path_source != "default":
+        armed.append(f"path {path_id}")
+    else:
+        reasons.append("path default")
+    if cp_applied and cp_id:
+        armed.append(f"cp {cp_id}")
+    indexing = None
+    if route_requested:
+        if not index_version or index_version == "yok":
+            reasons.append("index yok")
+        else:
+            indexing = f"v{index_version}"
+            armed.append(f"route {route_count}")
+    else:
+        reasons.append("route tuketilmedi")
+    return {
+        "armed": armed,
+        "indexing": indexing,
+        "unarmed": reasons,
+        "fallbacks": _unique(fallbacks or []),
+    }
+
+
+def header_lines(data: dict) -> list[str]:
+    """config/armed/indexing/unarmed/fallback lines prepended to every output."""
+    lines = routing.render_config(data.get("config"))
+    armed = data.get("armed") or []
+    if armed:
+        lines.append("armed: " + ", ".join(armed))
+    if data.get("indexing"):
+        lines.append(f"indexing: {data['indexing']}")
+    reasons = data.get("unarmed") or []
+    if reasons:
+        lines.append("unarmed: " + "; ".join(reasons))
+    for reason in data.get("fallbacks") or []:
+        lines.append(f"fallback: {reason}")
+    return lines
+
+
 def build_brief(
     registry: dict,
     number: int,
@@ -72,10 +142,14 @@ def build_brief(
     prefix: str = "",
     ecosystem: dict | None = None,
     priorities: dict | None = None,
+    fallbacks: list[str] | None = None,
 ) -> dict:
+    resolver.reset_fallbacks()
     seal = routing.seal_body(body)
     epic = routing.is_epic(body) or ("scope-confirmed" in labels and not seal)
-    path_id, signal = routing.detect_path(registry, title, body, seal)
+    path_id, signal, path_source = routing.detect_path_detail(
+        registry, title, body, seal
+    )
     agents = routing.resolve_agents(registry, path_id, signal)
     risk = (seal.get("risk") or {}).get("level", "n/a")
     signals = (
@@ -94,12 +168,21 @@ def build_brief(
         declared=resolver.load_declared(routing.project_root(ROOT)),
     )
     docs = [f"{prefix}{doc}" for doc in resolution["docs"]]
+    config = routing.config_snapshot(
+        ROOT, registry, path_id, path_source, index_file()
+    )
+    reasons = list(fallbacks or [])
+    if path_source == "default":
+        reasons.append("path default")
+    reasons += resolver.fallbacks()
+    reasons = _unique(reasons)
 
-    return {
+    data = {
         "issue": number,
         "title": title,
         "state": "epic" if epic else "leaf",
         "path_id": path_id,
+        "path_source": path_source,
         "signal": signal.get("id") if signal else None,
         "agents": agents,
         "active_roles": resolution["active_roles"],
@@ -123,7 +206,12 @@ def build_brief(
         "next_action": routing.next_action(labels, epic),
         "human_gates": routing.human_gates(risk, epic),
         "docs": docs,
+        "config": config,
     }
+    data.update(
+        control_fields(path_id, path_source, fallbacks=reasons)
+    )
+    return data
 
 
 def index_file() -> Path:
@@ -185,6 +273,7 @@ def render_cp_brief(
     risk: str | None = None,
     profile_gates: dict | None = None,
     include_evidence: bool = True,
+    control: dict | None = None,
 ) -> str:
     """Compact per-checkpoint brief: scope, AC, tests, evidence skeleton."""
     cp, cases = cp_selection(seal, cp_id)
@@ -218,7 +307,8 @@ def render_cp_brief(
     ]
     gate_text = "behavior" + (", " + ", ".join(active) if active else "")
 
-    lines = [
+    lines = header_lines(control or {})
+    lines += [
         f"## CP brief — {cp_id} · {cp.get('title', '')}",
         f"Epic: {seal.get('epic')} · Risk: {effective_risk} · Rol: {role}",
         f"Yüzey: {surfaces} · Gate: {gate_text}",
@@ -282,7 +372,8 @@ def render_cp_brief(
 
 
 def render(data: dict) -> str:
-    lines = [
+    lines = header_lines(data)
+    lines += [
         f"#{data['issue']} {data['title']}",
         f"state: {data['state']}",
         f"path: {data['path_id']}"
@@ -394,6 +485,13 @@ def main() -> int:
     issue = json.loads(gh(["api", f"repos/{repo}/issues/{args.issue}"]))
     labels = {item.get("name") for item in issue.get("labels", [])}
     body = issue.get("body", "") or ""
+    ecosystem = project_ecosystem()
+    priorities = project_priorities()
+    initial_fallbacks: list[str] = []
+    if not ecosystem:
+        initial_fallbacks.append("ecosystem yok")
+    if not priorities:
+        initial_fallbacks.append("priorities yok")
     data = build_brief(
         routing.load_registry(ROOT),
         args.issue,
@@ -401,8 +499,9 @@ def main() -> int:
         body,
         labels,
         routing.kit_prefix(ROOT),
-        project_ecosystem(),
-        project_priorities(),
+        ecosystem,
+        priorities,
+        fallbacks=initial_fallbacks,
     )
 
     if args.route:
@@ -420,16 +519,46 @@ def main() -> int:
         route, fallback = routing.build_route(
             seal, data["docs"], index, routing.kit_prefix(ROOT)
         )
+        version = str(index["version"]) if index else "yok"
+        fallbacks = list(data["fallbacks"])
+        if fallback:
+            fallbacks.append(fallback)
+        route_data = {
+            **data,
+            **control_fields(
+                data["path_id"],
+                data["path_source"],
+                fallbacks=fallbacks,
+                route_requested=True,
+                route_count=len(route),
+                index_version=version,
+                cp_id=args.cp,
+                cp_applied=bool(args.cp),
+            ),
+        }
         if args.json:
             print(
                 json.dumps(
-                    {"issue": data["issue"], "route": route, "fallback": fallback},
+                    {
+                        "issue": data["issue"],
+                        "route": route,
+                        "fallback": fallback,
+                        "config": route_data["config"],
+                        "armed": route_data["armed"],
+                        "indexing": route_data["indexing"],
+                        "unarmed": route_data["unarmed"],
+                        "fallbacks": route_data["fallbacks"],
+                    },
                     ensure_ascii=False,
                     indent=2,
                 )
             )
         else:
-            sys.stdout.write(routing.render_route(route, fallback))
+            lines = header_lines(route_data)
+            sys.stdout.write(
+                "\n".join(lines) + ("\n" if lines else "")
+                + routing.render_route(route, None)
+            )
         return 0
 
     if args.cp:
@@ -445,6 +574,16 @@ def main() -> int:
                 str((seal.get("risk") or {}).get("level") or "low"),
                 str(data.get("risk_floor") or "low"),
             )
+            cp_control = {
+                **data,
+                **control_fields(
+                    data["path_id"],
+                    data["path_source"],
+                    fallbacks=list(data["fallbacks"]),
+                    cp_id=args.cp,
+                    cp_applied=True,
+                ),
+            }
             text = render_cp_brief(
                 {"issue": data["issue"], "risk": effective},
                 seal,
@@ -453,6 +592,7 @@ def main() -> int:
                 gates=cp.get("gates") or {},
                 risk=effective,
                 profile_gates=profile_gates,
+                control=cp_control,
             )
         except ValueError as exc:
             sys.exit(f"brief: {exc}")
@@ -470,6 +610,11 @@ def main() -> int:
                         "role": cp_role(cp.get("gates") or {}),
                         "chars": len(text),
                         "brief": text,
+                        "config": cp_control["config"],
+                        "armed": cp_control["armed"],
+                        "indexing": cp_control["indexing"],
+                        "unarmed": cp_control["unarmed"],
+                        "fallbacks": cp_control["fallbacks"],
                     },
                     ensure_ascii=False,
                     indent=2,

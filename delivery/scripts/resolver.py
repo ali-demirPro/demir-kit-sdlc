@@ -29,12 +29,32 @@ CONDITIONAL_ROLES = {
 }
 
 
+FALLBACKS: list[str] = []
+
+
+def note_fallback(reason: str) -> None:
+    FALLBACKS.append(reason)
+
+
+def fallbacks() -> list[str]:
+    return list(FALLBACKS)
+
+
+def reset_fallbacks() -> None:
+    FALLBACKS.clear()
+
+
 def load_yaml(path: Path) -> dict:
+    path = Path(path)
     try:
         data = yaml.safe_load(path.read_text(encoding="utf-8"))
     except (OSError, yaml.YAMLError):
+        note_fallback(f"yaml {path}")
         return {}
-    return data if isinstance(data, dict) else {}
+    if not isinstance(data, dict) or not data:
+        note_fallback(f"yaml {path}")
+        return {}
+    return data
 
 
 def load_capabilities() -> dict:
@@ -58,7 +78,8 @@ def load_declared(project: Path, include_profiles: bool = True) -> dict:
     if include_profiles:
         try:
             profile_caps = profiles.compose(project).get("capabilities") or []
-        except ValueError:
+        except ValueError as exc:
+            note_fallback(f"profiles compose ({exc})")
             profile_caps = []
     return {
         "version": data.get("version", 1),

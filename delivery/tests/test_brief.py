@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import importlib.util
 import io
 import json
@@ -61,6 +62,211 @@ SEAL = {
         {"id": "CP-3", "title": "Case yok", "gates": {"behavior": True}},
     ],
 }
+
+
+CONFIG_SEAL = {
+    "demir_kit_version": "2",
+    "epic": 288,
+    "entry": {"kind": "feature"},
+    "factory": {"profile": "kit-internal"},
+    "intent": "config banner",
+    "surfaces": ["kit.docs"],
+    "reference": {"paths": ["delivery/scripts/brief.py"]},
+    "acceptance_criteria": [{"id": "AC-1", "text": "config"}],
+    "risk": {"level": "medium"},
+    "tests_plan": [
+        {
+            "checkpoint_id": "CP-1",
+            "cases": [
+                {"id": "T-1", "ac": "AC-1", "text": "config", "check": "unit"}
+            ],
+        }
+    ],
+    "checkpoints": [
+        {"id": "CP-1", "title": "config", "gates": {"behavior": True}}
+    ],
+}
+
+
+def config_body(seal: dict | None = None) -> str:
+    payload = CONFIG_SEAL if seal is None else seal
+    return (
+        "```yaml demir-kit\n"
+        + yaml.safe_dump(payload, sort_keys=False)
+        + "```"
+    )
+
+
+class ConfigTests(unittest.TestCase):
+    """Effective configuration banner (issue 313)."""
+
+    def run_brief(self, argv, index_path=None, title="config", seal=None):
+        issue = json.dumps(
+            {
+                "title": title,
+                "body": config_body(seal),
+                "labels": [],
+            }
+        )
+        out = io.StringIO()
+        err = io.StringIO()
+        with contextlib.ExitStack() as stack:
+            stack.enter_context(patch.object(brief, "repo_name", return_value="x/y"))
+            stack.enter_context(patch.object(brief, "gh", return_value=issue))
+            if index_path is not None:
+                stack.enter_context(
+                    patch.object(brief, "index_file", return_value=index_path)
+                )
+            stack.enter_context(patch.object(sys, "argv", ["brief.py", *argv]))
+            stack.enter_context(contextlib.redirect_stdout(out))
+            stack.enter_context(contextlib.redirect_stderr(err))
+            code = brief.main()
+        return code, out.getvalue(), err.getvalue()
+
+    def write_index(self, directory, entries, version=1) -> Path:
+        path = Path(directory) / "index.yaml"
+        path.write_text(
+            yaml.safe_dump(
+                {"version": version, "entries": entries}, sort_keys=False
+            ),
+            encoding="utf-8",
+        )
+        return path
+
+    def parse_config(self, text: str) -> dict:
+        lines = text.splitlines()
+        self.assertEqual(lines[0], "config:")
+        result: dict[str, str] = {}
+        for line in lines[1:]:
+            if not line.startswith("  "):
+                break
+            key, _, value = line.strip().partition(": ")
+            result[key] = value
+        return result
+
+    def default_seal(self) -> dict:
+        return {
+            **CONFIG_SEAL,
+            "entry": {},
+            "surfaces": ["other"],
+        }
+
+    def test_config_block_matches_json(self) -> None:
+        code, plain, err = self.run_brief(["313"])
+        self.assertEqual(code, 0, err)
+        config = self.parse_config(plain)
+        digest = hashlib.sha256(
+            (ROOT / "delivery" / "registry.yaml").read_bytes()
+        ).hexdigest()
+        self.assertEqual(config["registry_sha256"], digest)
+        self.assertEqual(config["path"], "pure_technical")
+        self.assertEqual(config["path_source"], "signal")
+        self.assertEqual(config["index_version"], "1")
+        self.assertIn("delivery/policies/context-budget.md", config["policies"])
+        self.assertIn("delivery/policies/quality-gates.md", config["policies"])
+
+        json_code, json_out, _ = self.run_brief(["313", "--json"])
+        self.assertEqual(json_code, 0)
+        payload = json.loads(json_out)
+        self.assertEqual(payload["config"]["registry_sha256"], digest)
+        self.assertEqual(payload["config"]["path"], "pure_technical")
+        self.assertEqual(payload["config"]["path_source"], "signal")
+        self.assertEqual(payload["config"]["index_version"], "1")
+        self.assertEqual(payload["config"]["policies"], config["policies"].split(", "))
+
+    def test_armed_indexing_and_unarmed(self) -> None:
+        entries = [
+            {
+                "surface": "kit.docs",
+                "path": "delivery/scripts/brief.py",
+                "tags": ["brief"],
+                "weight": 2,
+            }
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            index = self.write_index(tmp, entries)
+            code, out, _ = self.run_brief(["313", "--route"], index)
+        self.assertEqual(code, 0)
+        self.assertRegex(out, r"armed: path pure_technical, route \d+")
+        self.assertIn("indexing: v1", out)
+        self.assertNotIn("unarmed:", out)
+
+        code, out, _ = self.run_brief(["313"])
+        self.assertEqual(code, 0)
+        self.assertIn("armed: path pure_technical", out)
+        self.assertNotIn("indexing:", out)
+        self.assertIn("unarmed: route tuketilmedi", out)
+
+        missing = ROOT / "delivery" / "context" / "yok-boyle-index.yaml"
+        code, out, _ = self.run_brief(["313", "--route"], missing)
+        self.assertEqual(code, 0)
+        self.assertNotIn("indexing:", out)
+        self.assertIn("unarmed: index yok", out)
+        self.assertIn("fallback: index yok", out)
+
+        code, out, _ = self.run_brief(
+            ["313"], title="unrelated title", seal=self.default_seal()
+        )
+        self.assertEqual(code, 0)
+        self.assertIn("fallback: path default", out)
+        self.assertIn("unarmed: path default; route tuketilmedi", out)
+        self.assertFalse(
+            any(line.startswith("armed:") for line in out.splitlines())
+        )
+
+    def test_silent_fallbacks_become_warnings(self) -> None:
+        code, out, _ = self.run_brief(
+            ["313"], title="unrelated title", seal=self.default_seal()
+        )
+        self.assertEqual(code, 0)
+        self.assertIn("fallback: path default", out)
+
+        with patch.object(
+            brief.profiles,
+            "compose",
+            side_effect=ValueError("profil bulunamadı: yok"),
+        ):
+            data = brief.build_brief(
+                brief.routing.load_registry(ROOT),
+                313,
+                "config",
+                config_body(),
+                {"agent-approved"},
+            )
+        text = brief.render(data)
+        self.assertIn(
+            "fallback: profiles compose (profil bulunamadı: yok)", text
+        )
+
+        brief.resolver.reset_fallbacks()
+        with tempfile.TemporaryDirectory() as tmp:
+            empty = Path(tmp) / "empty.yaml"
+            empty.write_text("", encoding="utf-8")
+            self.assertEqual(brief.resolver.load_yaml(empty), {})
+            self.assertTrue(
+                any("yaml" in item for item in brief.resolver.fallbacks())
+            )
+            with patch.object(
+                brief.resolver,
+                "load_capabilities",
+                side_effect=lambda: brief.resolver.load_yaml(empty),
+            ):
+                data = brief.build_brief(
+                    brief.routing.load_registry(ROOT),
+                    313,
+                    "config",
+                    config_body(),
+                    {"agent-approved"},
+                )
+        self.assertIn(f"fallback: yaml {empty}", brief.render(data))
+
+        with patch.object(brief, "project_ecosystem", return_value={}), patch.object(
+            brief, "project_priorities", return_value={}
+        ):
+            code, out, _ = self.run_brief(["313"])
+        self.assertEqual(code, 0)
+        self.assertIn("fallback: ecosystem yok", out)
+        self.assertIn("fallback: priorities yok", out)
 
 
 class CpBriefTests(unittest.TestCase):
@@ -260,6 +466,13 @@ class RouteTests(unittest.TestCase):
             + "```"
         )
 
+    def route_lines(self, text: str) -> list[str]:
+        return [
+            line
+            for line in text.splitlines()
+            if re.match(r"^(sink|window|retrieved|candidate) ", line)
+        ]
+
     def run_route(self, argv, index_path):
         issue = json.dumps(
             {"title": "route", "body": self.issue_body(), "labels": []}
@@ -377,8 +590,14 @@ class RouteTests(unittest.TestCase):
                 ["312", "--route", "--cp", "CP-1"], index_path
             )
             self.assertEqual((code, cp_code), (0, 0))
-            self.assertEqual(plain, cp_plain)
-            self.assertNotIn("fallback:", plain)
+            self.assertTrue(plain.startswith("config:\n"))
+            self.assertIn("indexing: v1", plain)
+            self.assertIn("armed: path pure_technical", plain)
+            self.assertRegex(cp_plain, r"armed: .*cp CP-1")
+            plain_route = self.route_lines(plain)
+            cp_route = self.route_lines(cp_plain)
+            self.assertEqual(plain_route, cp_route)
+            self.assertNotIn("unarmed:", plain)
             self.assertIn("retrieved delivery/plans/P2.yaml", plain)
             self.assertIn("retrieved delivery/scripts/resolver.py", plain)
             self.assertTrue(
@@ -388,7 +607,7 @@ class RouteTests(unittest.TestCase):
                         r"\(source: (seal|resolver|index|static), reason: .+\)$",
                         line,
                     )
-                    for line in plain.strip().splitlines()
+                    for line in plain_route
                 )
             )
 
@@ -475,21 +694,27 @@ class RouteTests(unittest.TestCase):
         code, out, _ = self.run_route(["312", "--route"], missing)
         self.assertEqual(code, 0)
         lines = out.strip().splitlines()
-        self.assertEqual(lines[0], "fallback: index yok")
+        self.assertEqual(lines[0], "config:")
+        self.assertIn("  index_version: yok", lines)
+        self.assertIn("fallback: index yok", lines)
+        self.assertIn("unarmed: index yok", lines)
+        self.assertNotIn("indexing:", out)
+        route = self.route_lines(out)
+        self.assertTrue(route)
         self.assertTrue(
             any(
                 line.startswith("window ") and "(source: resolver," in line
-                for line in lines[1:]
+                for line in route
             )
         )
         # Fallback docs are already window lines: the static list must not add
         # a second line for the same path (window wins over retrieved).
         self.assertFalse(
-            any(line.startswith("retrieved ") for line in lines[1:])
+            any(line.startswith("retrieved ") for line in route)
         )
-        paths = [line.split()[1] for line in lines[1:]]
+        paths = [line.split()[1] for line in route]
         self.assertEqual(len(paths), len(set(paths)))
-        for line in lines[1:]:
+        for line in route:
             self.assertRegex(
                 line,
                 r"^(sink|window|retrieved|candidate) \S+ "
@@ -504,6 +729,9 @@ class RouteTests(unittest.TestCase):
         self.assertEqual(payload["issue"], 312)
         self.assertEqual(payload["fallback"], "index yok")
         self.assertTrue(payload["route"])
+        self.assertEqual(payload["config"]["index_version"], "yok")
+        self.assertIsNone(payload["indexing"])
+        self.assertIn("index yok", payload["unarmed"])
 
 
 if __name__ == "__main__":
