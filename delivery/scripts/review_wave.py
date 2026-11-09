@@ -30,12 +30,13 @@ import routing  # noqa: E402
 import usage  # noqa: E402
 
 SETTLED = {"succeeded", "failed", "stopped"}
+SHOW_TIMEOUT = 15.0
 
 
-def orca(args: list[str]) -> dict:
+def orca(args: list[str], timeout: float = 180.0) -> dict:
     try:
         result = subprocess.run(
-            ["orca", *args], capture_output=True, text=True, timeout=180
+            ["orca", *args], capture_output=True, text=True, timeout=timeout
         )
     except (FileNotFoundError, OSError):
         return {}
@@ -197,13 +198,42 @@ def start_worker(
     }
 
 
-def wait_workers(workers: list[dict], timeout: int, poll: int = 5) -> list[dict]:
-    deadline = time.time() + timeout
+def worker_state(shown: dict) -> str:
+    """Settled-state field from ``worker-show``.
+
+    Orca 1.4 answers flat (``{"state": "stopped"}``); older builds nested the
+    worker under ``result.worker``. Read the flat field first, keep the nested
+    shape as a fallback.
+    """
+    if not isinstance(shown, dict):
+        return ""
+    flat = shown.get("state")
+    if isinstance(flat, str) and flat:
+        return flat
+    worker = shown.get("worker")
+    if isinstance(worker, dict):
+        nested = worker.get("state")
+        if isinstance(nested, str):
+            return nested
+    return ""
+
+
+def wait_workers(workers: list[dict], timeout: float, poll: float = 5) -> list[dict]:
+    """Poll dispatched workers until settled or the deadline passes.
+
+    Every turn checks the deadline before calling Orca, and the nested
+    ``worker-show`` call gets a short timeout so one hung CLI cannot outlive
+    the wave deadline (#318).
+    """
+    deadline = time.time() + max(0.0, timeout)
     while True:
         pending = []
         for item in workers:
             if not item.get("dispatch_id") or item.get("state") in SETTLED:
                 continue
+            remaining = deadline - time.time()
+            if remaining <= 0:
+                return workers
             shown = orca(
                 [
                     "orchestration",
@@ -211,17 +241,17 @@ def wait_workers(workers: list[dict], timeout: int, poll: int = 5) -> list[dict]
                     "--dispatch",
                     str(item["dispatch_id"]),
                     "--json",
-                ]
+                ],
+                timeout=max(0.1, min(SHOW_TIMEOUT, remaining)),
             )
-            state = str((shown.get("worker") or {}).get("state") or "")
+            state = worker_state(shown)
             if state in SETTLED:
                 item["state"] = state
             else:
                 pending.append(item)
         if not pending or time.time() >= deadline:
-            break
-        time.sleep(poll)
-    return workers
+            return workers
+        time.sleep(max(0.0, min(poll, deadline - time.time())))
 
 
 def read_output(dispatch_id: str) -> str:
