@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -568,6 +569,20 @@ def _candidate_paths(value: str, case_path: Path) -> list[Path]:
     return [base / candidate for base in (case_path.parent, *case_path.parent.parents)]
 
 
+def _is_basename_only(value: str) -> bool:
+    """Return True when the value names one file component after normalization.
+
+    ``./demo.md``, ``demo.md/`` and ``foo/../demo.md`` all denote the same bare
+    file name. Without normalization the last variant keeps a ``foo/..`` parent
+    and would be resolved against every case directory instead of hitting the
+    shared-basename guard.
+    """
+    normalized = os.path.normpath(value)
+    if normalized in ("", ".", ".."):
+        return False
+    return Path(normalized).parent == Path(".")
+
+
 def _matches_case_value(
     value: str,
     case_path: Path,
@@ -578,7 +593,8 @@ def _matches_case_value(
 
     A bare file name is ambiguous when more than one supplied case carries it, so
     such evidence does not match any of them. The comparison uses the normalized
-    base name, so variants such as ``./demo.md`` and ``demo.md/`` count as bare.
+    base name, so variants such as ``./demo.md``, ``demo.md/`` and
+    ``foo/../demo.md`` count as bare.
     """
     value = value.strip()
     if not value:
@@ -586,9 +602,8 @@ def _matches_case_value(
     if case_id and value == case_id:
         return True
     try:
-        value_path = Path(value)
-        basename_only = value_path.parent == Path(".")
-        basename = value_path.name.casefold()
+        basename_only = _is_basename_only(value)
+        basename = Path(os.path.normpath(value)).name.casefold()
     except (OSError, RuntimeError, ValueError):
         return False
     if basename_only and basename in shared_basenames:
