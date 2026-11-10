@@ -46,6 +46,20 @@ mechanisms:
       `release.py` manifest digest'ini ayrıca bağlar.
     target: "delivery/scripts/vendor_sync.py --seal + delivery/schemas/kit_manifest.schema.json + install.sh/adopt.py; P5-2 (#337)"
 
+  - name: provenance
+    ours: >-
+      Kit sürümü `kit.version` metni ve `VERSION` dosyasıyla taşınıyor; hangi
+      commit'ten, hangi araçla ve ne zaman üretildiği yazılı değil.
+      `vendor_sync --apply` dosyaları kopyalar ama kaynak commit'i kaydetmez.
+    gap: >-
+      Manifestte `source_commit`, `generated_at` ve üretici kimliği yok; iki
+      farklı kit kopyasının aynı sürümden geldiği kanıtlanamıyor.
+    reference: >-
+      asm `release.json` sürüm + digest + yayın zamanı taşır; registry-v2
+      sınırlı yayın kayıtlarını imzayla bağlar (`docs/specs/registry-v2.md`,
+      "bounded release records").
+    target: "delivery/scripts/vendor_sync.py --seal (manifest provenance alanları) + delivery/schemas/kit_manifest.schema.json; P5-2 (#337)"
+
   - name: tamper-verification
     ours: >-
       `doctor.py` ürün pinini `git ls-tree` ile okur ve yalnız
@@ -85,7 +99,7 @@ mechanisms:
       `build_site.py` "Artifact evidence remains not-run" yazar,
       `agent_catalog.py` provenance/formal/agent_review alanlarını zorunlu
       `not-run` tutar; `discovery.md` "Unknown history is not zero" der.
-    target: "delivery/schemas/evidence.schema.json + delivery/scripts/doctor.py; P5-4 (#339)"
+    target: "delivery/schemas/evidence.schema.json + delivery/scripts/doctor.py; P5-4 (#340)"
 
   - name: fail-closed-tool-table
     ours: >-
@@ -104,7 +118,7 @@ mechanisms:
       (`tools/qualify_macos_x86_64.py`: `developer_id`, `notarization`,
       `installer_release_integration`). `docs/specs/security.md` her kontrol
       sonucunun neyi kapsadığını yazmayı şart koşar.
-    target: "delivery/protocol/health-check.md + delivery/scripts/health_check.py; P5-5 (#340)"
+    target: "delivery/protocol/health-check.md + delivery/scripts/health_check.py; P5-5 (#339)"
 
 vendor_sync_diff:
   summary: >-
