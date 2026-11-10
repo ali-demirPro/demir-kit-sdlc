@@ -10,6 +10,31 @@ Her CP için tek kanıt comment'i. `leaf-done` bu bloklar olmadan imkânsızdır
 - `gate_level: fast|selected|full` alanı CP'de koşan kapıyı yazar; `cp_close`
   `fast` damgalar, `leaf-done` varsayılan `selected`, tam paket `full`.
 
+## Review turu kaydı
+
+Her review turundan sonra `review_record.py` issue'ya kısa bir yorum yazar:
+
+````markdown
+```yaml
+demir-kit-review
+issue: 12
+cp: CP-1
+verdict: revise_required   # revise_required|approved
+reviewed_commit: abc1234
+reviewer: adversarial-a
+findings:
+  - {id: AR-1, severity: blocking, status: open, note: "kısa gerekçe"}
+```
+````
+
+`brief.py` "Önceki ret" bölümünü bu kayıtlardan besler: yalnız
+`verdict: revise_required` ret sayılır, gerekçeye yalnız `status: open`
+bulgular girer ve blocking önce gelir. Bir redi yalnız şunlar çözer: aynı
+`reviewer`ın aynı veya daha yeni `reviewed_commit` için `approved` kaydı, ya da
+insan `demir-kit-accept decision: accepted` kaydı (`binding_base` ret
+commit'inden yeni). Başka reviewer'ın onayı redi silmez; tur içi çoğunluk
+kuralı yoktur. Brief yalnız çözülmemiş en son redi gösterir.
+
 ## Şablon
 
 ````markdown

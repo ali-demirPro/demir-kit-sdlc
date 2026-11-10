@@ -69,6 +69,8 @@ def file_map(root: Path) -> dict[str, str]:
                 continue
             if "__pycache__" in path.parts or path.suffix == ".pyc":
                 continue
+            if ".drafts" in path.parts:  # skill öneri taslağı ürüne gitmez
+                continue
             if name == "delivery" and "tests" in path.relative_to(base).parts[:1]:
                 continue
             mapping[str(path.relative_to(root))] = digest(path)

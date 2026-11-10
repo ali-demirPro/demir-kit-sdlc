@@ -36,6 +36,34 @@ def comment(cp_id: str, findings: list[dict]) -> dict:
     return {"body": f"```yaml\ndemir-kit-evidence\n{block}```\n"}
 
 
+def review_comment(
+    cp_id: str,
+    verdict: str,
+    findings: list[dict],
+    reviewer: str = "adversarial-a",
+    commit: str = "abc123",
+    comment_id: int | None = None,
+) -> dict:
+    """One ``demir-kit-review`` comment in the writer's exact shape."""
+    import yaml
+
+    block = yaml.safe_dump(
+        {
+            "issue": 335,
+            "cp": cp_id,
+            "verdict": verdict,
+            "reviewed_commit": commit,
+            "reviewer": reviewer,
+            "findings": findings,
+        },
+        sort_keys=False,
+    )
+    comment = {"body": f"```yaml\ndemir-kit-review\n{block}```\n"}
+    if comment_id is not None:
+        comment["id"] = comment_id
+    return comment
+
+
 class ReviewPacketTests(unittest.TestCase):
     def test_commit_range_full_and_delta(self) -> None:
         self.assertEqual(
@@ -44,6 +72,49 @@ class ReviewPacketTests(unittest.TestCase):
         self.assertEqual(
             review_packet.commit_range("abc", "base"), "base..abc"
         )
+
+    def test_issue_commits_skip_a_sibling_leaf(self) -> None:
+        """NIT: #335 paketi, aralıktaki #334 commit'ini göstermez."""
+        log = (
+            "aaa\x1f#335 ilk tur\x1f\x1e"
+            "bbb\x1f#334 kardeş leaf\x1f\x1e"
+            "ccc\x1f#335 review fix\x1f\x1e"
+        )
+        with patch.object(review_packet, "git", return_value=log):
+            rows = review_packet.issue_commits(335, "aaa..ccc")
+        self.assertEqual([row["sha"] for row in rows], ["aaa", "ccc"])
+
+    def test_range_patch_uses_only_issue_commits(self) -> None:
+        """NIT: delta aralığında kardeş commit varsa yalnız bu issue'nun
+        commit'leri diff'e girer."""
+        calls: list[list[str]] = []
+
+        def fake_git(args: list[str]) -> str:
+            calls.append(args)
+            if args[0] == "log":
+                return (
+                    "aaa\x1f#335 ilk tur\x1f\x1e"
+                    "bbb\x1f#334 kardeş leaf\x1f\x1e"
+                    "ccc\x1f#335 review fix\x1f\x1e"
+                )
+            if args[0] == "show":
+                if "--stat" in args:
+                    return f" {args[-1]}.py | 1 +\n"
+                if "--name-only" in args:
+                    return f"{args[-1]}.py\n"
+                return f"diff --git a/{args[-1]}.py b/{args[-1]}.py\n"
+            return ""
+
+        with patch.object(review_packet, "git", side_effect=fake_git):
+            stat, diff, files, filtered = review_packet.range_patch(
+                335, "aaa..ccc"
+            )
+        self.assertTrue(filtered)
+        self.assertEqual(files, ["aaa.py", "ccc.py"])
+        self.assertNotIn("bbb", diff)
+        self.assertIn("aaa.py", stat)
+        self.assertNotIn("bbb", stat)
+        self.assertFalse(any(args[0] == "diff" for args in calls))
 
     def test_open_findings_only_open(self) -> None:
         comments = [
@@ -59,6 +130,75 @@ class ReviewPacketTests(unittest.TestCase):
         rows = review_packet.open_findings(comments)
         self.assertEqual([row["id"] for row in rows], ["ADV-1"])
         self.assertEqual(rows[0]["cp_id"], "CP-1")
+
+    def test_open_findings_read_review_record(self) -> None:
+        """Blocking B: açık bulgular `demir-kit-review` kaydından gelir."""
+        comments = [
+            review_comment(
+                "CP-1",
+                "revise_required",
+                [
+                    {"id": "NIT-1", "severity": "nit", "status": "open", "note": "nit"},
+                    {
+                        "id": "AR-1",
+                        "severity": "blocking",
+                        "status": "open",
+                        "note": "parser ret kaydını görmüyor",
+                    },
+                    {
+                        "id": "AR-2",
+                        "severity": "blocking",
+                        "status": "fixed",
+                        "note": "kapandı",
+                    },
+                ],
+            )
+        ]
+        rows = review_packet.open_findings(comments)
+        self.assertEqual([row["id"] for row in rows], ["AR-1", "NIT-1"])
+        self.assertEqual(rows[0]["cp_id"], "CP-1")
+        self.assertEqual(rows[0]["note"], "parser ret kaydını görmüyor")
+
+    def test_other_reviewer_approval_keeps_findings_open(self) -> None:
+        """Blocking A+B: B onaylasa da A'nın açık bulguları pakette kalır.
+
+        Sahte sha'lar ve yorum id'leri kullanılır: çözüm commit ancestry'sine
+        değil yorum sırasına bağlıdır.
+        """
+        finding = {
+            "id": "AR-1",
+            "severity": "blocking",
+            "status": "open",
+            "note": "ret açık",
+        }
+        comments = [
+            review_comment(
+                "CP-1", "revise_required", [finding], commit="aaaaaaa", comment_id=11
+            ),
+            review_comment(
+                "CP-1",
+                "approved",
+                [],
+                reviewer="adversarial-b",
+                commit="bbbbbbb",
+                comment_id=12,
+            ),
+        ]
+        self.assertEqual(
+            [row["id"] for row in review_packet.open_findings(comments)],
+            ["AR-1"],
+        )
+        comments.append(
+            review_comment(
+                "CP-1",
+                "approved",
+                [],
+                reviewer="adversarial-a",
+                commit="ccccccc",
+                comment_id=13,
+            )
+        )
+        self.assertEqual(review_packet.open_findings(comments), [])
 
     def test_packet_has_scope_findings_and_diff(self) -> None:
         packet = review_packet.compose_packet(
@@ -154,6 +294,14 @@ class ReviewPacketCliTests(unittest.TestCase):
             calls.append(args)
             if args[0] == "rev-parse":
                 return "abc123\n"
+            if args[0] == "log":
+                return "abc123\x1f#144 fix\x1f\x1e"
+            if args[0] == "show":
+                if "--stat" in args:
+                    return " a.py | 1 +\n"
+                if "--name-only" in args:
+                    return "a.py\n"
+                return "diff --git a/a.py b/a.py\n+new\n"
             if args[:2] == ["diff", "--stat"]:
                 return " a.py | 1 +\n"
             return "diff --git a/a.py b/a.py\n+new\n"
@@ -185,7 +333,38 @@ class ReviewPacketCliTests(unittest.TestCase):
         self.assertFalse(render.call_args.kwargs["include_evidence"])
         data = json.loads(out.getvalue())
         self.assertEqual(data["delta"], "base")
-        self.assertTrue(any(args[:2] == ["diff", "base..abc123"] for args in calls))
+        self.assertTrue(
+            any(args[0] == "log" and args[-1] == "base..abc123" for args in calls)
+        )
+        self.assertTrue(
+            any(
+                args[0] == "show" and "--patch" in args and "abc123" in args
+                for args in calls
+            )
+        )
+        self.assertIn("yalnız #144 commit'leri", data["packet"])
+
+    def test_delta_wins_over_base(self) -> None:
+        """NIT: `--delta` verilince paket yalnız o aralığı kullanır."""
+        calls: list[list[str]] = []
+        out = io.StringIO()
+        with patch.object(review_packet, "gh", side_effect=self.fake_gh), patch.object(
+            review_packet, "git", side_effect=self.fake_git(calls)
+        ), patch.object(
+            review_packet.brief, "render_cp_brief", return_value="BRIEF"
+        ), patch.object(
+            sys,
+            "argv",
+            [
+                "review_packet.py", "--issue", "144", "--cp", "CP-1",
+                "--delta", "fixbase", "--base", "wide", "--json",
+            ],
+        ), redirect_stdout(out):
+            self.assertEqual(review_packet.main(), 0)
+        self.assertTrue(
+            any(args[0] == "log" and args[-1] == "fixbase..abc123" for args in calls)
+        )
+        self.assertFalse(any("wide..abc123" in args for args in calls))
 
     def test_base_range(self) -> None:
         calls: list[list[str]] = []
@@ -197,7 +376,46 @@ class ReviewPacketCliTests(unittest.TestCase):
             ["review_packet.py", "--issue", "144", "--cp", "CP-1", "--base", "parent", "--json"],
         ), redirect_stdout(out):
             self.assertEqual(review_packet.main(), 0)
-        self.assertTrue(any(args[:2] == ["diff", "parent..abc123"] for args in calls))
+        self.assertTrue(
+            any(args[0] == "log" and args[-1] == "parent..abc123" for args in calls)
+        )
+
+    def test_cli_lists_review_findings(self) -> None:
+        """`review_packet.py --issue 335 --cp CP-1` açık bulguları listeler."""
+        review = review_comment(
+            "CP-1",
+            "revise_required",
+            [
+                {
+                    "id": "AR-1",
+                    "severity": "blocking",
+                    "status": "open",
+                    "note": "stale ret reviewer'ı ayırmıyor",
+                }
+            ],
+        )
+
+        def fake_gh(args: list[str]) -> str:
+            if "comments" in args[-1]:
+                return json.dumps([review])
+            return json.dumps({"body": SEAL_BODY})
+
+        out = io.StringIO()
+        with patch.object(review_packet, "gh", side_effect=fake_gh), patch.object(
+            review_packet, "git", side_effect=self.fake_git([])
+        ), patch.object(
+            review_packet.brief, "render_cp_brief", return_value="BRIEF"
+        ), patch.object(
+            sys,
+            "argv",
+            ["review_packet.py", "--issue", "335", "--cp", "CP-1", "--json"],
+        ), redirect_stdout(out):
+            self.assertEqual(review_packet.main(), 0)
+        packet = json.loads(out.getvalue())["packet"]
+        self.assertIn("## Açık bulgular", packet)
+        self.assertIn(
+            "- AR-1 (CP-1): stale ret reviewer'ı ayırmıyor", packet
+        )
 
     def test_write_file(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

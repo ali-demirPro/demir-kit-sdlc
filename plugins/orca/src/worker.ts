@@ -27,6 +27,7 @@ import type {
   StatusProject,
   StatusSnapshot
 } from './protocol'
+import { fleetPulse } from './pulse'
 
 /** A second call inside this window answers from storage instead of running python. */
 export const CACHE_MS = 30_000
@@ -918,7 +919,8 @@ function failedProject(ref: ProjectRef, message: string): StatusProject {
     agents: [],
     live: zeroLive(),
     warnings: [],
-    stale: true
+    stale: true,
+    pulse: null
   }
 }
 
@@ -1077,7 +1079,8 @@ async function projectSnapshot(
       epics: Array.isArray(data.epics) ? data.epics : [],
       counts: data.counts ?? { ...ZERO_COUNTS },
       warnings: Array.isArray(data.warnings) ? data.warnings : [],
-      stale: data.stale === true
+      stale: data.stale === true,
+      pulse: data.pulse ?? null
     }
     await orca.storage.set(`${CACHE_PREFIX}${refKey(ref)}`, {
       saved_at: Date.now(),
@@ -1160,6 +1163,7 @@ function failedSnapshot(message: string, warnings: string[]): StatusSnapshot {
     focused: null,
     focusSource: 'none',
     active: { projects: 0, epics: 0, leaves: 0 },
+    pulse: null,
     projects: [],
     warnings: [...warnings, message],
     error: message
@@ -1174,6 +1178,7 @@ function errorSnapshot(message: string, warnings: string[]): StatusSnapshot {
     focused: null,
     focusSource: 'none',
     active: { projects: 0, epics: 0, leaves: 0 },
+    pulse: null,
     projects: [],
     warnings: [...warnings, message],
     error: message
@@ -1192,8 +1197,8 @@ async function publish(
       text: statusText(snapshot),
       tone: snapshot.ok ? 'neutral' : 'warning'
     })
-    // Maliyet alanı henüz yok: status.py cost_delta null döndürüyor.
-    await host('statusBar.update', { id: 'cost', text: '-' })
+    // Maliyet henüz ölçülmüyor: sessiz '-' yerine açık "yok".
+    await host('statusBar.update', { id: 'cost', text: 'yok' })
   } catch (error) {
     // No status bar (headless host): the panel still gets the snapshot.
     orca.log(`demir-kit: status bar güncellenemedi: ${String(error)}`)
@@ -1292,6 +1297,7 @@ async function refreshOnce(
       focusSource: target === null ? 'none' : focusSource,
       live: listing.live,
       active,
+      pulse: fleetPulse(projects),
       projects,
       warnings
     }

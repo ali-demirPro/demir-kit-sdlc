@@ -317,6 +317,47 @@ class ReleaseWorkerTests(unittest.TestCase):
             self.assertNotIn("worker_reaper", source, name)
             self.assertNotIn("worker_cleanup", source, name)
 
+class ReviewRecordTests(unittest.TestCase):
+    def test_one_record_per_settled_reviewer(self) -> None:
+        workers = [
+            {
+                "name": "a",
+                "verdict": False,
+                "summary": "severity: blocking\nfile: brief.py\nproblem: parser",
+            },
+            {"name": "b", "verdict": True, "summary": "approved: true"},
+            {"name": "c", "verdict": None, "summary": "no verdict"},
+        ]
+        posts: list[tuple] = []
+
+        def fake_post(repo, issue, body):
+            posts.append((repo, issue, body))
+            return "9"
+
+        records = review_wave.write_records(
+            335, "CP-1", "abc123", workers, repo="x/y", post=fake_post
+        )
+        self.assertEqual(len(records), 2)
+        self.assertEqual(records[0]["verdict"], "revise_required")
+        self.assertEqual(records[0]["findings"][0]["severity"], "blocking")
+        self.assertEqual(records[0]["findings"][0]["status"], "open")
+        self.assertEqual(records[1]["verdict"], "approved")
+        self.assertEqual(records[1]["findings"], [])
+        self.assertIn("demir-kit-review", posts[0][2])
+
+    def test_write_failure_keeps_the_verdict(self) -> None:
+        workers = [{"name": "a", "verdict": False, "summary": ""}]
+
+        def broken(repo, issue, body):
+            raise SystemExit("boom")
+
+        records = review_wave.write_records(
+            335, "CP-1", "abc123", workers, repo="x/y", post=broken
+        )
+        self.assertEqual(records[0]["verdict"], "revise_required")
+        self.assertIn("boom", records[0]["error"])
+
+
 class ReviewBatchTests(unittest.TestCase):
     def test_reviewers_are_split_into_bounded_batches(self) -> None:
         names = ["a", "b", "c", "d", "e"]

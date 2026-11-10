@@ -366,6 +366,37 @@ class DoctorWiringTest(unittest.TestCase):
         self.assertEqual(doctor.ERRORS, [])
         self.assertEqual(doctor.WARNS, [])
 
+    def test_skill_drafts_are_skipped_by_check_skills(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            (root / "demo").mkdir()
+            (root / "demo" / "SKILL.md").write_text(skill(), encoding="utf-8")
+            draft = root / ".drafts" / "slug"
+            draft.mkdir(parents=True)
+            # Aynı isimli taslak: taranırsa "SKILL name tekrarlı" hatası verir.
+            (draft / "SKILL.md").write_text(skill(), encoding="utf-8")
+            registry = {"skills": {"dir": "skills", "runtime": ["demo"]}}
+            with patch.object(doctor, "load_yaml", return_value=registry), patch.object(
+                doctor, "skill_dir", return_value=root
+            ):
+                doctor.check_skills()
+        self.assertEqual(doctor.ERRORS, [])
+
+    def test_skill_drafts_are_not_linted(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            (root / "good").mkdir()
+            (root / "good" / "SKILL.md").write_text(skill(), encoding="utf-8")
+            draft = root / ".drafts" / "slug"
+            draft.mkdir(parents=True)
+            # Tetikleyicisiz taslak: lint edilirse hata verir.
+            (draft / "SKILL.md").write_text(
+                skill(description="Seal one leaf and map every criterion."),
+                encoding="utf-8",
+            )
+            doctor.lint_runtime_skills(root)
+        self.assertEqual(doctor.ERRORS, [])
+
 
 class RuntimeSkillsTest(unittest.TestCase):
     def test_every_runtime_skill_passes_lint(self) -> None:

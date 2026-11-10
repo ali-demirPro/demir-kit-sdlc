@@ -42,7 +42,25 @@ taşımayan unit/gate case'i, tekrarlı ID veya bilinmeyen AC/CP. Uyarılar
 issue: 260
 by: <login>
 decision: accepted
+binding_sha256: sha256:<64 hex>
+binding_base: <onay anındaki HEAD sha>
 ```
+
+`binding_sha256` seal bloğu + taban commit'in kanonik digest'idir:
+
+```bash
+BASE="$(git rev-parse HEAD)"
+python3 delivery/scripts/approvals.py digest --body-file /tmp/leaf.md --base "$BASE"
+```
+
+`binding_base` alanına tam 40 karakter sha yaz; kısa sha de kabul edilir ve
+digest üretilirken/doğrulanırken `git rev-parse` ile tam sha'ya çözülür.
+Çözülemeyen taban commit digest üretmez ve onayı geçersiz sayar. Kısa sha'nın
+ham metni üzerinden üretilmiş eski digest'ler geriye dönük geçerlidir.
+
+Onaydan sonra seal gövdesi değişirse ya da taban commit HEAD'in atası değilse
+`doctor --issue` hata verir; `guard.sh --issue` kaynak yazımını reddeder. Alanı
+taşımayan eski kayıtlar geriye dönük geçerlidir.
 
 7. Sıradaki adım: [health-check.md](health-check.md).
 

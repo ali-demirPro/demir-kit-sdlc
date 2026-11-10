@@ -1,4 +1,47 @@
+## 2.64.0 — 2026-11-10
+
+- **Süreç nabzı (Epic P10, #347)** — `status.py --json` kökte `pulse` bloğu ve
+  her epic'te `machinery` taşır: `.kit/cycle.jsonl`'dan pencere tabanlı leaf,
+  gate, review ve engel sayıları; lead süresi p50/p90. Defter yoksa tüm sayılar
+  `null`; önceki pencerede hiç olay yoksa `prev_delta` `null` (sıfır uydurulmaz).
+- Gate tekrarı defterden güvenilir türetilemediği için metrik `gate_failures`
+  (`reason` içinde `exit=N`, N>0) olarak tanımlandı; satırlar CP değil çağrı
+  başına yazılıyor.
+- Eski (pulse'suz/machinery'siz) önbellek `--offline` ile yüklenmeye devam eder.
+- **Görünür panel (Epic P10, #348)** — Orca paneli filo şeridi, proje nabzı
+  (sparkline dahil), epic detayında süreç karnesi ve canlı epic panosu
+  (`bitti`/`devam`/`sırada`) çizer. Nabız toplama saf `src/pulse.ts` içinde;
+  `cost` durum çubuğu ölçüm yokken `-` yerine `yok` yazar.
+- Test izolasyonu (#346): kurulu skill denetimi testte atlanır
+  (`DEMIR_KIT_DOCTOR_IGNORE_INSTALLED=1`), `seal_lint` `.ts`/`orca plugin`
+  izlerini kanıt sayar.
+- Sürüm 2.64.0.
+
 # Changelog
+
+## 2.64.0 — 2026-11-10
+
+- **Onay bağlama (Epic #292, #333)** — `demir-kit-accept` bloğu artık
+  `binding_sha256` + `binding_base` taşır: seal gövdesi + onay anındaki taban
+  commit'in digest'i. Seal onaydan sonra değişirse ya da taban commit HEAD'in
+  atası değilse `doctor --issue` hata verir ve `guard.sh` kaynak yazımını
+  reddeder; alanı taşımayan eski kayıtlar geriye dönük geçerlidir.
+- `evidence.commit` HEAD'in atası olmalıdır (eşitlik değil), böylece sonraki
+  CP commit'leri önceki kanıtı geçersiz kılmaz; `evidence.schema.json` opsiyonel
+  `approval` bloğu (`binding_sha256`, `binding_base`, `approved_at`,
+  `approved_by`) kazandı.
+- Kısa `binding_base` sha'sı digest üretiminde ve doğrulamasında tam sha'ya
+  çözülür; `doctor --evidence` kaydı da ata kuralından geçer, çözülemeyen
+  `evidence.commit` hatadır. `guard.sh` onay yorumlarını veya seal gövdesini
+  okuyamazsa fail-closed BLOCK verir.
+- T2 ve I1 sözleşme satırları digest + taban commit bağını yazacak şekilde
+  güncellendi.
+- **Capability yazma sınırı (Epic #292, #334)** — `CONTRACT.md` I1 ve
+  `policies/quality-gates.md` kaynak kapısı (G1) bölümü, seal yüzeylerinin
+  capability path allowlist'i dışına yazımı G1 ihlali sayar; seal'de tanımsız
+  surface `guard.sh` içinde fail-closed BLOCK, `doctor --issue` içinde hatadır.
+  `capability.schema.json` `match.surfaces` bilinen surface enum'unu taşır ve
+  `doctor` enum ile registry'yi senkron denetler.
 
 ## 2.63.0 — 2026-11-09
 

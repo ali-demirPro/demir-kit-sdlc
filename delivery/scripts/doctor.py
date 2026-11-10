@@ -21,6 +21,7 @@ import approvals as approvals_lib  # noqa: E402
 import capabilities as capabilities_lib  # noqa: E402
 import context_metrics  # noqa: E402
 import delivery_block  # noqa: E402
+import doctor_approval  # noqa: E402
 import doctor_compat  # noqa: E402
 import doctor_local  # noqa: E402
 import doctor_mcp  # noqa: E402
@@ -372,6 +373,18 @@ def resolve_target(source: Path, target: str) -> Path | None:
     return candidates[0] if candidates else None
 
 
+def _capability_surface_enum(schema: dict) -> list[str] | None:
+    """`match.surfaces.items.enum` — registry ile senkron sabit surface listesi."""
+    try:
+        items = schema["properties"]["capabilities"]["additionalProperties"][
+            "properties"
+        ]["match"]["properties"]["surfaces"]["items"]
+    except (KeyError, TypeError):
+        return None
+    enum = items.get("enum") if isinstance(items, dict) else None
+    return [str(item) for item in enum] if isinstance(enum, list) else None
+
+
 def check_capabilities() -> None:
     check("capabilities")
     registry = load_yaml(DELIVERY / "capabilities" / "registry.yaml")
@@ -387,6 +400,24 @@ def check_capabilities() -> None:
     if matrix_schema:
         for message in validate_schema(matrix, matrix_schema, "role-matrix"):
             error(message)
+
+    # Şema sabit enum taşır; registry yeni bir surface kazanırsa şema da güncellenmeli.
+    declared_surfaces = registry.get("surfaces")
+    if capability_schema and isinstance(declared_surfaces, dict):
+        enum = _capability_surface_enum(capability_schema)
+        if enum is not None:
+            missing = sorted(set(declared_surfaces) - set(enum))
+            extra = sorted(set(enum) - set(declared_surfaces))
+            if missing:
+                error(
+                    "capability.schema.json: match.surfaces enum eksik surface: "
+                    + ", ".join(missing)
+                )
+            if extra:
+                error(
+                    "capability.schema.json: match.surfaces enum tanımsız surface: "
+                    + ", ".join(extra)
+                )
 
     registry_config = load_yaml(DELIVERY / "registry.yaml") or {}
     roles = set(registry_config.get("role_order_default") or []) | {"orchestrator"}
@@ -476,7 +507,7 @@ def check_links() -> None:
     docs = list(DELIVERY.rglob("*.md"))
     skills = skill_dir()
     if skills.is_dir():
-        docs += list(skills.rglob("*.md"))
+        docs += list(doctor_skills.iter_files(skills, "*.md"))
     for extra in ("README.md", "AGENTS.md"):
         path = ROOT / extra
         if path.is_file():
@@ -512,7 +543,7 @@ def check_legacy(verbose: bool) -> None:
             continue
         targets += [
             path
-            for path in root.rglob("*")
+            for path in doctor_skills.iter_files(root)
             if path.is_file() and path.suffix in {".md", ".yaml", ".yml", ".json"}
         ]
     for extra in ("README.md", "AGENTS.md"):
@@ -658,7 +689,7 @@ def check_skills() -> None:
     for root in roots:
         if not root.is_dir():
             continue
-        for path in root.rglob("SKILL.md"):
+        for path in doctor_skills.iter_files(root, "SKILL.md"):
             text = path.read_text(encoding="utf-8")
             name = frontmatter_name(text)
             if not name:
@@ -926,6 +957,14 @@ def check_issue_body(
         | set(path_agents["optional"])
     )
     capability_registry = load_yaml(DELIVERY / "capabilities" / "registry.yaml") or {}
+    declared_surfaces = capability_registry.get("surfaces")
+    if isinstance(declared_surfaces, dict):
+        for surface in data.get("surfaces") or []:
+            if str(surface) not in declared_surfaces:
+                error(
+                    f"issue seal: tanımsız surface '{surface}' — "
+                    "delivery/capabilities/registry.yaml surfaces altına ekle"
+                )
     ecosystem = load_yaml(root / "ecosystem.yaml") or {}
     signals = resolver_lib.scoped_signals(ecosystem, data)
     declared = resolver_lib.load_declared(root)
@@ -1340,6 +1379,8 @@ def check_issue(
     evidence_text = normalize_evidence_text(
         evidence_file.read_text(encoding="utf-8") if evidence_file else None
     )
+    for message in doctor_approval.check_issue_extras(number, body, comments, root, evidence_text):
+        error(message)
     if re.search(r"```yaml\s+demir-kit\s*\n", body):
         check_issue_body(
             body,
@@ -1455,23 +1496,7 @@ def check_issue(
             )
 
 def check_installed_skills(root: Path = ROOT) -> None:
-    """`install.sh` kopyaları kaynaktan geride kalırsa uyar."""
-    check("installed skills")
-    installed = root / ".agents" / "skills"
-    source = root / "skills"
-    if not installed.is_dir() or not source.is_dir():
-        return
-    stale: list[str] = []
-    for entry in sorted(installed.iterdir()):
-        src = source / entry.name / "SKILL.md"
-        copy = entry / "SKILL.md"
-        if src.is_file() and copy.is_file() and src.read_bytes() != copy.read_bytes():
-            stale.append(entry.name)
-    if stale:
-        warn(
-            "kurulu skill kopyası kaynaktan farklı: "
-            f"{', '.join(stale)} — './install.sh' ile tazele"
-        )
+    doctor_local.check_installed_skills(root, check, warn)
 
 
 def check_worktree_management(root: Path = ROOT) -> None:
@@ -1820,9 +1845,7 @@ def main() -> int:
             evidence_file=args.evidence,
         )
     if args.body:
-        check_issue_body(
-            args.body.read_text(encoding="utf-8"), [], None, checkpoint=args.checkpoint
-        )
+        check_issue_body(args.body.read_text(encoding="utf-8"), [], None, checkpoint=args.checkpoint)
 
     for item in ERRORS:
         print(f"[fail] {item}")

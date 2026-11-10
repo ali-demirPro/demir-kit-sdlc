@@ -30,10 +30,15 @@ import re
 import subprocess
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import yaml
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
+import cycle  # noqa: E402
 
 CONTRACT_VERSION = 1
 CONFIG_NAME = "kit.config.yaml"
@@ -96,8 +101,38 @@ CONTRACT_KEYS = {
     "project",
     "epics",
     "counts",
+    "pulse",
     "warnings",
 }
+
+PULSE_KEYS = {
+    "status",
+    "window_days",
+    "leaves_done",
+    "prev_delta",
+    "gates",
+    "gate_failures",
+    "review_rounds",
+    "blocked",
+    "deferred",
+    "daily",
+    "lead",
+}
+LEAD_KEYS = {"n", "p50", "p90", "samples"}
+MACHINERY_KEYS = {
+    "gate_runs",
+    "gate_failures",
+    "review_rounds",
+    "leaves_done",
+    "blocked",
+    "deferred",
+    "lead_minutes",
+    "prevented",
+}
+PULSE_WINDOW_DAYS = 7
+LEAD_SAMPLE_CAP = 200
+CP_TAG = re.compile(r"CP-\d+", re.I)
+FAIL_TAG = re.compile(r"exit=[1-9]", re.I)
 
 
 class StatusError(Exception):
@@ -559,6 +594,175 @@ def load_evaluations(project: Path) -> tuple[dict[int, dict], list[str]]:
     return records, warnings
 
 
+def percentile(samples: list[float], share: float) -> float | None:
+    """Nearest-rank yüzdelik; örnek yoksa `None` (sıfır uydurulmaz)."""
+    if not samples:
+        return None
+    ordered = sorted(samples)
+    index = max(0, min(len(ordered) - 1, math.ceil(share * len(ordered)) - 1))
+    return round(ordered[index], 1)
+
+
+def row_ts(row: dict) -> datetime | None:
+    return cycle.parse_ts(row.get("ts"))
+
+
+def gate_key(row: dict) -> tuple[int, str] | None:
+    """`(issue, CP)` anahtarı; gate satırının `reason` alanından okunur."""
+    match = CP_TAG.search(str(row.get("reason") or ""))
+    issue = row.get("issue")
+    if not match or not isinstance(issue, int) or isinstance(issue, bool):
+        return None
+    return issue, match.group(0).upper()
+
+
+def gate_failed(row: dict) -> bool:
+    """Gate satırı düştü mü; `reason` içindeki `exit=N` (N>0) okunur."""
+    return bool(FAIL_TAG.search(str(row.get("reason") or "")))
+
+
+def lead_samples(rows: list[dict], since: datetime | None = None) -> list[float]:
+    """Leaf başına `agent-approved` → son `leaf-done` süresi (dakika)."""
+    started: dict[int, datetime] = {}
+    finished: dict[int, datetime] = {}
+    for row in rows:
+        ts = row_ts(row)
+        issue = row.get("issue")
+        if ts is None or not isinstance(issue, int) or isinstance(issue, bool):
+            continue
+        stage = row.get("stage")
+        if stage == "agent-approved" and issue not in started:
+            started[issue] = ts
+        elif stage == "leaf-done" and issue not in finished:
+            finished[issue] = ts
+    samples = []
+    for issue, end in finished.items():
+        start = started.get(issue)
+        if start is None or (since is not None and end < since):
+            continue
+        minutes = (end - start).total_seconds() / 60
+        if minutes >= 0:
+            samples.append(round(minutes, 1))
+    return sorted(samples)
+
+
+def daily_leaves(rows: list[dict], since: datetime, now: datetime, days: int) -> list[int]:
+    """Pencere içindeki günlük `leaf-done` sayısı; eski→yeni sırada."""
+    buckets = [0] * days
+    for row in rows:
+        if row.get("stage") != "leaf-done":
+            continue
+        ts = row_ts(row)
+        if ts is None or ts < since or ts >= now:
+            continue
+        index = int((ts - since).total_seconds() // 86400)
+        if 0 <= index < days:
+            buckets[index] += 1
+    return buckets
+
+
+def pulse_block(
+    rows: list[dict],
+    *,
+    window_days: int = PULSE_WINDOW_DAYS,
+    now: datetime | None = None,
+) -> dict:
+    """Pencere tabanlı süreç nabzı; defter yoksa tüm sayılar `null`."""
+    now = now or datetime.now(timezone.utc)
+    since = now - timedelta(days=window_days)
+    previous = since - timedelta(days=window_days)
+    empty = {
+        "status": "missing",
+        "window_days": window_days,
+        "leaves_done": None,
+        "prev_delta": None,
+        "gates": None,
+        "gate_failures": None,
+        "review_rounds": None,
+        "blocked": None,
+        "deferred": None,
+        "daily": [],
+        "lead": {"n": 0, "p50": None, "p90": None, "samples": []},
+    }
+    if not rows:
+        return empty
+
+    def count(stage: str, start: datetime, end: datetime) -> int:
+        total = 0
+        for row in rows:
+            ts = row_ts(row)
+            if row.get("stage") == stage and ts is not None and start <= ts < end:
+                total += 1
+        return total
+
+    samples = lead_samples(rows, since)[-LEAD_SAMPLE_CAP:]
+    previous_window = [row for row in rows if (ts := row_ts(row)) is not None and previous <= ts < since]
+    leaves_now = count("leaf-done", since, now)
+    return {
+        "status": "ok",
+        "window_days": window_days,
+        "leaves_done": leaves_now,
+        "prev_delta": (
+            leaves_now - count("leaf-done", previous, since) if previous_window else None
+        ),
+        "gates": count("gate", since, now),
+        "gate_failures": sum(
+            1
+            for row in rows
+            if row.get("stage") == "gate"
+            and gate_failed(row)
+            and (ts := row_ts(row)) is not None
+            and since <= ts < now
+        ),
+        "review_rounds": count("review", since, now),
+        "blocked": count("blocked", since, now),
+        "deferred": count("deferred", since, now),
+        "daily": daily_leaves(rows, since, now, window_days),
+        "lead": {
+            "n": len(samples),
+            "p50": percentile(samples, 0.5),
+            "p90": percentile(samples, 0.9),
+            "samples": samples,
+        },
+    }
+
+
+def epic_machinery(rows: list[dict], number: int, children: list[int]) -> dict | None:
+    """Epic ömrü boyunca süreç sayıları; defter yoksa `None`."""
+    if not rows:
+        return None
+    child_set = {child for child in children if isinstance(child, int)}
+    scoped = [
+        row
+        for row in rows
+        if row.get("epic") == number
+        or (
+            isinstance(row.get("issue"), int)
+            and (row["issue"] in child_set or row["issue"] == number)
+        )
+    ]
+    blocked = sum(1 for row in scoped if row.get("stage") == "blocked")
+    deferred = sum(1 for row in scoped if row.get("stage") == "deferred")
+    return {
+        "gate_runs": sum(1 for row in scoped if row.get("stage") == "gate"),
+        "gate_failures": sum(
+            1
+            for row in scoped
+            if row.get("stage") == "gate" and gate_failed(row)
+        ),
+        "review_rounds": sum(1 for row in scoped if row.get("stage") == "review"),
+        "leaves_done": sum(
+            1
+            for row in scoped
+            if row.get("stage") == "leaf-done" and row.get("issue") in child_set
+        ),
+        "blocked": blocked,
+        "deferred": deferred,
+        "lead_minutes": percentile(lead_samples(scoped), 0.5),
+        "prevented": blocked + deferred,
+    }
+
+
 def epic_entry(
     number: int,
     title: str,
@@ -589,6 +793,7 @@ def epic_entry(
         "cycle_minutes": None,
         "cost_delta": None,
         "evaluations": evaluation_block(evaluations),
+        "machinery": None,
     }
 
 
@@ -762,6 +967,15 @@ def build_status(project: Path, args: argparse.Namespace) -> dict:
                 repo=str(section(config, "tracker").get("repo") or ""),
                 evaluations=evaluations,
             )
+    cycle_root = cycle.project_root(project, project)
+    cycle_rows = cycle.read(cycle_root)
+    pulse = pulse_block(cycle_rows)
+    for epic in epics:
+        epic["machinery"] = epic_machinery(
+            cycle_rows,
+            epic["number"],
+            [leaf.get("number") for leaf in epic.get("leaves") or []],
+        )
     if args.with_gate:
         if not epics:
             warnings.append("--with-gate: epic yok, doctor çağrılmadı")
@@ -783,6 +997,7 @@ def build_status(project: Path, args: argparse.Namespace) -> dict:
         "project": project_state(project, config),
         "epics": epics,
         "counts": counts,
+        "pulse": pulse,
         "warnings": warnings,
     }
 
@@ -807,7 +1022,63 @@ EPIC_KEYS = {
     "cycle_minutes",
     "cost_delta",
     "evaluations",
+    "machinery",
 }
+
+
+def valid_number(value: object) -> bool:
+    return value is None or (
+        isinstance(value, (int, float)) and not isinstance(value, bool)
+    )
+
+
+def valid_pulse(item: object) -> bool:
+    if not isinstance(item, dict) or set(item) != PULSE_KEYS:
+        return False
+    if item.get("status") not in {"ok", "missing"}:
+        return False
+    days = item.get("window_days")
+    if not isinstance(days, int) or isinstance(days, bool) or days < 1:
+        return False
+    for key in PULSE_KEYS - {"status", "window_days", "lead", "daily"}:
+        if not valid_number(item.get(key)):
+            return False
+    daily = item.get("daily")
+    if not isinstance(daily, list):
+        return False
+    if daily and len(daily) != days:
+        return False
+    if not all(
+        isinstance(value, int) and not isinstance(value, bool) and value >= 0
+        for value in daily
+    ):
+        return False
+    lead = item.get("lead")
+    if not isinstance(lead, dict) or set(lead) != LEAD_KEYS:
+        return False
+    if not isinstance(lead.get("n"), int) or isinstance(lead.get("n"), bool):
+        return False
+    if lead["n"] < 0 or not valid_number(lead.get("p50")) or not valid_number(lead.get("p90")):
+        return False
+    samples = lead.get("samples")
+    if not isinstance(samples, list) or len(samples) > LEAD_SAMPLE_CAP:
+        return False
+    return all(
+        isinstance(value, (int, float)) and not isinstance(value, bool)
+        for value in samples
+    )
+
+
+def valid_machinery(item: object) -> bool:
+    if item is None:
+        return True
+    if not isinstance(item, dict) or set(item) != MACHINERY_KEYS:
+        return False
+    for key in ("gate_runs", "gate_failures", "review_rounds", "leaves_done", "blocked", "deferred", "prevented"):
+        value = item.get(key)
+        if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+            return False
+    return valid_number(item.get("lead_minutes"))
 
 
 def valid_checkpoint(item: object) -> bool:
@@ -858,7 +1129,16 @@ def valid_epic(item: object, *, allow_legacy: bool = False) -> bool:
     if keys == EPIC_KEYS:
         if not valid_evaluations(item.get("evaluations")):
             return False
-    elif not (allow_legacy and keys == EPIC_KEYS - {"evaluations"}):
+        if not valid_machinery(item.get("machinery")):
+            return False
+    elif not (
+        allow_legacy
+        and (
+            keys == EPIC_KEYS - {"evaluations"}
+            or keys == EPIC_KEYS - {"machinery"}
+            or keys == EPIC_KEYS - {"evaluations", "machinery"}
+        )
+    ):
         return False
     if not isinstance(item.get("number"), int) or isinstance(item.get("number"), bool):
         return False
@@ -898,7 +1178,14 @@ def valid_epic(item: object, *, allow_legacy: bool = False) -> bool:
 
 
 def valid_contract(data: object, *, allow_legacy: bool = False) -> bool:
-    if not isinstance(data, dict) or set(data) != CONTRACT_KEYS:
+    if not isinstance(data, dict) or set(data) not in (
+        CONTRACT_KEYS,
+        CONTRACT_KEYS - {"pulse"},
+    ):
+        return False
+    if set(data) != CONTRACT_KEYS and not allow_legacy:
+        return False
+    if "pulse" in data and not valid_pulse(data.get("pulse")):
         return False
     if data.get("contract_version") != CONTRACT_VERSION:
         return False
@@ -959,8 +1246,22 @@ def normalize_cached_contract(data: dict) -> dict:
     for item in data["epics"]:
         epic = dict(item)
         epic["evaluations"] = evaluation_block(epic.get("evaluations"))
+        epic["machinery"] = epic.get("machinery")
         epics.append(epic)
-    return {**data, "epics": epics}
+    pulse = data.get("pulse") or {
+        "status": "missing",
+        "window_days": PULSE_WINDOW_DAYS,
+        "leaves_done": None,
+        "prev_delta": None,
+        "gates": None,
+        "gate_failures": None,
+        "review_rounds": None,
+        "blocked": None,
+        "deferred": None,
+        "daily": [],
+        "lead": {"n": 0, "p50": None, "p90": None, "samples": []},
+    }
+    return {**data, "epics": epics, "pulse": pulse}
 
 
 def args_fingerprint(args: argparse.Namespace) -> dict:
@@ -1039,6 +1340,15 @@ def render(data: dict) -> str:
         f"kit: {kit['version'] or '-'} @{kit['pin'] or '-'} ({dirty_text})",
         f"epic: {counts['epics']} · leaf: {counts['leaves']} · engel: {counts['blocked']}",
     ]
+    pulse = data.get("pulse") or {}
+    if pulse.get("status") == "ok":
+        lead = pulse.get("lead") or {}
+        p50 = lead.get("p50")
+        lines.append(
+            f"pulse {pulse.get('window_days')}g: {pulse.get('leaves_done')} leaf · "
+            f"{pulse.get('gates')} gate · {pulse.get('blocked')} engel · "
+            f"lead p50 {p50 if p50 is not None else '-'} dk"
+        )
     for epic in data["epics"]:
         checkpoints = epic.get("checkpoints") or []
         done = sum(1 for checkpoint in checkpoints if checkpoint.get("done"))

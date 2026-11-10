@@ -182,8 +182,9 @@ class ActiveWorkTests(unittest.TestCase):
         self.assertIn("açık iş yok", source)
         # Başlık biçimleri sabit: `#n — title` ve `#n — title · state`.
         self.assertIn("`#${epic.number} — ${epic.title ?? ''}`", source)
+        # Leaf satırı grup işaretiyle: `○ sırada`, `▸ devam`, `✓ bitti`.
         self.assertIn(
-            "`#${leaf.number} — ${leaf.title ?? ''} · ${leaf.state ?? '-'}`", source
+            "`${mark} #${leaf.number} — ${leaf.title ?? ''} · ${leaf.state ?? '-'}`", source
         )
 
 
@@ -211,10 +212,12 @@ class PanelTests(unittest.TestCase):
         self.assertIn("cpText(epic)", detail)
         self.assertIn("next_action", detail)
         self.assertIn("shortTime", detail)
-        # Detayda leaf listesi yok; leaf satırları yalnız liste görünümünde.
-        self.assertNotIn("leaves", detail)
+        # Detayda leaf listesi yok; yalnız grup sayısı yazılır, satır çizilmez.
+        self.assertNotIn("leafTitle(", detail)
+        self.assertIn("groupCountText(epic.leaves)", detail)
         list_source = source.split("function ProjectGroup", 1)[1].split("export default function Panel", 1)[0]
-        self.assertIn("(epic.leaves ?? [])", list_source)
+        # Canlı pano: leaf'ler bitti/devam/sırada gruplarında çizilir.
+        self.assertIn("groupLeaves(epic.leaves)", list_source)
 
 
 class EvaluationPanelTests(unittest.TestCase):
