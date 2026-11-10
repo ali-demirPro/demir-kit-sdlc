@@ -76,7 +76,7 @@ measurement:
     (brief dışı okunan + brief'te olup kullanılmayan dokümanların) token
     maliyeti / toplam bağlam tokenı. Token, .kit/usage-N.json oturum deltasından;
     doküman maliyeti okunan bayt / 4 ile tahmin edilir ve satırda yöntem yazılır.
-  storage: ".kit/context-metrics.jsonl (makine durumu, depoya girmez; satır: issue, cp, brief_docs, extra_docs, missed_docs, tokens, miss_rate, over_read_rate, config_digest)"
+  storage: ".kit/context-metrics.jsonl (makine durumu, depoya girmez; satır: issue, cp, selected_docs, brief_docs, unused_brief_docs, extra_docs, missed_docs, tokens, miss_rate, over_read_rate, clamped, armed, fallback_count, config_digest, method)"
   baseline: >-
     P2-4 ve P2-5 öncesi son 10 leaf ya da ilk ölçülen 10 leaf; baseline yoksa
     rapor "ölçülemedi" der, sayı uydurmaz.

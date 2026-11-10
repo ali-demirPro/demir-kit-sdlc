@@ -12,6 +12,9 @@
 - Testler minimal/standard/full seviyelerinde reviewer sayısının ve
   high/critical insan kapısının değişmediğini gerçek `rigor` ve `routing`
   fonksiyonlarıyla kanıtlar (`test_doctor.py`).
+- **İnsan-only onay (Epic 323, #260)** — `agent-approved` ve epic
+  `demir-kit-accept` yalnız insan authored yorumla verilir; ajan authored blok
+  reddedilir ve `--accept` yalnız ek doğrulamadır.
 - Sürüm 2.63.0.
 
 ## 2.62.0 — 2026-11-09

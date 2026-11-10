@@ -240,6 +240,7 @@ Tüm geçişler tek yazıcıdan yapılır:
 ```bash
 ./delivery/scripts/transition.sh --issue N --to scope-confirmed
 ./delivery/scripts/transition.sh --issue N --to agent-approved
+# Önce insan demir-kit-accept yorumu (issue: N, by: <login>, decision: accepted) gerekir.
 ./delivery/scripts/transition.sh --issue N --to executing      # claim'e delege
 ./delivery/scripts/transition.sh --issue N --to blocked --reason "…"
 ./delivery/scripts/transition.sh --issue N --to deferred --reason "…" --issue-link "#…"

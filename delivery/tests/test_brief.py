@@ -7,6 +7,7 @@ import hashlib
 import importlib.util
 import io
 import json
+import os
 import re
 import sys
 import tempfile
@@ -102,7 +103,16 @@ def config_body(seal: dict | None = None) -> str:
 class ConfigTests(unittest.TestCase):
     """Effective configuration banner (issue 313)."""
 
-    def run_brief(self, argv, index_path=None, title="config", seal=None, patch_repo=True):
+    def run_brief(
+        self,
+        argv,
+        index_path=None,
+        title="config",
+        seal=None,
+        patch_repo=True,
+        context_root=None,
+        set_context_root=True,
+    ):
         issue = json.dumps(
             {
                 "title": title,
@@ -113,6 +123,14 @@ class ConfigTests(unittest.TestCase):
         out = io.StringIO()
         err = io.StringIO()
         with contextlib.ExitStack() as stack:
+            runtime = stack.enter_context(tempfile.TemporaryDirectory())
+            stack.enter_context(patch.dict(os.environ, {}))
+            if set_context_root:
+                os.environ["DEMIR_KIT_CONTEXT_ROOT"] = str(
+                    context_root if context_root is not None else runtime
+                )
+            else:
+                os.environ.pop("DEMIR_KIT_CONTEXT_ROOT", None)
             if patch_repo:
                 stack.enter_context(
                     patch.object(brief, "repo_name", return_value="x/y")
@@ -328,6 +346,25 @@ class ConfigTests(unittest.TestCase):
         self.assertTrue(out.startswith("config:\n"))
         self.assertIn("fallback: ecosystem yok", out)
         self.assertIn("fallback: priorities yok", out)
+
+    def test_meta_path_uses_the_storage_root(self) -> None:
+        """Brief metadata follows the one storage-root resolver (issue 321)."""
+        with tempfile.TemporaryDirectory() as main_dir, tempfile.TemporaryDirectory() as worktree_dir:
+            main = Path(main_dir).resolve()
+            worktree = Path(worktree_dir).resolve()
+            with patch.object(
+                brief.context_metrics, "storage_root", return_value=main
+            ), patch.object(brief.routing, "project_root", return_value=worktree):
+                code, out, err = self.run_brief(
+                    ["321", "--cp", "CP-1"], set_context_root=False
+                )
+            self.assertEqual(code, 0, err)
+            self.assertIn("CP brief — CP-1", out)
+            meta = main / ".kit" / "brief-321-CP-1.json"
+            self.assertTrue(meta.is_file())
+            payload = json.loads(meta.read_text(encoding="utf-8"))
+            self.assertEqual((payload["issue"], payload["cp"]), (321, "CP-1"))
+            self.assertFalse((worktree / ".kit").exists())
 
 
 class LocalDensityTests(unittest.TestCase):
@@ -554,6 +591,104 @@ class CpBriefTests(unittest.TestCase):
             brief.render_cp_brief({"issue": 142}, SEAL, "CP-9")
 
 
+class BriefMetaTests(unittest.TestCase):
+    """Machine metadata for context metrics (issue 321)."""
+
+    def test_meta_path_writes_deterministic_metadata(self) -> None:
+        control = {
+            "armed": ["path pure_technical", "cp CP-1"],
+            "unarmed": ["route tuketilmedi"],
+            "fallbacks": ["ecosystem yok", "index yok"],
+        }
+        route = [
+            {"class": "unknown", "path": "delivery/tests"},
+            {"class": "retrieved", "path": "delivery/scripts/gate.py"},
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            meta = Path(tmp) / ".kit" / "brief-321-CP-1.json"
+            brief.render_cp_brief(
+                {"issue": 321, "risk": "medium"},
+                SEAL,
+                "CP-1",
+                control=control,
+                route=route,
+                meta_path=meta,
+            )
+            self.assertTrue(meta.is_file())
+            first = meta.read_text(encoding="utf-8")
+            payload = json.loads(first)
+            brief.render_cp_brief(
+                {"issue": 321, "risk": "medium"},
+                SEAL,
+                "CP-1",
+                control=control,
+                route=route,
+                meta_path=meta,
+            )
+            second = meta.read_text(encoding="utf-8")
+            self.assertFalse((meta.parent / (meta.name + ".tmp")).exists())
+        self.assertEqual(first, second)
+        self.assertEqual(payload["issue"], 321)
+        self.assertEqual(payload["cp"], "CP-1")
+        self.assertEqual(payload["armed"], control["armed"])
+        self.assertEqual(payload["unarmed"], control["unarmed"])
+        self.assertEqual(payload["fallbacks"], control["fallbacks"])
+        self.assertNotIn("brief_docs", payload)
+        self.assertTrue(payload["selected_docs"])
+        self.assertEqual(
+            payload["selected_docs"], sorted(set(payload["selected_docs"]))
+        )
+        self.assertIn("delivery/scripts/brief.py", payload["selected_docs"])
+        self.assertIn("delivery/scripts/gate.py", payload["selected_docs"])
+        self.assertNotIn("delivery/tests", payload["selected_docs"])
+
+    def test_non_list_control_values_are_omitted(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            meta = context_metrics.brief_meta_path(321, "CP-1", root)
+            brief.render_cp_brief(
+                {"issue": 321, "risk": "medium"},
+                SEAL,
+                "CP-1",
+                control={
+                    "armed": "no",
+                    "unarmed": "route tuketilmedi",
+                    "fallbacks": "index yok",
+                },
+                meta_path=meta,
+            )
+            payload = json.loads(meta.read_text(encoding="utf-8"))
+            read = context_metrics.read_brief_meta(321, "CP-1", root)
+            row = context_metrics.build_row(
+                321, "CP-1", tokens=100, brief_meta=read, root=root
+            )
+        self.assertNotIn("armed", payload)
+        self.assertNotIn("unarmed", payload)
+        self.assertNotIn("fallbacks", payload)
+        self.assertIsInstance(payload["selected_docs"], list)
+        self.assertTrue(
+            all(isinstance(item, str) for item in payload["selected_docs"])
+        )
+        self.assertEqual(row["armed"], "unknown")
+        self.assertEqual(row["fallback_count"], "unknown")
+
+    def test_unwritable_meta_path_still_returns_the_brief(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            blocker = Path(tmp) / "blocked"
+            blocker.write_text("x", encoding="utf-8")
+            meta = blocker / "brief-321-CP-1.json"
+            stderr = io.StringIO()
+            with contextlib.redirect_stderr(stderr):
+                text = brief.render_cp_brief(
+                    {"issue": 321, "risk": "medium"},
+                    SEAL,
+                    "CP-1",
+                    meta_path=meta,
+                )
+        self.assertIn("CP brief — CP-1", text)
+        self.assertIn("brief: metadata yazilamadi", stderr.getvalue())
+
+
 class ReadClassTests(unittest.TestCase):
     """sink/window/retrieved/unknown labels in the CP brief (issue 311)."""
 
@@ -695,7 +830,9 @@ class RouteTests(unittest.TestCase):
         )
         out = io.StringIO()
         err = io.StringIO()
-        with patch.object(brief, "repo_name", return_value="x/y"), patch.object(
+        with tempfile.TemporaryDirectory() as runtime, patch.dict(
+            os.environ, {"DEMIR_KIT_CONTEXT_ROOT": runtime}
+        ), patch.object(brief, "repo_name", return_value="x/y"), patch.object(
             brief, "gh", return_value=issue
         ), patch.object(brief, "index_file", return_value=index_path), patch.object(
             sys, "argv", ["brief.py", *argv]
@@ -1027,7 +1164,9 @@ class FrequencyTests(unittest.TestCase):
         )
         out = io.StringIO()
         err = io.StringIO()
-        with patch.object(brief, "repo_name", return_value="x/y"), patch.object(
+        with tempfile.TemporaryDirectory() as runtime, patch.dict(
+            os.environ, {"DEMIR_KIT_CONTEXT_ROOT": runtime}
+        ), patch.object(brief, "repo_name", return_value="x/y"), patch.object(
             brief, "gh", return_value=issue
         ), patch.object(
             brief, "index_file", return_value=index_path

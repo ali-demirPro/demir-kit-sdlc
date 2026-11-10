@@ -23,6 +23,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import approvals  # noqa: E402
+import cycle  # noqa: E402
 
 REQUEST_RE = re.compile(r"```yaml\s+demir-kit-request\s*\n(.*?)```", re.S)
 TIMEOUTS = {"low": 60, "medium": 60, "high": 240, "critical": 0, "irreversible": 0}
@@ -153,6 +154,16 @@ def apply(issue: int, note: str, repo: str) -> None:
     _gh(["issue", "edit", str(issue), "--remove-label", "human-qa"], repo)
 
 
+def record_wait_done(project: Path, issue: int) -> bool:
+    """Close an open approval wait in the project's cycle log.
+
+    Called from an epic worktree the log lives in the main checkout, so resolve
+    the owning project root instead of writing into the worktree.
+    """
+    root = cycle.project_root(Path(project), cwd=Path(project))
+    return cycle.close_wait(root, int(issue))
+
+
 def repo_name(project: Path) -> str:
     import yaml
 
@@ -199,6 +210,7 @@ def main() -> int:
             continue
         if args.apply:
             apply(decision["issue"], decision["note"], repo)
+            record_wait_done(project, decision["issue"])
         results.append(decision)
 
     if args.json:

@@ -263,6 +263,14 @@ class GitignoreRuntimeTests(unittest.TestCase):
             self.assertEqual(
                 (root / ".gitignore").read_text(encoding="utf-8").count(".kit/cycle.jsonl"), 1
             )
+            for line in (
+                ".kit/context-metrics.jsonl",
+                ".kit/context-metrics.jsonl.tmp",
+                ".kit/brief-*.json",
+                ".kit/brief-*.json.tmp",
+                ".kit/evidence.jsonl",
+            ):
+                self.assertEqual(text.splitlines().count(line), 1)
 
     def test_existing_orchestration_line_is_kept(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

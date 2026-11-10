@@ -1,7 +1,7 @@
 # Seal protocol
 
 Leaf'i yürütülebilir hale getirme. Şema: [leaf.schema.json](../schemas/leaf.schema.json).
-Durum geçişi: `scope-confirmed` → `agent-approved` (T2).
+Durum geçişi: `intake` / `scope-confirmed` → `agent-approved` (T2; parent epic `scope-confirmed`).
 
 Yeni leaf'ler `package_version: 4` ile mühürlenir. Bu sürüm önceki
 zorunlulukları devralır ve her `tests_plan` case'inde `check` alanı ister:
@@ -36,7 +36,14 @@ yalnız eski kayıtlar içindir; onlarda `check` varsa eşleşme yine denetlenir
 taşımayan unit/gate case'i, tekrarlı ID veya bilinmeyen AC/CP. Uyarılar
 `--strict` ile hata olur.
 
-6. Issue body'yi güncelle ve `agent-approved` ekle.
+6. Issue body'yi güncelle; insan `demir-kit-accept` yorumuyla `agent-approved` ekle:
+
+```yaml demir-kit-accept
+issue: 260
+by: <login>
+decision: accepted
+```
+
 7. Sıradaki adım: [health-check.md](health-check.md).
 
 ## Örnek

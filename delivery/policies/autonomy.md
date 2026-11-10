@@ -59,8 +59,8 @@ dönülemez iş süresizdir; vekâlet istenemez.
 Sınır:
 
 - **Ürün teslimatında `epic-done` kabulü insanda kalır (T9).** Kit
-  self-improvement lane'de kabul makine kapısıdır (CONTRACT → Self-improvement
-  lane). Vekâlet closure `pass` + merge edilmiş PR'da durur; iş kilitlenmez,
+  self-improvement lane'de makine kapısı kabul için yeterli değildir; T2 insan
+  onayı (`agent-approved`) ve T9 insan kabulü bu lane'de de zorunludur. Vekâlet closure `pass` + merge edilmiş PR'da durur; iş kilitlenmez,
   epic teslime hazır sayılır ve yalnız kabul bekler.
 - A0 durumları vekâletle kapatılamaz; geri dönülemez iş bekler.
 - Vekâlet iki kez devredilmez: vekil, başka bir vekil atayamaz.

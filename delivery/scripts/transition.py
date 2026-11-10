@@ -280,6 +280,21 @@ def cycle_row(
     return cycle.make_row(issue, stage, actor=actor, reason=reason, epic=epic)
 
 
+CLOSING_TARGETS = frozenset({"leaf-done", "epic-done"})
+
+
+def closes_wait(target: str) -> bool:
+    """Only closing transitions end an approval wait."""
+    return str(target) in CLOSING_TARGETS
+
+
+def record_cycle(root: Path, issue: int, target: str, row: dict) -> None:
+    """Append a transition row, closing an open wait on closing targets."""
+    if closes_wait(target):
+        cycle.close_wait(root, issue, ts=row.get("ts"))
+    cycle.record(root, row)
+
+
 def last_checkpoint(issue: dict) -> str | None:
     seal = parse_seal(issue.get("body") or "")
     checkpoints = seal.get("checkpoints") or []
@@ -394,6 +409,13 @@ def validate(issue: dict, target: str, args) -> tuple[bool, str]:
                 return False, f"parent epic #{parent} okunamadı"
             if "scope-confirmed" not in labels_of(parent_issue):
                 return False, f"parent epic #{parent} scope-confirmed değil"
+        acceptance = approvals.human_acceptance_for(
+            issue.get("comments") or [], issue.get("number") or 0
+        )
+        if not acceptance:
+            return False, "agent-approved için insan authored demir-kit-accept comment'i gerekli"
+        if args.accept and str(args.accept) != acceptance["by"]:
+            return False, f"--accept '{args.accept}' insan onayıyla eşleşmiyor"
     elif target == "executing":
         if epic:
             return False, "executing yalnız leaf için"
@@ -655,6 +677,41 @@ def warn_context_metrics(number: int, cp: str | None = None) -> None:
         print(message, file=sys.stderr)
 
 
+def ensure_context_metrics(
+    number: int,
+    cp: str | None = None,
+    require: bool = False,
+    root: Path | None = None,
+) -> None:
+    """Auto-record the CP row from the brief metadata, then check it.
+
+    An existing ``(issue, cp)`` row always wins: ``record_from_brief`` only
+    runs when the check found nothing, so a usage-evidenced row is never
+    replaced by the ``split:unknown`` brief row (AC-1: "write when absent").
+
+    ``require`` turns a still-missing row into a hard stop; otherwise the
+    warning is printed and the leaf-done transition continues.
+    """
+    if root is None:
+        override = os.environ.get("DEMIR_KIT_CONTEXT_ROOT")
+        # Usage evidence lives with the caller (epic worktree); the metrics
+        # file itself is mapped to the main checkout by ``metrics_path``.
+        root = Path(override) if override else Path.cwd()
+    if cp:
+        ok, _ = context_metrics.check(number, cp, root)
+        if ok:
+            return
+        context_metrics.record_from_brief(number, cp, root)
+    ok, message = context_metrics.check(number, cp, root)
+    if ok:
+        return
+    if not cp:
+        message += " (checkpoint bilinmiyor; yalnız issue kontrol edildi)"
+    if require:
+        sys.exit(f"transition: {message} (--require-metrics)")
+    print(message, file=sys.stderr)
+
+
 def close_leaf_gate(issue: dict, args) -> None:
     """Full leaf gate before leaf-done, or an explicit, recorded degrade."""
     if args.no_gate:
@@ -735,10 +792,15 @@ def main() -> int:
     parser.add_argument(
         "--cp", help="leaf-done context-metrics kontrolü için CP kimliği (ör. CP-1)"
     )
+    parser.add_argument(
+        "--require-metrics",
+        action="store_true",
+        help="leaf-done için context-metrics satırı yoksa dur",
+    )
     parser.add_argument("--reason", default="")
     parser.add_argument("--issue-link", default="")
     parser.add_argument(
-        "--accept", default="", help="epic-done insan login doğrulaması (opsiyonel)"
+        "--accept", default="", help="insan login ek doğrulaması (agent-approved/epic-done)"
     )
     parser.add_argument(
         "--keep-worktree",
@@ -821,9 +883,13 @@ def main() -> int:
         return 0
 
     if args.to == "leaf-done":
-        warn_context_metrics(args.issue, metrics_cp(args.cp, issue))
         close_leaf_gate(issue, args)
         check_push(args)
+        ensure_context_metrics(
+            args.issue,
+            metrics_cp(args.cp, issue),
+            require=args.require_metrics,
+        )
 
     run_id = datetime.now(timezone.utc).strftime("run-%Y%m%dT%H%M%SZ")
     transition_comment = (
@@ -850,9 +916,7 @@ def main() -> int:
         applied = {"add": added, "remove": removed}
 
     if not args.no_cycle:
-        cycle.close_wait(cycle.project_root(ROOT), args.issue, ts=row.get("ts"))
-        cycle.record(cycle.project_root(ROOT), row)
-
+        record_cycle(cycle.project_root(ROOT), args.issue, args.to, row)
 
     if not args.no_orca:
         seal = parse_seal(issue.get("body") or "")

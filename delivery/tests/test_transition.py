@@ -62,6 +62,17 @@ def epic_issue(labels: list[str], comments: list[dict] | None = None) -> dict:
     }
 
 
+def human_accept(issue_id: int, by: str = "human", decision: str = "accepted") -> dict:
+    return {
+        "body": fenced(
+            "demir-kit-accept",
+            {"issue": issue_id, "by": by, "decision": decision},
+        ),
+        "user": {"login": by},
+        "author_association": "OWNER",
+    }
+
+
 def closure(status: str = "pass") -> dict:
     return {
         "demir_kit_version": "2",
@@ -232,8 +243,39 @@ class TransitionTests(unittest.TestCase):
         self.assertTrue(any("run transition:" in body for body in comments))
         self.assertFalse(any("demir-kit-accept" in body for body in comments))
 
+    def test_epic_done_rejects_mismatched_accept(self) -> None:
+        accept = {
+            "body": fenced(
+                "demir-kit-accept",
+                {
+                    "demir_kit_version": "2",
+                    "epic": 44,
+                    "by": "human",
+                    "decision": "accepted",
+                },
+            ),
+            "user": {"login": "human"},
+            "author_association": "MEMBER",
+        }
+        issue = epic_issue(
+            ["scope-confirmed", "human-qa"],
+            comments=[
+                {"body": fenced("demir-kit-closure", closure())},
+                accept,
+            ],
+        )
+        child = leaf_issue(["leaf-done"])
+        with patch.object(
+            transition, "fetch_issue", side_effect=lambda n: issue if n == 44 else child
+        ):
+            with self.assertRaises(SystemExit) as error:
+                run_transition(
+                    ["--issue", "44", "--to", "epic-done", "--accept", "other"]
+                )
+        self.assertIn("eşleşmiyor", str(error.exception))
+
     def test_agent_approved_requires_parent_scope(self) -> None:
-        leaf = leaf_issue(["intake"])
+        leaf = leaf_issue(["intake"], comments=[human_accept(48)])
         parent = epic_issue(["intake"])
         with patch.object(
             transition, "fetch_issue", side_effect=[leaf, parent]
@@ -241,6 +283,69 @@ class TransitionTests(unittest.TestCase):
             with self.assertRaises(SystemExit) as error:
                 run_transition(["--issue", "48", "--to", "agent-approved"])
         self.assertIn("parent", str(error.exception))
+
+    def test_agent_approved_requires_human_comment(self) -> None:
+        leaf = leaf_issue(["intake"])
+        parent = epic_issue(["scope-confirmed"])
+        with patch.object(
+            transition, "fetch_issue", side_effect=[leaf, parent]
+        ):
+            with self.assertRaises(SystemExit) as error:
+                run_transition(["--issue", "48", "--to", "agent-approved"])
+        self.assertIn("insan", str(error.exception))
+
+    def test_agent_approved_accepts_human_comment(self) -> None:
+        leaf = leaf_issue(["intake"], comments=[human_accept(48)])
+        parent = epic_issue(["scope-confirmed"])
+        calls: list[list[str]] = []
+        comments: list[str] = []
+        with patch.object(
+            transition, "fetch_issue", side_effect=[leaf, parent]
+        ), patch.object(
+            transition, "doctor_ok", return_value=(True, "")
+        ), patch.object(
+            transition, "gh", side_effect=lambda args: calls.append(args) or ""
+        ), patch.object(
+            transition, "post_comment", side_effect=lambda number, body: comments.append(body)
+        ):
+            self.assertEqual(
+                run_transition(["--issue", "48", "--to", "agent-approved"]), 0
+            )
+        self.assertTrue(
+            any(
+                "--add-label" in call and "agent-approved" in call
+                for call in calls
+            )
+        )
+        self.assertTrue(any("run transition:" in body for body in comments))
+
+    def test_agent_approved_rejects_agent_comment(self) -> None:
+        agent = human_accept(48, by="agent")
+        agent["author_association"] = "NONE"
+        leaf = leaf_issue(["intake"], comments=[agent])
+        parent = epic_issue(["scope-confirmed"])
+        with patch.object(
+            transition, "fetch_issue", side_effect=[leaf, parent]
+        ):
+            with self.assertRaises(SystemExit) as error:
+                run_transition(["--issue", "48", "--to", "agent-approved"])
+        self.assertIn("insan", str(error.exception))
+
+    def test_agent_approved_rejects_mismatched_accept(self) -> None:
+        leaf = leaf_issue(["intake"], comments=[human_accept(48)])
+        parent = epic_issue(["scope-confirmed"])
+        with patch.object(
+            transition, "fetch_issue", side_effect=[leaf, parent]
+        ):
+            with self.assertRaises(SystemExit) as error:
+                run_transition(
+                    [
+                        "--issue", "48",
+                        "--to", "agent-approved",
+                        "--accept", "other",
+                    ]
+                )
+        self.assertIn("eşleşmiyor", str(error.exception))
 
     def test_executing_delegates_to_claim(self) -> None:
         issue = leaf_issue(["agent-approved"])
@@ -280,6 +385,119 @@ class TransitionTests(unittest.TestCase):
         self.assertEqual(transition.orca_status_for("executing"), "in-progress")
         self.assertEqual(transition.orca_status_for("leaf-done"), "in-review")
         self.assertEqual(transition.orca_status_for("epic-done"), "completed")
+
+    def test_require_metrics_flag_is_registered(self) -> None:
+        import contextlib
+        import io
+
+        output = io.StringIO()
+        with patch.object(sys, "argv", ["transition.py", "--help"]):
+            with contextlib.redirect_stdout(output):
+                with self.assertRaises(SystemExit) as error:
+                    transition.main()
+        self.assertEqual(error.exception.code, 0)
+        self.assertIn("--require-metrics", output.getvalue())
+
+    def _leaf_with_cp(self) -> dict:
+        issue = leaf_issue(["executing"])
+        issue["body"] = fenced(
+            "demir-kit",
+            {
+                "epic": 44,
+                "risk": {"level": "medium"},
+                "checkpoints": [
+                    {
+                        "id": "CP-1",
+                        "title": "cp",
+                        "gates": {"behavior": True},
+                    }
+                ],
+            },
+        )
+        return issue
+
+    def _leaf_done_patches(self, issue: dict):
+        return (
+            patch.object(transition, "fetch_issue", return_value=issue),
+            patch.object(transition, "doctor_ok", return_value=(True, "")),
+            patch.object(transition, "close_leaf_gate"),
+            patch.object(transition, "check_push"),
+            patch.object(transition, "apply_delta", return_value=([], [])),
+            patch.object(transition, "post_comment", return_value=None),
+        )
+
+    def test_leaf_done_writes_metrics_through_main(self) -> None:
+        issue = self._leaf_with_cp()
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            kit = root / ".kit"
+            kit.mkdir()
+            (kit / "brief-48-CP-1.json").write_text(
+                json.dumps(
+                    {
+                        "issue": 48,
+                        "cp": "CP-1",
+                        "armed": ["cp CP-1"],
+                        "fallbacks": [],
+                        "selected_docs": [],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (kit / "usage-48.json").write_text(
+                json.dumps({"tokens": {"input": 100}}), encoding="utf-8"
+            )
+            env = {
+                "DEMIR_KIT_CONTEXT_ROOT": directory,
+                "DEMIR_KIT_CYCLE_ROOT": directory,
+            }
+            with patch.dict(os.environ, env, clear=False):
+                with self._leaf_done_patches(issue)[0], \
+                     self._leaf_done_patches(issue)[1], \
+                     self._leaf_done_patches(issue)[2], \
+                     self._leaf_done_patches(issue)[3], \
+                     self._leaf_done_patches(issue)[4], \
+                     self._leaf_done_patches(issue)[5]:
+                    code = run_transition(
+                        ["--issue", "48", "--to", "leaf-done", "--no-orca"]
+                    )
+            self.assertEqual(code, 0)
+            rows = [
+                json.loads(raw)
+                for raw in (kit / "context-metrics.jsonl")
+                .read_text(encoding="utf-8")
+                .splitlines()
+            ]
+        self.assertEqual([(row["issue"], row["cp"]) for row in rows], [(48, "CP-1")])
+        self.assertEqual(rows[0]["tokens"], 100)
+
+    def test_leaf_done_require_metrics_stops_without_a_row(self) -> None:
+        issue = self._leaf_with_cp()
+        with tempfile.TemporaryDirectory() as directory:
+            env = {
+                "DEMIR_KIT_CONTEXT_ROOT": directory,
+                "DEMIR_KIT_CYCLE_ROOT": directory,
+            }
+            with patch.dict(os.environ, env, clear=False):
+                with self._leaf_done_patches(issue)[0], \
+                     self._leaf_done_patches(issue)[1], \
+                     self._leaf_done_patches(issue)[2], \
+                     self._leaf_done_patches(issue)[3], \
+                     self._leaf_done_patches(issue)[4], \
+                     self._leaf_done_patches(issue)[5]:
+                    with self.assertRaises(SystemExit) as error:
+                        run_transition(
+                            [
+                                "--issue", "48",
+                                "--to", "leaf-done",
+                                "--require-metrics",
+                                "--no-orca",
+                            ]
+                        )
+            self.assertIn("--require-metrics", str(error.exception))
+            self.assertFalse(
+                (Path(directory) / ".kit" / "context-metrics.jsonl").exists()
+            )
 
 
 if __name__ == "__main__":

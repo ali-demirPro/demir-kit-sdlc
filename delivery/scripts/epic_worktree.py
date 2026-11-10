@@ -326,8 +326,41 @@ def normalize_run(payload: dict | None, objective: str | None = None) -> dict:
     return {}
 
 
+def run_task_count(project: Path, run_id: str) -> int | None:
+    """Number of tasks in a run, or None when Orca cannot answer."""
+    payload = orca_json(
+        ["orchestration", "task-list", "--run", run_id, "--json"], project
+    )
+    if not isinstance(payload, dict) or not payload.get("ok"):
+        return None
+    result = payload.get("result")
+    if not isinstance(result, dict):
+        return None
+    tasks = result.get("tasks")
+    return len(tasks) if isinstance(tasks, list) else None
+
+
 def ensure_run(project: Path, epic: int, record: dict) -> dict:
     if record.get("mode") != "orca":
+        return record
+    existing = _valid_run_id(record.get("run_id"))
+    if existing:
+        # A bound run owns its task history: a claim must never repoint it at
+        # the coordinator's current run (#319). Write only when empty.
+        record["run_id"] = existing
+        count = run_task_count(project, existing)
+        if count == 0:
+            record["run_warning"] = (
+                f"epic run {existing} task içermiyor; run_id korundu, "
+                "elle karar ver"
+            )
+        elif count is None:
+            record["run_warning"] = (
+                f"epic run {existing} task listesi okunamadı; run_id korundu"
+            )
+        else:
+            record.pop("run_warning", None)
+        record.pop("run_error", None)
         return record
     objective = f"epic #{epic}"
     current = orca_json(["orchestration", "run-current", "--json"], project)

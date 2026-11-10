@@ -12,9 +12,20 @@ Definitions (single source of truth, see ``delivery/policies/context-budget.md``
   ``unknown``; a zero is never invented. Rates above 1 are clamped to 1.0 and
   the row records ``clamped: true``. The ``method`` field names the source as
   ``usage-delta`` (session delta) or ``usage-total`` (explicit snapshot file).
+- ``selected_docs`` is what the CP brief chose. When use evidence is absent
+  (``usage_known=False``, the ``record_from_brief`` path) the used/unused split
+  stays empty, both rates are ``unknown`` and ``method`` carries
+  ``split:unknown``; ``tokens`` may still come from the usage delta, because
+  only the used/unused split is unknown, not the token total. The selection is
+  never reported as used.
 
-One deterministic JSON line is appended to ``.kit/context-metrics.jsonl`` so a
-leaf-done transition can tell whether the CP was measured.
+One deterministic JSON line is written per ``(issue, cp)`` to
+``.kit/context-metrics.jsonl`` so a leaf-done transition can tell whether the CP
+was measured; recording the same pair again replaces its line instead of
+appending a duplicate. Writers serialize on ``.kit/context-metrics.lock``
+(``fcntl.flock`` where available) and a read error raises
+:class:`ContextMetricsError` without touching the file, so a broken line set is
+never silently truncated.
 """
 
 from __future__ import annotations
@@ -27,10 +38,17 @@ import re
 import sys
 from pathlib import Path
 
+try:  # POSIX only; a lock-less platform still records, just unserialized.
+    import fcntl
+except ImportError:  # pragma: no cover - Windows
+    fcntl = None
+
 import usage
 import yaml
 
 UNKNOWN = "unknown"
+UNMEASURED = "ölçülemedi"
+DISTRIBUTION_KEYS = ("0", "(0,0.25]", "(0.25,0.5]", "(0.5,1.0]", "unknown")
 METRICS_PATH = Path(".kit") / "context-metrics.jsonl"
 ROOT = Path(__file__).resolve().parents[2]
 INDEX_VERSION_RE = re.compile(r"^version:\s*(\S+)\s*$", re.M)
@@ -39,6 +57,10 @@ FREQUENCY_PATH = Path("delivery") / "context" / "frequency.yaml"
 INDEX_PATH = Path("delivery") / "context" / "index.yaml"
 FREQUENCY_KEYS = {"version", "source", "rows"}
 FREQUENCY_ROW_KEYS = {"doc", "surface", "selected", "used", "ratio"}
+
+
+class ContextMetricsError(RuntimeError):
+    """The metrics file could not be read; it was left untouched."""
 
 
 class FrequencyError(ValueError):
@@ -58,8 +80,66 @@ def resolve_root(project: Path | str | None = None) -> Path:
     return ROOT
 
 
+def storage_root(root: Path | None = None) -> Path:
+    """Root that owns the runtime ``.kit`` files (brief metadata + metrics).
+
+    One rule for writer and reader: an explicit root wins, then
+    ``DEMIR_KIT_CONTEXT_ROOT`` (test/runtime override), then the main checkout
+    (``cycle.jsonl`` lives there and survives the epic worktree).
+    """
+    if root is not None:
+        target = Path(root).resolve()
+        # An explicit epic worktree still owns state in its main checkout:
+        # .kit runtime files must survive the worktree's removal.
+        import cycle
+
+        common = cycle.git_root(target)
+        if common and (common / "kit.config.yaml").is_file():
+            return common
+        return target
+    override = os.environ.get("DEMIR_KIT_CONTEXT_ROOT")
+    if override:
+        return Path(override).resolve()
+    import cycle
+
+    return cycle.project_root(ROOT)
+
+
 def metrics_path(root: Path | None = None) -> Path:
-    return resolve_root(root) / METRICS_PATH
+    return storage_root(root) / METRICS_PATH
+
+
+def brief_meta_path(issue: int, cp: str, root: Path | None = None) -> Path:
+    """Machine metadata written by the CP brief for one issue + checkpoint."""
+    return storage_root(root) / ".kit" / f"brief-{issue}-{cp}.json"
+
+
+def read_brief_meta(
+    issue: int, cp: str, root: Path | None = None
+) -> dict | None:
+    """Brief metadata for ``issue``/``cp``; ``None`` when absent or mismatched.
+
+    A known list key whose value is not a ``list[str]`` marks the whole file as
+    corrupt (hand-edited or wrongly written), so it is not trusted at all.
+    """
+    try:
+        data = json.loads(
+            brief_meta_path(issue, cp, root).read_text(encoding="utf-8")
+        )
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    if data.get("issue") != issue or data.get("cp") != cp:
+        return None
+    for key in ("armed", "unarmed", "fallbacks", "selected_docs"):
+        if key in data:
+            value = data[key]
+            if not isinstance(value, list) or not all(
+                isinstance(item, str) for item in value
+            ):
+                return None
+    return data
 
 
 def display_path(value: str | Path, root: Path | None = None) -> str:
@@ -100,7 +180,7 @@ def load_usage(path: Path) -> dict | None:
     """Parsed usage JSON, or ``None`` when missing or invalid."""
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
         return None
     return data if isinstance(data, dict) else None
 
@@ -120,7 +200,7 @@ def session_delta(issue: int, root: Path | None = None) -> dict | None:
     """Session delta from ``usage.py`` rooted at ``root``; ``None`` when unavailable."""
     try:
         return usage.session_delta(issue, project=resolve_root(root))
-    except Exception:  # noqa: BLE001 - missing snapshot/session is ``unknown``
+    except (Exception, SystemExit):  # noqa: BLE001 - missing/unreachable is ``unknown``
         return None
 
 
@@ -237,32 +317,79 @@ def build_row(
     tokens: int | None = None,
     usage_file: str | Path | None = None,
     config: str | None = None,
+    brief_meta: dict | None = None,
     root: Path | None = None,
+    selected_docs: list[str] | None = None,
+    usage_known: bool = True,
 ) -> dict:
     base = resolve_root(root)
-    brief_sorted = sorted(display_path(value, base) for value in brief_docs or [])
-    unused_sorted = sorted(
-        display_path(value, base) for value in unused_brief_docs or []
+    selected_sorted = sorted(
+        display_path(value, base) for value in selected_docs or []
     )
-    extra_sorted = sorted(display_path(value, base) for value in extra_docs or [])
-    missed_sorted = sorted(display_path(value, base) for value in missed_docs or [])
+    if usage_known:
+        brief_sorted = sorted(
+            display_path(value, base) for value in brief_docs or []
+        )
+        unused_sorted = sorted(
+            display_path(value, base) for value in unused_brief_docs or []
+        )
+        extra_sorted = sorted(
+            display_path(value, base) for value in extra_docs or []
+        )
+        missed_sorted = sorted(
+            display_path(value, base) for value in missed_docs or []
+        )
+    else:
+        # Selection is known but there is no use evidence: never fabricate a
+        # used/unused split or a zero rate.
+        brief_sorted = []
+        unused_sorted = []
+        extra_sorted = []
+        missed_sorted = []
     token_value, token_method = resolve_tokens(issue, tokens, usage_file, base)
-    rate, clamped, missing = over_read_rate(
-        extra_sorted, unused_sorted, token_value, base
-    )
+    if usage_known:
+        rate, clamped, missing = over_read_rate(
+            extra_sorted, unused_sorted, token_value, base
+        )
+        miss_value = miss_rate(brief_sorted, missed_sorted)
+    else:
+        rate, clamped, missing = UNKNOWN, False, []
+        miss_value = UNKNOWN
     method = [token_method]
     method += [f"doc-missing:{value}" for value in missing]
+    if not usage_known:
+        # Only the used/unused split is unknown; tokens may still be a delta.
+        method.append("split:unknown")
+    meta = brief_meta if isinstance(brief_meta, dict) else None
+    if meta is not None and "armed" in meta and isinstance(meta["armed"], list):
+        armed_value = bool(meta["armed"])
+    else:
+        # A present key keeps its meaning; an absent key or a non-list value
+        # (null/str) is unmeasured, never a fabricated False/0.
+        armed_value = UNKNOWN
+    if (
+        meta is not None
+        and "fallbacks" in meta
+        and isinstance(meta["fallbacks"], list)
+    ):
+        fallback_count = len(meta["fallbacks"])
+    else:
+        # No metadata (or a non-list fallbacks value) means unmeasured.
+        fallback_count = UNKNOWN
     row = {
         "issue": issue,
         "cp": cp,
+        "selected_docs": selected_sorted,
         "brief_docs": brief_sorted,
         "unused_brief_docs": unused_sorted,
         "extra_docs": extra_sorted,
         "missed_docs": missed_sorted,
         "tokens": token_value,
-        "miss_rate": miss_rate(brief_sorted, missed_sorted),
+        "miss_rate": miss_value,
         "over_read_rate": rate,
         "clamped": clamped,
+        "armed": armed_value,
+        "fallback_count": fallback_count,
         "config_digest": config_digest(base, config),
         "method": ";".join(sorted(method)),
     }
@@ -271,6 +398,46 @@ def build_row(
 
 def line_of(row: dict) -> str:
     return json.dumps(row, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
+def _existing_lines(path: Path) -> list[str]:
+    """Lines of the current metrics file; a read error never erases them.
+
+    A missing file is an empty history. An existing but unreadable file (bad
+    UTF-8, permissions, I/O error) raises :class:`ContextMetricsError` so the
+    caller leaves the bytes alone instead of rewriting them from ``[]``.
+    """
+    if not path.exists():
+        return []
+    try:
+        return path.read_text(encoding="utf-8").splitlines()
+    except (UnicodeDecodeError, OSError) as exc:
+        raise ContextMetricsError(
+            f"context-metrics okunamadi: {path}: {exc}"
+        ) from exc
+
+
+def _replace_line(lines: list[str], issue: int, cp: str, line: str) -> list[str]:
+    """Drop the old rows for ``(issue, cp)`` and append the new line."""
+    kept: list[str] = []
+    for raw in lines:
+        if not raw.strip():
+            continue
+        try:
+            current = json.loads(raw)
+        except json.JSONDecodeError:
+            # A broken line is not ours to drop.
+            kept.append(raw)
+            continue
+        if (
+            isinstance(current, dict)
+            and current.get("issue") == issue
+            and current.get("cp") == cp
+        ):
+            continue
+        kept.append(raw)
+    kept.append(line)
+    return kept
 
 
 def record(
@@ -283,8 +450,11 @@ def record(
     tokens: int | None = None,
     usage_file: str | Path | None = None,
     config: str | None = None,
+    brief_meta: dict | None = None,
     root: Path | None = None,
     write: bool = True,
+    selected_docs: list[str] | None = None,
+    usage_known: bool = True,
 ) -> tuple[dict, str]:
     row = build_row(
         issue,
@@ -296,15 +466,74 @@ def record(
         tokens=tokens,
         usage_file=usage_file,
         config=config,
+        brief_meta=brief_meta,
         root=root,
+        selected_docs=selected_docs,
+        usage_known=usage_known,
     )
     line = line_of(row)
     if write:
         path = metrics_path(root)
         path.parent.mkdir(parents=True, exist_ok=True)
-        with path.open("a", encoding="utf-8") as handle:
-            handle.write(line + "\n")
+        lock_path = path.parent / "context-metrics.lock"
+        lock_fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o644)
+        try:
+            if fcntl is not None:
+                fcntl.flock(lock_fd, fcntl.LOCK_EX)
+            kept = _replace_line(_existing_lines(path), issue, cp, line)
+            # Write to a sibling temp file and atomically replace, so a crash
+            # mid-write cannot truncate the existing metrics file.
+            tmp = path.with_name(path.name + ".tmp")
+            tmp.write_text("\n".join(kept) + "\n", encoding="utf-8")
+            os.replace(tmp, path)
+        finally:
+            if fcntl is not None:
+                try:
+                    fcntl.flock(lock_fd, fcntl.LOCK_UN)
+                except OSError:  # pragma: no cover - closing releases it too
+                    pass
+            os.close(lock_fd)
     return row, line
+
+
+def record_from_brief(
+    issue: int, cp: str, root: Path | None = None
+) -> tuple[dict, str] | None:
+    """Record a row from the CP brief metadata; ``None`` when it is missing.
+
+    The brief only knows which documents it *selected*, not which were used, so
+    the row carries ``selected_docs`` with ``usage_known=False`` instead of
+    claiming the selection was used (which would fabricate 0.0 rates).
+    """
+    meta = read_brief_meta(issue, cp, root)
+    if meta is None:
+        return None
+    selected = meta.get("selected_docs")
+    try:
+        return record(
+            issue,
+            cp,
+            selected_docs=selected if isinstance(selected, list) else [],
+            usage_known=False,
+            brief_meta=meta,
+            root=root,
+        )
+    except ContextMetricsError:
+        # A leaf-done must not crash because the metrics file is unreadable.
+        print(
+            "uyari: context-metrics okunamadi; satir yazilmadi",
+            file=sys.stderr,
+        )
+        return None
+    except OSError:
+        # Metadata is optional; a read-only project keeps its leaf-done, but
+        # the missing row must still be visible on stderr.
+        print("uyari: context-metrics yazilamadi; satir yok", file=sys.stderr)
+        return None
+    except (ValueError, TypeError, OverflowError):
+        # A malformed usage snapshot must not turn a measurement into a stop.
+        print("uyari: context-metrics okunamadi; satir yazilmadi", file=sys.stderr)
+        return None
 
 
 def check(
@@ -316,7 +545,8 @@ def check(
         return False, "uyari: context-metrics satiri yok"
     try:
         lines = path.read_text(encoding="utf-8").splitlines()
-    except OSError:
+    except (UnicodeDecodeError, OSError):
+        # A broken file must not crash the leaf-done warning path.
         return False, "uyari: context-metrics satiri yok"
     for raw in lines:
         if not raw.strip():
@@ -392,6 +622,109 @@ def _metrics_lines(path: Path):
             continue
         if isinstance(row, dict):
             yield row
+
+
+def _distribution(values: list) -> dict:
+    """Five deterministic buckets; numeric values never land in ``unknown``."""
+    buckets = {key: 0 for key in DISTRIBUTION_KEYS}
+    for value in values:
+        if not _is_number(value):
+            buckets["unknown"] += 1
+            continue
+        rate = float(value)
+        if rate <= 0:
+            buckets["0"] += 1
+        elif rate <= 0.25:
+            buckets["(0,0.25]"] += 1
+        elif rate <= 0.5:
+            buckets["(0.25,0.5]"] += 1
+        else:
+            buckets["(0.5,1.0]"] += 1
+    return buckets
+
+
+def _rate_block(values: list) -> dict:
+    """``measured``, ``average`` and ``distribution`` for one rate column."""
+    numeric = [float(value) for value in values if _is_number(value)]
+    average = round(sum(numeric) / len(numeric), 4) if numeric else UNMEASURED
+    return {
+        "measured": len(numeric),
+        "average": average,
+        "distribution": _distribution(values),
+    }
+
+
+def _leaf_row(row: dict) -> dict:
+    """Per-leaf summary; anything unmeasured stays ``ölçülemedi``."""
+    issue = row.get("issue")
+    cp = row.get("cp")
+    armed = row.get("armed")
+    fallback = row.get("fallback_count")
+    miss_value = row.get("miss_rate")
+    over_value = row.get("over_read_rate")
+    return {
+        "issue": issue if _is_int(issue) else UNMEASURED,
+        "cp": cp if isinstance(cp, str) and cp.strip() else UNMEASURED,
+        "armed": armed if isinstance(armed, bool) else UNMEASURED,
+        "fallback_count": fallback if _is_number(fallback) else UNMEASURED,
+        "miss_rate": miss_value if _is_number(miss_value) else UNMEASURED,
+        "over_read_rate": over_value if _is_number(over_value) else UNMEASURED,
+    }
+
+
+def summary(
+    metrics_file: str | Path | None = None,
+    window: int = 10,
+    root: Path | None = None,
+) -> dict:
+    """Deterministic miss/over-read summary over ``.kit/context-metrics.jsonl``.
+
+    ``sample`` is every readable line, ``window`` is the trailing slice
+    (``leaves``) and ``ready`` says whether that slice already holds ten leaves.
+    Rates and the armed/fallback counts aggregate over that trailing window: the
+    report is a 10-leaf window, not an ever-growing total. A rate that is not
+    numeric is never replaced by a fabricated zero.
+    """
+    base = resolve_root(root)
+    path = (
+        _target(metrics_file, base)
+        if metrics_file is not None
+        else metrics_path(root)
+    )
+    rows = list(_metrics_lines(path))
+    size = max(0, int(window))
+    recent = rows[-size:] if size else []
+
+    miss_values = [row.get("miss_rate") for row in recent]
+    over_values = [row.get("over_read_rate") for row in recent]
+
+    armed = {"true": 0, "false": 0, "unknown": 0}
+    fallback_total = 0
+    fallback_unknown = 0
+    for row in recent:
+        armed_value = row.get("armed")
+        if armed_value is True:
+            armed["true"] += 1
+        elif armed_value is False:
+            armed["false"] += 1
+        else:
+            armed["unknown"] += 1
+        fallback = row.get("fallback_count")
+        if _is_number(fallback):
+            fallback_total += fallback
+        else:
+            fallback_unknown += 1
+
+    return {
+        "sample": len(rows),
+        "window": len(recent),
+        "ready": len(recent) >= 10,
+        "leaves": [_leaf_row(row) for row in recent],
+        "miss_rate": _rate_block(miss_values),
+        "over_read_rate": _rate_block(over_values),
+        "armed": armed,
+        "fallback_count": {"total": fallback_total, "unknown": fallback_unknown},
+    }
 
 
 def learn_rows(
@@ -582,7 +915,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--project", type=Path, help="project root (default: cwd)")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    record_parser = sub.add_parser("record", help="append one metrics line")
+    record_parser = sub.add_parser(
+        "record",
+        help="write/replace the metrics line for one issue + checkpoint",
+    )
     record_parser.add_argument("--issue", type=int, required=True)
     record_parser.add_argument("--cp", required=True)
     record_parser.add_argument("--brief-doc", action="append", default=[])
@@ -598,6 +934,17 @@ def main(argv: list[str] | None = None) -> int:
     check_parser.add_argument("--issue", type=int, required=True)
     check_parser.add_argument("--cp", help="ayni issue ve cp satirini ara")
 
+    summary_parser = sub.add_parser("summary", help="10-leaf miss/over-read ozeti")
+    summary_parser.add_argument("--window", type=int, default=10)
+    # The top-level flag still parses before the subcommand; SUPPRESS keeps this
+    # alias from overwriting a value that came before ``summary``.
+    summary_parser.add_argument(
+        "--project",
+        type=Path,
+        default=argparse.SUPPRESS,
+        help="proje koku (alt komuttan sonra da kabul edilir)",
+    )
+
     learn_parser = sub.add_parser(
         "learn", help="derive delivery/context/frequency.yaml from metrics"
     )
@@ -607,7 +954,19 @@ def main(argv: list[str] | None = None) -> int:
     learn_parser.add_argument("--dry-run", action="store_true")
 
     args = parser.parse_args(argv)
-    root = resolve_root(args.project)
+    root = (
+        resolve_root(args.project)
+        if args.command == "learn"
+        else storage_root(args.project)
+    )
+
+    if args.command == "summary":
+        # The task's public surface: JSON on stdout, exit 0.
+        document = summary(window=args.window, root=root)
+        sys.stdout.write(
+            json.dumps(document, ensure_ascii=False, indent=2) + "\n"
+        )
+        return 0
 
     if args.command == "learn":
         document, target = learn(
@@ -635,19 +994,23 @@ def main(argv: list[str] | None = None) -> int:
     for value in args.brief_doc:
         path, is_unused = parse_brief(value)
         (unused if is_unused else brief).append(path)
-    row, line = record(
-        args.issue,
-        args.cp,
-        brief_docs=brief,
-        unused_brief_docs=unused,
-        extra_docs=args.extra_doc,
-        missed_docs=args.missed_doc,
-        tokens=args.tokens,
-        usage_file=args.usage_file,
-        config=args.config_digest,
-        root=root,
-        write=not args.dry_run,
-    )
+    try:
+        row, line = record(
+            args.issue,
+            args.cp,
+            brief_docs=brief,
+            unused_brief_docs=unused,
+            extra_docs=args.extra_doc,
+            missed_docs=args.missed_doc,
+            tokens=args.tokens,
+            usage_file=args.usage_file,
+            config=args.config_digest,
+            root=root,
+            write=not args.dry_run,
+        )
+    except (ContextMetricsError, OSError) as exc:
+        print(f"context-metrics: {exc}", file=sys.stderr)
+        return 1
     print(line)
     return 0
 

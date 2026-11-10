@@ -42,7 +42,10 @@ Read first: `delivery/protocol/seal.md`, `delivery/CONTRACT.md`,
 5. Validate: `./delivery/scripts/doctor.sh --body /tmp/leaf.md`. Seal lint
    uyarıları belirsiz AC veya çalıştırılabilir iz taşımayan case'leri gösterir;
    `--strict` ile hata olur.
-6. Update the issue body; add `agent-approved`, remove `intake`.
+6. Update the issue body. Get a human `demir-kit-accept` comment (`issue: N`,
+   `by: <login>`, `decision: accepted`) and run
+   `./delivery/scripts/transition.sh --issue N --to agent-approved`; do not add
+   the label directly.
 7. Next: `health-check`, then `delivery/protocol/execution.md`.
 
 ## Template

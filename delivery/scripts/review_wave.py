@@ -30,14 +30,15 @@ import routing  # noqa: E402
 import usage  # noqa: E402
 
 SETTLED = {"succeeded", "failed", "stopped"}
+SHOW_TIMEOUT = 15.0
 
 
-def orca(args: list[str]) -> dict:
+def orca(args: list[str], timeout: float = 180.0) -> dict:
     try:
         result = subprocess.run(
-            ["orca", *args], capture_output=True, text=True, timeout=180
+            ["orca", *args], capture_output=True, text=True, timeout=timeout
         )
-    except (FileNotFoundError, OSError):
+    except (FileNotFoundError, OSError, subprocess.TimeoutExpired):
         return {}
     if result.returncode != 0:
         return {}
@@ -71,7 +72,7 @@ def reviewer_spec(name: str, packet: str, issue: int, cp_id: str) -> str:
         "Son mesaj biçimi:\n"
         "approved: true|false\n"
         "findings:\n"
-        "- {severity, location, reason}\n"
+        "- {severity: blocking|nit, location, reason}\n"
         "not: tek cümle\n"
     )
 
@@ -98,6 +99,36 @@ def blocking_count(text: str) -> int:
     return sum(1 for item in parse_findings(text) if item["severity"] == "blocking")
 
 
+FINDINGS_HEADER_RE = re.compile(r"^\s*findings\s*:\s*$", re.I)
+FINDINGS_END_RE = re.compile(r"^\s*(?:approved|not)\s*:", re.I)
+BULLET_RE = re.compile(r"^\s*-\s*(.*)$")
+SEVERITY_LABEL_RE = re.compile(r"^severity\s*:\s*(blocking|nit)\b", re.I)
+
+
+def invalid_findings(text: str) -> list[str]:
+    """Bullets in the ``findings:`` block without a valid severity label.
+
+    The documented contract is that every finding carries
+    ``severity: blocking|nit``; a bullet that is missing the field, leaves it
+    empty, or gives another value cannot be trusted to be a nit.
+    """
+    invalid: list[str] = []
+    in_block = False
+    for line in (text or "").splitlines():
+        if FINDINGS_HEADER_RE.match(line):
+            in_block = True
+            continue
+        if not in_block:
+            continue
+        if FINDINGS_END_RE.match(line):
+            in_block = False
+            continue
+        bullet = BULLET_RE.match(line)
+        if bullet and not SEVERITY_LABEL_RE.match(bullet.group(1).strip()):
+            invalid.append(line.strip())
+    return invalid
+
+
 def parse_verdict(text: str) -> bool | None:
     value = text or ""
     matches = re.findall(
@@ -105,7 +136,7 @@ def parse_verdict(text: str) -> bool | None:
     )
     if matches:
         approved = matches[-1].lower() == "true"
-        if approved and blocking_count(value):
+        if approved and (blocking_count(value) or invalid_findings(value)):
             return False
         return approved
     if "true|false" in value.lower():
@@ -197,31 +228,64 @@ def start_worker(
     }
 
 
-def wait_workers(workers: list[dict], timeout: int, poll: int = 5) -> list[dict]:
-    deadline = time.time() + timeout
+def worker_state(shown: dict) -> str:
+    """Settled-state field from ``worker-show``.
+
+    Orca 1.4 answers flat (``{"state": "stopped"}``); older builds nested the
+    worker under ``result.worker``. Read the flat field first, keep the nested
+    shape as a fallback.
+    """
+    if not isinstance(shown, dict):
+        return ""
+    flat = shown.get("state")
+    if isinstance(flat, str) and flat:
+        return flat
+    worker = shown.get("worker")
+    if isinstance(worker, dict):
+        nested = worker.get("state")
+        if isinstance(nested, str):
+            return nested
+    return ""
+
+
+def wait_workers(workers: list[dict], timeout: float, poll: float = 5) -> list[dict]:
+    """Poll dispatched workers until settled or the deadline passes.
+
+    Every turn checks the deadline before calling Orca, and the nested
+    ``worker-show`` call gets a short timeout so one hung CLI cannot outlive
+    the wave deadline (#318).
+    """
+    deadline = time.time() + max(0.0, timeout)
     while True:
         pending = []
         for item in workers:
             if not item.get("dispatch_id") or item.get("state") in SETTLED:
                 continue
-            shown = orca(
-                [
-                    "orchestration",
-                    "worker-show",
-                    "--dispatch",
-                    str(item["dispatch_id"]),
-                    "--json",
-                ]
-            )
-            state = str((shown.get("worker") or {}).get("state") or "")
+            remaining = deadline - time.time()
+            if remaining <= 0:
+                return workers
+            try:
+                shown = orca(
+                    [
+                        "orchestration",
+                        "worker-show",
+                        "--dispatch",
+                        str(item["dispatch_id"]),
+                        "--json",
+                    ],
+                    timeout=max(0.1, min(SHOW_TIMEOUT, remaining)),
+                )
+            except Exception:
+                # One failed probe must not abort the wave; the deadline decides.
+                shown = {}
+            state = worker_state(shown)
             if state in SETTLED:
                 item["state"] = state
             else:
                 pending.append(item)
         if not pending or time.time() >= deadline:
-            break
-        time.sleep(poll)
-    return workers
+            return workers
+        time.sleep(max(0.0, min(poll, deadline - time.time())))
 
 
 def read_output(dispatch_id: str) -> str:

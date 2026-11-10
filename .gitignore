@@ -11,6 +11,10 @@
 .kit/context-metrics.jsonl
 # kişisel tercih: beyaz liste `delivery/local-overrides.yaml`, depoya girmez
 .kit/local.yaml
+.kit/context-metrics.jsonl.tmp
+.kit/context-metrics.lock
+.kit/brief-*.json
+.kit/brief-*.json.tmp
 # install.sh → npx skills add çıktısı: makineye özel, kaynaktan türetilir
 .agents/
 .claude/

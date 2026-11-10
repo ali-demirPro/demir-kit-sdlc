@@ -12,7 +12,7 @@ Eski v1 yürütmesi arşivdedir (`archive/v1.7/`). Yeni runtime yalnızca `deliv
 | Artefakt | Taşıyıcı | Şema | Üreten | Onaylayan |
 |----------|----------|------|--------|-----------|
 | Epic | GitHub issue + KEEP tablosu | `schemas/epic.schema.json` | owner + orchestrator | insan (`scope-confirmed`) |
-| Leaf seal | issue body içinde `demir-kit` YAML bloğu | `schemas/leaf.schema.json` | seal | orchestrator (`agent-approved`) |
+| Leaf seal | issue body içinde `demir-kit` YAML bloğu | `schemas/leaf.schema.json` | seal | insan (`agent-approved`) |
 | Evidence | issue comment | `schemas/evidence.schema.json` | coordinator + documenter | gate sonuçları |
 | Closure | issue comment | `schemas/closure.schema.json` | documenter | orchestrator + insan |
 | Ecosystem | repo kökü `ecosystem.yaml` | — | devops | health-check |
@@ -26,6 +26,7 @@ Eski v1 yürütmesi arşivdedir (`archive/v1.7/`). Yeni runtime yalnızca `deliv
 stateDiagram-v2
   [*] --> intake
   intake --> scope_confirmed: kapsam triage
+  intake --> agent_approved: leaf mühürü (parent scope-confirmed)
   scope_confirmed --> agent_approved: leaf mühürü
   agent_approved --> executing: health-check + claim
   executing --> executing: CP döngüsü
@@ -49,7 +50,7 @@ stateDiagram-v2
 | # | From | To | Kim | Guard | Kanıt | Etiket |
 |---|------|----|-----|-------|-------|--------|
 | T1 | `intake` | `scope-confirmed` | orchestrator | KEEP/DEFER/CUT tablosu + child listesi | epic comment | `+scope-confirmed` |
-| T2 | `scope-confirmed` | `agent-approved` | seal | leaf şeması geçerli, AC ↔ tests_plan tam | issue body YAML | `+agent-approved` |
+| T2 | `intake` / `scope-confirmed` | `agent-approved` | insan | leaf şeması geçerli, AC ↔ tests_plan tam | insan authored demir-kit-accept | `+agent-approved` |
 | T3 | `agent-approved` | `executing` | coordinator | health-check `ready`, bağımlılıklar kapalı, claim | run comment | `+executing` |
 | T4 | `executing` | `leaf-done` | coordinator | tüm CP evidence + risk gate'leri | evidence comment'leri | `+leaf-done -executing` |
 | T5 | `executing` | `blocked` | coordinator | `policies/escalation.md` maddesi | blocker comment | `+blocked` |
@@ -60,7 +61,7 @@ stateDiagram-v2
 
 Kurallar:
 
-- T2–T6 otomatiktir; insan sormaz. Yalnız T7, T9 ve risk yüksek leaf QA insan ister.
+- T3–T6 otomatiktir; T2 ve T7, T9 insan ister. T2 leaf parent epic `scope-confirmed` ise `intake`tan da mühürlenebilir.
 - T4, evidence şeması geçerli değilse **imkânsızdır** (`doctor.sh --issue N`).
 - T9, closure `status: pass` değilse, açık child varsa veya kabul bloğu insan
   tarafından yazılmadıysa yasaktır; "epic bitti" demek contract ihlalidir.
@@ -74,7 +75,7 @@ Kanonik set `templates/github-labels.json` ile birebir aynıdır.
 |--------|-------|-----------|
 | `intake` | Taslak; kapsam kilitli değil | owner |
 | `scope-confirmed` | Epic kapsamı kilitli | orchestrator |
-| `agent-approved` | Leaf mühürlü; yürütülebilir | seal |
+| `agent-approved` | Leaf mühürlü; yürütülebilir | insan `demir-kit-accept` |
 | `executing` | Claim edildi, CP döngüsü açık | coordinator |
 | `blocked` | Dış bağımlılık / bütçe aşımı | coordinator |
 | `deferred` | Bilinçli ertelendi, issue linki var | insan |
@@ -134,7 +135,7 @@ otomatik yükselir; agent düşüremez. Ayrıntı: `policies/quality-gates.md`.
 | I7 | Epic başına tek leaf yürür; ikinci leaf ancak `depends_on` ayrıksa. |
 | I8 | Aynı duruma tekrar geçiş no-op; tamamlanan CP yeniden koşmaz. |
 | I9 | Contract değişikliği VERSION + CHANGELOG + doctor yeşili ister. |
-| I10 | İnsan kapısı yalnız: risk `high`/`critical` leaf, geri dönülemez işlem, epic kabul. **Kapsam: hedef projedeki ürün teslimatı** (bkz. Self-improvement lane). |
+| I10 | İnsan kapısı: T2 leaf mührü (`agent-approved`), risk `high`/`critical` leaf, geri dönülemez işlem, epic kabul. |
 | I11 | Bir epic = tek worktree + tek branch + tek PR. Leaf başına worktree açılmaz. |
 | I12 | Kaynak değişikliği yalnız epic worktree'sinde; ana checkout'tan commit engellenir. |
 | I13 | Epic branch'i rebase edilmez; yeni leaf öncesi `origin/main` merge edilir. |
@@ -146,15 +147,16 @@ otomatik yükselir; agent düşüremez. Ayrıntı: `policies/quality-gates.md`.
 | I19 | Kaynak değişikliği sealed leaf olmadan başlamaz: `next-leaf` kirli ağaçta BLOCKED, `doctor` ana dalda kirli kaynağı hata sayar, pre-commit/pre-push ve CI main kapısı devrededir. |
 | I20 | Etiket geçişleri yalnız `scripts/transition.sh` ile yapılır; doğrudan etiket yazımı yasaktır. |
 | I21 | Capability seviyesi kanıtla atanır; agent `expert` üstüne çıkamaz, `authority` insan/principal içindir. |
-| I22 | `epic-done` yalnız insan-authored `demir-kit-accept` + kapalı child'larla; agent kendi kabulünü yazamaz. **Kapsam: ürün teslimatı.** Kit self-improvement lane'de kabul makine kapısıdır (`doctor --strict` + testler yeşil). |
+| I22 | `epic-done` yalnız insan-authored `demir-kit-accept` + kapalı child'larla; agent kendi kabulünü yazamaz. Kit self-improvement lane'de de T2 insan onayı ve T9 insan kabulü zorunludur; makine kapısı (`doctor --strict` + testler) ek kanıttır. |
 | I23 | Proje öncelikleri (`kit.config.yaml product.priorities` + `policies/project-priorities.md`) bağlayıcıdır: design system varsa uyulur, mimari sınırlar korunur, plana sadık kalınır, kalite zemini düşmez; uydurma bilgi üretilmez. |
 | I24 | Rigor seviyesi risk tabanını, `auto_escalate` glob'larını veya insan kapısını düşüremez; gating reviewer sayısı yalnız riskten gelir (low/medium 1, high/critical 2). |
 
 ## Self-improvement lane (kit kendi kendini geliştirir)
 
 Hedef projelerdeki deneyimler `learnings.py` ile beyne (bu repo) taşınır
-(`delivery/fleet.yaml`). Bu şerit `I10`/`I22` insan kapılarından muaftır;
-kabul **makine kapısıdır**: `doctor.sh --strict` + testler yeşilse kurallaşır.
+(`delivery/fleet.yaml`). Bu şeritte de `I10`/`I22` insan kapıları geçerlidir:
+kabul için T2 insan onayı ve T9 insan kabulü gerekir; `doctor.sh --strict` +
+testler yeşil olması ek kanıttır, tek başına kabul değildir.
 
 - **Beyaz liste (otomatik):** yalnız *ekleme* sınıfı — risk glob, eval
   senaryosu, skill notu. `learnings.py --apply` yazar, VERSION + CHANGELOG
