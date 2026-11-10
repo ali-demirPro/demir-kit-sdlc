@@ -24,6 +24,7 @@ import delivery_block  # noqa: E402
 import doctor_approval  # noqa: E402
 import doctor_compat  # noqa: E402
 import doctor_local  # noqa: E402
+import doctor_manifest  # noqa: E402
 import doctor_mcp  # noqa: E402
 import doctor_explain  # noqa: E402
 import doctor_skills  # noqa: E402
@@ -1626,6 +1627,11 @@ def check_product(root: Path) -> None:
             f"kit pin doğrulanamadı ({pin_detail}) — "
             f"'git -C {kit_root} fetch origin main' sonrası tekrar çalıştır"
         )
+    elif pin_state == "ok":
+        print(f"kit pin: commit ok ({pin_detail[:7]})")
+    else:
+        print("kit pin: commit not_run (kit bir git checkout değil)")
+    doctor_manifest.report(root / kit_root, error, warn)
 
     factory = config.get("factory") or {}
     app_paths = factory.get("app_paths") or ["src", "app", "lib"]
