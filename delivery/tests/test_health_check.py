@@ -114,7 +114,7 @@ class HealthTableTests(unittest.TestCase):
             path.write_text(text, encoding="utf-8")
             with self.assertRaises(ValueError) as ctx:
                 health_check.load_table(path)
-            self.assertIn("birebir", str(ctx.exception))
+            self.assertIn("beklenen: gh auth status", str(ctx.exception))
 
     def test_duplicate_control_id_breaks_the_table(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -143,8 +143,15 @@ class HealthTableTests(unittest.TestCase):
     def test_run_is_read_only_and_offline(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = bin_dir(Path(directory), list(health_check.TOOLS))
+            real_open = Path.open
+
+            def read_only(file_path, mode="r", *args, **kwargs):
+                if any(flag in mode for flag in "wax+"):
+                    raise AssertionError("dosya yazılmaz")
+                return real_open(file_path, mode, *args, **kwargs)
+
             with patch("socket.socket", side_effect=AssertionError("ağ yok")), patch.object(
-                Path, "write_text", side_effect=AssertionError("dosya yazılmaz")
+                Path, "open", read_only
             ):
                 data = health_check.run(PROTOCOL, str(path))
             self.assertTrue(data["ready"])

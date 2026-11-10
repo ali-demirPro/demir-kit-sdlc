@@ -88,12 +88,12 @@ def load_table(path: Path = PROTOCOL) -> list[dict]:
             raise ValueError(
                 f"bilinmeyen araç: {row['tool']} (satır {row['id']})"
             )
-        if row["check"] not in EXPECTED_CHECKS:
+        expected = EXPECTED_CHECKS[row["id"] - 1]
+        if row["check"] != expected:
             raise ValueError(
-                f"bilinmeyen kontrol: {row['check']} (satır {row['id']})"
+                f"bilinmeyen kontrol: {row['check']} (satır {row['id']}, "
+                f"beklenen: {expected})"
             )
-    if {row["check"] for row in rows} != set(EXPECTED_CHECKS):
-        raise ValueError("health-check tablosu 16 kontrolle birebir eşleşmiyor")
     return rows
 
 
