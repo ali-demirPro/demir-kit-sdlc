@@ -240,6 +240,11 @@ def header_lines(data: dict) -> list[str]:
 
 
 REJECT_VERDICTS = ("revise_required", "rejected")
+# Evidence schema's only non-pass status: a real rejection record.
+FAIL_STATUS = "fail"
+OPEN_FINDING = "open"
+# The rejection section shares the 12 KB brief budget; keep it to one paragraph.
+REASON_LIMIT = 500
 EVIDENCE_BLOCK_RE = re.compile(
     r"```yaml\s+demir-kit-evidence\s*\n(.*?)```", re.S
 )
@@ -262,7 +267,9 @@ def issue_comments(repo: str, issue: int, fetch=None) -> list[dict]:
                     ]
                 )
             )
-        except (SystemExit, ValueError):
+        except (SystemExit, ValueError, OSError):
+            # No tracker / no gh binary / unreadable payload: history is empty,
+            # the brief still renders without a rejection section.
             return comments
         if not isinstance(data, list):
             # A stub or a different payload shape is not a comment history.
@@ -288,14 +295,39 @@ def _review_rejections(reviews) -> list[str]:
     return verdicts
 
 
+def one_line(text) -> str:
+    """Single-line text: the brief is line-oriented, newlines become spaces."""
+    return " ".join(str(text or "").split())
+
+
+def clip_reason(text: str, limit: int = REASON_LIMIT) -> str:
+    """One-line reason capped at ``limit`` characters (brief budget)."""
+    reason = one_line(text)
+    if len(reason) <= limit:
+        return reason
+    return reason[: limit - 1].rstrip() + "…"
+
+
 def _finding_rejections(findings) -> list[str]:
-    """Open findings of a rejection record, as ``id: note`` strings."""
+    """Open findings of a rejection record, blocking ones first.
+
+    ``fixed``/``waived`` findings are history, not a reason to revise.
+    """
+    open_items = [
+        item
+        for item in findings or []
+        if isinstance(item, dict)
+        and str(item.get("status") or "").strip() == OPEN_FINDING
+    ]
+    open_items.sort(
+        key=lambda item: (
+            0 if "blocking" in one_line(item.get("note")).lower() else 1
+        )
+    )
     reasons: list[str] = []
-    for item in findings or []:
-        if not isinstance(item, dict):
-            continue
-        text = str(item.get("note") or "").strip()
-        identifier = str(item.get("id") or "").strip()
+    for item in open_items:
+        text = one_line(item.get("note"))
+        identifier = one_line(item.get("id"))
         if identifier and text:
             reasons.append(f"{identifier}: {text}")
         elif text:
@@ -308,9 +340,11 @@ def _finding_rejections(findings) -> list[str]:
 def comment_rejection(comment: dict) -> dict | None:
     """The rejection record one issue comment carries, if any.
 
-    Two sources are canonical: an evidence block whose ``status`` or reviewer
+    Three sources are canonical: an evidence block with ``status: fail``
+    (the schema's only non-pass status), an evidence block whose reviewer
     verdict is ``revise_required``/``rejected``, and an accept block with
-    ``decision: rejected``. Everything else is history, not a rejection.
+    ``decision: rejected``. The reason comes from ``notes`` or from the
+    ``open`` findings (blocking first); everything else is history.
     """
     if not isinstance(comment, dict):
         return None
@@ -330,13 +364,20 @@ def comment_rejection(comment: dict) -> dict | None:
             continue
         verdicts = _review_rejections(document.get("reviews"))
         status = str(document.get("status") or "").strip()
-        if status not in REJECT_VERDICTS and not verdicts:
+        rejected = status in REJECT_VERDICTS or status == FAIL_STATUS
+        if not rejected and not verdicts:
             continue
-        decision = status if status in REJECT_VERDICTS else "revise_required"
-        reason = str(document.get("notes") or "").strip()
+        decision = (
+            status
+            if status in REJECT_VERDICTS or status == FAIL_STATUS
+            else "revise_required"
+        )
+        reason = clip_reason(document.get("notes"))
         if not reason:
-            reason = "; ".join(
-                _finding_rejections(document.get("findings")) or verdicts
+            reason = clip_reason(
+                "; ".join(
+                    _finding_rejections(document.get("findings")) or verdicts
+                )
             )
         return {
             "decision": decision,
@@ -358,7 +399,7 @@ def comment_rejection(comment: dict) -> dict | None:
         return {
             "decision": "rejected",
             "at": at,
-            "reason": str(document.get("note") or "").strip() or "-",
+            "reason": clip_reason(document.get("note")) or "-",
             "source": source,
             "cp_id": None,
         }
