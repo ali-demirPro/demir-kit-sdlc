@@ -1,0 +1,271 @@
+source:
+  repo: https://github.com/kevintngo/statechart-art
+  commit: 09c959c79e25767cc34a5beddf3df234b085636e
+  read_at: "2026-11-11"
+  plan: delivery/plans/P7.yaml
+  files:
+    - README.md
+    - business/order/Order.tla
+    - business/order/Order.cfg
+    - business/order/view.mjs
+    - business/order/chart/report.md
+    - business/order/chart/chart.mmd
+    - business/bug/Bug.tla
+    - business/bug/Bug.cfg
+    - business/bug/view.mjs
+    - business/bug/chart/report.md
+    - business/day/Day.tla
+    - business/counter/Counter.tla
+
+mechanisms:
+  - name: executable-spec
+    ours: >-
+      CONTRACT.md "tek durum makinesi" diyor ama makine prose tablo (T1–T9) ve
+      elle yazılmış mermaid bloktan oluşuyor. Durum kümesi, Init ve geçiş
+      guard'ları çalıştırılabilir değil; doctor yalnız etiket/şema/dosya
+      varlığını denetliyor.
+    gap: >-
+      Bir geçişin hangi koşulla açıldığı kod değil metin. "Hangi durumdan
+      hangisine hangi kanıtla" sorusu ancak insan okuyarak yanıtlanıyor; yeni
+      geçiş eklendiğinde makinenin güncellendiğini denetleyen yok.
+    statechart: >-
+      business/order/Order.tla: VARIABLES order, paid, pearls, remakes; Init;
+      YouOrder/YouPay/PearlsRunOut/BaristaStarts/MoneyBack/NumberCalled/
+      WrongDrink/YouPickItUp/Done adlandırılmış guard'lı aksiyonlar; Next
+      disjunction; Spec == Init /\ [][Next]_vars. Order.cfg INVARIANT TypeOK,
+      PaidForEveryDrink, RefundsGiveMoneyBack.
+    target: >-
+      delivery/model/delivery.py; P7-2 (#355)
+
+  - name: reachability-bfs
+    ours: >-
+      doctor statik kontrollerle yetiniyor: etiket var mı, şema geçerli mi,
+      evidence alanları dolu mu. Durum uzayı taranmıyor; "evidence olmadan
+      leaf_done'a giden bir yol var mı" sorusu hiç sorulmuyor.
+    gap: >-
+      Init'ten tüm ulaşılabilir durumları gezen, durum tekrarını kıran ve sayan
+      bir BFS yok. İhlal ancak ilgili script o an çalışırsa görülüyor.
+    statechart: >-
+      README: TLC "takes every step from every state the model can reach and
+      checks each rule in each one". order/chart/report.md "TLC reached 13
+      states and 17 steps"; bug/chart/report.md "36 states and 90 steps".
+    target: >-
+      delivery/scripts/doctor.py --model + delivery/model/delivery.py; P7-3 (#356)
+
+  - name: invariant-per-state
+    ours: >-
+      I1–I19 prose olarak yazılı; guard.sh, doctor.py ve transition.sh her
+      birinin bir kısmını parça parça uyguluyor. I4 (uygulayan onaylayamaz), I5
+      (reviewer'lar birbirini görmez), I7 (tek executing leaf) ve I8 (aynı
+      duruma geçiş no-op) için çalıştırılabilir kontrol yok.
+    gap: >-
+      Invariant'lar her ulaşılabilir durumda predicate olarak denetlenmiyor;
+      hangi invariant'ın hangi durumda kırıldığı raporlanmıyor.
+    statechart: >-
+      Order.cfg ve Bug.cfg INVARIANT satırları; TLC her invariant'ı her
+      ulaşılabilir durumda kontrol eder, NoDeadlock'u ayrıca raporlar.
+    target: >-
+      delivery/model/delivery.py + delivery/scripts/doctor.py; P7-2 (#355),
+      P7-3 (#356)
+
+  - name: counterexample-trace
+    ours: >-
+      doctor ihlalde tek satır hata basıp exit 1 veriyor; guard hangi kuralı
+      reddettiğini yazıyor. Hangi geçiş dizisinin ihlale götürdüğü yazılmıyor.
+    gap: >-
+      En kısa ihlal yolu (BFS predecessor) ve adım adım aksiyon/durum listesi
+      yok; insan izi kendi kuruyor.
+    statechart: >-
+      business/bug/chart/report.md: "The shortest path has 6 steps" ve 0–6
+      numaralı adımlar (just boiled → chewy → getting firm → too old → rush →
+      an old cup is served); chart.mmd bugPath class'ı yolu kırmızı çizer.
+    target: >-
+      delivery/scripts/doctor.py --model; P7-3 (#356)
+
+  - name: view-projection
+    ours: >-
+      CONTRACT mermaid elle yazılmış; model değişkenleri ile diyagram durumları
+      arasında projeksiyon katmanı yok. Diyagramın hangi geçişleri çizmediği
+      raporlanmıyor.
+    gap: >-
+      view.mjs gibi state(v)/step(action, from, to) katmanı yok; model
+      değişince diyagramın güncellenip güncellenmediği ancak gözle anlaşılıyor.
+    statechart: >-
+      business/order/view.mjs: state(v) = v.order, STEPS eşlemesi,
+      step(action); bug/view.mjs koşullu etiket ("a cup is served [in a
+      rush]"); report "does not draw 6 steps that stay in one chart state".
+    target: >-
+      delivery/model/view.py + delivery/CONTRACT.md; P7-4 (#357)
+
+  - name: generated-artifact-drift
+    ours: >-
+      Diyagram elle güncelleniyor; doctor diyagramın T1–T9 ile aynı olduğunu
+      denetlemiyor. Eski diyagram doctor'dan geçiyor.
+    gap: >-
+      Deterministik üretim ve commit'li artefaktla diff (drift) yok.
+    statechart: >-
+      README: statechart "writes only to a new or empty folder, so give it a new
+      one and compare that with chart/"; layout.mmd config/direction korunarak
+      kopyalanır.
+    target: >-
+      delivery/scripts/doctor.py --model --check + delivery/model/view.py;
+      P7-4 (#357)
+
+  - name: mutation-demo
+    ours: >-
+      Checker'ın bozuk bir guard'ı yakaladığını kanıtlayan test yok; guard'ı
+      bozup doctor'ın sessiz kaldığı durum bilinmiyor.
+    gap: >-
+      Kasıtlı mutasyon + beklenen counterexample üreten iki yönlü test yok.
+    statechart: >-
+      business/bug/Bug.tla bilinçli olarak NeverServeOldPearls'ı bozar; TLC
+      exit 1 verir; report ihlal yolunu ve kuralı yazar.
+    target: >-
+      delivery/tests/test_model.py + doctor --mutate; P7-5 (#358)
+
+  - name: composite-parallel
+    ours: >-
+      Epic→leaf→CP hiyerarşisi prose'da; I7 "depends_on ayrıksa paralel leaf"
+      istisnası var ama modelde bileşik/paralel durum yok.
+    gap: >-
+      Bileşik (epic/leaf/CP) ve paralel (ayrık depends_on) durum temsili yok;
+      düz model bu ihlalleri kaçırır.
+    statechart: >-
+      business/day/Day.tla tek phase değişkeninde üst durum;
+      business/counter/Counter.tla barista + pot iki bağımsız bölge ve
+      NoDrinkWhileCooking bölgeler arası invariant.
+    target: >-
+      delivery/model/delivery.py; P7-2 (#355)
+
+mapping:
+  transitions:
+    - {id: T1, from: intake, to: scope_confirmed, model: "triage tablosu + her KEEP issue'lu", status: modeled}
+    - {id: T2, from: "intake/scope_confirmed", to: agent_approved, model: "seal şeması + AC↔tests_plan + binding digest + insan kabulü", status: modeled}
+    - {id: T3, from: agent_approved, to: executing, model: "health-check ready + deps kapalı + claim", status: modeled}
+    - {id: T4, from: executing, to: leaf_done, model: "tüm CP evidence + risk gate", status: modeled}
+    - {id: T5, from: executing, to: blocked, model: "escalation maddesi", status: modeled}
+    - {id: T6, from: blocked, to: executing, model: "blocker çözüldü", status: modeled}
+    - {id: T7, from: "agent_approved/executing", to: deferred, model: "insan kararı + defer issue", status: modeled}
+    - {id: T8, from: "leaf_done/deferred", to: closure, model: "tüm leaf'ler kapalı", status: modeled}
+    - {id: T9, from: "closure pass", to: epic_done, model: "rapor pass + child'lar kapalı + insan kabul + merge PR", status: modeled}
+  invariants:
+    - {id: I1, class: modeled, model: "kaynak yazımı yalnız executing + agent-approved + digest/base ancestor"}
+    - {id: I2, class: modeled, model: "leaf_done => evidence complete"}
+    - {id: I3, class: modeled, model: "epic_done => closure pass"}
+    - {id: I4, class: modeled, model: "approver != implementer"}
+    - {id: I5, class: modeled, model: "reviewer bağlamları ayrık"}
+    - {id: I6, class: static, model: "arşiv runtime referansı dosya içeriği; doctor denetler"}
+    - {id: I7, class: modeled, model: "paralel leaf yalnız depends_on ayrıksa"}
+    - {id: I8, class: modeled, model: "aynı duruma geçiş no-op; biten CP yeniden koşmaz"}
+    - {id: I9, class: static, model: "VERSION + CHANGELOG + doctor yeşili"}
+    - {id: I10, class: modeled, model: "T2/T9 + high/critical/irreversible insan"}
+    - {id: I11, class: static, model: "tek worktree + tek branch + tek PR"}
+    - {id: I12, class: static, model: "kaynak yalnız epic worktree'sinde"}
+    - {id: I13, class: static, model: "rebase yok; yeni leaf öncesi origin/main merge"}
+    - {id: I14, class: modeled, model: "worker kaydı veya kayıtlı degrade"}
+    - {id: I15, class: modeled, model: "Orca canlı + GitHub kalıcı kayıt senkronu"}
+    - {id: I16, class: modeled, model: "Orca gate + human-qa + evidence gate kaydı"}
+    - {id: I17, class: static, model: "worktree yalnız orca worktree create"}
+    - {id: I18, class: static, model: "ürün kit'i yamalamaz; pin origin/main atası"}
+    - {id: I19, class: modeled, model: "sealed leaf olmadan kaynak yok; kirli ağaç bloklar"}
+
+children:
+  - slug: p7-1-analysis
+    issue: 299
+    title: "P7-1: derin analiz — kevintngo/statechart-art"
+    intent: >-
+      statechart-art deposunu pinlenmiş commit'te kod seviyesinde incele;
+      mekanizmaları hedef dosya, AC, risk ve CP'ye çevir; çocuk issue'ları aç.
+    risk: low
+    depends_on: []
+    target:
+      - delivery/plans/P7.yaml
+    ac:
+      - "Pinlenmiş commit sha'sı, okunan dosya listesi ve plan yolu epic yorumunda yazılı."
+      - "TLA+/TLC ve ulaşılabilirlik mekanizması .tla/.cfg ve view.mjs'den okundu; T1–T9 + I1–I19 eşlemesi yazıldı."
+      - "En az 4 çocuk issue açıldı; her biri niyet, kaba AC, risk, hedef dosya ve depends_on taşıyor."
+      - "delivery/plans/P7.yaml epic keep/children ile aynı; epic gövdesi güncellendi ve çocuklar intake."
+
+  - slug: p7-2-state-model
+    issue: 355
+    title: "P7-2 durum/geçiş modeli + I1–I19 kodlama (delivery/model/delivery.py)"
+    intent: >-
+      CONTRACT T1–T9'u yürütülebilir durum modeline çevir; I1–I19'dan
+      model-checkable olanları predicate yap, statik kalanları açıkça ayır.
+    risk: medium
+    depends_on: [299]
+    target:
+      - delivery/model/delivery.py
+      - delivery/model/__init__.py
+      - delivery/tests/test_model.py
+      - delivery/CONTRACT.md
+    ac:
+      - "Dokuz durum ve T1–T9 geçişleri adlandırılmış guard'larla tanımlı; guard'lar CONTRACT tablosuyla birebir."
+      - "I1–I19'dan model-checkable olanlar predicate; dosya/CI tabanlılar static_only + gerekçeli."
+      - "Epic→leaf→CP bileşik durumu ve I7'nin ayrık depends_on istisnası temsil edilir; I8 no-op."
+      - "`python3 -m unittest delivery.tests.test_model` exit 0; TLA+/TLC bağımlılığı yok."
+
+  - slug: p7-3-doctor-model-bfs
+    issue: 356
+    title: "P7-3 doctor --model BFS + counterexample trace"
+    intent: >-
+      doctor --model ulaşılabilir durum uzayını BFS ile gezsin; invariant
+      ihlalinde en kısa yolu adım adım yazsın.
+    risk: medium
+    depends_on: [299, 355]
+    target:
+      - delivery/scripts/doctor.py
+      - delivery/model/delivery.py
+      - delivery/tests/test_model.py
+      - delivery/policies/quality-gates.md
+    ac:
+      - "BFS tüm ulaşılabilir durumları gezer, tekrarı kırar, state/step sayısını raporlar."
+      - "İhlalde exit non-zero + invariant + state + path (adım no, geçiş, from→to)."
+      - "Çıkışsız terminal durumlar raporlanır; beklenen terminal dışındaki deadlock ihlaldir."
+      - "`--model` varsayılan kapalı; mevcut doctor çıktısı değişmez; fail-closed."
+
+  - slug: p7-4-mermaid-from-model
+    issue: 357
+    title: "P7-4 mermaid'i modelden üret (view + drift)"
+    intent: >-
+      CONTRACT mermaid'ini modelden üret; projeksiyon katmanı, çizilmeyen
+      geçiş raporu ve committed diyagramla drift denetimi ekle.
+    risk: medium
+    depends_on: [299, 355]
+    target:
+      - delivery/model/view.py
+      - delivery/scripts/doctor.py
+      - delivery/CONTRACT.md
+      - delivery/tests/test_model.py
+    ac:
+      - "Model durumları/geçişleri mermaid state id ve etiketlerine projeksiyonla çevrilir; etiketler T1–T9 ile aynı."
+      - "`doctor --model --check` üretilen mermaid'i CONTRACT bloğuyla karşılaştırır; farkta exit non-zero + diff."
+      - "Çizilmeyen geçiş/self-loop'lar sayılır ve raporlanır; sessiz düşmez."
+      - "Üretim deterministik; iki ardışık üretim aynı; `doctor.sh --strict` 0 uyarı."
+
+  - slug: p7-5-mutation-demo
+    issue: 358
+    title: "P7-5 mutation demo (--mutate guard_T4)"
+    intent: >-
+      Kasıtlı bozulmuş guard'ı checker'ın yakaladığını ve counterexample
+      ürettiğini iki yönlü testle kanıtla.
+    risk: medium
+    depends_on: [299, 356]
+    target:
+      - delivery/tests/test_model.py
+      - delivery/scripts/doctor.py
+      - delivery/model/delivery.py
+      - delivery/policies/quality-gates.md
+    ac:
+      - "`--mutate guard_T4` ihlali yakalar, exit non-zero ve counterexample yolu yazar."
+      - "Mutasyon yalnız bellek içi; gerçek model/CONTRACT değişmez."
+      - "En az iki mutasyon (guard_T4, guard_T2) beklenen invariant'ı adıyla kırar; mutasyonsuz koşu temiz."
+      - "`test_model` iki yönlü doğrular; `doctor.sh --strict` 0 uyarı."
+
+not_taking:
+  - "TLA+ zorunluluğu"
+  - "TLC bağımlılığı"
+  - "Çizim/estetik kodu (tools/, site/, docs/ görselleri)"
+  - "Repo kodunu kit'e kopyalamak"
+  - "Model dışı statik kontrolleri (I6, I9, I11–I18) modele taşımak"
+  - "Model checker için LLM veya öğrenilmiş çıkarım"
