@@ -1,0 +1,224 @@
+source:
+  repo: https://github.com/stubbi/asm
+  commit: d61c8e46a12110af7fbd92c40c91df17fb66fa92
+  read_at: "2026-11-10"
+  plan: delivery/plans/P5.yaml
+  files:
+    - docs/specs/security.md
+    - docs/specs/registry-v2.md
+    - docs/specs/registry.md
+    - docs/specs/publication.md
+    - docs/specs/discovery.md
+    - docs/hosting.md
+    - docs/hosted-registry.md
+    - docs/installed-programs.md
+    - docs/trusted-distribution.md
+    - docs/registry-key-ceremony.md
+    - tools/registry.py
+    - tools/install.sh.in
+    - tools/trusted_bootstrap.py
+    - tools/check_published_install.py
+    - tools/release.py
+    - tools/package_pages.py
+    - tools/agent_catalog.py
+    - tools/build_site.py
+    - tools/qualify_macos_x86_64.py
+
+mechanisms:
+  - name: offline-manifest
+    ours: >-
+      `vendor_sync.py` `file_map()` her dosyanın sha256'sını canlı kaynak
+      ağacından ve hedef kit kopyasından hesaplar; `--check` iki ağacı
+      karşılaştırır, `--apply` allowlist'i (`delivery`, `skills`, `ALLOW_FILES`)
+      kopyalar. Karşılaştırmanın sol tarafı kaynak checkout'tur: kit checkout'u
+      olmayan bir ürün kendi kopyası hakkında hiçbir şey doğrulayamaz.
+      `kit.config.yaml` yalnız `kit.version` ve `kit.protocol` metnini taşır;
+      dosya listesi veya digest taşımaz. `adopt.py` ilk kurulumda
+      `apply_plan` çağırır, sonra aynı canlı karşılaştırmaya düşer.
+    gap: >-
+      Kit kopyasının kendi baytlarını kanıtlayan üretilmiş liste yok:
+      `KIT-MANIFEST.json` (yol, sha256, bytes, version, source_commit) ve onu
+      üreten `--seal` adımı eksik. Ürün "bu kit X sürümüdür ve tek baytı
+      değişmedi" cümlesini kit checkout'u olmadan kuramıyor.
+    reference: >-
+      asm `release.json` + `SHA256SUMS` + digest-adresli blob'lar; bootstrap
+      her hedef için sabit boyut ve sha256 taşır (`tools/install.sh.in`),
+      `release.py` manifest digest'ini ayrıca bağlar.
+    target: "delivery/scripts/vendor_sync.py --seal + delivery/schemas/kit_manifest.schema.json + install.sh/adopt.py; P5-2 (#337)"
+
+  - name: tamper-verification
+    ours: >-
+      `doctor.py` ürün pinini `git ls-tree` ile okur ve yalnız
+      `merge-base --is-ancestor <sha> origin/main` ile denetler; CONTRACT I18
+      "ürün kit'i yamalar" yasağı bu tek katmana dayanır. Kit kökü
+      `kit.config.yaml kit.root` üzerinden bulunur. Dosya içeriği hiç
+      karşılaştırılmaz.
+    gap: >-
+      Commit atası olduğu sürece elle değiştirilmiş bir kit dosyası yeşil
+      geçiyor. Beklenen/gerçek digest raporu ve tamper fixture yok; pin
+      doğrulaması "hangi commit" sorusunu yanıtlıyor, "hangi bayt" sorusunu
+      değil.
+    reference: >-
+      asm istemcisi artefaktı açmadan önce uzunluk ve SHA-256'yı doğrular
+      (`docs/specs/registry-v2.md`); `check_published_install.py` kurulan
+      baytı yeniden doğrular; `installed-programs.md` upgrade/uninstall
+      sırasında kayıtlı boyut ve digest'i yeniden kontrol eder.
+    target: "delivery/scripts/doctor.py --product + delivery/tests/test_doctor*.py; P5-3 (#338)"
+
+  - name: not-run-honesty
+    ours: >-
+      `evidence.tests[].result` sözlüğü `pass | fail | skip`; `doctor` pass
+      olmayan her satırı hata sayar ve `status: pass` yalnız tüm testler pass
+      iken geçerlidir. `behavior.exit_code` 0 olmak zorunda. Yani koşulmayan
+      bir kontrolün dürüst yeri yok: ya yanlışlıkla pass yazılır ya da kapı
+      düşer. `skip` hem "koşmadı" hem "kapsam dışı" anlamında kullanılıyor ve
+      raporda gerekçe istemiyor.
+    gap: >-
+      `not_run` durumu ve zorunlu gerekçe alanı yok; rapor "hangi kontrol
+      koşmadı, neden" cümlesini kuramıyor. `not_run` ile `fail` ayrımı
+      yapılmadığı için koşulmayan kontrol sessizce yeşile veya haksız yere
+      kırmızıya düşüyor.
+    reference: >-
+      asm durum kümesi `pass, fail, not-run, unsupported, error` ve kural
+      "`not-run` asla passing gösterilmez" (`docs/specs/security.md`
+      §Findings and evidence). `package_pages.py` "Not run" basar,
+      `build_site.py` "Artifact evidence remains not-run" yazar,
+      `agent_catalog.py` provenance/formal/agent_review alanlarını zorunlu
+      `not-run` tutar; `discovery.md` "Unknown history is not zero" der.
+    target: "delivery/schemas/evidence.schema.json + delivery/scripts/doctor.py; P5-4 (#339)"
+
+  - name: fail-closed-tool-table
+    ours: >-
+      `delivery/protocol/health-check.md` on altı maddeyi düz metin olarak
+      sayar; hangi kontrolün hangi araca bağlı olduğu ve aracın zorunlu mu
+      opsiyonel mi olduğu tabloda yazmaz. `health_check.py` yok. `gate.py`
+      `orca` PATH'te değilse "plugin skip" yazıp devam eder; benzer şekilde
+      eksik araç çoğu yerde uyarı olarak geçer ve sonuç yeşil kalır.
+    gap: >-
+      Kontrol → araç → `required` tablosu ve "araç yoksa `not_run`, zorunluysa
+      `ready: false`" kuralı yok. Araç yokluğu ile kontrolün geçmesi aynı
+      görünüyor; health-check çıktısı hangi kontrolün koşmadığını söylemiyor.
+    reference: >-
+      asm `tools/install.sh.in` ön koşul araç listesini baştan reddeder;
+      doğrulanmayan alanlar kanıt dosyasında `not-run` durur
+      (`tools/qualify_macos_x86_64.py`: `developer_id`, `notarization`,
+      `installer_release_integration`). `docs/specs/security.md` her kontrol
+      sonucunun neyi kapsadığını yazmayı şart koşar.
+    target: "delivery/protocol/health-check.md + delivery/scripts/health_check.py; P5-5 (#340)"
+
+vendor_sync_diff:
+  summary: >-
+    asm dağıtımı "üretilen liste + digest" ile kendini kanıtlıyor; bizim
+    vendor_sync "canlı ağaç + canlı ağaç" karşılaştırması. Fark, doğrulamanın
+    kaynağa mı yoksa yerel kopyaya mı bağlı olduğu.
+  rows:
+    - asm: "`release.json` sürüm, tag, commit, dosya adı, boyut ve digest taşır"
+      ours: "`kit.config.yaml` yalnız sürüm ve protokol metni taşır"
+      verdict: gap
+      note: "Manifest alanları P5-2'de `KIT-MANIFEST.json` olarak tanımlanır."
+    - asm: "`SHA256SUMS` tüm yayın dosyalarının digest'ini listeler"
+      ours: "`vendor_sync.file_map()` digest'i her koşuda yeniden hesaplar"
+      verdict: gap
+      note: "Üretilen liste yok; aynı ağaç iki kez aynı listeyi üretmeli."
+    - asm: "Bootstrap her hedef için sabit `sha256` ve `bytes` taşır; indirme sonrası doğrular"
+      ours: "`install.sh` kit kurulumunda dosya digest'i doğrulamaz"
+      verdict: gap
+      note: "P5-2 manifesti kurulumda üretir; doğrulama P5-3'te doctor'a bağlanır."
+    - asm: "İstemci artefaktı açmadan önce boyut ve SHA-256'yı doğrular"
+      ours: "`doctor --product` yalnız commit ancestry'ye bakar"
+      verdict: gap
+      note: "İki katmanlı pin: commit + digest (P5-3)."
+    - asm: "`installed.tsv` yedi alanlı kayıt; upgrade/uninstall kayıtlı boyut ve digest'i denetler"
+      ours: "Vendored kit kopyası için yerel envanter yok"
+      verdict: out_of_scope
+      note: "Envanter/upgrade akışı P5 kapsamı dışında; yalnız digest ilkesi alınır."
+
+children:
+  - slug: p5-2-kit-manifest
+    issue: 337
+    title: "P5-2 KIT-MANIFEST.json üretimi (install.sh, vendor_sync --seal)"
+    intent: >-
+      Kit kopyasının kendi baytlarını kanıtlayan deterministik manifesti üret:
+      yol + sha256 + bytes + sürüm + kaynak commit; `--check` kaynak checkout
+      olmadan manifest üzerinden doğrulasın.
+    risk: medium
+    depends_on: []
+    target:
+      - delivery/scripts/vendor_sync.py
+      - delivery/schemas/kit_manifest.schema.json
+      - install.sh
+      - delivery/scripts/adopt.py
+      - delivery/tests/test_vendor_sync.py
+    ac:
+      - "`KIT-MANIFEST.json` deterministik: sıralı yollar, her satır `{path, sha256, bytes}`, ayrıca `version` ve `source_commit`; aynı ağaç iki kez seal edilince aynı baytlar çıkar."
+      - "Manifest kapsamı `vendor_sync` allowlist'i ile birebir: `delivery`, `skills`, `ALLOW_FILES`; `tests/` ve `__pycache__` dışı."
+      - "`--check` kit checkout'u olmadan yalnız manifest ve yerel dosyalarla koşar; eksik, fazla ve değişmiş dosyayı adıyla yazar, exit 1."
+      - "Manifest yoksa `--check` bunu `not_run` olarak raporlar ve yeşil saymaz."
+      - "Şema bilinmeyen alanı, tekrarlı yolu ve geçersiz digest'i reddeder; `./delivery/scripts/doctor.sh --strict` 0 uyarı verir."
+
+  - slug: p5-3-offline-digest
+    issue: 338
+    title: "P5-3 doctor --product offline digest doğrulaması + tamper fixture"
+    intent: >-
+      Pin doğrulamasını iki katmana çıkar: commit ancestry + manifest digest.
+      Elle değiştirilmiş kit dosyasını fixture ile yakala ve raporla.
+    risk: medium
+    depends_on: [337]
+    target:
+      - delivery/scripts/doctor.py
+      - delivery/tests/test_doctor.py
+      - delivery/tests/test_doctor_product.py
+    ac:
+      - "`doctor --product` pin kontrolü iki satır raporlar: commit ancestry (mevcut) ve `KIT-MANIFEST.json` digest (yeni)."
+      - "Elle değiştirilmiş dosya adı, beklenen ve gerçek digest çıktıda yazılır; doctor exit 1 verir."
+      - "Manifest yoksa sonuç sessiz yeşil olmaz: `not_run` ve gerekçe yazılır."
+      - "Tamper fixture gerçek ağaçtan türetilir, ağ erişimi yoktur, doctor salt-okur kalır; `./delivery/scripts/doctor.sh --strict` 0 uyarı verir."
+
+  - slug: p5-4-not-run
+    issue: 340
+    title: "P5-4 evidence tests[].result: not_run + sesli rapor"
+    intent: >-
+      Koşulmayan kontrolü dürüstçe yaz: `not_run` durumu, zorunlu gerekçe ve
+      doctor'da satır satır rapor; `not_run` asla pass sayılmaz.
+    risk: low
+    depends_on: []
+    target:
+      - delivery/schemas/evidence.schema.json
+      - delivery/scripts/doctor.py
+      - delivery/protocol/evidence.md
+      - delivery/tests/test_evidence.py
+      - delivery/tests/test_evidence_strict.py
+    ac:
+      - "`tests[].result` sözlüğüne `not_run` eklenir; `not_run` satırında `note` (neden koşmadı) zorunludur."
+      - "`not_run` asla pass sayılmaz: `status: pass` yalnız tüm testler `pass` iken geçerli; aksi halde fail veya `findings` içinde `waived` + gerekçe gerekir."
+      - "`doctor` çıktısı `not_run` satırlarını gerekçesiyle basar ve koşan/koşmayan sayısını özetler."
+      - "Mevcut kanıtlar geriye dönük geçerli kalır; şema `not_run` + eksik `note` ve `status: pass` + `not_run` kombinasyonunu reddeder."
+
+  - slug: p5-5-tool-table
+    issue: 339
+    title: "P5-5 health-check araç tablosu (fail-closed)"
+    intent: >-
+      Health-check maddelerini kontrol → araç → gerekli/opsiyonel tablosuna
+      çevir; araç yoksa kontrol `not_run` yazılsın, zorunluysa `ready: false`
+      olsun, hiçbir durumda sessizce yeşil kalmasın.
+    risk: low
+    depends_on: []
+    target:
+      - delivery/protocol/health-check.md
+      - delivery/scripts/health_check.py
+      - delivery/tests/test_health_check.py
+    ac:
+      - "`health-check.md` her kontrol için aracı ve `required: true|false` niteliğini tabloda yazar; on altı maddeyle birebir eşleşir."
+      - "`health_check.py` aynı tabloyu tek kaynaktan okur; satır `{check, tool, status: pass|fail|not_run, reason}` ve `--json` aynı veriyi verir."
+      - "Araç PATH'te yoksa satır `not_run` + gerekçedir; zorunlu kontrolde `ready: false` ve tek escalation sorusu çıkar; hiçbir durumda pass sayılmaz."
+      - "Tablo ile script ayrışırsa test düşer; bilinmeyen kontrol veya araç adı hatadır; script dosya yazmaz ve ağa çıkmaz."
+
+not_taking:
+  - "Assembly dili ve derleyici/kernel doğrulaması"
+  - "Registry hosting, mirror operasyonu, PostgreSQL/TUF altyapısı"
+  - "AGPL lisans modeli veya lisans politikası"
+  - "Transitif semver çözümü ve bağımlılık grafiği"
+  - "İmza, attestation, Sigstore/TUF istemcisi (yalnız yerel digest ilkesi alınır)"
+  - "asm deposundan kod kopyalamak"
+  - "`not_run` durumunu `skip` ile birleştirmek veya `skip` anlamını değiştirmek"
+  - "Health-check madde sayısını veya kapsamını yeniden tanımlamak"
