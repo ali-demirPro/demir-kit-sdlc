@@ -26,6 +26,13 @@ mechanisms:
       Ajan/rol × surface grant'inin ve `tools/list` eşdeğerinin karşılığı yok:
       capability tanımı yazma sınırını taşımıyor, ihlal ancak insan fark ederse
       yakalanıyor.
+    tucano: >-
+      SECURITY.md: "Its only tools come from Tucano's local MCP gateway, through
+      a secret per-turn URL that lists just that agent's tools; any other call is
+      refused." docs/spec-mvp.md §7: `tools/list` yalnız grant'in izin verdiği
+      araçları döndürür, `tools/call` grant'i yeniden kontrol eder (defense in
+      depth) ve yeni ajan hiçbir grant'le doğmaz; §6 araçları read/write/sensitive
+      diye sınıflandırır.
     target: >-
       delivery/capabilities/registry.yaml + delivery/schemas/capability.schema.json
       + delivery/scripts/guard.sh; P4-3 (#334)
@@ -39,6 +46,15 @@ mechanisms:
     gap: >-
       Onay gösterilen şeye bağlı değil: "onaylanan çağrı aynen çalışır" ve
       "çalıştırma anında yeniden kontrol" kurallarının karşılığı yok.
+    tucano: >-
+      SECURITY.md: "Write actions that matter (merge, publish, send, delete)
+      become an approval tied to the exact call and arguments. Approving runs
+      exactly that call, after checking the grant again." docs/spec-mvp.md §8:
+      onay kartı satır içi (araç, biçimlenmiş argümanlar, ajanın gerekçesi) +
+      Aprovações listesi + sistem bildirimi; onay
+      `hash(conector, ferramenta, canonical args)`e bağlı, farklı çağrı yeni
+      pedido üretir; ret gerekçesi sonraki tura `Recusado por <eu>: <motivo>`
+      olarak girer; 24 saatte düşer; yüksek risk 1,5 sn basılı tutma ister.
     target: >-
       delivery/schemas/evidence.schema.json + delivery/scripts/approvals.py
       + delivery/scripts/doctor.py --issue + delivery/scripts/guard.sh
@@ -52,6 +68,11 @@ mechanisms:
     gap: >-
       Ret gerekçesi sonraki turun görev metnine girmiyor; ajan aynı hatayı
       tekrarlayabiliyor, karar/zaman/gerekçe geçmişi brief'e taşınmıyor.
+    tucano: >-
+      docs/spec-mvp.md §8: "Recusar: pede um motivo opcional. O turno novo
+      recebe `Recusado por <eu>: <motivo>` e o agente pode propor outro
+      caminho." src/core/runs.ts `decide()` ret gerekçesini sonraki turun görev
+      metnine yazar ve her onayı karar/zaman/gerekçe ile saklar.
     target: >-
       delivery/scripts/brief.py (+ gerekirse delivery/scripts/transition.py);
       P4-4 (#335)
@@ -64,6 +85,11 @@ mechanisms:
     gap: >-
       Öğrenim doğrudan canlı skill'e yazılıyor; insan incelemesi, bekleyen
       öneri sınırı ve geri dönüş yolu yok.
+    tucano: >-
+      docs/spec-mvp.md §18 + src/core/skills.ts: ajan `propor_skill` ile yeni
+      skill veya mevcut skill'e değişiklik önerir; öneri insan onayına kadar
+      geçerli değildir, ajan başına en fazla 5 bekleyen öneri tutulur, her
+      değişiklik önceki sürümü saklar (geri alınabilir).
     target: >-
       delivery/scripts/learnings.py (+ skills/ taslak yolu); P4-5 (#336)
 
