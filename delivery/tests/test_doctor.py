@@ -2139,6 +2139,13 @@ class ApprovalBindingTests(DoctorTestCase):
             check=True,
         ).stdout.strip()
 
+    def parent_commit(self) -> str:
+        """HEAD~1, or skip on a single-commit (shallow) history."""
+        try:
+            return self.git("rev-parse", "HEAD~1")
+        except subprocess.CalledProcessError:
+            self.skipTest("history'de HEAD~1 yok (shallow clone)")
+
     def run_issue(self, body: str, comments: list[dict]) -> None:
         issue = {
             "body": body,
@@ -2183,13 +2190,13 @@ class ApprovalBindingTests(DoctorTestCase):
 
     def test_short_base_sha_passes(self) -> None:
         body = fenced("demir-kit", leaf())
-        base = self.git("rev-parse", "HEAD~1")[:7]
+        base = self.parent_commit()[:7]
         self.run_issue(body, [self.accept(self.digest(body, base), base)])
         self.assertFalse(any("onay geçersiz" in item for item in doctor.ERRORS))
 
     def test_ancestor_base_passes_without_head_equality(self) -> None:
         body = fenced("demir-kit", leaf())
-        base = self.git("rev-parse", "HEAD~1")
+        base = self.parent_commit()
         self.run_issue(body, [self.accept(self.digest(body, base), base)])
         self.assertFalse(any("onay geçersiz" in item for item in doctor.ERRORS))
 
@@ -2234,6 +2241,13 @@ class EvidenceHeadTests(DoctorTestCase):
             text=True,
             check=True,
         ).stdout.strip()
+
+    def parent_commit(self) -> str:
+        """HEAD~1, or skip on a single-commit (shallow) history."""
+        try:
+            return self.git("rev-parse", "HEAD~1")
+        except subprocess.CalledProcessError:
+            self.skipTest("history'de HEAD~1 yok (shallow clone)")
 
     def record(self, commit: str) -> dict:
         verification = {
@@ -2308,7 +2322,7 @@ class EvidenceHeadTests(DoctorTestCase):
         )
 
     def test_evidence_commit_behind_head_passes(self) -> None:
-        self.run_record(self.git("rev-parse", "HEAD~1"))
+        self.run_record(self.parent_commit())
         self.assertFalse(
             any("evidence.commit HEAD" in item for item in doctor.ERRORS)
         )
@@ -2332,7 +2346,7 @@ class EvidenceHeadTests(DoctorTestCase):
         )
 
     def test_evidence_file_commit_ancestor_passes(self) -> None:
-        self.run_evidence_file(self.git("rev-parse", "HEAD~1"))
+        self.run_evidence_file(self.parent_commit())
         self.assertFalse(
             any("evidence.commit HEAD" in item for item in doctor.ERRORS)
         )

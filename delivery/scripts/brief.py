@@ -10,7 +10,6 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import functools
 import json
 import os
 import re
@@ -340,35 +339,20 @@ def _open_findings(findings) -> list[dict]:
     ]
 
 
-@functools.lru_cache(maxsize=256)
-def _git_is_ancestor(base: str, candidate: str) -> bool:
-    """True when ``base`` is ``candidate`` or one of its ancestors.
+def _comment_order(comment: dict) -> tuple[str, int]:
+    """Comment identity: ``created_at`` first, then the numeric comment id.
 
-    A git answer is the only proof a reviewed commit is newer; an unknown pair
-    (fake sha, shallow history) stays unresolved instead of guessing.
+    Rejection resolution follows comment order, never commit ancestry: only a
+    reviewer's own later approval closes their earlier rejection. Comment ids
+    stay deterministic with fake shas and a shallow clone. Comments without
+    either field keep their input order (``sorted`` is stable).
     """
-    result = subprocess.run(
-        ["git", "merge-base", "--is-ancestor", base, candidate],
-        cwd=str(ROOT),
-        capture_output=True,
-        text=True,
-    )
-    return result.returncode == 0
-
-
-def _commit_reaches(candidate, base) -> bool:
-    """True when ``candidate`` is the rejection's ``base`` commit or newer."""
-    newer = one_line(candidate)
-    older = one_line(base)
-    if not older:
-        # A legacy record without a commit cannot be ordered; it stays claimable.
-        return True
-    if not newer:
-        # An approval that names no commit proves nothing about a real rejection.
-        return False
-    if newer == older or older.startswith(newer) or newer.startswith(older):
-        return True
-    return _git_is_ancestor(older, newer)
+    created = str(comment.get("created_at") or "").strip()
+    try:
+        identifier = int(comment.get("id") or 0)
+    except (TypeError, ValueError):
+        identifier = 0
+    return (created, identifier)
 
 
 def clip_reason(text: str, limit: int = REASON_LIMIT) -> str:
@@ -577,25 +561,32 @@ def _reviewer_resolves(rejection: dict, resolution: dict) -> bool:
 
 
 def _resolves(rejection: dict, resolution: dict) -> bool:
-    """An approval closes this rejection only on CP, reviewer and commit."""
+    """An approval closes this rejection only on CP and reviewer.
+
+    The approval must also be newer than the rejection. ``previous_rejection``
+    feeds both sides in comment order, so a record that reaches this helper has
+    already been posted after the rejection it would close. Commit ancestry is
+    deliberately not consulted: fake shas and a shallow clone cannot change the
+    answer.
+    """
     rejected_cp = rejection.get("cp_id")
     resolved_cp = resolution.get("cp_id")
     if rejected_cp and resolved_cp and rejected_cp != resolved_cp:
         return False
-    if not _reviewer_resolves(rejection, resolution):
-        return False
-    return _commit_reaches(resolution.get("commit"), rejection.get("commit"))
+    return _reviewer_resolves(rejection, resolution)
 
 
 def previous_rejection(comments: list[dict] | None) -> dict | None:
-    """Latest still-unresolved rejection in a comment history (ascending).
+    """Latest still-unresolved rejection in a comment history.
 
+    Comments are ordered by ``created_at``/``id`` before replay, so the answer
+    never depends on the list order the tracker happened to return.
     Resolutions are applied to the pending set one by one, so one reviewer's
     approval cannot erase another reviewer's rejection. The brief shows the
     newest rejection that is still open.
     """
     pending: list[dict] = []
-    for comment in comments or []:
+    for comment in sorted(comments or [], key=_comment_order):
         resolution = comment_resolution(comment)
         if resolution is not None and pending:
             pending = [

@@ -42,6 +42,7 @@ def review_comment(
     findings: list[dict],
     reviewer: str = "adversarial-a",
     commit: str = "abc123",
+    comment_id: int | None = None,
 ) -> dict:
     """One ``demir-kit-review`` comment in the writer's exact shape."""
     import yaml
@@ -57,7 +58,10 @@ def review_comment(
         },
         sort_keys=False,
     )
-    return {"body": f"```yaml\ndemir-kit-review\n{block}```\n"}
+    comment = {"body": f"```yaml\ndemir-kit-review\n{block}```\n"}
+    if comment_id is not None:
+        comment["id"] = comment_id
+    return comment
 
 
 class ReviewPacketTests(unittest.TestCase):
@@ -156,7 +160,11 @@ class ReviewPacketTests(unittest.TestCase):
         self.assertEqual(rows[0]["note"], "parser ret kaydını görmüyor")
 
     def test_other_reviewer_approval_keeps_findings_open(self) -> None:
-        """Blocking A+B: B onaylasa da A'nın açık bulguları pakette kalır."""
+        """Blocking A+B: B onaylasa da A'nın açık bulguları pakette kalır.
+
+        Sahte sha'lar ve yorum id'leri kullanılır: çözüm commit ancestry'sine
+        değil yorum sırasına bağlıdır.
+        """
         finding = {
             "id": "AR-1",
             "severity": "blocking",
@@ -164,13 +172,16 @@ class ReviewPacketTests(unittest.TestCase):
             "note": "ret açık",
         }
         comments = [
-            review_comment("CP-1", "revise_required", [finding], commit="5c8143e"),
+            review_comment(
+                "CP-1", "revise_required", [finding], commit="aaaaaaa", comment_id=11
+            ),
             review_comment(
                 "CP-1",
                 "approved",
                 [],
                 reviewer="adversarial-b",
-                commit="41b5007",
+                commit="bbbbbbb",
+                comment_id=12,
             ),
         ]
         self.assertEqual(
@@ -183,7 +194,8 @@ class ReviewPacketTests(unittest.TestCase):
                 "approved",
                 [],
                 reviewer="adversarial-a",
-                commit="d4b85d7",
+                commit="ccccccc",
+                comment_id=13,
             )
         )
         self.assertEqual(review_packet.open_findings(comments), [])

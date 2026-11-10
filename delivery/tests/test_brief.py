@@ -1710,8 +1710,10 @@ class PreviousRejectionTests(unittest.TestCase):
     def test_other_reviewer_approval_does_not_resolve(self) -> None:
         """Blocking A: B'nin onayı A'nın redini silmez; A'nın onayı çözer.
 
-        A `5c8143e`'yi reddeder, B daha yeni `41b5007`'yi onaylar: ret açık
-        kalır. Sonra A daha yeni bir commit'i onaylar: ret kapanır.
+        Yorum sırası belirler: A `aaaaaaa`'yı reddeder (id 11), B daha yeni
+        `bbbbbbb`'yi onaylar (id 12): ret açık kalır. Sonra A daha yeni
+        `ccccccc`'yi onaylar (id 13): ret kapanır. Sahte sha'lar bilinçli;
+        çözüm commit ancestry'sine bakmamalı.
         """
         finding = {
             "id": "AR-1",
@@ -1722,14 +1724,14 @@ class PreviousRejectionTests(unittest.TestCase):
         comments = [
             self.review_comment(
                 comment_id=11,
-                commit="5c8143e",
+                commit="aaaaaaa",
                 reviewer="adversarial-a",
                 findings=[finding],
             ),
             self.review_comment(
                 verdict="approved",
                 comment_id=12,
-                commit="41b5007",
+                commit="bbbbbbb",
                 reviewer="adversarial-b",
             ),
         ]
@@ -1743,13 +1745,52 @@ class PreviousRejectionTests(unittest.TestCase):
             self.review_comment(
                 verdict="approved",
                 comment_id=13,
-                commit="d4b85d7",
+                commit="ccccccc",
                 reviewer="adversarial-a",
             )
         )
         code, out, err = self.run_brief(["335", "--cp", "CP-1"], comments)
         self.assertEqual(code, 0, err)
         self.assertNotIn("Önceki ret", out)
+
+    def test_resolution_follows_comment_id_not_list_order(self) -> None:
+        """Ret çözümü comment id sırasına bağlı; liste sırasına değil."""
+        comments = [
+            self.review_comment(
+                verdict="approved",
+                comment_id=13,
+                commit="ccccccc",
+                reviewer="adversarial-a",
+            ),
+            self.review_comment(
+                comment_id=11,
+                commit="aaaaaaa",
+                reviewer="adversarial-a",
+            ),
+        ]
+        code, out, err = self.run_brief(["335", "--cp", "CP-1"], comments)
+        self.assertEqual(code, 0, err)
+        self.assertNotIn("Önceki ret", out)
+
+    def test_older_approval_does_not_resolve_newer_rejection(self) -> None:
+        """Daha eski comment id'li onay sonraki redi çözmez."""
+        comments = [
+            self.review_comment(
+                verdict="approved",
+                comment_id=11,
+                commit="aaaaaaa",
+                reviewer="adversarial-a",
+            ),
+            self.review_comment(
+                comment_id=12,
+                commit="bbbbbbb",
+                reviewer="adversarial-a",
+            ),
+        ]
+        code, out, err = self.run_brief(["335", "--cp", "CP-1"], comments)
+        self.assertEqual(code, 0, err)
+        self.assertIn("Önceki ret:", out)
+        self.assertIn("- Karar: revise_required", out)
 
     def test_one_reviewer_approval_leaves_co_reviewer_rejection_open(self) -> None:
         """Tur içi çoğunluk yok: A onaylasa da B'nin reddi açık kalır."""

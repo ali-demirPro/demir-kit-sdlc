@@ -5,6 +5,7 @@ from __future__ import annotations
 import importlib.util
 import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -139,17 +140,53 @@ class ApprovalTests(unittest.TestCase):
         )
 
 
-def git_head(rev: str = "HEAD") -> str:
-    return subprocess.run(
-        ["git", "rev-parse", rev],
-        cwd=ROOT,
-        capture_output=True,
-        text=True,
-        check=True,
-    ).stdout.strip()
-
-
 class BindingDigestTests(unittest.TestCase):
+    """Digest/ancestry checks run on a throwaway two-commit repo.
+
+    A shallow CI clone has no ``HEAD~1``; the fixture keeps the tests hermetic
+    and independent of this repository's history.
+    """
+
+    repo: Path
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.tmp = tempfile.TemporaryDirectory(prefix="kit-approvals-")
+        cls.repo = Path(cls.tmp.name)
+        cls._git("init", "-q")
+        cls.base = cls._commit("base", "1")
+        cls.head = cls._commit("head", "2")
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        cls.tmp.cleanup()
+
+    @classmethod
+    def _git(cls, *args: str) -> str:
+        return subprocess.run(
+            ["git", *args],
+            cwd=cls.repo,
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+
+    @classmethod
+    def _commit(cls, message: str, content: str) -> str:
+        (cls.repo / "file.txt").write_text(content, encoding="utf-8")
+        cls._git("add", "file.txt")
+        cls._git(
+            "-c",
+            "user.name=Test",
+            "-c",
+            "user.email=test@example.com",
+            "commit",
+            "-q",
+            "-m",
+            message,
+        )
+        return cls._git("rev-parse", "HEAD")
+
     def seal(self, intent: str = "Onayı seal ve taban commit'e bağla.", extra: str = "") -> str:
         return (
             "## Neden\n\nOnay digest'i gerekli.\n\n"
@@ -165,7 +202,7 @@ class BindingDigestTests(unittest.TestCase):
 
     def test_digest_is_stable_for_same_input(self) -> None:
         body = self.seal()
-        base = git_head("HEAD~1")
+        base = self.base
         self.assertEqual(
             approvals.binding_digest(body, base),
             approvals.binding_digest(body, base),
@@ -183,14 +220,14 @@ class BindingDigestTests(unittest.TestCase):
             "intent: Onayı seal ve taban commit'e bağla.\n"
             "```\n"
         )
-        base = git_head()
+        base = self.head
         self.assertEqual(
             approvals.binding_digest(first, base),
             approvals.binding_digest(second, base),
         )
 
     def test_digest_changes_with_body(self) -> None:
-        base = git_head()
+        base = self.head
         self.assertNotEqual(
             approvals.binding_digest(self.seal(), base),
             approvals.binding_digest(self.seal(intent="Değişti."), base),
@@ -199,37 +236,39 @@ class BindingDigestTests(unittest.TestCase):
     def test_digest_changes_with_base(self) -> None:
         body = self.seal()
         self.assertNotEqual(
-            approvals.binding_digest(body, git_head("HEAD~1")),
-            approvals.binding_digest(body, git_head()),
+            approvals.binding_digest(body, self.base),
+            approvals.binding_digest(body, self.head),
         )
 
     def test_short_base_sha_resolves_to_full_sha(self) -> None:
         body = self.seal()
-        full = git_head("HEAD~1")
+        full = self.base
         short = full[:7]
-        digest = approvals.binding_digest(body, short)
-        self.assertEqual(digest, approvals.binding_digest(body, full))
+        digest = approvals.binding_digest(body, short, self.repo)
+        self.assertEqual(
+            digest, approvals.binding_digest(body, full, self.repo)
+        )
         result = approvals.approval_binding(
-            body, [self.bound_comment(digest, short)], 333, ROOT
+            body, [self.bound_comment(digest, short)], 333, self.repo
         )
         self.assertEqual(result["state"], "bound")
         self.assertEqual(result["base"], short)
 
     def test_different_base_commit_mismatches(self) -> None:
         body = self.seal()
-        digest = approvals.binding_digest(body, git_head("HEAD~1"))
+        digest = approvals.binding_digest(body, self.base)
         result = approvals.approval_binding(
-            body, [self.bound_comment(digest, git_head())], 333, ROOT
+            body, [self.bound_comment(digest, self.head)], 333, self.repo
         )
         self.assertEqual(result["state"], "mismatch")
         self.assertIn("uyuşmuyor", result["detail"])
 
     def test_legacy_short_sha_digest_still_passes(self) -> None:
         body = self.seal()
-        short = git_head("HEAD~1")[:7]
+        short = self.base[:7]
         legacy = approvals._payload_digest(body, short)
         result = approvals.approval_binding(
-            body, [self.bound_comment(legacy, short)], 333, ROOT
+            body, [self.bound_comment(legacy, short)], 333, self.repo
         )
         self.assertEqual(result["state"], "bound")
 
@@ -238,7 +277,7 @@ class BindingDigestTests(unittest.TestCase):
         base = "deadbeef" * 5
         digest = approvals.binding_digest(body, base)
         result = approvals.approval_binding(
-            body, [self.bound_comment(digest, base)], 333, ROOT
+            body, [self.bound_comment(digest, base)], 333, self.repo
         )
         self.assertEqual(result["state"], "mismatch")
         self.assertIn("çözülemedi", result["detail"])
@@ -263,10 +302,10 @@ class BindingDigestTests(unittest.TestCase):
 
     def test_binding_matches_when_base_is_an_ancestor_not_head(self) -> None:
         body = self.seal()
-        base = git_head("HEAD~1")
+        base = self.base
         digest = approvals.binding_digest(body, base)
         result = approvals.approval_binding(
-            body, [self.bound_comment(digest, base)], 333, ROOT
+            body, [self.bound_comment(digest, base)], 333, self.repo
         )
         self.assertEqual(result["state"], "bound")
         self.assertEqual(result["by"], "human")
@@ -274,12 +313,12 @@ class BindingDigestTests(unittest.TestCase):
 
     def test_binding_mismatch_after_body_change(self) -> None:
         body = self.seal()
-        base = git_head()
+        base = self.head
         digest = approvals.binding_digest(body, base)
         comment = self.bound_comment(digest, base)
         self.assertEqual(
             approvals.approval_binding(
-                self.seal(intent="Değişti."), [comment], 333, ROOT
+                self.seal(intent="Değişti."), [comment], 333, self.repo
             )["state"],
             "mismatch",
         )
@@ -289,7 +328,7 @@ class BindingDigestTests(unittest.TestCase):
         base = "deadbeef" * 5
         digest = approvals.binding_digest(body, base)
         result = approvals.approval_binding(
-            body, [self.bound_comment(digest, base)], 333, ROOT
+            body, [self.bound_comment(digest, base)], 333, self.repo
         )
         self.assertEqual(result["state"], "mismatch")
         self.assertIn("atası değil", result["detail"])
@@ -310,18 +349,18 @@ class BindingDigestTests(unittest.TestCase):
             "user": {"login": "human"},
             "author_association": "MEMBER",
         }
-        result = approvals.approval_binding(body, [comment], 333, ROOT)
+        result = approvals.approval_binding(body, [comment], 333, self.repo)
         self.assertEqual(result["state"], "mismatch")
         self.assertIn("taban commit", result["detail"])
 
     def test_binding_legacy_record_without_digest(self) -> None:
         result = approvals.approval_binding(
-            self.seal(), [issue_comment("human", "OWNER")], 48, ROOT
+            self.seal(), [issue_comment("human", "OWNER")], 48, self.repo
         )
         self.assertEqual(result["state"], "legacy")
 
     def test_binding_without_acceptance(self) -> None:
-        result = approvals.approval_binding(self.seal(), [], 333, ROOT)
+        result = approvals.approval_binding(self.seal(), [], 333, self.repo)
         self.assertEqual(result["state"], "none")
 
 
