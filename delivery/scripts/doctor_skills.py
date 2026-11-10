@@ -16,6 +16,18 @@ except ImportError:  # pragma: no cover
     raise SystemExit("doctor_skills: PyYAML required")
 
 
+def is_skill_draft(path: Path) -> bool:
+    """`skills/.drafts/...` taslak öneridir; runtime skill değildir."""
+    return ".drafts" in path.parts
+
+
+def iter_files(root: Path, pattern: str = "*"):
+    """Öneri taslaklarını atlayarak `root` altındaki dosyaları üretir."""
+    for path in root.rglob(pattern):
+        if not is_skill_draft(path):
+            yield path
+
+
 SKILL_TRIGGER_RE = re.compile(
     r"(?i)\b("
     r"use when|use this skill when|use the skill when|whenever|"
@@ -274,11 +286,17 @@ def lint_skill(path: Path, text: str) -> tuple[list[str], list[str]]:
 
 
 def lint_runtime_skills(root: Path, check, error, warn, rel) -> None:
-    """Lint every runtime skill under root and record doctor results."""
+    """Lint every runtime skill under root and record doctor results.
+
+    `skills/.drafts/` öneri taslakları runtime skill değildir; lint dışında
+    kalır (AC-1: taslak `skills/` altında yalnızca öneri olarak durur).
+    """
     check("skill writing")
     if not root.is_dir():
         return
     for path in sorted(root.glob("*/SKILL.md")):
+        if ".drafts" in path.parts:
+            continue
         text = path.read_text(encoding="utf-8")
         lint_errors, lint_warnings = lint_skill(path, text)
         for message in lint_errors:

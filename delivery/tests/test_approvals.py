@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import importlib.util
+import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -138,6 +140,230 @@ class ApprovalTests(unittest.TestCase):
         )
 
 
+class BindingDigestTests(unittest.TestCase):
+    """Digest/ancestry checks run on a throwaway two-commit repo.
+
+    A shallow CI clone has no ``HEAD~1``; the fixture keeps the tests hermetic
+    and independent of this repository's history.
+    """
+
+    repo: Path
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.tmp = tempfile.TemporaryDirectory(prefix="kit-approvals-")
+        cls.repo = Path(cls.tmp.name)
+        cls._git("init", "-q")
+        cls.base = cls._commit("base", "1")
+        cls.head = cls._commit("head", "2")
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        cls.tmp.cleanup()
+
+    @classmethod
+    def _git(cls, *args: str) -> str:
+        return subprocess.run(
+            ["git", *args],
+            cwd=cls.repo,
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+
+    @classmethod
+    def _commit(cls, message: str, content: str) -> str:
+        (cls.repo / "file.txt").write_text(content, encoding="utf-8")
+        cls._git("add", "file.txt")
+        cls._git(
+            "-c",
+            "user.name=Test",
+            "-c",
+            "user.email=test@example.com",
+            "commit",
+            "-q",
+            "-m",
+            message,
+        )
+        return cls._git("rev-parse", "HEAD")
+
+    def seal(self, intent: str = "Onayı seal ve taban commit'e bağla.", extra: str = "") -> str:
+        return (
+            "## Neden\n\nOnay digest'i gerekli.\n\n"
+            "```yaml demir-kit\n"
+            'demir_kit_version: "2"\n'
+            "package_version: 4\n"
+            "epic: 292\n"
+            f"intent: {intent}\n"
+            "risk: {level: medium, reasons: [approval]}\n"
+            f"{extra}"
+            "```\n"
+        )
+
+    def test_digest_is_stable_for_same_input(self) -> None:
+        body = self.seal()
+        base = self.base
+        self.assertEqual(
+            approvals.binding_digest(body, base),
+            approvals.binding_digest(body, base),
+        )
+        self.assertRegex(approvals.binding_digest(body, base), approvals.BINDING_RE)
+
+    def test_digest_ignores_seal_formatting(self) -> None:
+        first = self.seal()
+        second = (
+            "```yaml demir-kit\n"
+            "risk: {reasons: [approval], level: medium}\n"
+            "epic: 292\n"
+            "package_version: 4\n"
+            'demir_kit_version: "2"\n'
+            "intent: Onayı seal ve taban commit'e bağla.\n"
+            "```\n"
+        )
+        base = self.head
+        self.assertEqual(
+            approvals.binding_digest(first, base),
+            approvals.binding_digest(second, base),
+        )
+
+    def test_digest_changes_with_body(self) -> None:
+        base = self.head
+        self.assertNotEqual(
+            approvals.binding_digest(self.seal(), base),
+            approvals.binding_digest(self.seal(intent="Değişti."), base),
+        )
+
+    def test_digest_changes_with_base(self) -> None:
+        body = self.seal()
+        self.assertNotEqual(
+            approvals.binding_digest(body, self.base),
+            approvals.binding_digest(body, self.head),
+        )
+
+    def test_short_base_sha_resolves_to_full_sha(self) -> None:
+        body = self.seal()
+        full = self.base
+        short = full[:7]
+        digest = approvals.binding_digest(body, short, self.repo)
+        self.assertEqual(
+            digest, approvals.binding_digest(body, full, self.repo)
+        )
+        result = approvals.approval_binding(
+            body, [self.bound_comment(digest, short)], 333, self.repo
+        )
+        self.assertEqual(result["state"], "bound")
+        self.assertEqual(result["base"], short)
+
+    def test_different_base_commit_mismatches(self) -> None:
+        body = self.seal()
+        digest = approvals.binding_digest(body, self.base)
+        result = approvals.approval_binding(
+            body, [self.bound_comment(digest, self.head)], 333, self.repo
+        )
+        self.assertEqual(result["state"], "mismatch")
+        self.assertIn("uyuşmuyor", result["detail"])
+
+    def test_legacy_short_sha_digest_still_passes(self) -> None:
+        body = self.seal()
+        short = self.base[:7]
+        legacy = approvals._payload_digest(body, short)
+        result = approvals.approval_binding(
+            body, [self.bound_comment(legacy, short)], 333, self.repo
+        )
+        self.assertEqual(result["state"], "bound")
+
+    def test_unresolvable_base_sha_mismatches(self) -> None:
+        body = self.seal()
+        base = "deadbeef" * 5
+        digest = approvals.binding_digest(body, base)
+        result = approvals.approval_binding(
+            body, [self.bound_comment(digest, base)], 333, self.repo
+        )
+        self.assertEqual(result["state"], "mismatch")
+        self.assertIn("çözülemedi", result["detail"])
+
+    def bound_comment(self, digest: str, base: str, issue: int = 333) -> dict:
+        body = (
+            "```yaml demir-kit-accept\n"
+            'demir_kit_version: "2"\n'
+            f"issue: {issue}\n"
+            "by: human\n"
+            "decision: accepted\n"
+            f"binding_sha256: {digest}\n"
+            f"binding_base: {base}\n"
+            "```\n"
+        )
+        return {
+            "body": body,
+            "user": {"login": "human"},
+            "author_association": "MEMBER",
+            "created_at": "2026-11-10T06:00:00Z",
+        }
+
+    def test_binding_matches_when_base_is_an_ancestor_not_head(self) -> None:
+        body = self.seal()
+        base = self.base
+        digest = approvals.binding_digest(body, base)
+        result = approvals.approval_binding(
+            body, [self.bound_comment(digest, base)], 333, self.repo
+        )
+        self.assertEqual(result["state"], "bound")
+        self.assertEqual(result["by"], "human")
+        self.assertEqual(result["base"], base)
+
+    def test_binding_mismatch_after_body_change(self) -> None:
+        body = self.seal()
+        base = self.head
+        digest = approvals.binding_digest(body, base)
+        comment = self.bound_comment(digest, base)
+        self.assertEqual(
+            approvals.approval_binding(
+                self.seal(intent="Değişti."), [comment], 333, self.repo
+            )["state"],
+            "mismatch",
+        )
+
+    def test_binding_mismatch_when_base_is_not_ancestor(self) -> None:
+        body = self.seal()
+        base = "deadbeef" * 5
+        digest = approvals.binding_digest(body, base)
+        result = approvals.approval_binding(
+            body, [self.bound_comment(digest, base)], 333, self.repo
+        )
+        self.assertEqual(result["state"], "mismatch")
+        self.assertIn("atası değil", result["detail"])
+
+    def test_binding_mismatch_without_base(self) -> None:
+        body = self.seal()
+        digest = approvals.binding_digest(body, "")
+        comment = {
+            "body": (
+                "```yaml demir-kit-accept\n"
+                'demir_kit_version: "2"\n'
+                "issue: 333\n"
+                "by: human\n"
+                "decision: accepted\n"
+                f"binding_sha256: {digest}\n"
+                "```\n"
+            ),
+            "user": {"login": "human"},
+            "author_association": "MEMBER",
+        }
+        result = approvals.approval_binding(body, [comment], 333, self.repo)
+        self.assertEqual(result["state"], "mismatch")
+        self.assertIn("taban commit", result["detail"])
+
+    def test_binding_legacy_record_without_digest(self) -> None:
+        result = approvals.approval_binding(
+            self.seal(), [issue_comment("human", "OWNER")], 48, self.repo
+        )
+        self.assertEqual(result["state"], "legacy")
+
+    def test_binding_without_acceptance(self) -> None:
+        result = approvals.approval_binding(self.seal(), [], 333, self.repo)
+        self.assertEqual(result["state"], "none")
+
+
 class ApprovalContractTests(unittest.TestCase):
     def test_approval_contract_is_human_only(self) -> None:
         contract = (ROOT / "delivery" / "CONTRACT.md").read_text(encoding="utf-8")
@@ -150,9 +376,10 @@ class ApprovalContractTests(unittest.TestCase):
             encoding="utf-8"
         )
         self.assertIn("Onay etiketi yalnız insan", policy)
-        for name in ("VERSION", "README.md", "CHANGELOG.md"):
+        version = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
+        for name in ("README.md", "CHANGELOG.md"):
             text = (ROOT / name).read_text(encoding="utf-8")
-            self.assertIn("2.64.0", text)
+            self.assertIn(version, text)
 
 
 if __name__ == "__main__":

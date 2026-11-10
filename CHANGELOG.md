@@ -19,6 +19,30 @@
 
 # Changelog
 
+## 2.64.0 — 2026-11-10
+
+- **Onay bağlama (Epic #292, #333)** — `demir-kit-accept` bloğu artık
+  `binding_sha256` + `binding_base` taşır: seal gövdesi + onay anındaki taban
+  commit'in digest'i. Seal onaydan sonra değişirse ya da taban commit HEAD'in
+  atası değilse `doctor --issue` hata verir ve `guard.sh` kaynak yazımını
+  reddeder; alanı taşımayan eski kayıtlar geriye dönük geçerlidir.
+- `evidence.commit` HEAD'in atası olmalıdır (eşitlik değil), böylece sonraki
+  CP commit'leri önceki kanıtı geçersiz kılmaz; `evidence.schema.json` opsiyonel
+  `approval` bloğu (`binding_sha256`, `binding_base`, `approved_at`,
+  `approved_by`) kazandı.
+- Kısa `binding_base` sha'sı digest üretiminde ve doğrulamasında tam sha'ya
+  çözülür; `doctor --evidence` kaydı da ata kuralından geçer, çözülemeyen
+  `evidence.commit` hatadır. `guard.sh` onay yorumlarını veya seal gövdesini
+  okuyamazsa fail-closed BLOCK verir.
+- T2 ve I1 sözleşme satırları digest + taban commit bağını yazacak şekilde
+  güncellendi.
+- **Capability yazma sınırı (Epic #292, #334)** — `CONTRACT.md` I1 ve
+  `policies/quality-gates.md` kaynak kapısı (G1) bölümü, seal yüzeylerinin
+  capability path allowlist'i dışına yazımı G1 ihlali sayar; seal'de tanımsız
+  surface `guard.sh` içinde fail-closed BLOCK, `doctor --issue` içinde hatadır.
+  `capability.schema.json` `match.surfaces` bilinen surface enum'unu taşır ve
+  `doctor` enum ile registry'yi senkron denetler.
+
 ## 2.63.0 — 2026-11-09
 
 - **Risk tabanı değişmezi (Epic #290, #327)** — CONTRACT'ta çakışan ikinci

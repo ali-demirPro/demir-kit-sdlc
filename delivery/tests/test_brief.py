@@ -22,6 +22,9 @@ SCRIPTS = ROOT / "delivery" / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
 import context_metrics  # noqa: E402
+import cp_close  # noqa: E402
+import doctor  # noqa: E402
+import review_record  # noqa: E402
 
 spec = importlib.util.spec_from_file_location("brief", SCRIPTS / "brief.py")
 brief = importlib.util.module_from_spec(spec)
@@ -1440,6 +1443,597 @@ class FrequencyTests(unittest.TestCase):
         self.assertIn("bilinmeyen anahtar: extra", text)
         self.assertIn("ratio 0..1", text)
         self.assertIn("used selected'dan büyük olamaz", text)
+
+
+class PreviousRejectionTests(unittest.TestCase):
+    """CP-1 (issue 335): son ret kaydı sonraki CP brief'ine taşınır."""
+
+    STAMP = "2026-11-09T10:00:00Z"
+    SOURCE = "https://github.com/x/y/issues/335#issuecomment-1"
+    REASON = "AR-1: Ret gerekçesi brief'e taşınmıyor"
+
+    def rejection_comment(
+        self,
+        status: str = "fail",
+        comment_id: int = 1,
+        body: str | None = None,
+    ) -> dict:
+        if body is None:
+            body = (
+                "## CP-1 kanıtı\n\n```yaml demir-kit-evidence\n"
+                + yaml.safe_dump(
+                    {
+                        "demir_kit_version": "2",
+                        "cp_id": "CP-1",
+                        "issue": 335,
+                        "agent": "developer",
+                        "behavior": {"command": "x", "exit_code": 1},
+                        "reviews": {
+                            "adversarial": {"reviewer_a": "revise_required"},
+                            "risk": "low",
+                        },
+                        "tests": [{"case": "T-1", "result": "fail"}],
+                        "findings": [
+                            {
+                                "id": "AR-1",
+                                "status": "open",
+                                "note": "Ret gerekçesi brief'e taşınmıyor",
+                            }
+                        ],
+                        "status": status,
+                    },
+                    sort_keys=False,
+                )
+                + "```\n"
+            )
+        return {
+            "id": comment_id,
+            "html_url": (
+                "https://github.com/x/y/issues/335"
+                f"#issuecomment-{comment_id}"
+            ),
+            "created_at": self.STAMP,
+            "body": body,
+        }
+
+    def accept_comment(
+        self, decision: str, comment_id: int = 9, binding_base: str = "41b5007"
+    ) -> dict:
+        return {
+            "id": comment_id,
+            "html_url": (
+                "https://github.com/x/y/issues/335"
+                f"#issuecomment-{comment_id}"
+            ),
+            "created_at": self.STAMP,
+            "body": (
+                "```yaml demir-kit-accept\n"
+                + yaml.safe_dump(
+                    {
+                        "issue": 335,
+                        "by": "ali-demirPro",
+                        "decision": decision,
+                        "binding_base": binding_base,
+                        "note": "Ret: kapsam dışına çıktı",
+                    },
+                    sort_keys=False,
+                )
+                + "```\n"
+            ),
+        }
+
+    def review_comment(
+        self,
+        verdict: str = "revise_required",
+        findings: list[dict] | None = None,
+        cp: str = "CP-1",
+        comment_id: int = 11,
+        commit: str = "41b5007",
+        reviewer: str = "adversarial-a",
+    ) -> dict:
+        record = review_record.build_record(
+            335, cp, verdict, commit, reviewer, findings or []
+        )
+        return {
+            "id": comment_id,
+            "html_url": (
+                "https://github.com/x/y/issues/335"
+                f"#issuecomment-{comment_id}"
+            ),
+            "created_at": self.STAMP,
+            "body": review_record.comment_body(record),
+        }
+
+    def run_brief(
+        self,
+        argv: list[str],
+        comments: list[dict],
+        comments_error: Exception | None = None,
+    ):
+        issue = json.dumps(
+            {"title": "config", "body": config_body(), "labels": []}
+        )
+        comments_payload = json.dumps(comments)
+
+        def fake_gh(args):
+            if any("/comments" in str(part) for part in args):
+                if comments_error is not None:
+                    raise comments_error
+                return comments_payload
+            return issue
+
+        out = io.StringIO()
+        err = io.StringIO()
+        with tempfile.TemporaryDirectory() as runtime, patch.dict(
+            os.environ, {"DEMIR_KIT_CONTEXT_ROOT": runtime}
+        ), patch.object(brief, "repo_name", return_value="x/y"), patch.object(
+            brief, "gh", side_effect=fake_gh
+        ), patch.object(
+            sys, "argv", ["brief.py", *argv]
+        ), contextlib.redirect_stdout(
+            out
+        ), contextlib.redirect_stderr(
+            err
+        ):
+            code = brief.main()
+        return code, out.getvalue(), err.getvalue()
+
+    def test_last_rejection_reaches_cp_brief(self) -> None:
+        """T-1: karar, zaman, gerekçe ve kaynak satırları yazılır."""
+        code, out, err = self.run_brief(
+            ["335", "--cp", "CP-1"], [self.rejection_comment()]
+        )
+        self.assertEqual(code, 0, err)
+        self.assertIn("Önceki ret:", out)
+        self.assertIn("- Karar: fail", out)
+        self.assertIn(f"- Zaman: {self.STAMP}", out)
+        self.assertIn(f"- Gerekçe: {self.REASON}", out)
+        self.assertIn(f"- Kaynak: {self.SOURCE}", out)
+        # Bölüm kapsamdan hemen sonra, AC listesinden önce gelir.
+        self.assertLess(out.index("Önceki ret:"), out.index("AC (bu CP)"))
+
+    def test_latest_rejection_wins(self) -> None:
+        """T-1: en son kayıt seçilir; reddedilen kabul de ret sayılır."""
+        comments = [
+            self.rejection_comment(comment_id=1),
+            self.accept_comment("rejected", comment_id=9),
+        ]
+        code, out, err = self.run_brief(["335", "--cp", "CP-1"], comments)
+        self.assertEqual(code, 0, err)
+        self.assertIn("- Karar: rejected", out)
+        self.assertIn("- Gerekçe: Ret: kapsam dışına çıktı", out)
+        self.assertIn("issuecomment-9", out)
+        self.assertNotIn(self.REASON, out)
+
+    def test_no_rejection_keeps_output_unchanged(self) -> None:
+        """T-2: ret yokken bölüm çıkmaz; temiz issue'yla aynı çıktı.
+
+        Baseline aynı issue'nun ret kaydından değil, hiç yorumu olmayan ayrı
+        bir issue'dan gelir; böylece test kendi ürettiği kaydı baz almaz.
+        """
+        history = [
+            self.accept_comment("accepted", comment_id=2),
+            {
+                "id": 3,
+                "html_url": "https://github.com/x/y/issues/335#issuecomment-3",
+                "created_at": self.STAMP,
+                "body": "run transition: `run-1`\nfrom: intake\nto: agent-approved",
+            },
+        ]
+        code, out, err = self.run_brief(["335", "--cp", "CP-1"], history)
+        self.assertEqual(code, 0, err)
+        self.assertNotIn("Önceki ret", out)
+
+        clean_code, clean_out, clean_err = self.run_brief(
+            ["335", "--cp", "CP-1"], []
+        )
+        self.assertEqual(clean_code, 0, clean_err)
+        self.assertEqual(out, clean_out)
+
+        other_code, other_out, other_err = self.run_brief(
+            ["340", "--cp", "CP-1"], []
+        )
+        self.assertEqual(other_code, 0, other_err)
+        self.assertEqual(
+            out.replace("335", "ISSUE"),
+            other_out.replace("340", "ISSUE"),
+        )
+
+        json_code, json_out, json_err = self.run_brief(
+            ["335", "--cp", "CP-1", "--json"], history
+        )
+        self.assertEqual(json_code, 0, json_err)
+        self.assertNotIn("previous_rejection", json.loads(json_out))
+
+        plain_code, plain_out, plain_err = self.run_brief(["335"], history)
+        self.assertEqual(plain_code, 0, plain_err)
+        self.assertNotIn("Önceki ret", plain_out)
+
+    def test_review_record_reaches_brief(self) -> None:
+        """AC-1/AC-3: gerçek `demir-kit-review` yorumu ret kaynağıdır.
+
+        Kayıt review_record.py ile üretilir; yalnız `open` bulgular gerekçeye
+        girer ve blocking olan önce gelir.
+        """
+        findings = [
+            {
+                "id": "AR-1",
+                "severity": "blocking",
+                "status": "open",
+                "note": "Kit'te hiçbir yazıcı ret kaydı üretmiyor",
+            },
+            {
+                "id": "AR-2",
+                "severity": "nit",
+                "status": "fixed",
+                "note": "Düzeltilen bulgu gerekçeye girmemeli",
+            },
+            {
+                "id": "NIT-1",
+                "severity": "nit",
+                "status": "open",
+                "note": "T-2 kendi kaydını baz alıyor",
+            },
+        ]
+        comment = self.review_comment(findings=findings)
+        code, out, err = self.run_brief(["335", "--cp", "CP-1"], [comment])
+        self.assertEqual(code, 0, err)
+        self.assertIn("Önceki ret:", out)
+        self.assertIn("- Karar: revise_required", out)
+        self.assertIn("- Gerekçe: AR-1:", out)
+        self.assertNotIn("AR-2", out)
+        self.assertLess(out.index("AR-1:"), out.index("NIT-1:"))
+
+        json_code, json_out, json_err = self.run_brief(
+            ["335", "--cp", "CP-1", "--json"], [comment]
+        )
+        self.assertEqual(json_code, 0, json_err)
+        record = json.loads(json_out)["previous_rejection"]
+        self.assertEqual(record["decision"], "revise_required")
+        self.assertEqual(record["cp_id"], "CP-1")
+        self.assertEqual(
+            record["reason"],
+            "AR-1: Kit'te hiçbir yazıcı ret kaydı üretmiyor; "
+            "NIT-1: T-2 kendi kaydını baz alıyor",
+        )
+
+    def test_approved_review_resolves_old_rejection(self) -> None:
+        """NIT: sonraki approved review eski redi çözer."""
+        comments = [
+            self.review_comment(comment_id=11),
+            self.review_comment(verdict="approved", comment_id=12),
+        ]
+        code, out, err = self.run_brief(["335", "--cp", "CP-1"], comments)
+        self.assertEqual(code, 0, err)
+        self.assertNotIn("Önceki ret", out)
+
+    def test_other_reviewer_approval_does_not_resolve(self) -> None:
+        """Blocking A: B'nin onayı A'nın redini silmez; A'nın onayı çözer.
+
+        Yorum sırası belirler: A `aaaaaaa`'yı reddeder (id 11), B daha yeni
+        `bbbbbbb`'yi onaylar (id 12): ret açık kalır. Sonra A daha yeni
+        `ccccccc`'yi onaylar (id 13): ret kapanır. Sahte sha'lar bilinçli;
+        çözüm commit ancestry'sine bakmamalı.
+        """
+        finding = {
+            "id": "AR-1",
+            "severity": "blocking",
+            "status": "open",
+            "note": "Ret kaydı ayrıştırılmıyor",
+        }
+        comments = [
+            self.review_comment(
+                comment_id=11,
+                commit="aaaaaaa",
+                reviewer="adversarial-a",
+                findings=[finding],
+            ),
+            self.review_comment(
+                verdict="approved",
+                comment_id=12,
+                commit="bbbbbbb",
+                reviewer="adversarial-b",
+            ),
+        ]
+        code, out, err = self.run_brief(["335", "--cp", "CP-1"], comments)
+        self.assertEqual(code, 0, err)
+        self.assertIn("Önceki ret:", out)
+        self.assertIn("- Karar: revise_required", out)
+        self.assertIn("AR-1: Ret kaydı ayrıştırılmıyor", out)
+
+        comments.append(
+            self.review_comment(
+                verdict="approved",
+                comment_id=13,
+                commit="ccccccc",
+                reviewer="adversarial-a",
+            )
+        )
+        code, out, err = self.run_brief(["335", "--cp", "CP-1"], comments)
+        self.assertEqual(code, 0, err)
+        self.assertNotIn("Önceki ret", out)
+
+    def test_resolution_follows_comment_id_not_list_order(self) -> None:
+        """Ret çözümü comment id sırasına bağlı; liste sırasına değil."""
+        comments = [
+            self.review_comment(
+                verdict="approved",
+                comment_id=13,
+                commit="ccccccc",
+                reviewer="adversarial-a",
+            ),
+            self.review_comment(
+                comment_id=11,
+                commit="aaaaaaa",
+                reviewer="adversarial-a",
+            ),
+        ]
+        code, out, err = self.run_brief(["335", "--cp", "CP-1"], comments)
+        self.assertEqual(code, 0, err)
+        self.assertNotIn("Önceki ret", out)
+
+    def test_older_approval_does_not_resolve_newer_rejection(self) -> None:
+        """Daha eski comment id'li onay sonraki redi çözmez."""
+        comments = [
+            self.review_comment(
+                verdict="approved",
+                comment_id=11,
+                commit="aaaaaaa",
+                reviewer="adversarial-a",
+            ),
+            self.review_comment(
+                comment_id=12,
+                commit="bbbbbbb",
+                reviewer="adversarial-a",
+            ),
+        ]
+        code, out, err = self.run_brief(["335", "--cp", "CP-1"], comments)
+        self.assertEqual(code, 0, err)
+        self.assertIn("Önceki ret:", out)
+        self.assertIn("- Karar: revise_required", out)
+
+    def test_one_reviewer_approval_leaves_co_reviewer_rejection_open(self) -> None:
+        """Tur içi çoğunluk yok: A onaylasa da B'nin reddi açık kalır."""
+        comments = [
+            self.review_comment(
+                comment_id=11, commit="5c8143e", reviewer="adversarial-a"
+            ),
+            self.review_comment(
+                comment_id=12, commit="5c8143e", reviewer="adversarial-b"
+            ),
+            self.review_comment(
+                verdict="approved",
+                comment_id=13,
+                commit="41b5007",
+                reviewer="adversarial-a",
+            ),
+        ]
+        code, out, err = self.run_brief(["335", "--cp", "CP-1"], comments)
+        self.assertEqual(code, 0, err)
+        self.assertIn("Önceki ret:", out)
+        self.assertIn("- Karar: revise_required", out)
+
+    def test_accepted_accept_resolves_old_rejection(self) -> None:
+        """NIT: sonraki accepted kabul kaydı eski redi çözer."""
+        comments = [
+            self.review_comment(comment_id=11),
+            self.accept_comment("accepted", comment_id=12),
+        ]
+        code, out, err = self.run_brief(["335", "--cp", "CP-1"], comments)
+        self.assertEqual(code, 0, err)
+        self.assertNotIn("Önceki ret", out)
+
+    def test_other_cp_approval_does_not_resolve(self) -> None:
+        """NIT: başka CP'nin onayı bu CP'nin redini çözmez."""
+        comments = [
+            self.review_comment(comment_id=11, cp="CP-1"),
+            self.review_comment(verdict="approved", comment_id=12, cp="CP-2"),
+        ]
+        code, out, err = self.run_brief(["335", "--cp", "CP-1"], comments)
+        self.assertEqual(code, 0, err)
+        self.assertIn("Önceki ret:", out)
+        self.assertIn("- Karar: revise_required", out)
+
+    def test_json_carries_the_same_rejection(self) -> None:
+        """T-3: `--json` aynı ret alanını taşır."""
+        comments = [self.rejection_comment()]
+        _, plain, _ = self.run_brief(["335", "--cp", "CP-1"], comments)
+        code, out, err = self.run_brief(["335", "--cp", "CP-1", "--json"], comments)
+        self.assertEqual(code, 0, err)
+        payload = json.loads(out)
+        record = payload["previous_rejection"]
+        self.assertEqual(record["decision"], "fail")
+        self.assertEqual(record["at"], self.STAMP)
+        self.assertEqual(record["reason"], self.REASON)
+        self.assertEqual(record["source"], self.SOURCE)
+        self.assertEqual(record["cp_id"], "CP-1")
+        self.assertIn("Önceki ret:", payload["brief"])
+        for line in (
+            f"- Karar: {record['decision']}",
+            f"- Zaman: {record['at']}",
+            f"- Gerekçe: {record['reason']}",
+            f"- Kaynak: {record['source']}",
+        ):
+            self.assertIn(line, plain)
+
+        plain_json_code, plain_json_out, plain_json_err = self.run_brief(
+            ["335", "--json"], comments
+        )
+        self.assertEqual(plain_json_code, 0, plain_json_err)
+        self.assertEqual(
+            json.loads(plain_json_out)["previous_rejection"], record
+        )
+
+    def evidence_record(self, body: str) -> dict:
+        match = brief.EVIDENCE_BLOCK_RE.search(body)
+        self.assertIsNotNone(match)
+        return yaml.safe_load(match.group(1))
+
+    def schema_errors(self, record: dict) -> list[str]:
+        schema = json.loads(
+            (ROOT / "delivery" / "schemas" / "evidence.schema.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        return doctor.validate_schema(record, schema)
+
+    def test_rejection_fixture_is_schema_valid(self) -> None:
+        """T-1 fixture'ı şemanın kabul ettiği `status: fail` kaydıdır.
+
+        Şema `status` için yalnız `pass|fail` tanır; `revise_required` kaydı
+        gerçek bir yorum gövdesinde şema dışı kalıyordu (review blocking).
+        """
+        record = self.evidence_record(self.rejection_comment()["body"])
+        self.assertEqual(record["status"], "fail")
+        self.assertEqual(record["findings"][0]["status"], "open")
+        self.assertEqual(self.schema_errors(record), [])
+
+    def fail_record(self) -> dict:
+        """Şema-geçerli ret kaydı: kapı düştü, açık bulgular var."""
+        return {
+            "demir_kit_version": "2",
+            "cp_id": "CP-1",
+            "issue": 335,
+            "agent": "developer",
+            "commit": "5c8143e",
+            "behavior": {
+                "command": (
+                    "./delivery/scripts/gate.sh --issue 335 --checkpoint CP-1"
+                ),
+                "exit_code": 1,
+                "checkpoint": "CP-1",
+            },
+            "reviews": {
+                "adversarial": {"reviewer_a": "revise_required"},
+                "risk": "low",
+            },
+            "tests": [{"case": "T-1", "result": "fail"}],
+            "findings": [
+                {
+                    "id": "AR-2",
+                    "status": "fixed",
+                    "note": "Düzeltilen bulgu gerekçeye girmemeli",
+                },
+                {
+                    "id": "NIT-1",
+                    "status": "open",
+                    "note": "gh yokken brief çöküyor",
+                },
+                {
+                    "id": "AR-1",
+                    "status": "open",
+                    "note": "Blocking — parser şema-geçerli ret kaydını görmüyor",
+                },
+            ],
+            "status": "fail",
+        }
+
+    def test_real_fail_comment_reaches_brief(self) -> None:
+        """AC-1/AC-3: gerçek yorum gövdesi (`status: fail`) brief'e girer.
+
+        Gövde `cp_close.comment_body` ile üretilir: issue'ya yazılan biçimin
+        aynısı. Karar, zaman, gerekçe ve kaynak brief'te; `--json` aynı kaydı
+        taşır. Yalnız `open` bulgular gerekçe olur, blocking önce gelir.
+        """
+        record = self.fail_record()
+        self.assertEqual(self.schema_errors(record), [])
+        comment = {
+            "id": 5,
+            "html_url": "https://github.com/x/y/issues/335#issuecomment-5",
+            "created_at": self.STAMP,
+            "body": cp_close.comment_body(record),
+        }
+
+        code, out, err = self.run_brief(["335", "--cp", "CP-1"], [comment])
+        self.assertEqual(code, 0, err)
+        self.assertIn("Önceki ret:", out)
+        self.assertIn("- Karar: fail", out)
+        self.assertIn(f"- Zaman: {self.STAMP}", out)
+        self.assertIn("- Kaynak: https://github.com/x/y/issues/335#issuecomment-5", out)
+        self.assertIn(
+            "AR-1: Blocking — parser şema-geçerli ret kaydını görmüyor", out
+        )
+        self.assertNotIn("AR-2", out)
+        self.assertLess(out.index("AR-1:"), out.index("NIT-1:"))
+
+        json_code, json_out, json_err = self.run_brief(
+            ["335", "--cp", "CP-1", "--json"], [comment]
+        )
+        self.assertEqual(json_code, 0, json_err)
+        payload = json.loads(json_out)
+        self.assertEqual(payload["previous_rejection"]["decision"], "fail")
+        self.assertEqual(payload["previous_rejection"]["cp_id"], "CP-1")
+        self.assertEqual(
+            payload["previous_rejection"]["reason"],
+            "AR-1: Blocking — parser şema-geçerli ret kaydını görmüyor; "
+            "NIT-1: gh yokken brief çöküyor",
+        )
+        self.assertIn("Önceki ret:", payload["brief"])
+
+    def test_multiline_notes_are_flattened_and_capped(self) -> None:
+        """NIT-2: çok satırlı `notes` tek satıra iner ve ~500 karakterde kesilir."""
+        record = self.fail_record()
+        record["notes"] = "İlk satır\r\nİkinci satır\n\n" + ("gerekçe " * 120)
+        comment = {
+            "id": 6,
+            "html_url": "https://github.com/x/y/issues/335#issuecomment-6",
+            "created_at": self.STAMP,
+            "body": cp_close.comment_body(record),
+        }
+        parsed = brief.comment_rejection(comment)
+        self.assertIsNotNone(parsed)
+        reason = parsed["reason"]
+        self.assertNotIn("\n", reason)
+        self.assertNotIn("\r", reason)
+        self.assertIn("İlk satır İkinci satır", reason)
+        self.assertLessEqual(len(reason), brief.REASON_LIMIT)
+        self.assertTrue(reason.endswith("…"))
+
+        code, out, err = self.run_brief(["335", "--cp", "CP-1"], [comment])
+        self.assertEqual(code, 0, err)
+        reason_line = next(
+            line for line in out.splitlines() if line.startswith("- Gerekçe: ")
+        )
+        self.assertLessEqual(
+            len(reason_line) - len("- Gerekçe: "), brief.REASON_LIMIT
+        )
+
+    def test_fixed_findings_are_not_a_reason(self) -> None:
+        """NIT-3: fallback gerekçeye yalnız `open` bulgular girer."""
+        record = self.fail_record()
+        record["findings"] = [
+            {"id": "AR-2", "status": "fixed", "note": "kapandı"},
+            {"id": "AR-3", "status": "waived", "note": "vazgeçildi"},
+        ]
+        comment = {
+            "id": 7,
+            "html_url": "https://github.com/x/y/issues/335#issuecomment-7",
+            "created_at": self.STAMP,
+            "body": cp_close.comment_body(record),
+        }
+        parsed = brief.comment_rejection(comment)
+        self.assertIsNotNone(parsed)
+        self.assertNotIn("AR-2", parsed["reason"])
+        self.assertNotIn("AR-3", parsed["reason"])
+        # Açık bulgu yoksa ret kaydı yine görünür; gerekçe verdict'ten gelir.
+        self.assertIn("adversarial.reviewer_a", parsed["reason"])
+
+    def test_missing_gh_keeps_brief_without_rejection(self) -> None:
+        """NIT-1: gh yoksa/patlarsa brief ret bölümü olmadan çalışır."""
+        for error in (FileNotFoundError("gh"), OSError("boom"), SystemExit(1)):
+            with self.subTest(error=type(error).__name__):
+                code, out, err = self.run_brief(
+                    ["335", "--cp", "CP-1"], [], comments_error=error
+                )
+                self.assertEqual(code, 0, err)
+                self.assertIn("## CP brief — CP-1", out)
+                self.assertNotIn("Önceki ret", out)
+
+        def missing_gh(args):
+            raise FileNotFoundError("gh")
+
+        self.assertEqual(brief.issue_comments("x/y", 335, fetch=missing_gh), [])
+        self.assertIsNone(brief.previous_rejection([]))
 
 
 if __name__ == "__main__":

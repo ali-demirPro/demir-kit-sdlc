@@ -65,6 +65,10 @@ def resolve_commit(value: str, root: Path = ROOT) -> str | None:
     return result.stdout.strip()
 
 
+def head_commit(root: Path = ROOT) -> str | None:
+    return resolve_commit("HEAD", root)
+
+
 def diff_hash(commit: str, root: Path = ROOT) -> str | None:
     """Hash the binary diff of a commit; root commits use `git show`."""
     result = git(["diff", "--binary", f"{commit}^", commit], root)

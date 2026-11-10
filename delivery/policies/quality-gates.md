@@ -132,6 +132,28 @@ gates:
 `scripts/guard.sh` bu kuralı **registry'den okuyarak** diff üzerinde uygular;
 capability `risk_floor` seal riskinin altına inemez (`doctor`).
 
+## Kaynak kapısı (G1)
+
+Kaynak yazımı `agent-approved` ister ve seal'deki yüzeylerin capability path
+allowlist'i (`capabilities/registry.yaml` → `surfaces`, `capabilities[].paths`
+ve `common_paths`) içinde kalmalıdır; glob dışındaki dosya G1 ihlalidir ve
+`guard.sh --issue` hangi yüzey/glob olduğunu yazarak BLOCK verir. Seal'deki
+surface registry'de tanımlı değilse allowlist sessizce kapanmaz: guard
+fail-closed BLOCK, `doctor --issue` ise hata verir — önce registry'ye ekle.
+
+## Onay digest'i
+
+İnsan `demir-kit-accept` bloğu `binding_sha256` taşıyorsa digest seal gövdesi +
+onay anındaki taban commit (`binding_base`) üzerinden kanonik olarak üretilir.
+Seal sonradan değişirse ya da taban commit HEAD'in atası değilse `doctor --issue`
+hata verir, `guard.sh --issue` G1 ihlaliyle kaynak yazımını reddeder. Alanı
+taşımayan eski onay kayıtları geçerli kalır (geriye dönük uyum). Evidence'daki
+`commit`, `doctor --issue` sırasında HEAD'in atası olmalıdır; değilse kanıt
+bayattır. Eşitlik gerekmez: sonraki CP commit'leri önceki kanıtı geçersiz kılmaz.
+Çözülemeyen `evidence.commit` de hatadır; `doctor --evidence` ile verilen kayıt
+aynı ata kuralından geçer. `guard.sh`, onay yorumlarını veya seal gövdesini
+okuyamazsa fail-closed davranır: G1 BLOCK.
+
 ## Bağımsızlık
 
 | Kural | Neden |

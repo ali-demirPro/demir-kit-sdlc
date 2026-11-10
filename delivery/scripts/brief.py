@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -238,6 +239,383 @@ def header_lines(data: dict) -> list[str]:
     return lines
 
 
+REJECT_VERDICTS = ("revise_required", "rejected")
+# Evidence schema's only non-pass status: a real rejection record.
+FAIL_STATUS = "fail"
+OPEN_FINDING = "open"
+# The rejection section shares the 12 KB brief budget; keep it to one paragraph.
+REASON_LIMIT = 500
+EVIDENCE_BLOCK_RE = re.compile(
+    r"```yaml\s+demir-kit-evidence\s*\n(.*?)```", re.S
+)
+ACCEPT_BLOCK_RE = re.compile(r"```yaml\s+demir-kit-accept\s*\n(.*?)```", re.S)
+# Reviewer turunun tek biçimli kaydı (review_record.py yazar).
+REVIEW_BLOCK_RE = re.compile(r"```yaml\s+demir-kit-review\s*\n(.*?)```", re.S)
+REVIEW_REJECT = "revise_required"
+REVIEW_APPROVED = "approved"
+ACCEPT_APPROVED = "accepted"
+
+
+def issue_comments(repo: str, issue: int, fetch=None) -> list[dict]:
+    """All issue comments; an unreadable tracker yields no history, not a crash."""
+    fetch = fetch or gh
+    comments: list[dict] = []
+    page = 1
+    while True:
+        try:
+            data = json.loads(
+                fetch(
+                    [
+                        "api",
+                        f"repos/{repo}/issues/{issue}/comments"
+                        f"?per_page=100&page={page}",
+                    ]
+                )
+            )
+        except (SystemExit, ValueError, OSError):
+            # No tracker / no gh binary / unreadable payload: history is empty,
+            # the brief still renders without a rejection section.
+            return comments
+        if not isinstance(data, list):
+            # A stub or a different payload shape is not a comment history.
+            return comments
+        comments.extend(item for item in data if isinstance(item, dict))
+        if len(data) < 100:
+            return comments
+        page += 1
+
+
+def _review_rejections(reviews) -> list[str]:
+    """Reviewer verdicts that reject the work, as ``role: verdict`` strings."""
+    verdicts: list[str] = []
+    if not isinstance(reviews, dict):
+        return verdicts
+    for role, value in reviews.items():
+        if isinstance(value, dict):
+            for sub_role, sub_value in value.items():
+                if str(sub_value) in REJECT_VERDICTS:
+                    verdicts.append(f"{role}.{sub_role}: {sub_value}")
+        elif str(value) in REJECT_VERDICTS:
+            verdicts.append(f"{role}: {value}")
+    return verdicts
+
+
+def _review_rejection_reviewers(reviews) -> list[str]:
+    """Reviewer identities behind a rejecting evidence verdict.
+
+    ``adversarial.reviewer_a: revise_required`` names the reviewer
+    ``adversarial.reviewer_a``; a flat ``risk: revise_required`` names ``risk``.
+    """
+    reviewers: list[str] = []
+    if not isinstance(reviews, dict):
+        return reviewers
+    for role, value in reviews.items():
+        if isinstance(value, dict):
+            for sub_role, sub_value in value.items():
+                if str(sub_value) in REJECT_VERDICTS:
+                    reviewers.append(one_line(f"{role}.{sub_role}"))
+        elif str(value) in REJECT_VERDICTS:
+            reviewers.append(one_line(role))
+    return reviewers
+
+
+def one_line(text) -> str:
+    """Single-line text: the brief is line-oriented, newlines become spaces."""
+    return " ".join(str(text or "").split())
+
+
+def _open_findings(findings) -> list[dict]:
+    """The still-open findings of one record in the canonical shape."""
+    return [
+        {
+            "id": one_line(item.get("id")) or "?",
+            "severity": one_line(item.get("severity")).lower(),
+            "status": OPEN_FINDING,
+            "note": one_line(item.get("note")),
+        }
+        for item in findings or []
+        if isinstance(item, dict)
+        and str(item.get("status") or "").strip() == OPEN_FINDING
+    ]
+
+
+def _comment_order(comment: dict) -> tuple[str, int]:
+    """Comment identity: ``created_at`` first, then the numeric comment id.
+
+    Rejection resolution follows comment order, never commit ancestry: only a
+    reviewer's own later approval closes their earlier rejection. Comment ids
+    stay deterministic with fake shas and a shallow clone. Comments without
+    either field keep their input order (``sorted`` is stable).
+    """
+    created = str(comment.get("created_at") or "").strip()
+    try:
+        identifier = int(comment.get("id") or 0)
+    except (TypeError, ValueError):
+        identifier = 0
+    return (created, identifier)
+
+
+def clip_reason(text: str, limit: int = REASON_LIMIT) -> str:
+    """One-line reason capped at ``limit`` characters (brief budget)."""
+    reason = one_line(text)
+    if len(reason) <= limit:
+        return reason
+    return reason[: limit - 1].rstrip() + "…"
+
+
+def _finding_is_blocking(item: dict) -> bool:
+    """A finding blocks when its severity says so or its note is labelled."""
+    severity = one_line(item.get("severity")).lower()
+    return severity == "blocking" or "blocking" in one_line(item.get("note")).lower()
+
+
+def _finding_rejections(findings) -> list[str]:
+    """Open findings of a rejection record, blocking ones first.
+
+    ``fixed``/``waived`` findings are history, not a reason to revise.
+    """
+    open_items = [
+        item
+        for item in findings or []
+        if isinstance(item, dict)
+        and str(item.get("status") or "").strip() == OPEN_FINDING
+    ]
+    open_items.sort(key=lambda item: 0 if _finding_is_blocking(item) else 1)
+    reasons: list[str] = []
+    for item in open_items:
+        text = one_line(item.get("note"))
+        identifier = one_line(item.get("id"))
+        if identifier and text:
+            reasons.append(f"{identifier}: {text}")
+        elif text:
+            reasons.append(text)
+        elif identifier:
+            reasons.append(identifier)
+    return reasons
+
+
+def comment_rejection(comment: dict) -> dict | None:
+    """The rejection record one issue comment carries, if any.
+
+    Four sources are canonical: a review record with ``verdict:
+    revise_required``, an evidence block with ``status: fail`` (the schema's
+    only non-pass status), an evidence block whose reviewer verdict is
+    ``revise_required``/``rejected``, and an accept block with ``decision:
+    rejected``. The reason comes from ``notes`` or from the ``open`` findings
+    (blocking first); everything else is history.
+    """
+    if not isinstance(comment, dict):
+        return None
+    body = str(comment.get("body") or "")
+    source = (
+        str(comment.get("html_url") or comment.get("url") or "").strip()
+        or f"comment {comment.get('id')}"
+    )
+    at = str(comment.get("created_at") or "").strip() or "n/a"
+
+    for match in REVIEW_BLOCK_RE.finditer(body):
+        try:
+            document = yaml.safe_load(match.group(1))
+        except yaml.YAMLError:
+            continue
+        if not isinstance(document, dict):
+            continue
+        verdict = str(document.get("verdict") or "").strip()
+        if verdict != REVIEW_REJECT:
+            continue
+        reason = clip_reason(document.get("note"))
+        if not reason:
+            reason = clip_reason(
+                "; ".join(_finding_rejections(document.get("findings")))
+            )
+        reviewer = one_line(document.get("reviewer"))
+        return {
+            "decision": verdict,
+            "at": at,
+            "reason": reason or verdict,
+            "source": source,
+            "cp_id": str(document.get("cp") or "").strip() or None,
+            "reviewer": reviewer or None,
+            "reviewers": [reviewer] if reviewer else [],
+            "commit": one_line(document.get("reviewed_commit")) or None,
+            "findings": _open_findings(document.get("findings")),
+        }
+
+    for match in EVIDENCE_BLOCK_RE.finditer(body):
+        try:
+            document = yaml.safe_load(match.group(1))
+        except yaml.YAMLError:
+            continue
+        if not isinstance(document, dict):
+            continue
+        verdicts = _review_rejections(document.get("reviews"))
+        status = str(document.get("status") or "").strip()
+        rejected = status in REJECT_VERDICTS or status == FAIL_STATUS
+        if not rejected and not verdicts:
+            continue
+        decision = (
+            status
+            if status in REJECT_VERDICTS or status == FAIL_STATUS
+            else "revise_required"
+        )
+        reason = clip_reason(document.get("notes"))
+        if not reason:
+            reason = clip_reason(
+                "; ".join(
+                    _finding_rejections(document.get("findings")) or verdicts
+                )
+            )
+        reviewers = _review_rejection_reviewers(document.get("reviews"))
+        return {
+            "decision": decision,
+            "at": at,
+            "reason": reason or "-",
+            "source": source,
+            "cp_id": str(document.get("cp_id") or "").strip() or None,
+            "reviewer": reviewers[0] if reviewers else None,
+            "reviewers": reviewers,
+            "commit": one_line(document.get("commit")) or None,
+            "findings": _open_findings(document.get("findings")),
+        }
+
+    for match in ACCEPT_BLOCK_RE.finditer(body):
+        try:
+            document = yaml.safe_load(match.group(1))
+        except yaml.YAMLError:
+            continue
+        if not isinstance(document, dict):
+            continue
+        if str(document.get("decision") or "").strip() != "rejected":
+            continue
+        return {
+            "decision": "rejected",
+            "at": at,
+            "reason": clip_reason(document.get("note")) or "-",
+            "source": source,
+            "cp_id": None,
+            "reviewer": None,
+            "reviewers": [],
+            "commit": one_line(document.get("binding_base")) or None,
+            "findings": _open_findings(document.get("findings")),
+        }
+    return None
+
+
+def comment_resolution(comment: dict) -> dict | None:
+    """An approval record that may close an earlier rejection, if any.
+
+    A later ``demir-kit-review`` with ``verdict: approved`` or a
+    ``demir-kit-accept`` with ``decision: accepted`` can resolve a rejection.
+    The record carries the reviewer and the reviewed/binding commit so the
+    match can stay per reviewer and per commit.
+    """
+    if not isinstance(comment, dict):
+        return None
+    body = str(comment.get("body") or "")
+    for match in REVIEW_BLOCK_RE.finditer(body):
+        try:
+            document = yaml.safe_load(match.group(1))
+        except yaml.YAMLError:
+            continue
+        if isinstance(document, dict) and str(
+            document.get("verdict") or ""
+        ).strip() == REVIEW_APPROVED:
+            return {
+                "kind": "review",
+                "cp_id": str(document.get("cp") or "").strip() or None,
+                "reviewer": one_line(document.get("reviewer")) or None,
+                "commit": one_line(document.get("reviewed_commit")) or None,
+            }
+    for match in ACCEPT_BLOCK_RE.finditer(body):
+        try:
+            document = yaml.safe_load(match.group(1))
+        except yaml.YAMLError:
+            continue
+        if isinstance(document, dict) and str(
+            document.get("decision") or ""
+        ).strip() == ACCEPT_APPROVED:
+            return {
+                "kind": "accept",
+                "cp_id": None,
+                "reviewer": None,
+                "commit": one_line(document.get("binding_base")) or None,
+            }
+    return None
+
+
+def _reviewer_resolves(rejection: dict, resolution: dict) -> bool:
+    """Only the rejecting reviewer's own approval clears that rejection.
+
+    A second reviewer's approval is not a vote: a rejection with a named
+    reviewer stays open until that same reviewer approves (or a human accepts).
+    Records without a reviewer identity (older evidence blocks/accepts) keep the
+    legacy behaviour and accept any approval.
+    """
+    if resolution.get("kind") == "accept":
+        return True
+    wanted = rejection.get("reviewers") or []
+    if not wanted:
+        return True
+    approving = one_line(resolution.get("reviewer"))
+    return bool(approving) and approving in wanted
+
+
+def _resolves(rejection: dict, resolution: dict) -> bool:
+    """An approval closes this rejection only on CP and reviewer.
+
+    The approval must also be newer than the rejection. ``previous_rejection``
+    feeds both sides in comment order, so a record that reaches this helper has
+    already been posted after the rejection it would close. Commit ancestry is
+    deliberately not consulted: fake shas and a shallow clone cannot change the
+    answer.
+    """
+    rejected_cp = rejection.get("cp_id")
+    resolved_cp = resolution.get("cp_id")
+    if rejected_cp and resolved_cp and rejected_cp != resolved_cp:
+        return False
+    return _reviewer_resolves(rejection, resolution)
+
+
+def previous_rejection(comments: list[dict] | None) -> dict | None:
+    """Latest still-unresolved rejection in a comment history.
+
+    Comments are ordered by ``created_at``/``id`` before replay, so the answer
+    never depends on the list order the tracker happened to return.
+    Resolutions are applied to the pending set one by one, so one reviewer's
+    approval cannot erase another reviewer's rejection. The brief shows the
+    newest rejection that is still open.
+    """
+    pending: list[dict] = []
+    for comment in sorted(comments or [], key=_comment_order):
+        resolution = comment_resolution(comment)
+        if resolution is not None and pending:
+            pending = [
+                record
+                for record in pending
+                if not _resolves(record, resolution)
+            ]
+        record = comment_rejection(comment)
+        if record is not None:
+            pending.append(record)
+    return pending[-1] if pending else None
+
+
+def render_rejection(record: dict) -> list[str]:
+    """The ``Önceki ret`` section: decision, time, reason and source."""
+    lines = [
+        "Önceki ret:",
+        f"- Karar: {record['decision']}",
+        f"- Zaman: {record['at']}",
+    ]
+    if record.get("reviewer"):
+        lines.append(f"- Reviewer: {record['reviewer']}")
+    lines += [
+        f"- Gerekçe: {record['reason']}",
+        f"- Kaynak: {record['source']}",
+    ]
+    return lines
+
+
 def build_brief(
     registry: dict,
     number: int,
@@ -248,6 +626,7 @@ def build_brief(
     ecosystem: dict | None = None,
     priorities: dict | None = None,
     fallbacks: list[str] | None = None,
+    rejection: dict | None = None,
 ) -> dict:
     resolver.reset_fallbacks()
     seal = routing.seal_body(body)
@@ -319,6 +698,8 @@ def build_brief(
         "docs": docs,
         "config": config,
     }
+    if rejection:
+        data["previous_rejection"] = rejection
     data.update(
         control_fields(path_id, path_source, fallbacks=reasons)
     )
@@ -593,6 +974,9 @@ def render_cp_brief(
         f"Yüzey: {surfaces} · Gate: {gate_text}",
         f"Kapsam: {seal.get('intent', '')}",
     ]
+    rejection = data.get("previous_rejection")
+    if rejection:
+        lines += render_rejection(rejection)
     if selected:
         lines.append("AC (bu CP):")
         for item in selected:
@@ -700,6 +1084,11 @@ def render(data: dict) -> str:
         f"state: {data['state']}",
         f"path: {data['path_id']}"
         + (f" (signal: {data['signal']})" if data["signal"] else ""),
+    ]
+    rejection = data.get("previous_rejection")
+    if rejection:
+        lines += render_rejection(rejection)
+    lines += [
         "capabilities: " + (", ".join(data["capabilities"]) or "-"),
         "active: " + ", ".join(data["active_roles"]),
         "on_demand: " + (", ".join(data["on_demand_roles"]) or "-"),
@@ -832,6 +1221,7 @@ def main() -> int:
         ecosystem,
         priorities,
         fallbacks=initial_fallbacks,
+        rejection=previous_rejection(issue_comments(repo, args.issue)),
     )
 
     if args.route:
@@ -964,7 +1354,11 @@ def main() -> int:
                     return 2
                 cp_route = apply_frequency(cp_route, frequency, index, prefix)
             text = render_cp_brief(
-                {"issue": data["issue"], "risk": effective},
+                {
+                    "issue": data["issue"],
+                    "risk": effective,
+                    "previous_rejection": data.get("previous_rejection"),
+                },
                 seal,
                 args.cp,
                 routing.kit_prefix(ROOT),
@@ -986,24 +1380,21 @@ def main() -> int:
             path.write_text(text, encoding="utf-8")
             print(path)
         elif args.json:
-            print(
-                json.dumps(
-                    {
-                        "issue": data["issue"],
-                        "cp_id": args.cp,
-                        "role": cp_role(cp.get("gates") or {}),
-                        "chars": len(text),
-                        "brief": text,
-                        "config": cp_control["config"],
-                        "armed": cp_control["armed"],
-                        "indexing": cp_control["indexing"],
-                        "unarmed": cp_control["unarmed"],
-                        "fallbacks": cp_control["fallbacks"],
-                    },
-                    ensure_ascii=False,
-                    indent=2,
-                )
-            )
+            payload = {
+                "issue": data["issue"],
+                "cp_id": args.cp,
+                "role": cp_role(cp.get("gates") or {}),
+                "chars": len(text),
+                "brief": text,
+                "config": cp_control["config"],
+                "armed": cp_control["armed"],
+                "indexing": cp_control["indexing"],
+                "unarmed": cp_control["unarmed"],
+                "fallbacks": cp_control["fallbacks"],
+            }
+            if cp_control.get("previous_rejection"):
+                payload["previous_rejection"] = cp_control["previous_rejection"]
+            print(json.dumps(payload, ensure_ascii=False, indent=2))
         else:
             print(text)
         return 0
