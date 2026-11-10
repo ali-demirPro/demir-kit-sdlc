@@ -166,7 +166,7 @@ children:
       - delivery/scripts/adopt.py
       - delivery/tests/test_vendor_sync.py
     ac:
-      - "`KIT-MANIFEST.json` deterministik: sıralı yollar, her satır `{path, sha256, bytes}`, ayrıca `version` ve `source_commit`; aynı ağaç iki kez seal edilince aynı baytlar çıkar."
+      - "`KIT-MANIFEST.json` deterministik: sıralı yollar, her satır `{path, sha256, bytes}`, ayrıca `version`, `source_commit` ve deterministik `generator_version`; aynı ağaç iki kez seal edilince aynı baytlar çıkar."
       - "Manifest kapsamı `vendor_sync` allowlist'i ile birebir: `delivery`, `skills`, `ALLOW_FILES`; `tests/` ve `__pycache__` dışı."
       - "`--check` kit checkout'u olmadan yalnız manifest ve yerel dosyalarla koşar; eksik, fazla ve değişmiş dosyayı adıyla yazar, exit 1."
       - "Manifest yoksa `--check` bunu `not_run` olarak raporlar ve yeşil saymaz."
