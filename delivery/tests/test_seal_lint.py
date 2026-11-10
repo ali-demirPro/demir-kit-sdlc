@@ -63,6 +63,16 @@ class SealLintTests(unittest.TestCase):
             any("çalıştırılabilir" in item["message"] for item in findings)
         )
 
+    def test_plugin_test_trace_is_accepted(self) -> None:
+        findings = seal_lint.lint(
+            seal(case_text="plugins/orca/src/panel.check.ts: panel çizilir")
+        )
+        self.assertEqual(findings, [])
+        findings = seal_lint.lint(
+            seal(case_text="panel testi `orca plugin test plugins/orca` ile koşar")
+        )
+        self.assertEqual(findings, [])
+
     def test_finding_paths_are_nested(self) -> None:
         data = seal()
         data["tests_plan"].append(

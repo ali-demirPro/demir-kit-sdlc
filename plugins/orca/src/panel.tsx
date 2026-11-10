@@ -29,6 +29,15 @@ import type {
   StatusSnapshot
 } from './protocol'
 import { evalText } from './eval'
+import {
+  fleetLine,
+  groupCountText,
+  groupLeaves,
+  leafGroup,
+  machineryLine,
+  pulseLine,
+  sparkline
+} from './pulse'
 
 /** Dashboard ile aynı pencere: 30 saniyede bir tazele. */
 const REFRESH_MS = 30_000
@@ -167,8 +176,11 @@ function epicTitle(epic: StatusEpic): string {
   return `#${epic.number} — ${epic.title ?? ''}`
 }
 
+/** Leaf satırı grup işaretiyle: `✓ bitti`, `▸ devam`, `○ sırada`. */
 function leafTitle(leaf: StatusLeaf): string {
-  return `#${leaf.number} — ${leaf.title ?? ''} · ${leaf.state ?? '-'}`
+  const group = leafGroup(leaf.state)
+  const mark = group === 'bitti' ? '✓' : group === 'devam' ? '▸' : '○'
+  return `${mark} #${leaf.number} — ${leaf.title ?? ''} · ${leaf.state ?? '-'}`
 }
 
 /** Proje kartındaki claim hedefi: ilk `agent-approved` leaf; yoksa null. */
@@ -360,6 +372,16 @@ function EpicDetail({
         </Text>
       )}
 
+      {machineryLine(epic.machinery) !== null && (
+        <Text muted size="xs">
+          {machineryLine(epic.machinery)}
+        </Text>
+      )}
+
+      {groupCountText(epic.leaves) !== null && (
+        <Text muted size="xs">{`leaf: ${groupCountText(epic.leaves)}`}</Text>
+      )}
+
       {checkpoints.length === 0 && (
         <Text muted size="xs">
           checkpoint yok
@@ -445,6 +467,19 @@ function ProjectGroup({
           ) : null}
         </Row>
 
+        {project.ok && (
+          <Row gap="xs" wrap>
+            {pulseLine(project.pulse) !== null ? (
+              <Badge tone="neutral">{pulseLine(project.pulse) ?? ''}</Badge>
+            ) : (
+              <Text muted size="xs">pulse yok</Text>
+            )}
+            {sparkline(project.pulse?.daily ?? []) !== '' && (
+              <Text muted size="xs">{sparkline(project.pulse?.daily ?? [])}</Text>
+            )}
+          </Row>
+        )}
+
         {(project.agents ?? []).length > 0 && (
           <Stack gap="xs">
             <Badge tone={(project.live?.blocked ?? 0) > 0 ? 'warning' : 'accent'}>
@@ -483,15 +518,20 @@ function ProjectGroup({
                   <Badge tone="neutral">{`CP ${cpText(epic)}`}</Badge>
                   <Badge tone={gateTone(epic.gate)}>{`gate ${epic.gate ?? '-'}`}</Badge>
                   <Badge tone="neutral">{`risk ${epic.risk ?? '-'}`}</Badge>
+                  {groupCountText(epic.leaves) !== null && (
+                    <Badge tone="neutral">{groupCountText(epic.leaves) ?? ''}</Badge>
+                  )}
                 </Row>
               </ListItem>,
-              ...(epic.leaves ?? []).map((leaf) => (
-                <ListItem
-                  key={`leaf-${project.id}-${leaf.number}`}
-                  title={leafTitle(leaf)}
-                  onPress={() => openWorkspace(project)}
-                />
-              ))
+              ...groupLeaves(epic.leaves).flatMap((bucket) =>
+                bucket.leaves.map((leaf) => (
+                  <ListItem
+                    key={`leaf-${project.id}-${leaf.number}`}
+                    title={leafTitle(leaf)}
+                    onPress={() => openWorkspace(project)}
+                  />
+                ))
+              )
             ])}
           </List>
         )}
@@ -584,6 +624,14 @@ export default function Panel() {
               <Badge tone="accent">{`${data.active?.projects ?? 0} aktif`}</Badge>
             )}
           </Row>
+          {data !== null && fleetLine(data.pulse) !== null && (
+            <Text muted size="xs">
+              {fleetLine(data.pulse)}
+            </Text>
+          )}
+          {data !== null && sparkline(data.pulse?.daily ?? []) !== '' && (
+            <Text size="xs">{sparkline(data.pulse?.daily ?? [])}</Text>
+          )}
         </Stack>
         <Button
           variant="ghost"

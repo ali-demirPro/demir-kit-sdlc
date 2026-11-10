@@ -1455,23 +1455,7 @@ def check_issue(
             )
 
 def check_installed_skills(root: Path = ROOT) -> None:
-    """`install.sh` kopyaları kaynaktan geride kalırsa uyar."""
-    check("installed skills")
-    installed = root / ".agents" / "skills"
-    source = root / "skills"
-    if not installed.is_dir() or not source.is_dir():
-        return
-    stale: list[str] = []
-    for entry in sorted(installed.iterdir()):
-        src = source / entry.name / "SKILL.md"
-        copy = entry / "SKILL.md"
-        if src.is_file() and copy.is_file() and src.read_bytes() != copy.read_bytes():
-            stale.append(entry.name)
-    if stale:
-        warn(
-            "kurulu skill kopyası kaynaktan farklı: "
-            f"{', '.join(stale)} — './install.sh' ile tazele"
-        )
+    doctor_local.check_installed_skills(root, check, warn)
 
 
 def check_worktree_management(root: Path = ROOT) -> None:

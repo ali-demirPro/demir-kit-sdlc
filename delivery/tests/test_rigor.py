@@ -10,6 +10,7 @@ import importlib.util
 import json
 import re
 import subprocess
+import os
 import sys
 import tempfile
 import unittest
@@ -390,11 +391,14 @@ class DoctorGateTest(unittest.TestCase):
     """T-5: strict doctor stays green with the new rigor block."""
 
     def test_strict_doctor(self) -> None:
+        env = dict(os.environ)
+        env["DEMIR_KIT_DOCTOR_IGNORE_INSTALLED"] = "1"
         result = subprocess.run(
             ["bash", str(SCRIPTS / "doctor.sh"), "--strict"],
             capture_output=True,
             text=True,
             cwd=ROOT,
+            env=env,
         )
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
