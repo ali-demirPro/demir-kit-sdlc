@@ -24,6 +24,7 @@ sys.path.insert(0, str(SCRIPTS))
 import context_metrics  # noqa: E402
 import cp_close  # noqa: E402
 import doctor  # noqa: E402
+import review_record  # noqa: E402
 
 spec = importlib.util.spec_from_file_location("brief", SCRIPTS / "brief.py")
 brief = importlib.util.module_from_spec(spec)
@@ -1518,6 +1519,27 @@ class PreviousRejectionTests(unittest.TestCase):
             ),
         }
 
+    def review_comment(
+        self,
+        verdict: str = "revise_required",
+        findings: list[dict] | None = None,
+        cp: str = "CP-1",
+        comment_id: int = 11,
+        commit: str = "41b5007",
+    ) -> dict:
+        record = review_record.build_record(
+            335, cp, verdict, commit, "adversarial-a", findings or []
+        )
+        return {
+            "id": comment_id,
+            "html_url": (
+                "https://github.com/x/y/issues/335"
+                f"#issuecomment-{comment_id}"
+            ),
+            "created_at": self.STAMP,
+            "body": review_record.comment_body(record),
+        }
+
     def run_brief(
         self,
         argv: list[str],
@@ -1580,8 +1602,11 @@ class PreviousRejectionTests(unittest.TestCase):
         self.assertNotIn(self.REASON, out)
 
     def test_no_rejection_keeps_output_unchanged(self) -> None:
-        """T-2: ret yokken bölüm çıkmaz; çıktı bugünküyle aynı kalır."""
-        _, baseline, _ = self.run_brief(["335", "--cp", "CP-1"], [])
+        """T-2: ret yokken bölüm çıkmaz; temiz issue'yla aynı çıktı.
+
+        Baseline aynı issue'nun ret kaydından değil, hiç yorumu olmayan ayrı
+        bir issue'dan gelir; böylece test kendi ürettiği kaydı baz almaz.
+        """
         history = [
             self.accept_comment("accepted", comment_id=2),
             {
@@ -1593,8 +1618,22 @@ class PreviousRejectionTests(unittest.TestCase):
         ]
         code, out, err = self.run_brief(["335", "--cp", "CP-1"], history)
         self.assertEqual(code, 0, err)
-        self.assertEqual(out, baseline)
         self.assertNotIn("Önceki ret", out)
+
+        clean_code, clean_out, clean_err = self.run_brief(
+            ["335", "--cp", "CP-1"], []
+        )
+        self.assertEqual(clean_code, 0, clean_err)
+        self.assertEqual(out, clean_out)
+
+        other_code, other_out, other_err = self.run_brief(
+            ["340", "--cp", "CP-1"], []
+        )
+        self.assertEqual(other_code, 0, other_err)
+        self.assertEqual(
+            out.replace("335", "ISSUE"),
+            other_out.replace("340", "ISSUE"),
+        )
 
         json_code, json_out, json_err = self.run_brief(
             ["335", "--cp", "CP-1", "--json"], history
@@ -1605,6 +1644,85 @@ class PreviousRejectionTests(unittest.TestCase):
         plain_code, plain_out, plain_err = self.run_brief(["335"], history)
         self.assertEqual(plain_code, 0, plain_err)
         self.assertNotIn("Önceki ret", plain_out)
+
+    def test_review_record_reaches_brief(self) -> None:
+        """AC-1/AC-3: gerçek `demir-kit-review` yorumu ret kaynağıdır.
+
+        Kayıt review_record.py ile üretilir; yalnız `open` bulgular gerekçeye
+        girer ve blocking olan önce gelir.
+        """
+        findings = [
+            {
+                "id": "AR-1",
+                "severity": "blocking",
+                "status": "open",
+                "note": "Kit'te hiçbir yazıcı ret kaydı üretmiyor",
+            },
+            {
+                "id": "AR-2",
+                "severity": "nit",
+                "status": "fixed",
+                "note": "Düzeltilen bulgu gerekçeye girmemeli",
+            },
+            {
+                "id": "NIT-1",
+                "severity": "nit",
+                "status": "open",
+                "note": "T-2 kendi kaydını baz alıyor",
+            },
+        ]
+        comment = self.review_comment(findings=findings)
+        code, out, err = self.run_brief(["335", "--cp", "CP-1"], [comment])
+        self.assertEqual(code, 0, err)
+        self.assertIn("Önceki ret:", out)
+        self.assertIn("- Karar: revise_required", out)
+        self.assertIn("- Gerekçe: AR-1:", out)
+        self.assertNotIn("AR-2", out)
+        self.assertLess(out.index("AR-1:"), out.index("NIT-1:"))
+
+        json_code, json_out, json_err = self.run_brief(
+            ["335", "--cp", "CP-1", "--json"], [comment]
+        )
+        self.assertEqual(json_code, 0, json_err)
+        record = json.loads(json_out)["previous_rejection"]
+        self.assertEqual(record["decision"], "revise_required")
+        self.assertEqual(record["cp_id"], "CP-1")
+        self.assertEqual(
+            record["reason"],
+            "AR-1: Kit'te hiçbir yazıcı ret kaydı üretmiyor; "
+            "NIT-1: T-2 kendi kaydını baz alıyor",
+        )
+
+    def test_approved_review_resolves_old_rejection(self) -> None:
+        """NIT: sonraki approved review eski redi çözer."""
+        comments = [
+            self.review_comment(comment_id=11),
+            self.review_comment(verdict="approved", comment_id=12),
+        ]
+        code, out, err = self.run_brief(["335", "--cp", "CP-1"], comments)
+        self.assertEqual(code, 0, err)
+        self.assertNotIn("Önceki ret", out)
+
+    def test_accepted_accept_resolves_old_rejection(self) -> None:
+        """NIT: sonraki accepted kabul kaydı eski redi çözer."""
+        comments = [
+            self.review_comment(comment_id=11),
+            self.accept_comment("accepted", comment_id=12),
+        ]
+        code, out, err = self.run_brief(["335", "--cp", "CP-1"], comments)
+        self.assertEqual(code, 0, err)
+        self.assertNotIn("Önceki ret", out)
+
+    def test_other_cp_approval_does_not_resolve(self) -> None:
+        """NIT: başka CP'nin onayı bu CP'nin redini çözmez."""
+        comments = [
+            self.review_comment(comment_id=11, cp="CP-1"),
+            self.review_comment(verdict="approved", comment_id=12, cp="CP-2"),
+        ]
+        code, out, err = self.run_brief(["335", "--cp", "CP-1"], comments)
+        self.assertEqual(code, 0, err)
+        self.assertIn("Önceki ret:", out)
+        self.assertIn("- Karar: revise_required", out)
 
     def test_json_carries_the_same_rejection(self) -> None:
         """T-3: `--json` aynı ret alanını taşır."""

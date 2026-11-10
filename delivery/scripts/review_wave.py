@@ -4,7 +4,7 @@
 Usage:
   python3 delivery/scripts/review_wave.py --issue 156 --cp CP-1 --commit HEAD
   python3 delivery/scripts/review_wave.py --issue 156 --cp CP-1 --commit HEAD \
-      --reviewers adversarial-a,adversarial-b --apply
+      --reviewers adversarial-a,adversarial-b --apply --record
 """
 
 from __future__ import annotations
@@ -25,6 +25,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import closure  # noqa: E402
 import model_policy  # noqa: E402
 import review_packet  # noqa: E402
+import review_record  # noqa: E402
 import budget  # noqa: E402
 import routing  # noqa: E402
 import usage  # noqa: E402
@@ -388,6 +389,50 @@ def collect(workers: list[dict], run_id: str | None = None) -> list[dict]:
     return workers
 
 
+def write_records(
+    issue: int,
+    cp_id: str,
+    commit: str,
+    workers: list[dict],
+    repo: str | None = None,
+    post=None,
+) -> list[dict]:
+    """Write one ``demir-kit-review`` comment per settled reviewer."""
+    repo = repo or review_record.repo_name()
+    sender = post or review_record.post_comment
+    records: list[dict] = []
+    for item in workers:
+        verdict = item.get("verdict")
+        if verdict is None:
+            continue
+        label = "approved" if verdict else "revise_required"
+        findings: list[dict] = []
+        if not verdict:
+            for index, finding in enumerate(
+                parse_findings(item.get("summary") or ""), start=1
+            ):
+                findings.append(
+                    {
+                        "id": f"R-{index}",
+                        "severity": finding["severity"],
+                        "status": "open",
+                        "note": finding.get("text") or "reviewer ret",
+                    }
+                )
+        record = review_record.build_record(
+            issue, cp_id, label, commit, str(item.get("name") or "reviewer"), findings
+        )
+        body = review_record.comment_body(record)
+        try:
+            # An issue write failure must not hide the wave verdict.
+            comment_id = sender(repo, issue, body)
+        except SystemExit as exc:
+            records.append({**record, "error": str(exc)})
+            continue
+        records.append({**record, "comment_id": comment_id})
+    return records
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="parallel reviewer wave")
     parser.add_argument("--issue", type=int, required=True)
@@ -402,6 +447,11 @@ def main() -> int:
     parser.add_argument("--run", help="Orca run id (default: epic run)")
     parser.add_argument("--timeout", type=int, default=900)
     parser.add_argument("--apply", action="store_true")
+    parser.add_argument(
+        "--record",
+        action="store_true",
+        help="tur sonunda reviewer başına demir-kit-review yorumu yaz",
+    )
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
 
@@ -476,6 +526,11 @@ def main() -> int:
         "verdicts": verdicts,
         "approved": approved,
     }
+    if args.record:
+        reviewed = review_packet.git(["rev-parse", args.commit]).strip()
+        result["records"] = write_records(
+            args.issue, args.cp, reviewed, workers
+        )
     if args.json:
         print(json.dumps(result, ensure_ascii=False, indent=2))
     else:

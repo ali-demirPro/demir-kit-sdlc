@@ -249,6 +249,11 @@ EVIDENCE_BLOCK_RE = re.compile(
     r"```yaml\s+demir-kit-evidence\s*\n(.*?)```", re.S
 )
 ACCEPT_BLOCK_RE = re.compile(r"```yaml\s+demir-kit-accept\s*\n(.*?)```", re.S)
+# Reviewer turunun tek biçimli kaydı (review_record.py yazar).
+REVIEW_BLOCK_RE = re.compile(r"```yaml\s+demir-kit-review\s*\n(.*?)```", re.S)
+REVIEW_REJECT = "revise_required"
+REVIEW_APPROVED = "approved"
+ACCEPT_APPROVED = "accepted"
 
 
 def issue_comments(repo: str, issue: int, fetch=None) -> list[dict]:
@@ -308,6 +313,12 @@ def clip_reason(text: str, limit: int = REASON_LIMIT) -> str:
     return reason[: limit - 1].rstrip() + "…"
 
 
+def _finding_is_blocking(item: dict) -> bool:
+    """A finding blocks when its severity says so or its note is labelled."""
+    severity = one_line(item.get("severity")).lower()
+    return severity == "blocking" or "blocking" in one_line(item.get("note")).lower()
+
+
 def _finding_rejections(findings) -> list[str]:
     """Open findings of a rejection record, blocking ones first.
 
@@ -319,11 +330,7 @@ def _finding_rejections(findings) -> list[str]:
         if isinstance(item, dict)
         and str(item.get("status") or "").strip() == OPEN_FINDING
     ]
-    open_items.sort(
-        key=lambda item: (
-            0 if "blocking" in one_line(item.get("note")).lower() else 1
-        )
-    )
+    open_items.sort(key=lambda item: 0 if _finding_is_blocking(item) else 1)
     reasons: list[str] = []
     for item in open_items:
         text = one_line(item.get("note"))
@@ -340,11 +347,12 @@ def _finding_rejections(findings) -> list[str]:
 def comment_rejection(comment: dict) -> dict | None:
     """The rejection record one issue comment carries, if any.
 
-    Three sources are canonical: an evidence block with ``status: fail``
-    (the schema's only non-pass status), an evidence block whose reviewer
-    verdict is ``revise_required``/``rejected``, and an accept block with
-    ``decision: rejected``. The reason comes from ``notes`` or from the
-    ``open`` findings (blocking first); everything else is history.
+    Four sources are canonical: a review record with ``verdict:
+    revise_required``, an evidence block with ``status: fail`` (the schema's
+    only non-pass status), an evidence block whose reviewer verdict is
+    ``revise_required``/``rejected``, and an accept block with ``decision:
+    rejected``. The reason comes from ``notes`` or from the ``open`` findings
+    (blocking first); everything else is history.
     """
     if not isinstance(comment, dict):
         return None
@@ -354,6 +362,29 @@ def comment_rejection(comment: dict) -> dict | None:
         or f"comment {comment.get('id')}"
     )
     at = str(comment.get("created_at") or "").strip() or "n/a"
+
+    for match in REVIEW_BLOCK_RE.finditer(body):
+        try:
+            document = yaml.safe_load(match.group(1))
+        except yaml.YAMLError:
+            continue
+        if not isinstance(document, dict):
+            continue
+        verdict = str(document.get("verdict") or "").strip()
+        if verdict != REVIEW_REJECT:
+            continue
+        reason = clip_reason(document.get("note"))
+        if not reason:
+            reason = clip_reason(
+                "; ".join(_finding_rejections(document.get("findings")))
+            )
+        return {
+            "decision": verdict,
+            "at": at,
+            "reason": reason or verdict,
+            "source": source,
+            "cp_id": str(document.get("cp") or "").strip() or None,
+        }
 
     for match in EVIDENCE_BLOCK_RE.finditer(body):
         try:
@@ -406,13 +437,59 @@ def comment_rejection(comment: dict) -> dict | None:
     return None
 
 
+def comment_resolution(comment: dict) -> dict | None:
+    """An approval record that closes an earlier rejection, if any.
+
+    A later ``demir-kit-review`` with ``verdict: approved`` or a
+    ``demir-kit-accept`` with ``decision: accepted`` resolves the rejection it
+    follows, so a fixed round does not keep showing up in the brief.
+    """
+    if not isinstance(comment, dict):
+        return None
+    body = str(comment.get("body") or "")
+    for match in REVIEW_BLOCK_RE.finditer(body):
+        try:
+            document = yaml.safe_load(match.group(1))
+        except yaml.YAMLError:
+            continue
+        if isinstance(document, dict) and str(
+            document.get("verdict") or ""
+        ).strip() == REVIEW_APPROVED:
+            return {
+                "kind": "review",
+                "cp_id": str(document.get("cp") or "").strip() or None,
+            }
+    for match in ACCEPT_BLOCK_RE.finditer(body):
+        try:
+            document = yaml.safe_load(match.group(1))
+        except yaml.YAMLError:
+            continue
+        if isinstance(document, dict) and str(
+            document.get("decision") or ""
+        ).strip() == ACCEPT_APPROVED:
+            return {"kind": "accept", "cp_id": None}
+    return None
+
+
+def _resolves(rejection: dict, resolution: dict) -> bool:
+    """An approval closes the rejection of the same CP; missing CP matches any."""
+    rejected_cp = rejection.get("cp_id")
+    resolved_cp = resolution.get("cp_id")
+    return not rejected_cp or not resolved_cp or rejected_cp == resolved_cp
+
+
 def previous_rejection(comments: list[dict] | None) -> dict | None:
-    """Latest rejection record in a comment history (comments are ascending)."""
+    """Latest unresolved rejection in a comment history (comments ascending)."""
     latest: dict | None = None
     for comment in comments or []:
         record = comment_rejection(comment)
         if record is not None:
             latest = record
+            continue
+        resolution = comment_resolution(comment)
+        if resolution is not None and latest is not None:
+            if _resolves(latest, resolution):
+                latest = None
     return latest
 
 
