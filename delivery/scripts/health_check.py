@@ -4,8 +4,10 @@
 The table in ``delivery/protocol/health-check.md`` is the single source:
 every row names one check, its tool, and whether the tool is required. A
 missing required tool makes the run ``ready: false``; a missing optional tool
-is reported as ``not_run`` and never counted as a pass. The script writes
-nothing, starts no processes and makes no network calls.
+is reported as ``not_run`` and never counted as a pass. The row status ``fail``
+is reserved for a future check probe; today structural problems (unknown
+control, unknown tool, wrong row count) exit non-zero instead. The script
+writes nothing, starts no processes and makes no network calls.
 
 Usage:
   python3 delivery/scripts/health_check.py
@@ -28,6 +30,24 @@ PROTOCOL = ROOT / "delivery" / "protocol" / "health-check.md"
 EXPECTED_ROWS = 16
 ROW_RE = re.compile(
     r"^\|\s*(\d+)\s*\|\s*(.+?)\s*\|\s*([A-Za-z0-9._-]+)\s*\|\s*(true|false)\s*\|\s*$"
+)
+EXPECTED_CHECKS = (
+    "ecosystem.yaml ve yüzey yolları",
+    "behavior komutu çalıştırılabilir",
+    "UI CP gates.ui ve ui_compare",
+    "UI snapshot tanımı",
+    "native selftest",
+    "gh auth status",
+    "orca status ve epic worktree",
+    "orca worktree ps ve host list",
+    "orca tab, computer ve emulator",
+    "architecture baseline kaydı",
+    "architecture boundaries.md",
+    "discovery-approved ve brief",
+    "pilot_mode MVO kuralları",
+    "feasibility blocker kararı",
+    "commercial baseline ve positioning",
+    "monetization-brief.md",
 )
 TOOLS = {
     "python3": "python3",
@@ -68,6 +88,14 @@ def load_table(path: Path = PROTOCOL) -> list[dict]:
             raise ValueError(
                 f"bilinmeyen araç: {row['tool']} (satır {row['id']})"
             )
+        if row["check"] not in EXPECTED_CHECKS:
+            raise ValueError(
+                f"bilinmeyen kontrol: {row['check']} (satır {row['id']})"
+            )
+        if EXPECTED_CHECKS.count(row["check"]) != 1:
+            raise ValueError(f"tekrarlı kontrol: {row['check']}")
+    if {row["check"] for row in rows} != set(EXPECTED_CHECKS):
+        raise ValueError("health-check tablosu 16 kontrolle birebir eşleşmiyor")
     return rows
 
 
@@ -109,9 +137,8 @@ def run(path: Path = PROTOCOL, path_value: str | None = None) -> dict:
     question = None
     if blockers:
         question = (
-            "Zorunlu health-check araçları eksik: "
-            + ", ".join(str(item) for item in blockers)
-            + ". Nasıl devam edelim?"
+            "Gerekli araçlardan bazıları kurulu değil. Araçları şimdi mi "
+            "kuralım, yoksa bu adımı sonraki tura mı bırakalım?"
         )
     return {
         "ready": not blockers,

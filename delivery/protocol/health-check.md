@@ -36,6 +36,8 @@ veya bilinmeyen araç adı geçerse hata verir. `required: true` satırın arac�
 PATH'te yoksa çıktı `ready: false` olur ve tek escalation sorusu yazılır;
 `required: false` satır `not_run` olarak raporlanır, pass sayılmaz. `pass`
 yalnız aracın PATH'te olduğunu söyler; kontrolün kendisi ayrıca koşulur.
+`fail` satır durumu şimdilik rezervedir; bilinmeyen kontrol/araç veya eksik
+satır yapısal hata olarak exit 2 verir.
 
 | # | Kontrol | Araç | required |
 |---|---------|------|----------|

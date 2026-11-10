@@ -60,7 +60,11 @@ class HealthTableTests(unittest.TestCase):
             self.assertEqual(data["rows"][6]["status"], "not_run")
             self.assertEqual(data["rows"][6]["reason"], "araç PATH'te yok: orca")
             self.assertTrue(data["question"])
-            self.assertEqual(data["question"].count("Nasıl devam edelim?"), 1)
+            self.assertEqual(data["question"].count("?"), 1)
+            self.assertIn("şimdi mi", data["question"])
+            self.assertIn("sonraki tura mı", data["question"])
+            self.assertNotIn("PATH", data["question"])
+            self.assertNotIn("health-check", data["question"])
             # Optional orca rows are not blockers, but they are not passes.
             self.assertEqual(data["rows"][7]["status"], "not_run")
             self.assertEqual(data["rows"][8]["status"], "not_run")
@@ -87,6 +91,30 @@ class HealthTableTests(unittest.TestCase):
             with self.assertRaises(ValueError) as ctx:
                 health_check.load_table(path)
             self.assertIn("bilinmeyen araç", str(ctx.exception))
+
+    def test_unknown_control_name_is_an_error(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "health.md"
+            text = PROTOCOL.read_text(encoding="utf-8").replace(
+                "| 5 | native selftest | python3 | true |",
+                "| 5 | bilinmeyen kontrol | python3 | true |",
+            )
+            path.write_text(text, encoding="utf-8")
+            with self.assertRaises(ValueError) as ctx:
+                health_check.load_table(path)
+            self.assertIn("bilinmeyen kontrol", str(ctx.exception))
+
+    def test_duplicate_control_id_breaks_the_table(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "health.md"
+            text = PROTOCOL.read_text(encoding="utf-8").replace(
+                "| 16 | monetization-brief.md | python3 | false |",
+                "| 15 | monetization-brief.md | python3 | false |",
+            )
+            path.write_text(text, encoding="utf-8")
+            with self.assertRaises(ValueError) as ctx:
+                health_check.load_table(path)
+            self.assertIn("1..16", str(ctx.exception))
 
     def test_missing_row_breaks_the_table(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -125,6 +153,8 @@ class HealthTableTests(unittest.TestCase):
             )
             self.assertEqual(result.returncode, 0, result.stderr)
             data = json.loads(result.stdout)
+            expected = health_check.run(PROTOCOL, str(path))
+            self.assertEqual(data, expected)
             self.assertTrue(data["ready"])
             self.assertEqual(len(data["rows"]), 16)
             self.assertTrue(
