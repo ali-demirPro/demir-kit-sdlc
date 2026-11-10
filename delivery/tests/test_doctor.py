@@ -2308,7 +2308,17 @@ class EvidenceHeadTests(DoctorTestCase):
     def orphan_commit(self) -> str:
         tree = self.git("rev-parse", "HEAD^{tree}")
         return subprocess.run(
-            ["git", "commit-tree", tree, "-m", "orphan evidence commit"],
+            [
+                "git",
+                "-c",
+                "user.name=Test",
+                "-c",
+                "user.email=test@example.com",
+                "commit-tree",
+                tree,
+                "-m",
+                "orphan evidence commit",
+            ],
             cwd=ROOT,
             capture_output=True,
             text=True,
