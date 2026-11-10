@@ -373,6 +373,18 @@ def resolve_target(source: Path, target: str) -> Path | None:
     return candidates[0] if candidates else None
 
 
+def _capability_surface_enum(schema: dict) -> list[str] | None:
+    """`match.surfaces.items.enum` — registry ile senkron sabit surface listesi."""
+    try:
+        items = schema["properties"]["capabilities"]["additionalProperties"][
+            "properties"
+        ]["match"]["properties"]["surfaces"]["items"]
+    except (KeyError, TypeError):
+        return None
+    enum = items.get("enum") if isinstance(items, dict) else None
+    return [str(item) for item in enum] if isinstance(enum, list) else None
+
+
 def check_capabilities() -> None:
     check("capabilities")
     registry = load_yaml(DELIVERY / "capabilities" / "registry.yaml")
@@ -388,6 +400,24 @@ def check_capabilities() -> None:
     if matrix_schema:
         for message in validate_schema(matrix, matrix_schema, "role-matrix"):
             error(message)
+
+    # Şema sabit enum taşır; registry yeni bir surface kazanırsa şema da güncellenmeli.
+    declared_surfaces = registry.get("surfaces")
+    if capability_schema and isinstance(declared_surfaces, dict):
+        enum = _capability_surface_enum(capability_schema)
+        if enum is not None:
+            missing = sorted(set(declared_surfaces) - set(enum))
+            extra = sorted(set(enum) - set(declared_surfaces))
+            if missing:
+                error(
+                    "capability.schema.json: match.surfaces enum eksik surface: "
+                    + ", ".join(missing)
+                )
+            if extra:
+                error(
+                    "capability.schema.json: match.surfaces enum tanımsız surface: "
+                    + ", ".join(extra)
+                )
 
     registry_config = load_yaml(DELIVERY / "registry.yaml") or {}
     roles = set(registry_config.get("role_order_default") or []) | {"orchestrator"}
@@ -927,6 +957,14 @@ def check_issue_body(
         | set(path_agents["optional"])
     )
     capability_registry = load_yaml(DELIVERY / "capabilities" / "registry.yaml") or {}
+    declared_surfaces = capability_registry.get("surfaces")
+    if isinstance(declared_surfaces, dict):
+        for surface in data.get("surfaces") or []:
+            if str(surface) not in declared_surfaces:
+                error(
+                    f"issue seal: tanımsız surface '{surface}' — "
+                    "delivery/capabilities/registry.yaml surfaces altına ekle"
+                )
     ecosystem = load_yaml(root / "ecosystem.yaml") or {}
     signals = resolver_lib.scoped_signals(ecosystem, data)
     declared = resolver_lib.load_declared(root)

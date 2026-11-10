@@ -323,10 +323,17 @@ class CapabilityScopeTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("registry high glob'u", result.stderr)
 
-    def test_unknown_surface_keeps_current_behaviour(self) -> None:
+    def test_unknown_surface_blocks_outside_write(self) -> None:
         result = self.run_guard(seal_body("unknown.surface"), "outside/notes.py")
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("tanımsız surface", result.stderr)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("BLOCKED", result.stderr)
+        self.assertIn("tanımsız surface: unknown.surface", result.stderr)
+        self.assertIn("registry'ye ekle", result.stderr)
+
+    def test_unknown_surface_blocks_even_inside_globs(self) -> None:
+        result = self.run_guard(seal_body("unknown.surface"), "delivery/notes.md")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("tanımsız surface: unknown.surface", result.stderr)
 
 
 if __name__ == "__main__":

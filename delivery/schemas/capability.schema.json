@@ -68,7 +68,29 @@
             "properties": {
               "platforms": { "type": "array", "items": { "type": "string" } },
               "stacks": { "type": "array", "items": { "type": "string" } },
-              "surfaces": { "type": "array", "items": { "type": "string" } },
+              "surfaces": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "kit.docs",
+                    "web.app",
+                    "web",
+                    "marketing.site",
+                    "ios.app",
+                    "macos.app",
+                    "android.app",
+                    "api",
+                    "cli",
+                    "auth",
+                    "payments",
+                    "data",
+                    "analytics",
+                    "offline",
+                    "i18n"
+                  ]
+                }
+              },
               "distribution": { "type": "array", "items": { "type": "string" } },
               "keywords": { "type": "array", "items": { "type": "string" } }
             }

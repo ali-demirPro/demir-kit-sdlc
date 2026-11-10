@@ -132,7 +132,7 @@ otomatik yükselir; agent düşüremez. Ayrıntı: `policies/quality-gates.md`.
 
 | # | Kural |
 |---|-------|
-| I1 | `agent-approved` olmadan uygulama kaynağı değişmez (`scripts/guard.sh`); onay digest'i güncel seal + taban commit ile eşleşmeli, taban commit HEAD'in atası olmalıdır. |
+| I1 | `agent-approved` olmadan uygulama kaynağı değişmez (`scripts/guard.sh`); onay digest'i güncel seal + taban commit ile eşleşmeli, taban commit HEAD'in atası olmalıdır. Seal yüzeylerinin capability path allowlist'i (`capabilities/registry.yaml`) dışına yazım da G1 ihlalidir; seal'de tanımsız surface fail-closed bloklanır. |
 | I2 | Evidence şeması dolmadan `leaf-done` yok. |
 | I3 | Closure `pass` olmadan `epic-done` yok. |
 | I4 | Uygulayan onaylayamaz; reviewer temiz context'te çalışır. |

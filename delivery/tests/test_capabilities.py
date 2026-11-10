@@ -148,8 +148,20 @@ class CapabilityTests(unittest.TestCase):
     def test_unknown_surface_rejected(self) -> None:
         registry = copy.deepcopy(REGISTRY)
         registry["capabilities"]["platform.web"]["match"]["surfaces"] = ["unknown.surface"]
+        schema_errors = doctor.validate_schema(registry, CAP_SCHEMA)
+        self.assertTrue(
+            any("enum dışında" in item for item in schema_errors), schema_errors
+        )
         errors = capabilities.validate_references(registry, MATRIX, ROLES, PACKS, ROLES)
         self.assertTrue(any("bilinmeyen surface" in item for item in errors), errors)
+
+    def test_schema_surface_enum_matches_registry(self) -> None:
+        items = CAP_SCHEMA["properties"]["capabilities"]["additionalProperties"][
+            "properties"
+        ]["match"]["properties"]["surfaces"]["items"]
+        enum = items["enum"]
+        self.assertEqual(len(enum), len(set(enum)))
+        self.assertEqual(set(enum), set(REGISTRY["surfaces"]))
 
     def test_surface_without_paths_rejected(self) -> None:
         registry = copy.deepcopy(REGISTRY)

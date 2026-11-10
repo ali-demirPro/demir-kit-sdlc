@@ -35,7 +35,8 @@ risk_requirements:
 
 # Yüzey → yazma allowlist'i. `guard.sh --issue`, seal'deki yüzeylerin
 # glob'ları dışında kalan değişikliği G1 ihlali sayar. Registry'de tanımsız
-# yüzey bloklamaz; guard bugünkü davranışı korur ve uyarır.
+# yüzey allowlist'i kapatmaz: guard fail-closed BLOCK verir, `doctor --issue`
+# da bilinmeyen surface'ı hata sayar.
 surfaces:
   kit.docs:
     label: Kit dokümanı

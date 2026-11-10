@@ -132,6 +132,15 @@ gates:
 `scripts/guard.sh` bu kuralı **registry'den okuyarak** diff üzerinde uygular;
 capability `risk_floor` seal riskinin altına inemez (`doctor`).
 
+## Kaynak kapısı (G1)
+
+Kaynak yazımı `agent-approved` ister ve seal'deki yüzeylerin capability path
+allowlist'i (`capabilities/registry.yaml` → `surfaces`, `capabilities[].paths`
+ve `common_paths`) içinde kalmalıdır; glob dışındaki dosya G1 ihlalidir ve
+`guard.sh --issue` hangi yüzey/glob olduğunu yazarak BLOCK verir. Seal'deki
+surface registry'de tanımlı değilse allowlist sessizce kapanmaz: guard
+fail-closed BLOCK, `doctor --issue` ise hata verir — önce registry'ye ekle.
+
 ## Onay digest'i
 
 İnsan `demir-kit-accept` bloğu `binding_sha256` taşıyorsa digest seal gövdesi +

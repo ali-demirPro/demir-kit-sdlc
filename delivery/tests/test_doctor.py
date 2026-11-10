@@ -138,6 +138,14 @@ class LeafSchemaTests(DoctorTestCase):
         errors = doctor.validate_schema(bad, LEAF_SCHEMA)
         self.assertTrue(any("izin verilmeyen alan" in item for item in errors))
 
+    def test_undefined_seal_surface_is_error(self) -> None:
+        bad = leaf(surfaces=["kit.unknown"])
+        doctor.check_issue_body(fenced("demir-kit", bad), [], None)
+        self.assertTrue(
+            any("tanımsız surface 'kit.unknown'" in item for item in doctor.ERRORS),
+            doctor.ERRORS,
+        )
+
     def test_test_plan_must_cover_every_ac(self) -> None:
         bad = leaf()
         bad["tests_plan"][0]["cases"] = []

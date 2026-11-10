@@ -17,6 +17,12 @@
   okuyamazsa fail-closed BLOCK verir.
 - T2 ve I1 sözleşme satırları digest + taban commit bağını yazacak şekilde
   güncellendi.
+- **Capability yazma sınırı (Epic #292, #334)** — `CONTRACT.md` I1 ve
+  `policies/quality-gates.md` kaynak kapısı (G1) bölümü, seal yüzeylerinin
+  capability path allowlist'i dışına yazımı G1 ihlali sayar; seal'de tanımsız
+  surface `guard.sh` içinde fail-closed BLOCK, `doctor --issue` içinde hatadır.
+  `capability.schema.json` `match.surfaces` bilinen surface enum'unu taşır ve
+  `doctor` enum ile registry'yi senkron denetler.
 
 ## 2.63.0 — 2026-11-09
 

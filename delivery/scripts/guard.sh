@@ -76,10 +76,12 @@ if [[ ${#VIOLATIONS[@]} -gt 0 || "$RISK_REQUIRED" != "none" ]]; then
 fi
 
 # Capability path allowlist: seal yüzeylerinin glob'ları dışındaki yazım G1 ihlali.
-# Seal yoksa veya allowlist çözülemezse davranış bugünkü gibi kalır (uyarı ile).
+# Seal'deki surface registry'de tanımlı değilse allowlist sessizce kapanmaz:
+# tanımsız surface fail-closed BLOCK verir. Seal yoksa davranış bugünkü gibidir.
 SCOPE_FILES=()
 SCOPE_SURFACES=""
 SCOPE_GLOBS=""
+SCOPE_UNKNOWN=()
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
 if [[ -n "$ISSUE" ]]; then
@@ -121,7 +123,11 @@ except OSError:
 table = registry.get("surfaces") or {}
 capabilities = registry.get("capabilities") or {}
 scopes = []
+unknown = []
 for surface in surfaces:
+    if surface not in table:
+        unknown.append(surface)
+        continue
     found = [
         (surface, str(glob))
         for glob in (table.get(surface) or {}).get("paths") or []
@@ -130,8 +136,13 @@ for surface in surfaces:
         if surface in ((cap.get("match") or {}).get("surfaces") or []):
             found += [(surface, str(glob)) for glob in cap.get("paths") or []]
     if not found:
-        print(f"WARN|registry'de tanımsız surface '{surface}', allowlist uygulanmadı")
+        unknown.append(surface)
+        continue
     scopes += found
+if unknown:
+    for surface in dict.fromkeys(unknown):
+        print(f"UNKNOWN|{surface}")
+    raise SystemExit
 if not scopes:
     print("SKIP|allowlist çözülemedi, davranış bugünkü gibi")
     raise SystemExit
@@ -171,12 +182,20 @@ PY
     while IFS='|' read -r kind one two three; do
       case "$kind" in
         WARN) echo "guard: uyarı — $one" >&2 ;;
+        UNKNOWN) SCOPE_UNKNOWN+=("$one") ;;
         BLOCK) SCOPE_FILES+=("$one"); SCOPE_SURFACES="$two"; SCOPE_GLOBS="$three" ;;
       esac
     done <<< "$SCOPE_REPORT"
   else
     echo "guard: uyarı — seal gövdesi okunamadı, capability allowlist uygulanmadı" >&2
   fi
+fi
+
+# Tanımsız surface: registry'de glob yok, yazma sınırı denetlenemez. Fail-closed.
+if [[ ${#SCOPE_UNKNOWN[@]} -gt 0 ]]; then
+  echo "guard: BLOCKED — tanımsız surface: ${SCOPE_UNKNOWN[*]}; registry'ye ekle" >&2
+  echo "  delivery/capabilities/registry.yaml → surfaces altına paths glob'u ekle." >&2
+  exit 1
 fi
 
 if ! $NEED_ISSUE && [[ ${#SCOPE_FILES[@]} -eq 0 ]]; then
