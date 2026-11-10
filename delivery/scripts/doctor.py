@@ -1455,8 +1455,15 @@ def check_issue(
             )
 
 def check_installed_skills(root: Path = ROOT) -> None:
-    """`install.sh` kopyaları kaynaktan geride kalırsa uyar."""
+    """`install.sh` kopyaları kaynaktan geride kalırsa uyar.
+
+    `.agents/` makineye özel kurulum durumudur (gitignore); testler
+    `DEMIR_KIT_DOCTOR_IGNORE_INSTALLED=1` ile bu denetimi atlar ki sonuç
+    makinenin kurulum yaşına bağlı kalmasın.
+    """
     check("installed skills")
+    if os.environ.get("DEMIR_KIT_DOCTOR_IGNORE_INSTALLED") == "1":
+        return
     installed = root / ".agents" / "skills"
     source = root / "skills"
     if not installed.is_dir() or not source.is_dir():
