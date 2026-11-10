@@ -68,8 +68,37 @@ def evidence_blocks(comments: list[dict]) -> list[dict]:
     return records
 
 
+def review_findings(comments: list[dict]) -> list[dict]:
+    """Open findings of the last unresolved ``demir-kit-review`` rejection.
+
+    The review record, not the evidence block, is the round's canonical
+    rejection source; its ``findings[].status: open`` items are what the next
+    round must answer.
+    """
+    rejection = brief.previous_rejection(comments)
+    if not rejection:
+        return []
+    cp_id = str(rejection.get("cp_id") or "?")
+    rows: list[dict] = []
+    for finding in rejection.get("findings") or []:
+        rows.append(
+            {
+                "id": str(finding.get("id") or "?"),
+                "cp_id": cp_id,
+                "severity": str(finding.get("severity") or ""),
+                "status": str(finding.get("status") or ""),
+                "note": str(finding.get("note") or ""),
+            }
+        )
+    return rows
+
+
 def open_findings(comments: list[dict]) -> list[dict]:
-    """Latest status per (cp_id, finding id); only still-open findings."""
+    """Still-open findings, review records taking precedence over evidence.
+
+    Stale evidence findings stay supported (latest status per cp/id), then the
+    unresolved review round overlays its own open findings, blocking first.
+    """
     latest: dict[tuple[str, str], dict] = {}
     for record in evidence_blocks(comments):
         cp_id = str(record.get("cp_id") or "?")
@@ -80,10 +109,15 @@ def open_findings(comments: list[dict]) -> list[dict]:
             latest[(cp_id, finding_id)] = {
                 "id": finding_id,
                 "cp_id": cp_id,
+                "severity": str(finding.get("severity") or ""),
                 "status": str(finding.get("status") or ""),
                 "note": str(finding.get("note") or ""),
             }
-    return [row for row in latest.values() if row["status"] == "open"]
+    for row in review_findings(comments):
+        latest[(row["cp_id"], row["id"])] = row
+    rows = [row for row in latest.values() if row["status"] == "open"]
+    rows.sort(key=lambda row: 0 if row.get("severity") == "blocking" else 1)
+    return rows
 
 
 def commit_range(commit: str, delta: str | None) -> str:

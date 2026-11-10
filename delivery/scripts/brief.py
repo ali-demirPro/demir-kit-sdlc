@@ -10,6 +10,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import functools
 import json
 import os
 import re
@@ -300,9 +301,74 @@ def _review_rejections(reviews) -> list[str]:
     return verdicts
 
 
+def _review_rejection_reviewers(reviews) -> list[str]:
+    """Reviewer identities behind a rejecting evidence verdict.
+
+    ``adversarial.reviewer_a: revise_required`` names the reviewer
+    ``adversarial.reviewer_a``; a flat ``risk: revise_required`` names ``risk``.
+    """
+    reviewers: list[str] = []
+    if not isinstance(reviews, dict):
+        return reviewers
+    for role, value in reviews.items():
+        if isinstance(value, dict):
+            for sub_role, sub_value in value.items():
+                if str(sub_value) in REJECT_VERDICTS:
+                    reviewers.append(one_line(f"{role}.{sub_role}"))
+        elif str(value) in REJECT_VERDICTS:
+            reviewers.append(one_line(role))
+    return reviewers
+
+
 def one_line(text) -> str:
     """Single-line text: the brief is line-oriented, newlines become spaces."""
     return " ".join(str(text or "").split())
+
+
+def _open_findings(findings) -> list[dict]:
+    """The still-open findings of one record in the canonical shape."""
+    return [
+        {
+            "id": one_line(item.get("id")) or "?",
+            "severity": one_line(item.get("severity")).lower(),
+            "status": OPEN_FINDING,
+            "note": one_line(item.get("note")),
+        }
+        for item in findings or []
+        if isinstance(item, dict)
+        and str(item.get("status") or "").strip() == OPEN_FINDING
+    ]
+
+
+@functools.lru_cache(maxsize=256)
+def _git_is_ancestor(base: str, candidate: str) -> bool:
+    """True when ``base`` is ``candidate`` or one of its ancestors.
+
+    A git answer is the only proof a reviewed commit is newer; an unknown pair
+    (fake sha, shallow history) stays unresolved instead of guessing.
+    """
+    result = subprocess.run(
+        ["git", "merge-base", "--is-ancestor", base, candidate],
+        cwd=str(ROOT),
+        capture_output=True,
+        text=True,
+    )
+    return result.returncode == 0
+
+
+def _commit_reaches(candidate, base) -> bool:
+    """True when ``candidate`` is the rejection's ``base`` commit or newer."""
+    newer = one_line(candidate)
+    older = one_line(base)
+    if not older:
+        # A legacy record without a commit cannot be ordered; it stays claimable.
+        return True
+    if not newer:
+        # An approval that names no commit proves nothing about a real rejection.
+        return False
+    if newer == older or older.startswith(newer) or newer.startswith(older):
+        return True
+    return _git_is_ancestor(older, newer)
 
 
 def clip_reason(text: str, limit: int = REASON_LIMIT) -> str:
@@ -378,12 +444,17 @@ def comment_rejection(comment: dict) -> dict | None:
             reason = clip_reason(
                 "; ".join(_finding_rejections(document.get("findings")))
             )
+        reviewer = one_line(document.get("reviewer"))
         return {
             "decision": verdict,
             "at": at,
             "reason": reason or verdict,
             "source": source,
             "cp_id": str(document.get("cp") or "").strip() or None,
+            "reviewer": reviewer or None,
+            "reviewers": [reviewer] if reviewer else [],
+            "commit": one_line(document.get("reviewed_commit")) or None,
+            "findings": _open_findings(document.get("findings")),
         }
 
     for match in EVIDENCE_BLOCK_RE.finditer(body):
@@ -410,12 +481,17 @@ def comment_rejection(comment: dict) -> dict | None:
                     _finding_rejections(document.get("findings")) or verdicts
                 )
             )
+        reviewers = _review_rejection_reviewers(document.get("reviews"))
         return {
             "decision": decision,
             "at": at,
             "reason": reason or "-",
             "source": source,
             "cp_id": str(document.get("cp_id") or "").strip() or None,
+            "reviewer": reviewers[0] if reviewers else None,
+            "reviewers": reviewers,
+            "commit": one_line(document.get("commit")) or None,
+            "findings": _open_findings(document.get("findings")),
         }
 
     for match in ACCEPT_BLOCK_RE.finditer(body):
@@ -433,16 +509,21 @@ def comment_rejection(comment: dict) -> dict | None:
             "reason": clip_reason(document.get("note")) or "-",
             "source": source,
             "cp_id": None,
+            "reviewer": None,
+            "reviewers": [],
+            "commit": one_line(document.get("binding_base")) or None,
+            "findings": _open_findings(document.get("findings")),
         }
     return None
 
 
 def comment_resolution(comment: dict) -> dict | None:
-    """An approval record that closes an earlier rejection, if any.
+    """An approval record that may close an earlier rejection, if any.
 
     A later ``demir-kit-review`` with ``verdict: approved`` or a
-    ``demir-kit-accept`` with ``decision: accepted`` resolves the rejection it
-    follows, so a fixed round does not keep showing up in the brief.
+    ``demir-kit-accept`` with ``decision: accepted`` can resolve a rejection.
+    The record carries the reviewer and the reviewed/binding commit so the
+    match can stay per reviewer and per commit.
     """
     if not isinstance(comment, dict):
         return None
@@ -458,6 +539,8 @@ def comment_resolution(comment: dict) -> dict | None:
             return {
                 "kind": "review",
                 "cp_id": str(document.get("cp") or "").strip() or None,
+                "reviewer": one_line(document.get("reviewer")) or None,
+                "commit": one_line(document.get("reviewed_commit")) or None,
             }
     for match in ACCEPT_BLOCK_RE.finditer(body):
         try:
@@ -467,41 +550,79 @@ def comment_resolution(comment: dict) -> dict | None:
         if isinstance(document, dict) and str(
             document.get("decision") or ""
         ).strip() == ACCEPT_APPROVED:
-            return {"kind": "accept", "cp_id": None}
+            return {
+                "kind": "accept",
+                "cp_id": None,
+                "reviewer": None,
+                "commit": one_line(document.get("binding_base")) or None,
+            }
     return None
 
 
+def _reviewer_resolves(rejection: dict, resolution: dict) -> bool:
+    """Only the rejecting reviewer's own approval clears that rejection.
+
+    A second reviewer's approval is not a vote: a rejection with a named
+    reviewer stays open until that same reviewer approves (or a human accepts).
+    Records without a reviewer identity (older evidence blocks/accepts) keep the
+    legacy behaviour and accept any approval.
+    """
+    if resolution.get("kind") == "accept":
+        return True
+    wanted = rejection.get("reviewers") or []
+    if not wanted:
+        return True
+    approving = one_line(resolution.get("reviewer"))
+    return bool(approving) and approving in wanted
+
+
 def _resolves(rejection: dict, resolution: dict) -> bool:
-    """An approval closes the rejection of the same CP; missing CP matches any."""
+    """An approval closes this rejection only on CP, reviewer and commit."""
     rejected_cp = rejection.get("cp_id")
     resolved_cp = resolution.get("cp_id")
-    return not rejected_cp or not resolved_cp or rejected_cp == resolved_cp
+    if rejected_cp and resolved_cp and rejected_cp != resolved_cp:
+        return False
+    if not _reviewer_resolves(rejection, resolution):
+        return False
+    return _commit_reaches(resolution.get("commit"), rejection.get("commit"))
 
 
 def previous_rejection(comments: list[dict] | None) -> dict | None:
-    """Latest unresolved rejection in a comment history (comments ascending)."""
-    latest: dict | None = None
+    """Latest still-unresolved rejection in a comment history (ascending).
+
+    Resolutions are applied to the pending set one by one, so one reviewer's
+    approval cannot erase another reviewer's rejection. The brief shows the
+    newest rejection that is still open.
+    """
+    pending: list[dict] = []
     for comment in comments or []:
+        resolution = comment_resolution(comment)
+        if resolution is not None and pending:
+            pending = [
+                record
+                for record in pending
+                if not _resolves(record, resolution)
+            ]
         record = comment_rejection(comment)
         if record is not None:
-            latest = record
-            continue
-        resolution = comment_resolution(comment)
-        if resolution is not None and latest is not None:
-            if _resolves(latest, resolution):
-                latest = None
-    return latest
+            pending.append(record)
+    return pending[-1] if pending else None
 
 
 def render_rejection(record: dict) -> list[str]:
     """The ``Önceki ret`` section: decision, time, reason and source."""
-    return [
+    lines = [
         "Önceki ret:",
         f"- Karar: {record['decision']}",
         f"- Zaman: {record['at']}",
+    ]
+    if record.get("reviewer"):
+        lines.append(f"- Reviewer: {record['reviewer']}")
+    lines += [
         f"- Gerekçe: {record['reason']}",
         f"- Kaynak: {record['source']}",
     ]
+    return lines
 
 
 def build_brief(

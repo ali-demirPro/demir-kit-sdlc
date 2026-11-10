@@ -1496,7 +1496,9 @@ class PreviousRejectionTests(unittest.TestCase):
             "body": body,
         }
 
-    def accept_comment(self, decision: str, comment_id: int = 9) -> dict:
+    def accept_comment(
+        self, decision: str, comment_id: int = 9, binding_base: str = "41b5007"
+    ) -> dict:
         return {
             "id": comment_id,
             "html_url": (
@@ -1511,6 +1513,7 @@ class PreviousRejectionTests(unittest.TestCase):
                         "issue": 335,
                         "by": "ali-demirPro",
                         "decision": decision,
+                        "binding_base": binding_base,
                         "note": "Ret: kapsam dışına çıktı",
                     },
                     sort_keys=False,
@@ -1526,9 +1529,10 @@ class PreviousRejectionTests(unittest.TestCase):
         cp: str = "CP-1",
         comment_id: int = 11,
         commit: str = "41b5007",
+        reviewer: str = "adversarial-a",
     ) -> dict:
         record = review_record.build_record(
-            335, cp, verdict, commit, "adversarial-a", findings or []
+            335, cp, verdict, commit, reviewer, findings or []
         )
         return {
             "id": comment_id,
@@ -1702,6 +1706,71 @@ class PreviousRejectionTests(unittest.TestCase):
         code, out, err = self.run_brief(["335", "--cp", "CP-1"], comments)
         self.assertEqual(code, 0, err)
         self.assertNotIn("Önceki ret", out)
+
+    def test_other_reviewer_approval_does_not_resolve(self) -> None:
+        """Blocking A: B'nin onayı A'nın redini silmez; A'nın onayı çözer.
+
+        A `5c8143e`'yi reddeder, B daha yeni `41b5007`'yi onaylar: ret açık
+        kalır. Sonra A daha yeni bir commit'i onaylar: ret kapanır.
+        """
+        finding = {
+            "id": "AR-1",
+            "severity": "blocking",
+            "status": "open",
+            "note": "Ret kaydı ayrıştırılmıyor",
+        }
+        comments = [
+            self.review_comment(
+                comment_id=11,
+                commit="5c8143e",
+                reviewer="adversarial-a",
+                findings=[finding],
+            ),
+            self.review_comment(
+                verdict="approved",
+                comment_id=12,
+                commit="41b5007",
+                reviewer="adversarial-b",
+            ),
+        ]
+        code, out, err = self.run_brief(["335", "--cp", "CP-1"], comments)
+        self.assertEqual(code, 0, err)
+        self.assertIn("Önceki ret:", out)
+        self.assertIn("- Karar: revise_required", out)
+        self.assertIn("AR-1: Ret kaydı ayrıştırılmıyor", out)
+
+        comments.append(
+            self.review_comment(
+                verdict="approved",
+                comment_id=13,
+                commit="d4b85d7",
+                reviewer="adversarial-a",
+            )
+        )
+        code, out, err = self.run_brief(["335", "--cp", "CP-1"], comments)
+        self.assertEqual(code, 0, err)
+        self.assertNotIn("Önceki ret", out)
+
+    def test_one_reviewer_approval_leaves_co_reviewer_rejection_open(self) -> None:
+        """Tur içi çoğunluk yok: A onaylasa da B'nin reddi açık kalır."""
+        comments = [
+            self.review_comment(
+                comment_id=11, commit="5c8143e", reviewer="adversarial-a"
+            ),
+            self.review_comment(
+                comment_id=12, commit="5c8143e", reviewer="adversarial-b"
+            ),
+            self.review_comment(
+                verdict="approved",
+                comment_id=13,
+                commit="41b5007",
+                reviewer="adversarial-a",
+            ),
+        ]
+        code, out, err = self.run_brief(["335", "--cp", "CP-1"], comments)
+        self.assertEqual(code, 0, err)
+        self.assertIn("Önceki ret:", out)
+        self.assertIn("- Karar: revise_required", out)
 
     def test_accepted_accept_resolves_old_rejection(self) -> None:
         """NIT: sonraki accepted kabul kaydı eski redi çözer."""

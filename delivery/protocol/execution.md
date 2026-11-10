@@ -155,8 +155,10 @@ CP'ler `depends_on` topological sırasında yürür. Her CP:
 0. **brief** — `brief.py --cp CP-x`; kompakt kapsam, AC, test ve evidence
    iskeleti. Bağlam sınırları: [context-budget.md](../policies/context-budget.md).
 1. **behavior** — `tests_plan` case'leri; `ecosystem.yaml` komutu, `{checkpoint}` yerine CP id.
-2. **review** — `review_packet.py --issue N --cp CP-x --commit <sha>`; fix
-   sonrası `--delta <base>` (yalnız o aralık ve bu issue'nun commit'leri).
+2. **review** — `review_packet.py --issue N --cp CP-x --commit <sha>`; paketin
+   "Açık bulgular" bölümü çözülmemiş son `demir-kit-review` ret kaydının
+   `status: open` bulgularını listeler. Fix sonrası `--delta <base>` (yalnız o
+   aralık ve bu issue'nun commit'leri).
    İki reviewer gerekiyorsa tek dalga:
    `review_wave.py --issue N --cp CP-x --commit <sha> --reviewers a,b --apply --record`.
    Tur sonunda `review_record.py --issue N --cp CP-x --verdict
