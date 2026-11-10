@@ -507,7 +507,7 @@ def check_links() -> None:
     docs = list(DELIVERY.rglob("*.md"))
     skills = skill_dir()
     if skills.is_dir():
-        docs += list(skills.rglob("*.md"))
+        docs += list(doctor_skills.iter_files(skills, "*.md"))
     for extra in ("README.md", "AGENTS.md"):
         path = ROOT / extra
         if path.is_file():
@@ -543,7 +543,7 @@ def check_legacy(verbose: bool) -> None:
             continue
         targets += [
             path
-            for path in root.rglob("*")
+            for path in doctor_skills.iter_files(root)
             if path.is_file() and path.suffix in {".md", ".yaml", ".yml", ".json"}
         ]
     for extra in ("README.md", "AGENTS.md"):
@@ -689,7 +689,7 @@ def check_skills() -> None:
     for root in roots:
         if not root.is_dir():
             continue
-        for path in root.rglob("SKILL.md"):
+        for path in doctor_skills.iter_files(root, "SKILL.md"):
             text = path.read_text(encoding="utf-8")
             name = frontmatter_name(text)
             if not name:

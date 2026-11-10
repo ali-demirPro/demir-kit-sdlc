@@ -20,9 +20,15 @@ Usage:
   python3 delivery/scripts/learnings.py --apply
   python3 delivery/scripts/learnings.py --all
 
-`--propose` canlı skill'e yazmaz: taslak + diff `.kit/proposals/` altında durur,
-ajan başına en fazla `PENDING_LIMIT` öneri bekler. Onayda önceki sürüm
+`--propose` canlı skill'e yazmaz: taslak `skills/.drafts/<öneri>/SKILL.md`,
+diff ve issue gövdesi `.kit/proposals/` altında durur; ajan başına en fazla
+`PENDING_LIMIT` öneri bekler. Onayda önceki sürüm
 `.kit/skill-history/<skill>/` altında saklanır, `--revert` geri yazar.
+
+Onay sınırı: öneri kaydı taşıyan öğrenim `--apply` ile canlı dosyaya yazılmaz.
+`pending`, `refused` ve `rejected` kayıtlar onay bekler/reddedilmiştir; yalnız
+`--accept` canlı skill'i günceller. Reddedilen veya limit nedeniyle kabul
+edilmeyen öğrenim asla canlı dosyaya yazılmaz.
 """
 
 from __future__ import annotations
@@ -201,6 +207,10 @@ def render_issue(item: dict) -> str:
 # Ajan başına bekleyen öneri sınırı: öneri kuyruğu insan onayı bekler.
 PENDING_LIMIT = 5
 
+# Taslak skill konumu (AC-1): `skills/` altında yalnızca öneri olarak durur.
+# `doctor` skill lint'i ve isim denetimi bu dizini atlar.
+DRAFT_ROOT = ("skills", ".drafts")
+
 
 def slugify(text: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", str(text).lower()).strip("-")
@@ -211,9 +221,26 @@ def proposal_slug(item: dict) -> str:
 
 
 def proposal_files(root: Path, slug: str) -> tuple[Path, Path, Path]:
-    """Öneri kaydı, taslak skill ve issue gövdesi yolları."""
+    """Öneri kaydı, taslak skill ve issue gövdesi yolları.
+
+    Taslak `skills/.drafts/<öneri>/SKILL.md` altında durur (canlı skill değil);
+    kayıt ve issue gövdesi `.kit/proposals/` altında kalır.
+    """
     base = root / ".kit" / "proposals"
-    return base / f"{slug}.json", base / f"{slug}.draft.md", base / f"{slug}.md"
+    draft = root.joinpath(*DRAFT_ROOT) / slug / "SKILL.md"
+    return base / f"{slug}.json", draft, base / f"{slug}.md"
+
+
+def remove_draft(draft_path: Path) -> None:
+    """Taslak dosyasını ve boş kalan öneri dizinini siler."""
+    if draft_path.is_file():
+        draft_path.unlink()
+    parent = draft_path.parent
+    if parent.name and parent.name != ".drafts" and parent.is_dir():
+        try:
+            parent.rmdir()
+        except OSError:  # dizin boş değilse dokunma
+            pass
 
 
 def history_root(root: Path) -> Path:
@@ -231,8 +258,8 @@ def load_proposal(root: Path, slug: str) -> dict | None:
     return record if isinstance(record, dict) else None
 
 
-def pending_proposals(root: Path, agent: str | None = None) -> list[dict]:
-    """`.kit/proposals` altındaki bekleyen öneriler (ajan süzgeci opsiyonel)."""
+def load_all_proposals(root: Path) -> list[dict]:
+    """`.kit/proposals` altındaki tüm karar kayıtları (kabul/ret/dahil)."""
     base = root / ".kit" / "proposals"
     if not base.is_dir():
         return []
@@ -242,12 +269,39 @@ def pending_proposals(root: Path, agent: str | None = None) -> list[dict]:
             record = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             continue
-        if not isinstance(record, dict) or record.get("status") != "pending":
-            continue
-        if agent and record.get("agent") != agent:
-            continue
-        out.append(record)
+        if isinstance(record, dict):
+            out.append(record)
     return out
+
+
+def proposal_for(root: Path, item: dict) -> dict | None:
+    """Öğrenimin öneri kaydı: slug eşleşmesi, yoksa issue referansı."""
+    record = load_proposal(root, proposal_slug(item))
+    if record is not None:
+        return record
+    issue_ref = str(item.get("id") or "")
+    if not issue_ref:
+        return None
+    for candidate in load_all_proposals(root):
+        if str(candidate.get("issue_ref") or "") == issue_ref:
+            return candidate
+    return None
+
+
+def pending_proposals(root: Path, agent: str | None = None) -> list[dict]:
+    """`.kit/proposals` altındaki bekleyen öneriler (ajan süzgeci opsiyonel)."""
+    records = load_all_proposals(root)
+    return [
+        record
+        for record in records
+        if record.get("status") == "pending"
+        and (not agent or record.get("agent") == agent)
+    ]
+
+
+def is_draft_path(path: Path | str) -> bool:
+    """Yol `skills/.drafts/...` altındaysa True (taslak canlı değildir)."""
+    return ".drafts" in Path(path).parts
 
 
 def skill_target(root: Path, item: dict) -> str | None:
@@ -257,6 +311,8 @@ def skill_target(root: Path, item: dict) -> str | None:
     for candidate in candidates:
         text = str(candidate or "").strip()
         if not (text.startswith("skills/") and text.endswith("SKILL.md")):
+            continue
+        if is_draft_path(text):
             continue
         if (root / text).is_file():
             return text
@@ -330,19 +386,38 @@ def render_proposal(item: dict, record: dict, diff: str) -> str:
     return "\n".join(lines) + "\n"
 
 
+def proposal_state_note(status: str) -> str:
+    """Öneri durumunun Türkçe karşılığı (rapor/CLI metni)."""
+    return {
+        "pending": "onay bekliyor",
+        "refused": "bekleyen sınırı nedeniyle reddedildi",
+        "rejected": "reddedildi",
+        "accepted": "onaylandı",
+        "stale": "bayat öneri",
+    }.get(status, "onay bekliyor")
+
+
+def write_record(path: Path, record: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(record, indent=2, ensure_ascii=False), encoding="utf-8")
+
+
 def propose_one(root: Path, item: dict, agent: str = "developer") -> dict:
     """Seçilen öğrenim için taslak skill + diff + issue gövdesi üretir.
 
     Canlı skill dosyasına yazmaz. Bekleyen öneri sayısı `PENDING_LIMIT` ise
-    yeni öneri reddedilir; imleç `status` alanıyla bildirilir.
+    yeni öneri reddedilir; imleç `status` alanıyla bildirilir ve ret kaydı
+    `--apply` beyaz listesini kapatır.
     """
     slug = proposal_slug(item)
-    existing = load_proposal(root, slug)
-    if existing:
+    record_path, draft_path, body_path = proposal_files(root, slug)
+    existing = proposal_for(root, item)
+    if existing and existing.get("status") != "refused":
+        status = str(existing.get("status") or "existing")
         return {
             "id": slug,
-            "status": str(existing.get("status") or "existing"),
-            "note": "öneri zaten var",
+            "status": status,
+            "note": f"öneri zaten var ({proposal_state_note(status)})",
         }
     target = skill_target(root, item)
     if target is None:
@@ -352,14 +427,27 @@ def propose_one(root: Path, item: dict, agent: str = "developer") -> dict:
     if draft is None:
         return {"id": slug, "status": "skipped", "note": "not zaten var"}
     if len(pending_proposals(root, agent)) >= PENDING_LIMIT:
+        write_record(
+            record_path,
+            {
+                "demir_kit_version": "2",
+                "id": slug,
+                "issue_ref": item["id"],
+                "class": item.get("class"),
+                "kind": (item.get("proposed_change") or {}).get("kind"),
+                "target": target,
+                "agent": agent,
+                "created": date.today().isoformat(),
+                "status": "refused",
+                "reason": f"bekleyen öneri sınırı {PENDING_LIMIT}",
+            },
+        )
         return {
             "id": slug,
             "status": "refused",
-            "note": f"bekleyen öneri sınırı {PENDING_LIMIT}",
+            "note": f"bekleyen öneri sınırı {PENDING_LIMIT} — canlı dosyaya yazılmaz",
         }
 
-    record_path, draft_path, body_path = proposal_files(root, slug)
-    record_path.parent.mkdir(parents=True, exist_ok=True)
     diff = unified_diff(target, live, draft)
     record = {
         "demir_kit_version": "2",
@@ -375,11 +463,11 @@ def propose_one(root: Path, item: dict, agent: str = "developer") -> dict:
         "created": date.today().isoformat(),
         "status": "pending",
     }
+    draft_path.parent.mkdir(parents=True, exist_ok=True)
     draft_path.write_text(draft, encoding="utf-8")
+    body_path.parent.mkdir(parents=True, exist_ok=True)
     body_path.write_text(render_proposal(item, record, diff), encoding="utf-8")
-    record_path.write_text(
-        json.dumps(record, indent=2, ensure_ascii=False), encoding="utf-8"
-    )
+    write_record(record_path, record)
     return {
         "id": slug,
         "status": "pending",
@@ -391,34 +479,50 @@ def propose_one(root: Path, item: dict, agent: str = "developer") -> dict:
 
 
 def accept_proposal(root: Path, slug: str) -> dict:
-    """Öneriyi canlı skill'e uygular; önceki sürümü geçmişe saklar."""
+    """Öneriyi canlı skill'e uygular; önceki sürümü geçmişe saklar.
+
+    Öneri `base_sha256` taşıyorsa ve canlı skill o tarihten sonra değiştiyse
+    onay reddedilir (bayat öneri) — canlı dosya yazılmaz.
+    """
     record = load_proposal(root, slug)
     if record is None:
         return {"id": slug, "status": "missing", "note": "öneri yok"}
     if record.get("status") != "pending":
+        status = str(record.get("status"))
         return {
             "id": slug,
-            "status": str(record.get("status")),
-            "note": "onay bekleyen değil",
+            "status": status,
+            "note": f"onay bekleyen değil ({proposal_state_note(status)})",
         }
     target = root / str(record.get("target") or "")
-    draft_path = root / str(record.get("draft") or "")
+    _, draft_path, _ = proposal_files(root, slug)
     if not target.is_file() or not draft_path.is_file():
         return {"id": slug, "status": "missing", "note": "hedef veya taslak yok"}
+
+    live = target.read_text(encoding="utf-8")
+    base = str(record.get("base_sha256") or "")
+    if base and hashlib.sha256(live.encode("utf-8")).hexdigest() != base:
+        return {
+            "id": slug,
+            "status": "stale",
+            "note": "bayat öneri — canlı skill değişti, yeniden --propose",
+        }
 
     name = target.parent.name
     stamp = datetime.now().strftime("%Y%m%dT%H%M%S%f")
     archive = history_root(root) / name / f"{stamp}.md"
     archive.parent.mkdir(parents=True, exist_ok=True)
-    archive.write_text(target.read_text(encoding="utf-8"), encoding="utf-8")
+    archive.write_text(live, encoding="utf-8")
     target.write_text(draft_path.read_text(encoding="utf-8"), encoding="utf-8")
+    remove_draft(draft_path)
 
     record["status"] = "accepted"
     record["accepted"] = date.today().isoformat()
     record["history"] = archive.relative_to(root).as_posix()
-    proposal_files(root, slug)[0].write_text(
-        json.dumps(record, indent=2, ensure_ascii=False), encoding="utf-8"
-    )
+    record.pop("draft", None)
+    record.pop("note", None)
+    record.pop("reason", None)
+    write_record(proposal_files(root, slug)[0], record)
     return {
         "id": slug,
         "status": "accepted",
@@ -428,15 +532,26 @@ def accept_proposal(root: Path, slug: str) -> dict:
 
 
 def reject_proposal(root: Path, slug: str) -> dict:
-    """Reddedilen öneriyi siler; canlı skill'e dokunmaz."""
+    """Reddedilen öneriyi siler; canlı skill'e dokunmaz.
+
+    Taslak ve issue gövdesi silinir, kayıt `rejected` olarak kalır: `--apply`
+    bu öğrenimi canlı dosyaya asla yazmaz.
+    """
     record = load_proposal(root, slug)
     if record is None:
         return {"id": slug, "status": "missing", "note": "öneri yok"}
     removed: list[str] = []
-    for path in proposal_files(root, slug):
+    _, draft_path, body_path = proposal_files(root, slug)
+    for path in (draft_path, body_path):
         if path.is_file():
-            path.unlink()
             removed.append(path.relative_to(root).as_posix())
+            path.unlink()
+    remove_draft(draft_path)
+    record["status"] = "rejected"
+    record["rejected"] = date.today().isoformat()
+    for key in ("draft", "body", "note", "reason"):
+        record.pop(key, None)
+    write_record(proposal_files(root, slug)[0], record)
     return {
         "id": slug,
         "status": "rejected",
@@ -447,19 +562,13 @@ def reject_proposal(root: Path, slug: str) -> dict:
 
 def accepted_target(root: Path, name: str) -> str:
     """`name` skill'i için son onaylanan canlı dosya yolu (yoksa varsayılan)."""
-    base = root / ".kit" / "proposals"
     found: list[tuple[str, str]] = []
-    if base.is_dir():
-        for path in sorted(base.glob("*.json")):
-            try:
-                record = json.loads(path.read_text(encoding="utf-8"))
-            except (OSError, json.JSONDecodeError):
-                continue
-            if not isinstance(record, dict) or record.get("status") != "accepted":
-                continue
-            target = str(record.get("target") or "")
-            if Path(target).parent.name == name:
-                found.append((str(record.get("accepted") or ""), target))
+    for record in load_all_proposals(root):
+        if record.get("status") != "accepted":
+            continue
+        target = str(record.get("target") or "")
+        if Path(target).parent.name == name:
+            found.append((str(record.get("accepted") or ""), target))
     if found:
         return sorted(found)[-1][1]
     return f"skills/{name}/SKILL.md"
@@ -526,7 +635,10 @@ def apply_eval_scenario_add(root: Path, item: dict) -> str:
 def apply_skill_note_add(root: Path, item: dict) -> str:
     """Hedef SKILL.md'ye öğrenim notu ekler (idempotent)."""
     targets = [t for t in item.get("targets", []) if "SKILL" in t or t.startswith("skills/")]
-    target = next((t for t in targets if (root / t).is_file()), None)
+    target = next(
+        (t for t in targets if not is_draft_path(t) and (root / t).is_file()),
+        None,
+    )
     if not target:
         return "skip: SKILL.md hedefi yok (`skills/<ad>/SKILL.md`)"
     path = root / target
@@ -566,11 +678,12 @@ def apply_all(root: Path, digest_path: Path | None = None) -> list[str]:
     for item in items:
         change = item["proposed_change"]
         kind = change["kind"]
-        pending = load_proposal(root, proposal_slug(item))
-        if pending and pending.get("status") == "pending":
+        proposal = proposal_for(root, item)
+        if proposal is not None:
+            status = str(proposal.get("status") or "pending")
             actions.append(
-                f"pending: {item['id']} — onay bekleyen taslak "
-                f"({pending.get('id')}) canlı dosyaya yazılmaz"
+                f"{status}: {item['id']} — {proposal_state_note(status)} "
+                f"({proposal.get('id')}) canlı dosyaya yazılmaz"
             )
             continue
         if kind not in AUTO_KINDS or not change.get("auto"):

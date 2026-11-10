@@ -143,7 +143,12 @@ class ProposeTests(ProposalFixture):
             result = learnings.propose_one(root, self.learning())
 
             self.assertEqual(result["status"], "pending")
-            draft = (root / result["draft"]).read_text(encoding="utf-8")
+            self.assertEqual(
+                result["draft"], f"skills/.drafts/{result['id']}/SKILL.md"
+            )
+            draft_path = root / result["draft"]
+            self.assertTrue(draft_path.is_file())
+            draft = draft_path.read_text(encoding="utf-8")
             self.assertIn("## Öğrenimler", draft)
             self.assertIn("[öğrenim o/a#1]", draft)
             self.assertLess(draft.index("## Öğrenimler"), draft.index("## Done when"))
@@ -168,7 +173,12 @@ class ProposeTests(ProposalFixture):
 
             self.assertEqual(refused["status"], "refused")
             record_path = root / ".kit" / "proposals" / f"{refused['id']}.json"
-            self.assertFalse(record_path.exists())
+            self.assertTrue(record_path.is_file())
+            record = json.loads(record_path.read_text(encoding="utf-8"))
+            self.assertEqual(record["status"], "refused")
+            self.assertFalse(
+                (root / "skills" / ".drafts" / refused["id"] / "SKILL.md").exists()
+            )
 
     def test_non_skill_learning_is_skipped(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -188,14 +198,23 @@ class AcceptRevertTests(ProposalFixture):
             live = root / "skills" / "alpha" / "SKILL.md"
             before = live.read_text(encoding="utf-8")
             proposal = learnings.propose_one(root, self.learning())
+            draft_path = root / proposal["draft"]
 
             accepted = learnings.accept_proposal(root, proposal["id"])
 
             self.assertEqual(accepted["status"], "accepted")
             self.assertIn("## Öğrenimler", live.read_text(encoding="utf-8"))
+            self.assertFalse(draft_path.exists())
             history = sorted((root / ".kit" / "skill-history" / "alpha").glob("*.md"))
             self.assertEqual(len(history), 1)
             self.assertEqual(history[0].read_text(encoding="utf-8"), before)
+            record = json.loads(
+                (root / ".kit" / "proposals" / f"{proposal['id']}.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            self.assertEqual(record["status"], "accepted")
+            self.assertNotIn("draft", record)
 
             reverted = learnings.revert_skill(root, "alpha")
 
@@ -217,10 +236,116 @@ class AcceptRevertTests(ProposalFixture):
             result = learnings.reject_proposal(root, proposal["id"])
 
             self.assertEqual(result["status"], "rejected")
-            for path in (record_path, draft_path, body_path):
-                self.assertFalse(path.exists())
+            self.assertFalse(draft_path.exists())
+            self.assertFalse(body_path.exists())
+            record = json.loads(record_path.read_text(encoding="utf-8"))
+            self.assertEqual(record["status"], "rejected")
+            self.assertNotIn("draft", record)
+            self.assertNotIn("body", record)
             self.assertEqual(live.read_text(encoding="utf-8"), before)
             self.assertEqual(learnings.pending_proposals(root), [])
+
+    def test_accept_rejects_stale_proposal(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = self.make_root(directory)
+            live = root / "skills" / "alpha" / "SKILL.md"
+            proposal = learnings.propose_one(root, self.learning())
+            live.write_text(
+                live.read_text(encoding="utf-8") + "\nElle değişiklik.\n",
+                encoding="utf-8",
+            )
+            changed = live.read_text(encoding="utf-8")
+
+            result = learnings.accept_proposal(root, proposal["id"])
+
+            self.assertEqual(result["status"], "stale")
+            self.assertIn("bayat", result["note"])
+            self.assertEqual(live.read_text(encoding="utf-8"), changed)
+            self.assertFalse((root / ".kit" / "skill-history" / "alpha").exists())
+
+
+class ApprovalBoundaryTests(ProposalFixture):
+    """Onay sınırı: ret/limit kaydı `--apply` ile canlıya yazılmaz."""
+
+    def digest(self, root: Path, item: dict) -> Path:
+        path = root / "digest.json"
+        path.write_text(json.dumps([item], ensure_ascii=False), encoding="utf-8")
+        return path
+
+    def test_apply_skips_rejected_proposal(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = self.make_root(directory)
+            live = root / "skills" / "alpha" / "SKILL.md"
+            before = live.read_text(encoding="utf-8")
+            item = self.learning()
+            item["status"] = "candidate"
+            proposal = learnings.propose_one(root, item)
+            self.assertEqual(
+                learnings.reject_proposal(root, proposal["id"])["status"], "rejected"
+            )
+
+            actions = learnings.apply_all(root, self.digest(root, item))
+
+            self.assertTrue(
+                any(
+                    line.startswith("rejected:") and "reddedildi" in line
+                    for line in actions
+                ),
+                actions,
+            )
+            self.assertEqual(live.read_text(encoding="utf-8"), before)
+            self.assertEqual((root / "VERSION").read_text(encoding="utf-8"), "2.0.0\n")
+
+    def test_apply_skips_refused_proposal(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = self.make_root(directory)
+            live = root / "skills" / "alpha" / "SKILL.md"
+            for number in range(1, 6):
+                self.assertEqual(
+                    learnings.propose_one(root, self.learning(number))["status"],
+                    "pending",
+                )
+            item = self.learning(6)
+            item["status"] = "candidate"
+            refused = learnings.propose_one(root, item)
+            self.assertEqual(refused["status"], "refused")
+            before = live.read_text(encoding="utf-8")
+
+            actions = learnings.apply_all(root, self.digest(root, item))
+
+            self.assertTrue(
+                any(
+                    line.startswith("refused:") and "reddedildi" in line
+                    for line in actions
+                ),
+                actions,
+            )
+            self.assertEqual(live.read_text(encoding="utf-8"), before)
+
+    def test_apply_never_reapplies_accepted_proposal(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = self.make_root(directory)
+            live = root / "skills" / "alpha" / "SKILL.md"
+            before = live.read_text(encoding="utf-8")
+            item = self.learning()
+            item["status"] = "candidate"
+            proposal = learnings.propose_one(root, item)
+            self.assertEqual(
+                learnings.accept_proposal(root, proposal["id"])["status"], "accepted"
+            )
+            # Onaydan sonra insan notu geri almış olsun: --apply yeniden yazmamalı.
+            live.write_text(before, encoding="utf-8")
+
+            actions = learnings.apply_all(root, self.digest(root, item))
+
+            self.assertTrue(
+                any(
+                    line.startswith("accepted:") and "onaylandı" in line
+                    for line in actions
+                ),
+                actions,
+            )
+            self.assertEqual(live.read_text(encoding="utf-8"), before)
 
 
 class ApplyPreservedTests(ProposalFixture):

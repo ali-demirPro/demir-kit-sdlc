@@ -9,6 +9,8 @@
 .kit/resources.jsonl
 .kit/gate-cache.json
 .kit/context-metrics.jsonl
+# skill öneri taslakları: onaya kadar canlı skill değildir
+skills/.drafts/
 # kişisel tercih: beyaz liste `delivery/local-overrides.yaml`, depoya girmez
 .kit/local.yaml
 .kit/context-metrics.jsonl.tmp
