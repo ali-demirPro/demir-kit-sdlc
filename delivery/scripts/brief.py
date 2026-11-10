@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -238,6 +239,153 @@ def header_lines(data: dict) -> list[str]:
     return lines
 
 
+REJECT_VERDICTS = ("revise_required", "rejected")
+EVIDENCE_BLOCK_RE = re.compile(
+    r"```yaml\s+demir-kit-evidence\s*\n(.*?)```", re.S
+)
+ACCEPT_BLOCK_RE = re.compile(r"```yaml\s+demir-kit-accept\s*\n(.*?)```", re.S)
+
+
+def issue_comments(repo: str, issue: int, fetch=None) -> list[dict]:
+    """All issue comments; an unreadable tracker yields no history, not a crash."""
+    fetch = fetch or gh
+    comments: list[dict] = []
+    page = 1
+    while True:
+        try:
+            data = json.loads(
+                fetch(
+                    [
+                        "api",
+                        f"repos/{repo}/issues/{issue}/comments"
+                        f"?per_page=100&page={page}",
+                    ]
+                )
+            )
+        except (SystemExit, ValueError):
+            return comments
+        if not isinstance(data, list):
+            # A stub or a different payload shape is not a comment history.
+            return comments
+        comments.extend(item for item in data if isinstance(item, dict))
+        if len(data) < 100:
+            return comments
+        page += 1
+
+
+def _review_rejections(reviews) -> list[str]:
+    """Reviewer verdicts that reject the work, as ``role: verdict`` strings."""
+    verdicts: list[str] = []
+    if not isinstance(reviews, dict):
+        return verdicts
+    for role, value in reviews.items():
+        if isinstance(value, dict):
+            for sub_role, sub_value in value.items():
+                if str(sub_value) in REJECT_VERDICTS:
+                    verdicts.append(f"{role}.{sub_role}: {sub_value}")
+        elif str(value) in REJECT_VERDICTS:
+            verdicts.append(f"{role}: {value}")
+    return verdicts
+
+
+def _finding_rejections(findings) -> list[str]:
+    """Open findings of a rejection record, as ``id: note`` strings."""
+    reasons: list[str] = []
+    for item in findings or []:
+        if not isinstance(item, dict):
+            continue
+        text = str(item.get("note") or "").strip()
+        identifier = str(item.get("id") or "").strip()
+        if identifier and text:
+            reasons.append(f"{identifier}: {text}")
+        elif text:
+            reasons.append(text)
+        elif identifier:
+            reasons.append(identifier)
+    return reasons
+
+
+def comment_rejection(comment: dict) -> dict | None:
+    """The rejection record one issue comment carries, if any.
+
+    Two sources are canonical: an evidence block whose ``status`` or reviewer
+    verdict is ``revise_required``/``rejected``, and an accept block with
+    ``decision: rejected``. Everything else is history, not a rejection.
+    """
+    if not isinstance(comment, dict):
+        return None
+    body = str(comment.get("body") or "")
+    source = (
+        str(comment.get("html_url") or comment.get("url") or "").strip()
+        or f"comment {comment.get('id')}"
+    )
+    at = str(comment.get("created_at") or "").strip() or "n/a"
+
+    for match in EVIDENCE_BLOCK_RE.finditer(body):
+        try:
+            document = yaml.safe_load(match.group(1))
+        except yaml.YAMLError:
+            continue
+        if not isinstance(document, dict):
+            continue
+        verdicts = _review_rejections(document.get("reviews"))
+        status = str(document.get("status") or "").strip()
+        if status not in REJECT_VERDICTS and not verdicts:
+            continue
+        decision = status if status in REJECT_VERDICTS else "revise_required"
+        reason = str(document.get("notes") or "").strip()
+        if not reason:
+            reason = "; ".join(
+                _finding_rejections(document.get("findings")) or verdicts
+            )
+        return {
+            "decision": decision,
+            "at": at,
+            "reason": reason or "-",
+            "source": source,
+            "cp_id": str(document.get("cp_id") or "").strip() or None,
+        }
+
+    for match in ACCEPT_BLOCK_RE.finditer(body):
+        try:
+            document = yaml.safe_load(match.group(1))
+        except yaml.YAMLError:
+            continue
+        if not isinstance(document, dict):
+            continue
+        if str(document.get("decision") or "").strip() != "rejected":
+            continue
+        return {
+            "decision": "rejected",
+            "at": at,
+            "reason": str(document.get("note") or "").strip() or "-",
+            "source": source,
+            "cp_id": None,
+        }
+    return None
+
+
+def previous_rejection(comments: list[dict] | None) -> dict | None:
+    """Latest rejection record in a comment history (comments are ascending)."""
+    latest: dict | None = None
+    for comment in comments or []:
+        record = comment_rejection(comment)
+        if record is not None:
+            latest = record
+    return latest
+
+
+def render_rejection(record: dict) -> list[str]:
+    """The ``Önceki ret`` section: decision, time, reason and source."""
+    return [
+        "Önceki ret:",
+        f"- Karar: {record['decision']}",
+        f"- Zaman: {record['at']}",
+        f"- Gerekçe: {record['reason']}",
+        f"- Kaynak: {record['source']}",
+    ]
+
+
 def build_brief(
     registry: dict,
     number: int,
@@ -248,6 +396,7 @@ def build_brief(
     ecosystem: dict | None = None,
     priorities: dict | None = None,
     fallbacks: list[str] | None = None,
+    rejection: dict | None = None,
 ) -> dict:
     resolver.reset_fallbacks()
     seal = routing.seal_body(body)
@@ -319,6 +468,8 @@ def build_brief(
         "docs": docs,
         "config": config,
     }
+    if rejection:
+        data["previous_rejection"] = rejection
     data.update(
         control_fields(path_id, path_source, fallbacks=reasons)
     )
@@ -593,6 +744,9 @@ def render_cp_brief(
         f"Yüzey: {surfaces} · Gate: {gate_text}",
         f"Kapsam: {seal.get('intent', '')}",
     ]
+    rejection = data.get("previous_rejection")
+    if rejection:
+        lines += render_rejection(rejection)
     if selected:
         lines.append("AC (bu CP):")
         for item in selected:
@@ -700,6 +854,11 @@ def render(data: dict) -> str:
         f"state: {data['state']}",
         f"path: {data['path_id']}"
         + (f" (signal: {data['signal']})" if data["signal"] else ""),
+    ]
+    rejection = data.get("previous_rejection")
+    if rejection:
+        lines += render_rejection(rejection)
+    lines += [
         "capabilities: " + (", ".join(data["capabilities"]) or "-"),
         "active: " + ", ".join(data["active_roles"]),
         "on_demand: " + (", ".join(data["on_demand_roles"]) or "-"),
@@ -832,6 +991,7 @@ def main() -> int:
         ecosystem,
         priorities,
         fallbacks=initial_fallbacks,
+        rejection=previous_rejection(issue_comments(repo, args.issue)),
     )
 
     if args.route:
@@ -964,7 +1124,11 @@ def main() -> int:
                     return 2
                 cp_route = apply_frequency(cp_route, frequency, index, prefix)
             text = render_cp_brief(
-                {"issue": data["issue"], "risk": effective},
+                {
+                    "issue": data["issue"],
+                    "risk": effective,
+                    "previous_rejection": data.get("previous_rejection"),
+                },
                 seal,
                 args.cp,
                 routing.kit_prefix(ROOT),
@@ -986,24 +1150,21 @@ def main() -> int:
             path.write_text(text, encoding="utf-8")
             print(path)
         elif args.json:
-            print(
-                json.dumps(
-                    {
-                        "issue": data["issue"],
-                        "cp_id": args.cp,
-                        "role": cp_role(cp.get("gates") or {}),
-                        "chars": len(text),
-                        "brief": text,
-                        "config": cp_control["config"],
-                        "armed": cp_control["armed"],
-                        "indexing": cp_control["indexing"],
-                        "unarmed": cp_control["unarmed"],
-                        "fallbacks": cp_control["fallbacks"],
-                    },
-                    ensure_ascii=False,
-                    indent=2,
-                )
-            )
+            payload = {
+                "issue": data["issue"],
+                "cp_id": args.cp,
+                "role": cp_role(cp.get("gates") or {}),
+                "chars": len(text),
+                "brief": text,
+                "config": cp_control["config"],
+                "armed": cp_control["armed"],
+                "indexing": cp_control["indexing"],
+                "unarmed": cp_control["unarmed"],
+                "fallbacks": cp_control["fallbacks"],
+            }
+            if cp_control.get("previous_rejection"):
+                payload["previous_rejection"] = cp_control["previous_rejection"]
+            print(json.dumps(payload, ensure_ascii=False, indent=2))
         else:
             print(text)
         return 0
