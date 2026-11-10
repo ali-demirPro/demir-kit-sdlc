@@ -29,6 +29,33 @@
 15. Profile `commercial_baseline_required` ise `commercial-baseline-done` + positioning/gtm dosyaları.
 16. Ücretli yüzey varsa `monetization-brief.md` mevcut.
 
+## Araç tablosu
+
+`health_check.py` bu tabloyu tek kaynaktan okur; satır sayısı 16'dan saparsa
+veya bilinmeyen araç adı geçerse hata verir. `required: true` satırın aracı
+PATH'te yoksa çıktı `ready: false` olur ve tek escalation sorusu yazılır;
+`required: false` satır `not_run` olarak raporlanır, pass sayılmaz. `pass`
+yalnız aracın PATH'te olduğunu söyler; kontrolün kendisi ayrıca koşulur.
+
+| # | Kontrol | Araç | required |
+|---|---------|------|----------|
+| 1 | ecosystem.yaml ve yüzey yolları | python3 | true |
+| 2 | behavior komutu çalıştırılabilir | bash | true |
+| 3 | UI CP gates.ui ve ui_compare | python3 | true |
+| 4 | UI snapshot tanımı | python3 | true |
+| 5 | native selftest | python3 | true |
+| 6 | gh auth status | gh | true |
+| 7 | orca status ve epic worktree | orca | true |
+| 8 | orca worktree ps ve host list | orca | false |
+| 9 | orca tab, computer ve emulator | orca | false |
+| 10 | architecture baseline kaydı | gh | false |
+| 11 | architecture boundaries.md | python3 | true |
+| 12 | discovery-approved ve brief | gh | false |
+| 13 | pilot_mode MVO kuralları | python3 | false |
+| 14 | feasibility blocker kararı | python3 | false |
+| 15 | commercial baseline ve positioning | gh | false |
+| 16 | monetization-brief.md | python3 | false |
+
 ## Çıktı
 
 ```yaml
