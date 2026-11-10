@@ -72,6 +72,7 @@ DELIVERY = ROOT / "delivery"
 
 ERRORS: list[str] = []
 WARNS: list[str] = []
+NOTES: list[str] = []
 CHECKS = 0
 
 CORE_LABELS = {
@@ -172,6 +173,11 @@ def error(msg: str) -> None:
 
 def warn(msg: str) -> None:
     WARNS.append(msg)
+
+
+def note(msg: str) -> None:
+    """Informational line: visible in output, never a strict-mode failure."""
+    NOTES.append(msg)
 
 
 def check(msg: str) -> None:
@@ -1262,8 +1268,10 @@ def check_issue_body(
                 if not isinstance(test, dict):
                     error(f"{cp_id}: test öğesi mapping değil")
                     continue
-                if test.get("result") != "pass":
+                result = test.get("result")
+                if result != "pass" and result != "not_run":
                     error(f"{cp_id}: test '{test.get('case')}' pass değil")
+            report_not_run(cp_id, tests)
             if (
                 risk in {"high", "critical"}
                 and needs_platform
@@ -1592,6 +1600,24 @@ def kit_pin_status(root: Path, kit_path: Path) -> tuple[str, str]:
     return "unverifiable", f"{sha[:7]} kit klonunda yok"
 
 
+def report_not_run(cp_id: str, tests) -> dict:
+    """Print each not-run row with its reason, then the run/not-run counts."""
+    for test in tests if isinstance(tests, list) else []:
+        if not isinstance(test, dict) or test.get("result") != "not_run":
+            continue
+        note(
+            f"{cp_id} not_run: {test.get('case')} — "
+            f"{test.get('note') or 'gerekçe yok'}"
+        )
+    summary = evidence_lib.summarize_tests(tests)
+    if summary["not_run"]:
+        note(
+            f"{cp_id}: {summary['ran']} koştu, "
+            f"{summary['not_run']} koşmadı"
+        )
+    return summary
+
+
 def check_product(root: Path) -> None:
     check("product")
     config = load_yaml(root / "kit.config.yaml")
@@ -1857,6 +1883,8 @@ def main() -> int:
         print(f"[fail] {item}")
     for item in WARNS:
         print(f"[warn] {item}")
+    for item in NOTES:
+        print(f"[note] {item}")
 
     failed = bool(ERRORS) or (args.strict and bool(WARNS))
     print(

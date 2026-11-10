@@ -237,6 +237,38 @@ def placeholder_review_error(reviewer_id: str, when: str) -> str | None:
     return "reviewer id yer tutucu; gerçek oturum id'si gerekli"
 
 
+def summarize_tests(tests) -> dict:
+    """Count passing and not-run rows; not-run always carries its reason."""
+    rows = tests if isinstance(tests, list) else []
+    ran = 0
+    not_run = 0
+    skipped = 0
+    reasons: list[dict] = []
+    for test in rows:
+        if not isinstance(test, dict):
+            continue
+        result = test.get("result")
+        if result == "pass":
+            ran += 1
+        elif result == "not_run":
+            not_run += 1
+            reasons.append(
+                {
+                    "case": str(test.get("case") or "?"),
+                    "note": str(test.get("note") or "gerekçe yok"),
+                }
+            )
+        elif result == "skip":
+            skipped += 1
+    return {
+        "total": len(rows),
+        "ran": ran,
+        "not_run": not_run,
+        "skipped": skipped,
+        "not_run_rows": reasons,
+    }
+
+
 def verify(
     record: dict,
     root: Path = ROOT,

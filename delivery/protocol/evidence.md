@@ -112,6 +112,12 @@ workers:
 ## Kurallar
 
 - `status: pass` için behavior `exit_code: 0` ve tüm testler `pass` olmalı (şema zorlar).
+- `tests[].result` sözlüğü `pass | fail | not_run | skip`. Koşulmayan kontrol
+  `not_run` yazılır ve zorunlu `note` alanında nedenini taşır; `not_run` asla
+  `pass` sayılmaz, `status: pass` yalnız hiç `not_run` yokken geçerlidir.
+  `skip` eski kayıtlar için korunur (anlamı değişmez). `findings[].status: waived`
+  gerekçe (`note`) ister. `doctor` her `not_run` satırını gerekçesiyle basar ve
+  koşan/koşmayan sayısını özetler.
 - `agent`: CP'yi üreten rol (`developer`, `tester`, …). Yeni evidence'larda zorunlu;
   eski kayıtlarda yoksa doctor uyarı verir.
 - Risk seviyesinin istediği reviewer alanları dolu olmalı; atlanan gate `skipped` yazar.

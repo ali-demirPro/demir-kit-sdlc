@@ -1,3 +1,21 @@
+## 2.65.0 — 2026-11-10
+
+- **Kit manifesti (Epic P5, #337)** — `vendor_sync.py --seal` deterministik
+  `KIT-MANIFEST.json` üretir (yol, sha256, bytes, sürüm, kaynak commit);
+  `--check` kaynak checkout olmadan manifest ve yerel baytlarla doğrular,
+  `--check-live` eski kaynak↔hedef karşılaştırmasını korur. `install.sh --seal`
+  kit ağacını mühürler; `adopt` kopyayı mühürleyerek kapatır.
+- **Ürün digest katmanı (Epic P5, #338)** — `doctor --product` commit ancestry
+  ve `KIT-MANIFEST.json` digest'ini ayrı satırlarda raporlar; değişmiş dosyanın
+  adı, beklenen ve gerçek digest yazılır. Manifest yoksa `not_run` + gerekçe
+  (strict'te kırmızı); düzeltme #353'te izleniyor.
+- **`not_run` dürüstlüğü (Epic P5, #340)** — `tests[].result` sözlüğü
+  `pass | fail | skip | not_run`; `not_run` zorunlu `note` taşır ve asla pass
+  sayılmaz. `doctor` not_run satırlarını gerekçesiyle basar, koşan/koşmayan
+  sayısını özetler. `findings[].status: waived` gerekçe ister; eski kayıtlar
+  geçerli kalır.
+- Sürüm 2.65.0.
+
 ## 2.64.0 — 2026-11-10
 
 - **Süreç nabzı (Epic P10, #347)** — `status.py --json` kökte `pulse` bloğu ve

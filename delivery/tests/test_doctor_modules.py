@@ -73,7 +73,8 @@ class ModuleSplitTest(unittest.TestCase):
         # +10: local-overrides denetimi (issue 328); gövde doctor_local.py'de,
         # doctor.py'de yalnız import, ince sarmalayıcı ve main çağrısı kaldı.
         # +38: tanımsız surface fail-closed denetimi (#334 CP-1 review fix).
-        self.assertLess(lines, 1881, lines)
+        # +19: not_run raporu (#340): NOTES kanalı, report_not_run ve çıktı satırı.
+        self.assertLess(lines, 1900, lines)
 
     def test_skill_lint_behaviour_is_unchanged(self) -> None:
         path = ROOT / "skills" / "demo" / "SKILL.md"
