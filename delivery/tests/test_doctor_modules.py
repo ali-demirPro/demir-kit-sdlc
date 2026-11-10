@@ -72,7 +72,8 @@ class ModuleSplitTest(unittest.TestCase):
         # +30: rigor.yaml denetimi (issue 325) import, check_rigor ve main çağrısı.
         # +10: local-overrides denetimi (issue 328); gövde doctor_local.py'de,
         # doctor.py'de yalnız import, ince sarmalayıcı ve main çağrısı kaldı.
-        self.assertLess(lines, 1843, lines)
+        # +38: tanımsız surface fail-closed denetimi (#334 CP-1 review fix).
+        self.assertLess(lines, 1881, lines)
 
     def test_skill_lint_behaviour_is_unchanged(self) -> None:
         path = ROOT / "skills" / "demo" / "SKILL.md"
