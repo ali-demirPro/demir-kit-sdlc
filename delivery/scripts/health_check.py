@@ -92,8 +92,6 @@ def load_table(path: Path = PROTOCOL) -> list[dict]:
             raise ValueError(
                 f"bilinmeyen kontrol: {row['check']} (satır {row['id']})"
             )
-        if EXPECTED_CHECKS.count(row["check"]) != 1:
-            raise ValueError(f"tekrarlı kontrol: {row['check']}")
     if {row["check"] for row in rows} != set(EXPECTED_CHECKS):
         raise ValueError("health-check tablosu 16 kontrolle birebir eşleşmiyor")
     return rows

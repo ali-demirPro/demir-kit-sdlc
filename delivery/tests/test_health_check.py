@@ -104,6 +104,18 @@ class HealthTableTests(unittest.TestCase):
                 health_check.load_table(path)
             self.assertIn("bilinmeyen kontrol", str(ctx.exception))
 
+    def test_duplicate_control_name_breaks_the_table(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "health.md"
+            text = PROTOCOL.read_text(encoding="utf-8").replace(
+                "| 6 | gh auth status | gh | true |",
+                "| 6 | native selftest | gh | true |",
+            )
+            path.write_text(text, encoding="utf-8")
+            with self.assertRaises(ValueError) as ctx:
+                health_check.load_table(path)
+            self.assertIn("birebir", str(ctx.exception))
+
     def test_duplicate_control_id_breaks_the_table(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "health.md"
