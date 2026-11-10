@@ -221,7 +221,7 @@ children:
       - delivery/tests/test_model.py
       - delivery/CONTRACT.md
     ac:
-      - "Dokuz durum ve T1–T9 geçişleri adlandırılmış guard'larla tanımlı; guard'lar CONTRACT tablosuyla birebir."
+      - "Dokuz durum ve T1–T9 geçişleri adlandırılmış guard'larla tanımlı; guard'lar CONTRACT tablosu ve mermaid kenarıyla eşleşir."
       - "T8 epic_reconcile'a gider; T10 (epic_reconcile→agent_approved) ve CP/leaf self-loop'ları CONTRACT mermaid'inden modele girer."
       - "I1–I19'dan model-checkable olanlar predicate; dosya/CI tabanlılar static_only + gerekçeli; I20–I24 out_of_scope."
       - "Epic→leaf→CP bileşik durumu ve I7'nin ayrık depends_on istisnası temsil edilir; I8 no-op."
@@ -277,6 +277,7 @@ children:
       - delivery/tests/test_model.py
       - delivery/scripts/doctor.py
       - delivery/model/delivery.py
+      - delivery/model/mutations.py
       - delivery/policies/quality-gates.md
     ac:
       - "`--mutate guard_T4` ihlali yakalar, exit non-zero ve counterexample yolu yazar."
