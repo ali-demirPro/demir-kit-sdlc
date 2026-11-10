@@ -1449,6 +1449,8 @@ class PulseTests(unittest.TestCase):
             self.assertEqual(pulse["review_rounds"], 1)
             self.assertEqual(pulse["blocked"], 1)
             self.assertEqual(pulse["deferred"], 0)
+            self.assertEqual(len(pulse["daily"]), 7)
+            self.assertEqual(sum(pulse["daily"]), 2)
             self.assertEqual(pulse["lead"]["n"], 1)
             self.assertEqual(pulse["lead"]["p50"], 30.0)
             self.assertIsNone(pulse["prev_delta"])
@@ -1474,6 +1476,7 @@ class PulseTests(unittest.TestCase):
                 "deferred",
             ):
                 self.assertIsNone(pulse[key], key)
+            self.assertEqual(pulse["daily"], [])
             self.assertEqual(pulse["lead"], {"n": 0, "p50": None, "p90": None, "samples": []})
             self.assertIsNone(data["epics"][0]["machinery"])
 

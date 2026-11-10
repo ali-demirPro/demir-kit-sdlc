@@ -9,6 +9,7 @@ izleniyorsa da hata verilir; depoya kişisel tercih girmemeli.
 
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -38,6 +39,39 @@ REQUIRED_LOCKED = (
     "gates.human",
     "gates.*",
 )
+
+
+def check_installed_skills(
+    root: Path,
+    check: Callable[[str], None],
+    warn: Callable[[str], None],
+) -> None:
+    """`install.sh` kopyaları kaynaktan geride kalırsa uyar.
+
+    `.agents/` makineye özel kurulum durumudur (gitignore); testler
+    `DEMIR_KIT_DOCTOR_IGNORE_INSTALLED=1` ile bu denetimi atlar ki sonuç
+    makinenin kurulum yaşına bağlı kalmasın.
+    """
+    check("installed skills")
+    if os.environ.get("DEMIR_KIT_DOCTOR_IGNORE_INSTALLED") == "1":
+        return
+    installed = root / ".agents" / "skills"
+    source = root / "skills"
+    if not installed.is_dir() or not source.is_dir():
+        return
+    stale = [
+        entry.name
+        for entry in sorted(installed.iterdir())
+        if (source / entry.name / "SKILL.md").is_file()
+        and (entry / "SKILL.md").is_file()
+        and (source / entry.name / "SKILL.md").read_bytes()
+        != (entry / "SKILL.md").read_bytes()
+    ]
+    if stale:
+        warn(
+            "kurulu skill kopyası kaynaktan farklı: "
+            f"{', '.join(stale)} — './install.sh' ile tazele"
+        )
 
 
 def check_local_overrides(

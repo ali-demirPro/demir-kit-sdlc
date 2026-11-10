@@ -115,6 +115,7 @@ PULSE_KEYS = {
     "review_rounds",
     "blocked",
     "deferred",
+    "daily",
     "lead",
 }
 LEAD_KEYS = {"n", "p50", "p90", "samples"}
@@ -645,6 +646,21 @@ def lead_samples(rows: list[dict], since: datetime | None = None) -> list[float]
     return sorted(samples)
 
 
+def daily_leaves(rows: list[dict], since: datetime, now: datetime, days: int) -> list[int]:
+    """Pencere içindeki günlük `leaf-done` sayısı; eski→yeni sırada."""
+    buckets = [0] * days
+    for row in rows:
+        if row.get("stage") != "leaf-done":
+            continue
+        ts = row_ts(row)
+        if ts is None or ts < since or ts >= now:
+            continue
+        index = int((ts - since).total_seconds() // 86400)
+        if 0 <= index < days:
+            buckets[index] += 1
+    return buckets
+
+
 def pulse_block(
     rows: list[dict],
     *,
@@ -665,6 +681,7 @@ def pulse_block(
         "review_rounds": None,
         "blocked": None,
         "deferred": None,
+        "daily": [],
         "lead": {"n": 0, "p50": None, "p90": None, "samples": []},
     }
     if not rows:
@@ -700,6 +717,7 @@ def pulse_block(
         "review_rounds": count("review", since, now),
         "blocked": count("blocked", since, now),
         "deferred": count("deferred", since, now),
+        "daily": daily_leaves(rows, since, now, window_days),
         "lead": {
             "n": len(samples),
             "p50": percentile(samples, 0.5),
@@ -1022,9 +1040,19 @@ def valid_pulse(item: object) -> bool:
     days = item.get("window_days")
     if not isinstance(days, int) or isinstance(days, bool) or days < 1:
         return False
-    for key in PULSE_KEYS - {"status", "window_days", "lead"}:
+    for key in PULSE_KEYS - {"status", "window_days", "lead", "daily"}:
         if not valid_number(item.get(key)):
             return False
+    daily = item.get("daily")
+    if not isinstance(daily, list):
+        return False
+    if daily and len(daily) != days:
+        return False
+    if not all(
+        isinstance(value, int) and not isinstance(value, bool) and value >= 0
+        for value in daily
+    ):
+        return False
     lead = item.get("lead")
     if not isinstance(lead, dict) or set(lead) != LEAD_KEYS:
         return False
@@ -1230,6 +1258,7 @@ def normalize_cached_contract(data: dict) -> dict:
         "review_rounds": None,
         "blocked": None,
         "deferred": None,
+        "daily": [],
         "lead": {"n": 0, "p50": None, "p90": None, "samples": []},
     }
     return {**data, "epics": epics, "pulse": pulse}
