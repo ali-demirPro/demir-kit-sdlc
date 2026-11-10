@@ -507,9 +507,10 @@ class EvidenceNotRunSchemaTests(unittest.TestCase):
                 {"case": "T-1", "result": "pass"},
                 {"case": "T-2", "result": "not_run", "note": "araç yok"},
                 {"case": "T-3", "result": "skip"},
+                {"case": "T-4", "result": "fail"},
             ]
         )
-        self.assertEqual(summary["ran"], 1)
+        self.assertEqual(summary["ran"], 2)
         self.assertEqual(summary["not_run"], 1)
         self.assertEqual(summary["skipped"], 1)
         self.assertEqual(summary["not_run_rows"], [{"case": "T-2", "note": "araç yok"}])

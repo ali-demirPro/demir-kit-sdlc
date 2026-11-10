@@ -248,7 +248,7 @@ def summarize_tests(tests) -> dict:
         if not isinstance(test, dict):
             continue
         result = test.get("result")
-        if result == "pass":
+        if result in {"pass", "fail"}:
             ran += 1
         elif result == "not_run":
             not_run += 1
