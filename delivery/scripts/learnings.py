@@ -22,13 +22,17 @@ Usage:
 
 `--propose` canlı skill'e yazmaz: taslak `skills/.drafts/<öneri>/SKILL.md`,
 diff ve issue gövdesi `.kit/proposals/` altında durur; ajan başına en fazla
-`PENDING_LIMIT` öneri bekler. Onayda önceki sürüm
-`.kit/skill-history/<skill>/` altında saklanır, `--revert` geri yazar.
+`PENDING_LIMIT` öneri bekler. Aynı öğrenim reddedildiyse, onaylandıysa ya da
+kayıt bayatladıysa `--propose` eski kaydı geçmişte bırakıp **yeni öneri
+kimliği** açar; "onay bekliyor" yalnız gerçekten `pending` kayıt için denir.
+Eski biçimdeki `.kit/proposals/<öneri>.draft.md` taslakları geriye dönük
+okunur. Onayda önceki sürüm `.kit/skill-history/<skill>/` altında saklanır,
+`--revert` geri yazar.
 
 Onay sınırı: öneri kaydı taşıyan öğrenim `--apply` ile canlı dosyaya yazılmaz.
-`pending`, `refused` ve `rejected` kayıtlar onay bekler/reddedilmiştir; yalnız
-`--accept` canlı skill'i günceller. Reddedilen veya limit nedeniyle kabul
-edilmeyen öğrenim asla canlı dosyaya yazılmaz.
+`pending`, `refused`, `rejected`, `accepted` ve `stale` kayıtlar `--apply`
+beyaz listesini kapatır; yalnız `--accept` canlı skill'i günceller. Reddedilen
+veya limit nedeniyle kabul edilmeyen öğrenim asla canlı dosyaya yazılmaz.
 """
 
 from __future__ import annotations
@@ -211,6 +215,9 @@ PENDING_LIMIT = 5
 # `doctor` skill lint'i ve isim denetimi bu dizini atlar.
 DRAFT_ROOT = ("skills", ".drafts")
 
+# Karar verilmiş öneri durumları: aynı öğrenim için yeni öneri kimliği açılır.
+TERMINAL_STATUSES = frozenset({"accepted", "rejected", "refused", "stale"})
+
 
 def slugify(text: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", str(text).lower()).strip("-")
@@ -236,11 +243,38 @@ def remove_draft(draft_path: Path) -> None:
     if draft_path.is_file():
         draft_path.unlink()
     parent = draft_path.parent
-    if parent.name and parent.name != ".drafts" and parent.is_dir():
+    # Yalnız `skills/.drafts/<öneri>/` dizini temizlenir; `.kit/proposals` korunur.
+    if is_draft_path(draft_path) and parent.name != ".drafts" and parent.is_dir():
         try:
             parent.rmdir()
         except OSError:  # dizin boş değilse dokunma
             pass
+
+
+def legacy_draft_path(root: Path, slug: str) -> Path:
+    """Eski biçim taslak yolu: `.kit/proposals/<öneri>.draft.md` (geriye dönük)."""
+    return root / ".kit" / "proposals" / f"{slug}.draft.md"
+
+
+def draft_candidates(root: Path, record: dict) -> list[Path]:
+    """Önerinin taslağı için aday yollar: kayıtlı yol, eski biçim, yeni konum."""
+    slug = str(record.get("id") or "")
+    paths: list[Path] = []
+    recorded = str(record.get("draft") or "").strip()
+    if recorded:
+        paths.append(root / recorded)
+    paths.append(legacy_draft_path(root, slug))
+    paths.append(root.joinpath(*DRAFT_ROOT) / slug / "SKILL.md")
+    unique: list[Path] = []
+    for path in paths:
+        if path not in unique:
+            unique.append(path)
+    return unique
+
+
+def existing_draft(root: Path, record: dict) -> Path | None:
+    """Önerinin gerçekten var olan taslağı (eski biçim dahil); yoksa None."""
+    return next((path for path in draft_candidates(root, record) if path.is_file()), None)
 
 
 def history_root(root: Path) -> Path:
@@ -274,18 +308,54 @@ def load_all_proposals(root: Path) -> list[dict]:
     return out
 
 
-def proposal_for(root: Path, item: dict) -> dict | None:
-    """Öğrenimin öneri kaydı: slug eşleşmesi, yoksa issue referansı."""
-    record = load_proposal(root, proposal_slug(item))
-    if record is not None:
-        return record
+def proposal_revision(record: dict, base: str) -> int:
+    """Kaydın sürüm numarası: açık alan, kimlik son eki ya da 1."""
+    raw = record.get("revision")
+    if isinstance(raw, int) and raw > 0:
+        return raw
+    slug = str(record.get("id") or "")
+    if slug == base:
+        return 1
+    if slug.startswith(f"{base}-"):
+        tail = slug[len(base) + 1 :]
+        if tail.isdigit() and int(tail) > 0:
+            return int(tail)
+    return 1
+
+
+def proposal_records(root: Path, item: dict) -> list[dict]:
+    """Aynı öğrenimin tüm öneri kayıtları (eski kimlikler dahil), sürüme göre."""
+    base = proposal_slug(item)
     issue_ref = str(item.get("id") or "")
-    if not issue_ref:
-        return None
+    found: list[dict] = []
     for candidate in load_all_proposals(root):
-        if str(candidate.get("issue_ref") or "") == issue_ref:
-            return candidate
-    return None
+        slug = str(candidate.get("id") or "")
+        suffix = slug[len(base) + 1 :] if slug.startswith(f"{base}-") else ""
+        same_slug = slug == base or (suffix.isdigit() and int(suffix) > 0)
+        same_issue = bool(issue_ref) and str(candidate.get("issue_ref") or "") == issue_ref
+        if same_slug or same_issue:
+            found.append(candidate)
+    return sorted(found, key=lambda record: proposal_revision(record, base))
+
+
+def proposal_for(root: Path, item: dict) -> dict | None:
+    """Öğrenimin **en güncel** öneri kaydı (yoksa None)."""
+    records = proposal_records(root, item)
+    return records[-1] if records else None
+
+
+def next_proposal_slug(root: Path, item: dict) -> tuple[str, int]:
+    """Aynı öğrenim için yeni öneri kimliği ve sürümü.
+
+    İlk öneri temel kimliği kullanır; terminal durumdaki (kabul/ret/refused)
+    veya bayat kayıttan sonra kimlik `-2`, `-3` … sürüm eki alır. Eski kayıt
+    geçmiş olarak dosyada kalır.
+    """
+    base = proposal_slug(item)
+    records = proposal_records(root, item)
+    revision = max((proposal_revision(record, base) for record in records), default=0) + 1
+    slug = base if revision == 1 else f"{base}-{revision}"
+    return slug, revision
 
 
 def pending_proposals(root: Path, agent: str | None = None) -> list[dict]:
@@ -402,23 +472,62 @@ def write_record(path: Path, record: dict) -> None:
     path.write_text(json.dumps(record, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
+def proposal_is_current(root: Path, record: dict) -> bool:
+    """`pending` kayıt hâlâ geçerli mi: canlı hedef, taslak ve base hash tutuyor mu."""
+    target = root / str(record.get("target") or "")
+    if not target.is_file() or existing_draft(root, record) is None:
+        return False
+    base = str(record.get("base_sha256") or "")
+    if not base:
+        return True
+    live = target.read_text(encoding="utf-8")
+    return hashlib.sha256(live.encode("utf-8")).hexdigest() == base
+
+
+def supersede_proposal(root: Path, record: dict) -> None:
+    """Bayat `pending` kaydı geçmişe alır: durum `stale`, taslak/gövde temizlenir."""
+    slug = str(record.get("id") or "")
+    record_path, _, body_path = proposal_files(root, slug)
+    for path in (*draft_candidates(root, record), body_path):
+        if path.is_file():
+            path.unlink()
+        remove_draft(path)
+    record["status"] = "stale"
+    record["stale"] = date.today().isoformat()
+    for key in ("draft", "body", "note", "reason"):
+        record.pop(key, None)
+    write_record(record_path, record)
+
+
 def propose_one(root: Path, item: dict, agent: str = "developer") -> dict:
     """Seçilen öğrenim için taslak skill + diff + issue gövdesi üretir.
 
-    Canlı skill dosyasına yazmaz. Bekleyen öneri sayısı `PENDING_LIMIT` ise
-    yeni öneri reddedilir; imleç `status` alanıyla bildirilir ve ret kaydı
-    `--apply` beyaz listesini kapatır.
+    Canlı skill dosyasına yazmaz. Yalnız gerçekten `pending` ve güncel kayıt
+    "onay bekliyor" döndürür; kabul/ret/refused ya da bayat kayıttan sonra aynı
+    öğrenim **yeni öneri kimliğiyle** yeniden önerilir (eski kayıt geçmiş
+    olarak kalır). Bekleyen öneri sayısı `PENDING_LIMIT` ise yeni öneri
+    reddedilir; imleç `status` alanıyla bildirilir ve ret kaydı `--apply`
+    beyaz listesini kapatır.
     """
-    slug = proposal_slug(item)
-    record_path, draft_path, body_path = proposal_files(root, slug)
-    existing = proposal_for(root, item)
-    if existing and existing.get("status") != "refused":
-        status = str(existing.get("status") or "existing")
+    latest = proposal_for(root, item)
+    if latest is not None and latest.get("status") == "pending":
+        if proposal_is_current(root, latest):
+            return {
+                "id": latest["id"],
+                "status": "pending",
+                "note": f"öneri zaten var (onay bekliyor) — {latest['id']}",
+            }
+        supersede_proposal(root, latest)
+    elif latest is not None and latest.get("status") not in TERMINAL_STATUSES:
+        status = str(latest.get("status") or "pending")
         return {
-            "id": slug,
+            "id": latest["id"],
             "status": status,
             "note": f"öneri zaten var ({proposal_state_note(status)})",
         }
+
+    slug, revision = next_proposal_slug(root, item)
+    record_path, draft_path, body_path = proposal_files(root, slug)
     target = skill_target(root, item)
     if target is None:
         return {"id": slug, "status": "skipped", "note": "skill hedefi yok"}
@@ -432,6 +541,7 @@ def propose_one(root: Path, item: dict, agent: str = "developer") -> dict:
             {
                 "demir_kit_version": "2",
                 "id": slug,
+                "revision": revision,
                 "issue_ref": item["id"],
                 "class": item.get("class"),
                 "kind": (item.get("proposed_change") or {}).get("kind"),
@@ -452,6 +562,7 @@ def propose_one(root: Path, item: dict, agent: str = "developer") -> dict:
     record = {
         "demir_kit_version": "2",
         "id": slug,
+        "revision": revision,
         "issue_ref": item["id"],
         "class": item.get("class"),
         "kind": (item.get("proposed_change") or {}).get("kind"),
@@ -495,9 +606,18 @@ def accept_proposal(root: Path, slug: str) -> dict:
             "note": f"onay bekleyen değil ({proposal_state_note(status)})",
         }
     target = root / str(record.get("target") or "")
-    _, draft_path, _ = proposal_files(root, slug)
-    if not target.is_file() or not draft_path.is_file():
-        return {"id": slug, "status": "missing", "note": "hedef veya taslak yok"}
+    if not target.is_file():
+        return {"id": slug, "status": "missing", "note": "canlı hedef yok — yeniden --propose"}
+    draft_path = existing_draft(root, record)
+    if draft_path is None:
+        expected = ", ".join(
+            f"`{path.relative_to(root).as_posix()}`" for path in draft_candidates(root, record)
+        )
+        return {
+            "id": slug,
+            "status": "missing",
+            "note": f"taslak yok — {expected} (yeniden --propose)",
+        }
 
     live = target.read_text(encoding="utf-8")
     base = str(record.get("base_sha256") or "")
@@ -541,12 +661,13 @@ def reject_proposal(root: Path, slug: str) -> dict:
     if record is None:
         return {"id": slug, "status": "missing", "note": "öneri yok"}
     removed: list[str] = []
-    _, draft_path, body_path = proposal_files(root, slug)
-    for path in (draft_path, body_path):
+    _, _, default_body = proposal_files(root, slug)
+    body_path = root / str(record.get("body") or "") if record.get("body") else default_body
+    for path in (*draft_candidates(root, record), body_path):
         if path.is_file():
             removed.append(path.relative_to(root).as_posix())
             path.unlink()
-    remove_draft(draft_path)
+        remove_draft(path)
     record["status"] = "rejected"
     record["rejected"] = date.today().isoformat()
     for key in ("draft", "body", "note", "reason"):
@@ -752,7 +873,8 @@ def main() -> int:
         items = json.loads(DIGEST.read_text(encoding="utf-8")) if DIGEST.is_file() else []
         proposed = False
         for item in items:
-            if item.get("status") not in ("candidate", "escalated"):
+            # `proposed` da taranır: terminal/bayat kayıt yeni kimlikle açılabilir.
+            if item.get("status") not in ("candidate", "escalated", "proposed"):
                 continue
             result = propose_one(root, item, agent)
             note = f" — {result['note']}" if result.get("note") else ""

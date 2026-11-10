@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import importlib.util
+import hashlib
+import io
 import json
 import sys
 import tempfile
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -187,6 +190,199 @@ class ProposeTests(ProposalFixture):
             result = learnings.propose_one(root, item)
             self.assertEqual(result["status"], "skipped")
             self.assertIn("skill hedefi yok", result["note"])
+
+
+class ReproposeTests(ProposalFixture):
+    """Terminal/bayat kayıt yeni kimlikle yeniden önerilir; pending kilitler."""
+
+    def record_path(self, root: Path, ident: str) -> Path:
+        return root / ".kit" / "proposals" / f"{ident}.json"
+
+    def test_rejected_proposal_reopens_with_new_id(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = self.make_root(directory)
+            item = self.learning()
+            first = learnings.propose_one(root, item)
+            self.assertEqual(learnings.reject_proposal(root, first["id"])["status"], "rejected")
+
+            second = learnings.propose_one(root, item)
+
+            self.assertEqual(second["status"], "pending")
+            self.assertEqual(second["id"], f"{first['id']}-2")
+            self.assertTrue((root / second["draft"]).is_file())
+            old = json.loads(self.record_path(root, first["id"]).read_text(encoding="utf-8"))
+            self.assertEqual(old["status"], "rejected")
+            self.assertEqual(learnings.proposal_for(root, item)["id"], second["id"])
+
+            # Gerçekten bekleyen kayıt yeniden açılmaz, aynı kimlik döner.
+            again = learnings.propose_one(root, item)
+            self.assertEqual((again["status"], again["id"]), ("pending", second["id"]))
+
+    def test_accepted_proposal_reopens_with_new_id(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = self.make_root(directory)
+            item = self.learning()
+            first = learnings.propose_one(root, item)
+            self.assertEqual(
+                learnings.accept_proposal(root, first["id"])["status"], "accepted"
+            )
+            # İnsan onayı geri alır (canlı skill eski hâline döner); yeniden öneri açılmalı.
+            self.assertEqual(learnings.revert_skill(root, "alpha")["status"], "reverted")
+
+            second = learnings.propose_one(root, item)
+
+            self.assertEqual(second["status"], "pending")
+            self.assertEqual(second["id"], f"{first['id']}-2")
+            old = json.loads(self.record_path(root, first["id"]).read_text(encoding="utf-8"))
+            self.assertEqual(old["status"], "accepted")
+            self.assertEqual(
+                json.loads(self.record_path(root, second["id"]).read_text(encoding="utf-8"))[
+                    "revision"
+                ],
+                2,
+            )
+
+    def test_stale_pending_proposal_is_superseded(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = self.make_root(directory)
+            live = root / "skills" / "alpha" / "SKILL.md"
+            item = self.learning()
+            first = learnings.propose_one(root, item)
+            live.write_text(
+                live.read_text(encoding="utf-8") + "\nElle değişiklik.\n",
+                encoding="utf-8",
+            )
+
+            second = learnings.propose_one(root, item)
+
+            self.assertEqual(second["status"], "pending")
+            self.assertEqual(second["id"], f"{first['id']}-2")
+            self.assertEqual(
+                json.loads(self.record_path(root, first["id"]).read_text(encoding="utf-8"))[
+                    "status"
+                ],
+                "stale",
+            )
+            pending = learnings.pending_proposals(root)
+            self.assertEqual([record["id"] for record in pending], [second["id"]])
+            # Bayat kayıt artık onaylanamaz; yeni kayıt onaylanır.
+            self.assertEqual(
+                learnings.accept_proposal(root, first["id"])["status"], "stale"
+            )
+            self.assertEqual(
+                learnings.accept_proposal(root, second["id"])["status"], "accepted"
+            )
+
+    def test_legacy_draft_is_read_by_accept(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = self.make_root(directory)
+            live = root / "skills" / "alpha" / "SKILL.md"
+            item = self.learning()
+            slug = learnings.proposal_slug(item)
+            legacy = root / ".kit" / "proposals" / f"{slug}.draft.md"
+            legacy.parent.mkdir(parents=True)
+            legacy.write_text(
+                learnings.skill_note_applied(live.read_text(encoding="utf-8"), item) or "",
+                encoding="utf-8",
+            )
+            learnings.write_record(
+                root / ".kit" / "proposals" / f"{slug}.json",
+                {
+                    "demir_kit_version": "2",
+                    "id": slug,
+                    "issue_ref": item["id"],
+                    "class": item.get("class"),
+                    "kind": item["proposed_change"]["kind"],
+                    "target": "skills/alpha/SKILL.md",
+                    "draft": f".kit/proposals/{slug}.draft.md",
+                    "base_sha256": hashlib.sha256(
+                        live.read_text(encoding="utf-8").encode("utf-8")
+                    ).hexdigest(),
+                    "agent": "developer",
+                    "created": "2026-01-01",
+                    "status": "pending",
+                },
+            )
+
+            result = learnings.accept_proposal(root, slug)
+
+            self.assertEqual(result["status"], "accepted")
+            self.assertIn("## Öğrenimler", live.read_text(encoding="utf-8"))
+            self.assertFalse(legacy.exists())
+
+    def test_missing_draft_reports_clear_message(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = self.make_root(directory)
+            item = self.learning()
+            slug = learnings.proposal_slug(item)
+            learnings.write_record(
+                root / ".kit" / "proposals" / f"{slug}.json",
+                {
+                    "demir_kit_version": "2",
+                    "id": slug,
+                    "issue_ref": item["id"],
+                    "target": "skills/alpha/SKILL.md",
+                    "agent": "developer",
+                    "created": "2026-01-01",
+                    "status": "pending",
+                },
+            )
+
+            result = learnings.accept_proposal(root, slug)
+
+            self.assertEqual(result["status"], "missing")
+            self.assertIn("taslak yok", result["note"])
+            self.assertIn(".kit/proposals/", result["note"])
+            self.assertIn("skills/.drafts/", result["note"])
+            self.assertIn("yeniden --propose", result["note"])
+
+
+class ProposeCliTests(ProposalFixture):
+    """CLI: ret sonrası `--propose` yeni kimlik üretir, pending kayıt kilitler."""
+
+    def run_cli(self, root: Path, *argv: str) -> str:
+        original_digest = learnings.DIGEST
+        original_argv = sys.argv
+        learnings.DIGEST = root / ".orchestration" / "learnings" / "digest.json"
+        sys.argv = ["learnings.py", "--project", str(root), *argv]
+        out = io.StringIO()
+        try:
+            with redirect_stdout(out):
+                self.assertEqual(learnings.main(), 0)
+        finally:
+            learnings.DIGEST = original_digest
+            sys.argv = original_argv
+        return out.getvalue()
+
+    def proposal_ids(self, root: Path) -> list[str]:
+        base = root / ".kit" / "proposals"
+        return sorted(path.stem for path in base.glob("*.json"))
+
+    def test_reject_then_propose_cli_reopens_with_new_id(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = self.make_root(directory)
+            item = self.learning()
+            item["status"] = "candidate"
+            digest = root / ".orchestration" / "learnings" / "digest.json"
+            digest.parent.mkdir(parents=True)
+            digest.write_text(json.dumps([item]), encoding="utf-8")
+
+            self.assertIn("pending", self.run_cli(root, "--propose"))
+            first_id = self.proposal_ids(root)[0]
+            self.assertIn("rejected", self.run_cli(root, "--reject", first_id))
+
+            output = self.run_cli(root, "--propose")
+
+            ids = self.proposal_ids(root)
+            self.assertEqual(ids, sorted([first_id, f"{first_id}-2"]))
+            self.assertIn(f"{first_id}-2", output)
+            self.assertIn("pending", output)
+            old = json.loads(
+                (root / ".kit" / "proposals" / f"{first_id}.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            self.assertEqual(old["status"], "rejected")
 
 
 class AcceptRevertTests(ProposalFixture):
