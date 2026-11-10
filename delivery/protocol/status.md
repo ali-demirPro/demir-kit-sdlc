@@ -30,6 +30,8 @@ Komut `python3 delivery/scripts/status.py`; durum dosyası yazmaz (yalnız önbe
 | `updated_at` | Epic issue'sunun `updatedAt` değeri; yalnız ISO-8601 biçimi kabul edilir, `gh` alanı vermezse ya da metin ISO-8601 değilse `null` |
 | `url` | `tracker.repo` varsa GitHub issue bağlantısı, yoksa `null` |
 | `leaves[]` | Epic `children` numaralarından issue listesinde bulunanlar: `{number, title, state}`; seal şartı yok, kapalı çocuklar da listelenir; `state` etiket önceliği `leaf-done` > `blocked` > `deferred` > `executing` > `agent-approved` > `intake` > `closed`/`open` |
+| `pulse` | Pencere tabanlı süreç nabzı (`.kit/cycle.jsonl`, varsayılan 7 gün): `status` (`ok`/`missing`), `window_days`, `leaves_done`, `prev_delta`, `gates`, `gate_failures`, `review_rounds`, `blocked`, `deferred`, `lead{n,p50,p90,samples}`. Defter yoksa `status: missing` ve sayılar `null`; sıfır uydurulmaz. `prev_delta`, önceki pencerede hiç olay yoksa `null` kalır |
+| `epics[].machinery` | Epic ömrü boyunca süreç sayıları: `gate_runs`, `gate_failures`, `review_rounds`, `leaves_done`, `blocked`, `deferred`, `lead_minutes` (p50, dakika), `prevented` (`blocked + deferred`). Defter yoksa `null` |
 | `counts` | `epics` = listelenen epic sayısı, `leaves` = bu epic'lerin `leaves[]` toplamı, `blocked` = `blocked` etiketli tüm issue'lar |
 | `warnings` | Kısa Türkçe uyarı metinleri |
 
@@ -124,6 +126,11 @@ oluşturulmaz. `gh` yoksa ya da oturum yoksa komut düşmez: `epics: []`,
     "gate": "pass",
     "open_findings": 0, "approvals": {"agent_approved": false, "human_qa": false},
     "next_action": null, "cycle_minutes": null, "cost_delta": null,
+    "machinery": {
+      "gate_runs": 9, "gate_failures": 1, "review_rounds": 3,
+      "leaves_done": 1, "blocked": 0, "deferred": 0,
+      "lead_minutes": 58.8, "prevented": 0
+    },
     "evaluations": {
       "batch": "batch-7", "cases_pass": 12, "cases_total": 14,
       "discovery_rate": 0.8,
@@ -131,6 +138,12 @@ oluşturulmaz. `gh` yoksa ya da oturum yoksa komut düşmez: `epics: []`,
       "updated_at": "2026-11-09T10:00:00Z"
     }
   }],
+  "pulse": {
+    "status": "ok", "window_days": 7, "leaves_done": 11, "prev_delta": 3,
+    "gates": 47, "gate_failures": 4, "review_rounds": 9,
+    "blocked": 2, "deferred": 0,
+    "lead": {"n": 11, "p50": 58.8, "p90": 124.0, "samples": [6.0, 58.8]}
+  },
   "counts": {"epics": 1, "leaves": 1, "blocked": 0},
   "warnings": []
 }

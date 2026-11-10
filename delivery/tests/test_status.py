@@ -10,6 +10,7 @@ import sys
 import tempfile
 import time
 import unittest
+import unittest.mock
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -25,6 +26,7 @@ TOP_LEVEL = {
     "project",
     "epics",
     "counts",
+    "pulse",
     "warnings",
 }
 
@@ -703,6 +705,7 @@ class EvaluationsTests(unittest.TestCase):
                     "approvals",
                     "next_action",
                     "cycle_minutes",
+                    "machinery",
                     "cost_delta",
                     "evaluations",
                 },
@@ -1379,6 +1382,143 @@ class EndToEndTests(unittest.TestCase):
             text = run("--with-gate", cwd=project, path=stub)
             self.assertEqual(text.returncode, 0, text.stderr)
             self.assertIn("epic 12:", text.stdout)
+
+
+def cycle_row(issue: int, stage: str, ts: str, reason: str = "", epic: int | None = None) -> dict:
+    row = {"ts": ts, "issue": issue, "stage": stage, "actor": "test", "reason": reason}
+    if epic is not None:
+        row["epic"] = epic
+    return row
+
+
+def stamp(minutes_ago: int) -> str:
+    from datetime import datetime, timedelta, timezone
+
+    return (datetime.now(timezone.utc) - timedelta(minutes=minutes_ago)).isoformat(
+        timespec="seconds"
+    )
+
+
+class PulseTests(unittest.TestCase):
+    """P10-2: pulse ve machinery `cycle.jsonl`dan türetilir; sıfır uydurulmaz."""
+
+    def setup_project(self, tmp: str, rows: list[dict] | None) -> tuple[Path, Path]:
+        project = Path(tmp) / "p"
+        project.mkdir()
+        (project / "kit.config.yaml").write_text(CONFIG, encoding="utf-8")
+        if rows is not None:
+            path = project / ".kit" / "cycle.jsonl"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(
+                "\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8"
+            )
+        stub = gh_fixture(
+            Path(tmp) / "bin",
+            [
+                issue(12, "Epic", ("executing",), EPIC_BODY),
+                issue(13, "Leaf bir", ("leaf-done",), LEAF_BODY),
+                issue(14, "Leaf iki", ("executing",), LEAF_BODY),
+            ],
+        )
+        return project, stub
+
+    def test_pulse_counts_window(self) -> None:
+        rows = [
+            cycle_row(13, "agent-approved", stamp(90), epic=12),
+            cycle_row(13, "gate", stamp(80), "CP-1 selected exit=0", 12),
+            cycle_row(13, "gate", stamp(75), "CP-1 selected exit=1", 12),
+            cycle_row(13, "gate", stamp(70), "CP-1 selected exit=0", 12),
+            cycle_row(13, "review", stamp(65), epic=12),
+            cycle_row(14, "blocked", stamp(50), epic=12),
+            cycle_row(13, "leaf-done", stamp(60), epic=12),
+            cycle_row(13, "leaf-done", stamp(30), epic=12),
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            project, stub = self.setup_project(tmp, rows)
+            with unittest.mock.patch.dict(
+                os.environ, {"DEMIR_KIT_CYCLE_ROOT": str(project)}
+            ):
+                proc = run("--json", cwd=project, path=stub)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            pulse = payload(proc)["pulse"]
+            self.assertEqual(pulse["status"], "ok")
+            self.assertEqual(pulse["window_days"], 7)
+            self.assertEqual(pulse["leaves_done"], 2)
+            self.assertEqual(pulse["gates"], 3)
+            self.assertEqual(pulse["gate_failures"], 1)
+            self.assertEqual(pulse["review_rounds"], 1)
+            self.assertEqual(pulse["blocked"], 1)
+            self.assertEqual(pulse["deferred"], 0)
+            self.assertEqual(pulse["lead"]["n"], 1)
+            self.assertEqual(pulse["lead"]["p50"], 30.0)
+            self.assertIsNone(pulse["prev_delta"])
+
+    def test_missing_ledger_is_null(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project, stub = self.setup_project(tmp, None)
+            with unittest.mock.patch.dict(
+                os.environ, {"DEMIR_KIT_CYCLE_ROOT": str(project)}
+            ):
+                proc = run("--json", cwd=project, path=stub)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            data = payload(proc)
+            pulse = data["pulse"]
+            self.assertEqual(pulse["status"], "missing")
+            for key in (
+                "leaves_done",
+                "prev_delta",
+                "gates",
+                "gate_failures",
+                "review_rounds",
+                "blocked",
+                "deferred",
+            ):
+                self.assertIsNone(pulse[key], key)
+            self.assertEqual(pulse["lead"], {"n": 0, "p50": None, "p90": None, "samples": []})
+            self.assertIsNone(data["epics"][0]["machinery"])
+
+    def test_machinery_scopes_to_epic(self) -> None:
+        rows = [
+            cycle_row(13, "gate", stamp(80), "CP-1 exit=0", 12),
+            cycle_row(13, "gate", stamp(75), "CP-2 exit=1", 12),
+            cycle_row(14, "leaf-done", stamp(40), epic=12),
+            cycle_row(99, "gate", stamp(30), "CP-1 exit=1", 999),
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            project, stub = self.setup_project(tmp, rows)
+            with unittest.mock.patch.dict(
+                os.environ, {"DEMIR_KIT_CYCLE_ROOT": str(project)}
+            ):
+                proc = run("--json", cwd=project, path=stub)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            machinery = payload(proc)["epics"][0]["machinery"]
+            self.assertEqual(machinery["gate_runs"], 2)
+            self.assertEqual(machinery["gate_failures"], 1)
+            self.assertEqual(machinery["leaves_done"], 1)
+            self.assertEqual(machinery["prevented"], 0)
+
+    def test_legacy_cache_without_pulse_is_accepted(self) -> None:
+        rows = [cycle_row(13, "leaf-done", stamp(10), epic=12)]
+        with tempfile.TemporaryDirectory() as tmp:
+            project, stub = self.setup_project(tmp, rows)
+            with unittest.mock.patch.dict(
+                os.environ, {"DEMIR_KIT_CYCLE_ROOT": str(project)}
+            ):
+                first = run("--json", "--cache-ttl", "600", cwd=project, path=stub)
+                self.assertEqual(first.returncode, 0, first.stderr)
+                cache = project / ".orchestration" / "status-cache.json"
+                envelope = json.loads(cache.read_text(encoding="utf-8"))
+                envelope["data"].pop("pulse", None)
+                for epic in envelope["data"]["epics"]:
+                    epic.pop("machinery", None)
+                cache.write_text(json.dumps(envelope), encoding="utf-8")
+
+                second = run("--json", "--offline", cwd=project, path=stub)
+            self.assertEqual(second.returncode, 0, second.stderr)
+            data = payload(second)
+            self.assertEqual(data["source"], "cache")
+            self.assertEqual(data["pulse"]["status"], "missing")
+            self.assertIsNone(data["epics"][0]["machinery"])
 
 
 if __name__ == "__main__":
