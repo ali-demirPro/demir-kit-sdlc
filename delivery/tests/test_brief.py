@@ -367,6 +367,81 @@ class ConfigTests(unittest.TestCase):
             self.assertFalse((worktree / ".kit").exists())
 
 
+class LocalDensityTests(unittest.TestCase):
+    """T-1/T-3: `.kit/local.yaml` docs.density brief'e yansır (issue 328)."""
+
+    SEAL = {**CONFIG_SEAL, "risk": {"level": "high"}}
+
+    def write_local(self, root: Path) -> None:
+        (root / ".kit").mkdir(parents=True)
+        (root / ".kit" / "local.yaml").write_text(
+            "docs:\n  density: terse\n"
+            "process:\n  rigor: minimal\n"
+            "risk:\n  level: low\n"
+            "routing:\n  evidence_reviewers: 0\n",
+            encoding="utf-8",
+        )
+
+    def run_main(self, argv: list[str], body: str):
+        issue = json.dumps({"title": "config", "body": body, "labels": []})
+        out = io.StringIO()
+        with patch.object(brief, "repo_name", return_value="x/y"), patch.object(
+            brief, "gh", return_value=issue
+        ), patch.object(
+            sys, "argv", ["brief.py", *argv]
+        ), contextlib.redirect_stdout(
+            out
+        ):
+            code = brief.main()
+        return code, out.getvalue()
+
+    def test_density_reaches_json_and_markdown(self) -> None:
+        body = config_body(self.SEAL)
+        baseline = brief.build_brief(
+            brief.routing.load_registry(ROOT), 328, "config", body, set()
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.write_local(root)
+            with patch.object(brief.routing, "project_root", return_value=root):
+                json_code, json_out = self.run_main(["328", "--json"], body)
+                plain_code, plain_out = self.run_main(["328"], body)
+        self.assertEqual((json_code, plain_code), (0, 0))
+        payload = json.loads(json_out)
+        self.assertEqual(payload["docs_density"]["value"], "terse")
+        self.assertEqual(payload["docs_density"]["source"], ".kit/local.yaml")
+        self.assertIn("docs density: terse (source: .kit/local.yaml)", plain_out)
+        # Kilitli process.rigor/risk.level kişisel dosyadan risk ve reviewer
+        # çıktısını değiştiremez.
+        self.assertEqual(payload["risk"], baseline["risk"])
+        self.assertEqual(payload["human_gates"], baseline["human_gates"])
+        self.assertEqual(payload["risk_floor"], baseline["risk_floor"])
+        self.assertEqual(
+            brief.routing.evidence_reviewers({"behavior": True}, payload["risk"]),
+            brief.routing.evidence_reviewers({"behavior": True}, baseline["risk"]),
+        )
+
+    def test_invalid_rigor_warning_reaches_json_and_markdown(self) -> None:
+        """T-2: fallback docs.density uyarısı brief JSON ve markdown'da görünür."""
+        body = config_body(self.SEAL)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "kit.config.yaml").write_text(
+                "process:\n  rigor: turbo\n", encoding="utf-8"
+            )
+            with patch.object(brief.routing, "project_root", return_value=root):
+                json_code, json_out = self.run_main(["328", "--json"], body)
+                plain_code, plain_out = self.run_main(["328"], body)
+        self.assertEqual((json_code, plain_code), (0, 0))
+        density = json.loads(json_out)["docs_density"]
+        self.assertEqual(density["source"], "fallback")
+        self.assertTrue(density.get("warning"), density)
+        self.assertIn("turbo", density["warning"])
+        self.assertIn("docs density: balanced (source: fallback)", plain_out)
+        self.assertIn("uyarı:", plain_out)
+        self.assertIn("turbo", plain_out)
+
+
 class CpBriefTests(unittest.TestCase):
     def test_brief_is_compact_and_scoped(self) -> None:
         text = brief.render_cp_brief(

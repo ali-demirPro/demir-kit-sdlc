@@ -22,6 +22,7 @@ import capabilities as capabilities_lib  # noqa: E402
 import context_metrics  # noqa: E402
 import delivery_block  # noqa: E402
 import doctor_compat  # noqa: E402
+import doctor_local  # noqa: E402
 import doctor_mcp  # noqa: E402
 import doctor_explain  # noqa: E402
 import doctor_skills  # noqa: E402
@@ -32,6 +33,7 @@ from schema_lite import validate_schema  # noqa: E402, F401
 import process_gate  # noqa: E402
 import profiles as profiles_lib  # noqa: E402
 import resolver as resolver_lib  # noqa: E402
+import rigor as rigor_lib  # noqa: E402
 import seal_lint  # noqa: E402
 import variants as variants_lib  # noqa: E402
 from doctor_skills import (  # noqa: E402, F401  (public re-exports)
@@ -90,6 +92,7 @@ REQUIRED_FILES = [
     "kit.config.yaml",
     "delivery/CONTRACT.md",
     "delivery/registry.yaml",
+    "delivery/rigor.yaml",
     "delivery/templates/github-labels.json",
     "delivery/schemas/leaf.schema.json",
     "delivery/schemas/epic.schema.json",
@@ -263,6 +266,17 @@ def check_registry() -> None:
     if profile_default and not (DELIVERY / "profiles" / f"{profile_default}.yaml").is_file():
         error(f"registry.profiles.default: {profile_default}.yaml yok")
 
+    rigor = reg.get("rigor") or {}
+    if not isinstance(rigor, dict):
+        error("registry.yaml: rigor mapping değil")
+    else:
+        for key in ("config", "schema", "resolver"):
+            value = rigor.get(key)
+            if not isinstance(value, str) or not value.strip():
+                error(f"registry.rigor.{key}: yol yok")
+            elif not (ROOT / value).is_file():
+                error(f"registry.rigor.{key}: dosya yok — {value}")
+
     # agent directories
     agents: set[str] = set(reg.get("role_order_default") or [])
     for spec in paths.values():
@@ -304,6 +318,22 @@ def check_registry() -> None:
             if only_pol:
                 detail.append(f"policy'de fazla: {', '.join(sorted(only_pol))}")
             error("path-routing.md ↔ registry paths uyuşmuyor — " + "; ".join(detail))
+
+
+def check_rigor(config: Path | None = None) -> None:
+    check("rigor")
+    path = Path(config) if config else DELIVERY / "rigor.yaml"
+    messages: list[str] = []
+    try:
+        messages.extend(rigor_lib.validate_file(path))
+    except rigor_lib.RigorError as exc:
+        messages.append(str(exc))
+    try:
+        rigor_lib.load_effective(ROOT, rigor_path=path if config else None)
+    except rigor_lib.RigorError as exc:
+        messages.append(str(exc))
+    for message in dict.fromkeys(messages):
+        error(f"rigor: {message}")
 
 
 def check_labels() -> None:
@@ -915,6 +945,7 @@ def check_issue_body(
         signals,
         f"{title}\n{data.get('intent', '')}\n{routing.strip_seal(body)}",
         declared=declared_for_issue,
+        project=root,
     )
     resolution = resolver_lib.resolve(
         capability_registry,
@@ -924,6 +955,7 @@ def check_issue_body(
         signals,
         f"{title}\n{data.get('intent', '')}\n{routing.strip_seal(body)}",
         declared=declared,
+        project=root,
     )
     for capability in resolution_for_evidence["capabilities"]:
         allowed_agents.update(
@@ -1705,6 +1737,12 @@ def check_product(root: Path) -> None:
                 error(f".kit/capabilities.yaml: bilinmeyen capability — {cap_id}")
 
 
+def check_local_overrides(root: Path = ROOT, policy_path: Path | None = None) -> None:
+    doctor_local.check_local_overrides(
+        root, policy_path, error, check, load_yaml, rel
+    )
+
+
 EXPLAIN_CHECKS = doctor_explain.checks(globals())
 
 
@@ -1751,6 +1789,7 @@ def main() -> int:
         check_files()
         check_schemas()
         check_registry()
+        check_rigor()
         check_capabilities()
         check_profiles()
         check_agent_variants()
@@ -1764,6 +1803,7 @@ def main() -> int:
         check_role_contracts()
         check_mcp()
         check_compat()
+        check_local_overrides(ROOT)
 
     if args.checkpoint and args.checkpoint != "CP-HEALTH" and not re.match(
         r"^CP-[0-9]+$", args.checkpoint

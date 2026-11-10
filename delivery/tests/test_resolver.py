@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 import importlib.util
+import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
+
+import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPTS = ROOT / "delivery" / "scripts"
@@ -216,6 +220,219 @@ class KeywordFloorTests(unittest.TestCase):
         self.assertIn(
             "domain.auth", resolver.match_capabilities(oauth, signals, "oauth")
         )
+
+
+class LocalOverrideTests(unittest.TestCase):
+    """T-1/T-3: kişisel dosya yalnız beyaz listedeki deneyim anahtarını ezer."""
+
+    SIGNALS = [signal("web", platforms=["web"], stacks=["next"])]
+
+    def make_project(self, directory: str, local: dict | None = None) -> Path:
+        root = Path(directory)
+        (root / "ecosystem.yaml").write_text(
+            "products:\n  app:\n    surfaces:\n      web.app:\n"
+            "        platforms: [web]\n        stacks: [next]\n",
+            encoding="utf-8",
+        )
+        if local is not None:
+            (root / ".kit").mkdir(parents=True)
+            (root / ".kit" / "local.yaml").write_text(
+                yaml.safe_dump(local, sort_keys=False), encoding="utf-8"
+            )
+        return root
+
+    def resolve_in(self, root: Path) -> dict:
+        return resolver.resolve(
+            REGISTRY,
+            MATRIX,
+            VARIANTS,
+            "full_product",
+            self.SIGNALS,
+            project=root,
+        )
+
+    def test_whitelisted_density_is_applied(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = self.make_project(
+                directory,
+                {
+                    "docs": {"density": "terse"},
+                    "process": {"rigor": "full"},
+                    "routing": {"evidence_reviewers": 2},
+                },
+            )
+            data = self.resolve_in(root)
+        local = data["local"]
+        self.assertEqual(local["values"], {"docs.density": "terse"})
+        self.assertEqual(local["sources"], {"docs.density": ".kit/local.yaml"})
+        self.assertEqual(
+            local["docs"]["density"],
+            {"value": "terse", "source": ".kit/local.yaml"},
+        )
+        warnings = "\n".join(local["warnings"])
+        self.assertIn("'process.rigor' kilitli", warnings)
+        self.assertIn("'routing.evidence_reviewers' kilitli", warnings)
+        self.assertEqual(len(local["warnings"]), 2, local["warnings"])
+
+    def test_unlisted_and_invalid_values_are_ignored_with_reason(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = self.make_project(
+                directory,
+                {
+                    "docs": {"density": "deep"},
+                    "theme": {"name": "dark"},
+                    "gates": {"human": False},
+                },
+            )
+            data = self.resolve_in(root)
+        local = data["local"]
+        self.assertEqual(local["values"], {})
+        self.assertNotEqual(local["docs"]["density"]["value"], "deep")
+        self.assertEqual(local["docs"]["density"]["source"], "rigor:standard")
+        warnings = "\n".join(local["warnings"])
+        self.assertIn("'docs.density' geçersiz — beklenen: terse, balanced, thorough", warnings)
+        self.assertIn("'theme.name' beyaz listede değil", warnings)
+        self.assertIn("'gates.human' kilitli", warnings)
+
+    def test_density_source_keeps_real_origin(self) -> None:
+        """T-3: local yoksa kaynak rigor düğmesinin gerçek kaynağıdır."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = self.make_project(directory)
+            (root / "kit.config.yaml").write_text(
+                "process:\n  docs:\n    density: terse\n", encoding="utf-8"
+            )
+            from_config = self.resolve_in(root)
+        self.assertEqual(
+            from_config["local"]["docs"]["density"],
+            {"value": "terse", "source": "kit.config.yaml"},
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            empty = self.make_project(directory)
+            from_rigor = self.resolve_in(empty)
+        effective = resolver.rigor_lib.load_effective(empty)
+        self.assertEqual(
+            from_rigor["local"]["docs"]["density"],
+            {
+                "value": effective["knobs"]["docs.density"]["value"],
+                "source": f"rigor:{effective['level']}",
+            },
+        )
+        self.assertNotEqual(
+            from_rigor["local"]["docs"]["density"]["source"], "default"
+        )
+
+    def test_invalid_rigor_falls_back_with_warning(self) -> None:
+        """T-2: geçersiz process.rigor sessiz düşmez; kaynak fallback + uyarı."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = self.make_project(directory)
+            (root / "kit.config.yaml").write_text(
+                "process:\n  rigor: turbo\n", encoding="utf-8"
+            )
+            data = self.resolve_in(root)
+        density = data["local"]["docs"]["density"]
+        self.assertEqual(density["source"], "fallback")
+        self.assertNotEqual(density["source"], "rigor:standard")
+        self.assertTrue(density.get("warning"), density)
+        self.assertIn("turbo", density["warning"])
+        self.assertEqual(density["value"], "balanced")
+
+    def test_locked_keys_cannot_change_risk_reviewers_or_gates(self) -> None:
+        locked = {
+            "process": {"rigor": "minimal"},
+            "qa": {"level": "minimal"},
+            "team": {"size": "studio"},
+            "risk": {"level": "critical", "auto_escalate": {"high": []}},
+            "routing": {"evidence_reviewers": 0},
+            "gates": {"human": False},
+            "modes": {"workflow": "minimal", "review_mode": "solo"},
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            root = self.make_project(directory, locked)
+            data = self.resolve_in(root)
+            baseline = resolver.resolve(
+                REGISTRY,
+                MATRIX,
+                VARIANTS,
+                "full_product",
+                self.SIGNALS,
+                project=Path(directory) / "empty",
+            )
+            effective = resolver.rigor_lib.load_effective(root)
+            density = data["local"]["docs"]["density"]["value"]
+        self.assertEqual(effective["level"], "standard")
+        self.assertEqual(effective["knobs"]["qa.level"]["value"], "standard")
+        self.assertEqual(density, "balanced")
+        self.assertEqual(data["risk_floor"], baseline["risk_floor"])
+        self.assertEqual(data["capabilities"], baseline["capabilities"])
+        self.assertEqual(data["active_roles"], baseline["active_roles"])
+        for risk, count in {"low": 1, "medium": 1, "high": 2, "critical": 2}.items():
+            self.assertEqual(resolver.rigor_lib.reviewer_count(risk), count)
+        reviewers = resolver.routing.evidence_reviewers({}, "high")
+        self.assertIn("human", reviewers)
+        self.assertEqual(
+            len([role for role in reviewers if role.startswith("adversarial")]), 2
+        )
+        self.assertTrue(resolver.routing.human_gates("high", False))
+        warnings = "\n".join(data["local"]["warnings"])
+        for key in ("process.rigor", "qa.level", "risk.level", "gates.human"):
+            self.assertIn(f"'{key}' kilitli", warnings)
+
+    def test_nested_locked_keys_are_locked(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = self.make_project(
+                directory,
+                {
+                    "risk": {"auto_escalate": {"high": ["security"]}},
+                    "gates": {"human": {"force": True}},
+                },
+            )
+            data = self.resolve_in(root)
+        local = data["local"]
+        self.assertEqual(local["values"], {})
+        warnings = "\n".join(local["warnings"])
+        self.assertIn("'risk.auto_escalate.high' kilitli", warnings)
+        self.assertIn("'gates.human.force' kilitli", warnings)
+        self.assertNotIn("beyaz listede değil", warnings)
+
+    def test_set_local_writes_allowed_and_rejects_locked(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = self.make_project(
+                directory,
+                {"docs": {"density": "balanced"}, "team": {"size": "studio"}},
+            )
+            self.assertEqual(resolver.set_local(root, "docs.density=terse"), 0)
+            written = yaml.safe_load(
+                (root / ".kit" / "local.yaml").read_text(encoding="utf-8")
+            )
+            self.assertEqual(written["docs"]["density"], "terse")
+            self.assertEqual(written["team"]["size"], "studio")
+            self.assertEqual(resolver.set_local(root, "process.rigor=full"), 2)
+            self.assertEqual(
+                resolver.set_local(root, "routing.evidence_reviewers=2"), 2
+            )
+            self.assertEqual(resolver.set_local(root, "docs.density=deep"), 2)
+
+
+def run_cli(*args: str) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        [sys.executable, str(SCRIPTS / "resolver.py"), *args],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+
+
+class SetLocalCliTests(unittest.TestCase):
+    def test_set_local_exit_codes(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            ok = run_cli("--project", str(root), "--set-local", "docs.density=thorough")
+            self.assertEqual(ok.returncode, 0, ok.stderr)
+            locked = run_cli(
+                "--project", str(root), "--set-local", "process.rigor=minimal"
+            )
+            self.assertEqual(locked.returncode, 2, locked.stderr)
+            self.assertIn("kilitli", locked.stderr)
 
 
 if __name__ == "__main__":

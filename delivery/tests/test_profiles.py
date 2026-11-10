@@ -29,10 +29,31 @@ resolver = importlib.util.module_from_spec(spec_resolver)
 assert spec_resolver.loader is not None
 spec_resolver.loader.exec_module(resolver)
 
+spec_rigor = importlib.util.spec_from_file_location("rigor", SCRIPTS / "rigor.py")
+rigor = importlib.util.module_from_spec(spec_rigor)
+assert spec_rigor.loader is not None
+spec_rigor.loader.exec_module(rigor)
+
+spec_routing = importlib.util.spec_from_file_location("routing", SCRIPTS / "routing.py")
+routing = importlib.util.module_from_spec(spec_routing)
+assert spec_routing.loader is not None
+spec_routing.loader.exec_module(routing)
+
 
 def project(root: Path, factory: str) -> Path:
     (root / "kit.config.yaml").write_text(
         "kit:\n  root: demir-kit\n  protocol: \"2\"\nfactory:\n" + factory,
+        encoding="utf-8",
+    )
+    return root
+
+
+def rigor_project(root: Path, process: str) -> Path:
+    """kit.config with a `process:` block plus a valid profile selection."""
+    (root / "kit.config.yaml").write_text(
+        "kit:\n  root: demir-kit\n  protocol: \"2\"\nprocess:\n"
+        + process
+        + "factory:\n  default_profile: web-app\n  profiles: [web-app]\n",
         encoding="utf-8",
     )
     return root
@@ -316,6 +337,116 @@ class ResolveTests(unittest.TestCase):
         self.assertEqual(skills["work-package"], "delivery/profiles/web-app.yaml:8")
 
 
+class RigorProfileTests(unittest.TestCase):
+    def test_compose_carries_effective_rigor(self) -> None:
+        """T-1: compose/resolve rigor bloğu load_effective ile birebir aynı."""
+        expected = rigor.load_effective(ROOT)
+        for data in (profiles.compose(ROOT), profiles.resolve(ROOT)):
+            block = data["rigor"]
+            self.assertEqual(block["level"], expected["level"])
+            self.assertEqual(block["source"], expected["source"])
+            self.assertEqual(sorted(block["knobs"]), sorted(rigor.KNOBS))
+            self.assertEqual(len(block["knobs"]), 6)
+            for name, item in expected["knobs"].items():
+                self.assertEqual(block["knobs"][name]["value"], item["value"], name)
+                self.assertEqual(block["knobs"][name]["source"], item["source"], name)
+            self.assertEqual(block["warnings"], [])
+            self.assertIsNone(block["fallback"])
+
+    def test_invalid_rigor_warns_and_falls_back(self) -> None:
+        """T-3: geçersiz seviye ve çözülemeyen düğme sessizce yutulmaz."""
+        cases = {
+            "geçersiz seviye": "  rigor: extreme\n",
+            "çözülemeyen düğme": "  qa.level: extreme\n",
+        }
+        fallback = rigor.fallback_effective()
+        for label, process in cases.items():
+            with self.subTest(case=label), tempfile.TemporaryDirectory() as directory:
+                root = rigor_project(Path(directory), process)
+                block = profiles.compose(root)["rigor"]
+            self.assertEqual(block["level"], "standard")
+            self.assertEqual(block["source"], "fallback")
+            self.assertEqual(len(block["warnings"]), 1)
+            self.assertTrue(block["warnings"][0].startswith("uyarı: "))
+            self.assertIn("geçersiz", block["warnings"][0])
+            self.assertTrue(block["fallback"].startswith("standard ("))
+            self.assertIn("geçersiz", block["fallback"])
+            for name, item in fallback["knobs"].items():
+                self.assertEqual(block["knobs"][name], item, name)
+
+    def test_matrix_levels_and_off_diagonals(self) -> None:
+        """T-4: standart, açık minimal/full ve iki off-diagonal vakası.
+
+        Her vaka kendi etkin rigor bloğunu ve profil gate kümesini kullanır:
+        (a) gating reviewer sayısı yalnız riskten gelir, (b) evidence_reviewers
+        aynı gate/risk için seviyeden bağımsız aynı rolleri verir, (c) düğme
+        değerleri seviyeleri gerçekten ayırır.
+        """
+        gates = {"behavior": True}
+        risks = ("medium", "high")
+        cases = {
+            "standard": ("  rigor: standard\n", "standard", "kit.config.yaml", {}),
+            "minimal": ("  rigor: minimal\n", "minimal", "kit.config.yaml", {}),
+            "full": ("  rigor: full\n", "full", "kit.config.yaml", {}),
+            "full+terse": (
+                "  rigor: full\n  docs.density: terse\n",
+                "full",
+                "kit.config.yaml",
+                {"docs.density": "terse"},
+            ),
+            "minimal+qa-full": (
+                "  rigor: minimal\n  qa.level: full\n",
+                "minimal",
+                "kit.config.yaml",
+                {"qa.level": "full"},
+            ),
+        }
+        table = rigor.load_rigor()["levels"]
+        reviewers: dict[str, set[tuple[str, ...]]] = {risk: set() for risk in risks}
+        matrices: dict[str, tuple[tuple[str, str], ...]] = {}
+        for label, (process, level, source, overrides) in cases.items():
+            with self.subTest(case=label), tempfile.TemporaryDirectory() as directory:
+                root = rigor_project(Path(directory), process)
+                block = profiles.compose(root)["rigor"]
+                profile_gates = profiles.gates_for(root, "web-app")
+                counts = {risk: rigor.reviewer_count(risk) for risk in risks}
+                roles = {
+                    risk: tuple(
+                        routing.evidence_reviewers(gates, risk, profile_gates)
+                    )
+                    for risk in risks
+                }
+            self.assertTrue(profile_gates, label)
+            self.assertEqual(block["level"], level)
+            self.assertEqual(block["source"], source)
+            self.assertEqual(block["warnings"], [])
+            for name in rigor.KNOBS:
+                expected_value = overrides.get(name, table[level][name])
+                expected_source = (
+                    "kit.config.yaml" if name in overrides else f"rigor:{level}"
+                )
+                self.assertEqual(block["knobs"][name]["value"], expected_value, name)
+                self.assertEqual(block["knobs"][name]["source"], expected_source, name)
+            # (a) Gating sayısı risk-only: seviye tablosunda da düğmeden başka
+            # anahtar yok; düğme değerleri bu sayıya girmiyor.
+            self.assertEqual(counts, {"medium": 1, "high": 2}, label)
+            self.assertEqual(set(table[level]), set(rigor.KNOBS), label)
+            # (b) Aynı gate/risk girdisi seviyeden bağımsız aynı rolleri verir.
+            for risk in risks:
+                reviewers[risk].add(roles[risk])
+            matrices[label] = tuple(
+                (name, block["knobs"][name]["value"]) for name in rigor.KNOBS
+            )
+        for risk in risks:
+            self.assertEqual(len(reviewers[risk]), 1, f"{risk}: {reviewers[risk]}")
+        # (c) Düğmeler gerçekten ayrışıyor; yoksa test seviyeleri ayırmaz.
+        self.assertEqual(len(set(matrices.values())), len(cases), matrices)
+        self.assertNotEqual(matrices["minimal"], matrices["standard"])
+        self.assertNotEqual(matrices["standard"], matrices["full"])
+        self.assertNotEqual(matrices["full+terse"], matrices["full"])
+        self.assertNotEqual(matrices["minimal+qa-full"], matrices["minimal"])
+
+
 class ResolverMergeTests(unittest.TestCase):
     def test_profile_capabilities_merge_into_declared(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -347,6 +478,149 @@ class ResolverMergeTests(unittest.TestCase):
             )
             declared = resolver.load_declared(root)
             self.assertEqual(declared["include"], ["platform.web"])
+
+
+class ProcessRigorPolicyTests(unittest.TestCase):
+    """AC-1/AC-3: etki haritası tablosu rigor tablosuyla birebir aynı."""
+
+    POLICY = ROOT / "delivery" / "policies" / "process-rigor.md"
+    QUALITY_GATES = ROOT / "delivery" / "policies" / "quality-gates.md"
+    UNBOUND = "yok (yalnız doctor --explain rigor matrisinde görünür)"
+    # Bugün gerçekten okuyan dosyalar; hedef sütunu bunu kanıtlamaz.
+    BOUND_READERS = {"docs.density": ("resolver.py", "brief.py")}
+    TARGETS = {
+        "modes.workflow": ("kalite kapı", "kanıt"),
+        "qa.level": ("leaf.schema.json", "tests_plan"),
+        "modes.story_granularity": ("leaf.schema.json", "checkpoints"),
+        "modes.review_mode": ("rigor.yaml", "kit_semantics"),
+        "team.size": ("capabilities.py", "variants.py"),
+    }
+    # Satırda "bugün okuyan" diye yazılmaması gereken dosyalar.
+    NOT_TODAY_READERS = (
+        "gate.sh",
+        "capabilities.py",
+        "variants.py",
+        "leaf.schema.json",
+        "profiles.py",
+        "context-budget.md",
+        "rigor.yaml",
+    )
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.text = cls.POLICY.read_text(encoding="utf-8")
+        cls.levels = rigor.load_rigor()["levels"]
+
+    def knob_rows(self) -> dict[str, list[str]]:
+        rows: dict[str, list[str]] = {}
+        for line in self.text.splitlines():
+            cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
+            if len(cells) != 7 or not cells[0].startswith("`"):
+                continue
+            name = cells[0].strip("`")
+            if name in rigor.KNOBS:
+                rows[name] = cells
+        return rows
+
+    def test_table_matches_rigor_levels(self) -> None:
+        """T-1: altı düğme × üç seviye değerleri load_rigor() ile aynı."""
+        rows = self.knob_rows()
+        self.assertEqual(set(rows), set(rigor.KNOBS))
+        self.assertIn("| Düğme | minimal | standard | full |", self.text)
+        for name, cells in rows.items():
+            for index, level in enumerate(rigor.LEVELS, start=1):
+                self.assertEqual(
+                    cells[index].strip("`"), self.levels[level][name], f"{name}/{level}"
+                )
+
+    def test_every_knob_names_a_reader(self) -> None:
+        """T-1: her düğme satırı ya gerçek okuyanı ya 'yok' işaretini taşır."""
+        rows = self.knob_rows()
+        self.assertEqual(set(rows), set(rigor.KNOBS))
+        self.assertIn(
+            "| Düğme | minimal | standard | full | Etki | Bugün okuyan | Hedef tüketici |",
+            self.text,
+        )
+        for name, cells in rows.items():
+            reader = cells[5]
+            if name in self.BOUND_READERS:
+                for token in self.BOUND_READERS[name]:
+                    self.assertIn(token, reader, f"{name}: {token} okumuyor — {reader}")
+            else:
+                self.assertEqual(reader, self.UNBOUND, name)
+            for token in self.NOT_TODAY_READERS:
+                self.assertNotIn(
+                    token, reader, f"{name}: bugün okumayan dosya yazılmış — {token}"
+                )
+
+    def test_target_consumers_are_planned_surfaces(self) -> None:
+        """AC-1: hedef tüketici sütunu planlanan yüzeyi adlandırır."""
+        for name, cells in self.knob_rows().items():
+            target = cells[6]
+            self.assertTrue(target, f"{name}: hedef tüketici boş")
+            for token in self.TARGETS.get(name, ()):
+                self.assertIn(token, target, f"{name}: {token} — {target}")
+
+    def test_note_states_only_density_is_bound(self) -> None:
+        """AC-1: not, bugün bağlı tek düğmenin docs.density olduğunu yazar."""
+        self.assertIn("Bugün gerçekten bağlı tek düğme `docs.density`", self.text)
+        self.assertIn("ayrı iştir", self.text)
+
+    def test_defined_effect_stays_separate_from_bound_today(self) -> None:
+        """Review: tanımlı etki ile bugün bağlı tüketici ayrı okunur."""
+        normalized = " ".join(self.text.split())
+        # Genel giriş notu.
+        self.assertIn("Bu sayfa rigor sözleşmesini tanımlar.", normalized)
+        self.assertIn("Minimal bölümü tanımlı etkiyi anlatır", normalized)
+        self.assertIn("bugün otomatik uygulanan kısım `docs.density`'dir", normalized)
+        self.assertIn(
+            "tüketici bağlanana kadar gate/kanıt üretimini otomatik değiştirmez",
+            normalized,
+        )
+        # Minimal bölümü aynı ayrımı tekrar eder; liste hedefi anlatır.
+        minimal = self.text.split("## Minimal neyi kısaltır?", 1)[1]
+        minimal = minimal.split("\n## ", 1)[0]
+        minimal_flat = " ".join(minimal.split())
+        self.assertIn("Bu bölüm tanımlı etkiyi anlatır", minimal_flat)
+        self.assertIn("Bugün otomatik uygulanan kısım", minimal_flat)
+        self.assertIn(
+            "tüketici bağlanana kadar gate/kanıt üretimini otomatik değiştirmez",
+            minimal_flat,
+        )
+
+    def test_quality_gates_cites_this_policy_for_bound_knobs(self) -> None:
+        """Review: quality-gates Rigor bölümü 'tanımlar' der ve bu sayfaya atıf yapar."""
+        gates = self.QUALITY_GATES.read_text(encoding="utf-8")
+        rigor = gates.split("## Rigor", 1)[1].split("\n## ", 1)[0]
+        normalized = " ".join(rigor.split())
+        self.assertIn("tanımlar", normalized)
+        self.assertNotIn("değiştirir", normalized)
+        self.assertIn("[process-rigor.md](process-rigor.md)", normalized)
+        self.assertIn("hangi düğmenin bugün tüketiciye bağlı olduğunu", normalized)
+        self.assertIn("`docs.density`", normalized)
+
+    def test_minimal_shortened_and_preserved_separate(self) -> None:
+        """T-3: kısalttığı ve kısaltmadığı ayrı başlıklar; kapılar korunur."""
+        self.assertIn("### Kısalttığı", self.text)
+        self.assertIn("### Kısaltmadığı", self.text)
+        before, after = self.text.split("### Kısaltmadığı", 1)
+        shortened = before.split("### Kısalttığı", 1)[1]
+        preserved = after.split("\n## ", 1)[0]
+        for word in ("doküman", "kanıt", "cp"):
+            self.assertIn(word, shortened.lower(), word)
+        for phrase in ("behavior gate", "en az 1 reviewer", "risk tabanı", "insan kapısı"):
+            self.assertIn(phrase, preserved.lower(), phrase)
+
+    def test_fallback_is_documented(self) -> None:
+        """AC-4: uyarı + standard fallback + exit 2 yazılıdır."""
+        self.assertIn("`uyarı:`", self.text)
+        self.assertIn("`fallback: standard", self.text)
+        self.assertIn("**exit 2**", self.text)
+        self.assertIn("sessiz", self.text)
+
+    def test_review_mode_is_not_a_lever(self) -> None:
+        self.assertIn("`modes.review_mode`: saklanır, kaldıraç değil", self.text)
+        self.assertIn("Gating reviewer sayısını değiştirmez", self.text)
 
 
 if __name__ == "__main__":

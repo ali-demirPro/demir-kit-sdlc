@@ -1,0 +1,46 @@
+# delivery/local-overrides.yaml — `.kit/local.yaml` kişisel override beyaz listesi.
+#
+# Tek kaynak: resolver okuma listesini (`read`), `--set-local` yazma listesini
+# (`write`) ve kilitli anahtarları (`locked`) buradan alır. İki liste ayrışırsa
+# doctor `local_overrides` hatası verir. Kilitli anahtar sessizce yutulmaz:
+# değeri uygulanmaz ve gerekçeli `uyarı:` satırı üretilir.
+#
+# Kişisel dosya yalnız deneyim tercihini taşır. Kanıt, reviewer, risk ve insan
+# kapıları üreten ayarlar kişisel dosyaya açılmaz.
+
+version: 1
+
+read:
+  - docs.density
+
+write:
+  - docs.density
+
+values:
+  docs.density: [terse, balanced, thorough]
+
+locked:
+  - process.rigor
+  - qa.level
+  - modes.workflow
+  - modes.story_granularity
+  - modes.review_mode
+  - team.size
+  - routing.evidence_reviewers
+  - risk.level
+  - risk.auto_escalate
+  - gates.human
+  - gates.*
+
+reasons:
+  process.rigor: "Kanıt ağırlığını belirler; kanıt üreten ayar kişisel dosyaya açılmaz."
+  qa.level: "Test kanıtı eşiğini düşürebilir; kanıt üreten ayar kişisel dosyaya açılmaz."
+  modes.workflow: "Zorunlu kanıt kümesini değiştirir; kanıt üreten ayar kişisel dosyaya açılmaz."
+  modes.story_granularity: "Leaf/CP boyutunu ve kanıt kapsamını etkiler; kanıt üreten ayar kişisel dosyaya açılmaz."
+  modes.review_mode: "Reviewer eşlemesini etkiler; kanıt üreten ayar kişisel dosyaya açılmaz."
+  team.size: "Aktif agent kümesini değiştirir; kanıt üreten ayar kişisel dosyaya açılmaz."
+  routing.evidence_reviewers: "Reviewer sayısı riskten gelir; kanıt üreten ayar kişisel dosyaya açılmaz."
+  risk.level: "Risk tabanı takım kararıdır; kanıt üreten ayar kişisel dosyaya açılmaz."
+  risk.auto_escalate: "Otomatik yükseltme insan kapısını korur; kanıt üreten ayar kişisel dosyaya açılmaz."
+  gates.human: "İnsan kapısı kapatılamaz; kanıt üreten ayar kişisel dosyaya açılmaz."
+  gates.*: "Kalite kapıları takım sözleşmesidir; kanıt üreten ayar kişisel dosyaya açılmaz."

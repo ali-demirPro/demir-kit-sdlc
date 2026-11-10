@@ -23,6 +23,7 @@ CHECK_NAMES = (
     "files",
     "schemas",
     "registry",
+    "rigor",
     "capabilities",
     "profiles",
     "agent-variants",
@@ -36,6 +37,7 @@ CHECK_NAMES = (
     "role-contracts",
     "mcp",
     "compat",
+    "local-overrides",
     "worktree",
     "installed-skills",
     "model-policy",
@@ -50,6 +52,7 @@ SUMMARIES = {
     "files": "Zorunlu dosyaların repoda bulunduğunu doğrular.",
     "schemas": "JSON şemalarının $schema/object kökünü ve frequency.yaml şeklini doğrular.",
     "registry": "registry.yaml yol, sinyal ve agent dizinlerini doğrular.",
+    "rigor": "rigor.yaml'ı şemaya ve etkin yapılandırmaya göre doğrular.",
     "capabilities": "Capability registry ile rol matrisini şemaya göre doğrular.",
     "profiles": "Profil tanımlarını ve proje profil seçimini doğrular.",
     "agent-variants": "Agent varyant dosyalarını capability matrisine göre doğrular.",
@@ -65,6 +68,10 @@ SUMMARIES = {
     "role-contracts": "Rol sözleşmelerinin registry sırasıyla uyumunu doğrular.",
     "mcp": "MCP sunucusunu başlatır ve araç listesini doğrular.",
     "compat": "Orca komut, flag ve yanıt şekillerini denetler.",
+    "local-overrides": (
+        "Kişisel override beyaz listesini ve .kit/local.yaml'ın depo dışı "
+        "olduğunu doğrular."
+    ),
     "worktree": "Checkout'un Orca tarafından açıldığını doğrular.",
     "installed-skills": "Kurulu skill kopyalarının kaynakla aynı olduğunu doğrular.",
     "model-policy": "kit.config orca model/effort politikasını doğrular.",
@@ -128,10 +135,39 @@ def gates(root: Path) -> int:
     return 0
 
 
+def rigor(root: Path) -> int:
+    """Etkin rigor matrisini satır satır yazdırır.
+
+    Exit kodu: 0 normal, 2 geçersiz yapılandırma (uyarı + `standard`'a düşüş
+    nedeni yazılır; sessiz düşüş yok).
+    """
+    print("explain: rigor")
+    try:
+        block = profiles.rigor_block(root)
+    except ValueError as exc:
+        print(f"error: {exc}")
+        return 2
+    for warning in block.get("warnings") or []:
+        print(warning)
+    if block.get("fallback"):
+        print(f"fallback: {block['fallback']}")
+    print(f"level: {block['level']} source={block.get('source') or '-'}")
+    knobs = block.get("knobs") or {}
+    print(f"knobs: {len(knobs)}")
+    for name, item in knobs.items():
+        print(
+            f"knob: {name} value={item.get('value')} "
+            f"source={item.get('source') or '-'}"
+        )
+    return 2 if block.get("warnings") else 0
+
+
 def explain(name: str, checks: dict, root: Path, product: bool = False) -> int:
     """Tek kontrolün modunu ve kural kaynağını açıklar; kontrol çalıştırmaz."""
     if name == "gates":
         return gates(root)
+    if name == "rigor":
+        return rigor(root)
     func = checks.get(name) if name else None
     if func is None:
         label = name or "(boş ad)"

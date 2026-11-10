@@ -1660,5 +1660,466 @@ class ExplainTests(DoctorTestCase):
         self.assertIn("bilinmeyen kontrol: nope", unknown.stderr + unknown.stdout)
 
 
+class LocalOverridesTests(DoctorTestCase):
+    """T-2/T-4: beyaz liste tek kaynak; .kit/local.yaml depo dışı kalır."""
+
+    POLICY = ROOT / "delivery" / "local-overrides.yaml"
+
+    def policy_copy(self, directory: str, **overrides) -> Path:
+        data = yaml.safe_load(self.POLICY.read_text(encoding="utf-8"))
+        data.update(overrides)
+        path = Path(directory) / "local-overrides.yaml"
+        path.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
+        return path
+
+    def test_canonical_policy_passes(self) -> None:
+        doctor.check_local_overrides(ROOT)
+        self.assertEqual(doctor.ERRORS, [], doctor.ERRORS)
+
+    def test_read_write_divergence_is_error(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = self.policy_copy(directory, write=["docs.density", "docs.notes"])
+            doctor.check_local_overrides(ROOT, policy_path=path)
+        self.assertTrue(
+            any("read ve write listeleri ayrışıyor" in item for item in doctor.ERRORS),
+            doctor.ERRORS,
+        )
+
+    def test_values_must_match_read(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = self.policy_copy(
+                directory,
+                values={"docs.density": ["terse"]},  # read'de docs.notes yok
+                read=["docs.density", "docs.notes"],
+                write=["docs.density", "docs.notes"],
+            )
+            doctor.check_local_overrides(ROOT, policy_path=path)
+        self.assertTrue(
+            any("values anahtarları" in item for item in doctor.ERRORS),
+            doctor.ERRORS,
+        )
+
+    def test_locked_key_cannot_enter_whitelist(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = self.policy_copy(
+                directory,
+                read=["docs.density", "process.rigor"],
+                write=["docs.density", "process.rigor"],
+                values={
+                    "docs.density": ["terse", "balanced", "thorough"],
+                    "process.rigor": ["minimal", "standard", "full"],
+                },
+            )
+            doctor.check_local_overrides(ROOT, policy_path=path)
+        self.assertTrue(
+            any("kilitli ama read/write" in item for item in doctor.ERRORS),
+            doctor.ERRORS,
+        )
+
+    def test_required_locked_keys_cannot_be_dropped(self) -> None:
+        for dropped in (
+            "risk.level",
+            "modes.review_mode",
+            "team.size",
+            "process.rigor",
+        ):
+            with (
+                self.subTest(dropped=dropped),
+                tempfile.TemporaryDirectory() as directory,
+            ):
+                doctor.ERRORS.clear()
+                data = yaml.safe_load(self.POLICY.read_text(encoding="utf-8"))
+                data["locked"] = [
+                    key for key in data["locked"] if key != dropped
+                ]
+                path = Path(directory) / "local-overrides.yaml"
+                path.write_text(
+                    yaml.safe_dump(data, sort_keys=False), encoding="utf-8"
+                )
+                doctor.check_local_overrides(ROOT, policy_path=path)
+                self.assertTrue(
+                    any(
+                        "zorunlu kilitli anahtar eksik" in item
+                        and dropped in item
+                        for item in doctor.ERRORS
+                    ),
+                    doctor.ERRORS,
+                )
+
+    def test_required_locked_key_may_be_covered_by_glob(self) -> None:
+        """T-2: `gates.human` yerine `gates.*` yeterli; ikisi de yoksa hata."""
+        data = yaml.safe_load(self.POLICY.read_text(encoding="utf-8"))
+        covered = [key for key in data["locked"] if key != "gates.human"]
+        self.assertIn("gates.*", covered)
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "local-overrides.yaml"
+            path.write_text(
+                yaml.safe_dump({**data, "locked": covered}, sort_keys=False),
+                encoding="utf-8",
+            )
+            doctor.check_local_overrides(ROOT, policy_path=path)
+        self.assertEqual(doctor.ERRORS, [], doctor.ERRORS)
+        with tempfile.TemporaryDirectory() as directory:
+            doctor.ERRORS.clear()
+            data["locked"] = [key for key in covered if key != "gates.*"]
+            path = Path(directory) / "local-overrides.yaml"
+            path.write_text(
+                yaml.safe_dump(data, sort_keys=False), encoding="utf-8"
+            )
+            doctor.check_local_overrides(ROOT, policy_path=path)
+        self.assertTrue(
+            any(
+                "zorunlu kilitli anahtar eksik" in item and "gates.human" in item
+                for item in doctor.ERRORS
+            ),
+            doctor.ERRORS,
+        )
+
+    def test_nested_locked_key_cannot_enter_whitelist(self) -> None:
+        """T-1: resolver semantiği — nested alt-anahtar da kilitlidir."""
+        for nested in ("risk.auto_escalate.high", "gates.human.force"):
+            with self.subTest(key=nested), tempfile.TemporaryDirectory() as directory:
+                doctor.ERRORS.clear()
+                path = self.policy_copy(
+                    directory,
+                    read=["docs.density", nested],
+                    write=["docs.density", nested],
+                    values={
+                        "docs.density": ["terse", "balanced", "thorough"],
+                        nested: ["x"],
+                    },
+                )
+                doctor.check_local_overrides(ROOT, policy_path=path)
+                self.assertTrue(
+                    any(
+                        "kilitli ama read/write" in item and nested in item
+                        for item in doctor.ERRORS
+                    ),
+                    doctor.ERRORS,
+                )
+
+    def test_missing_reason_is_error(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            data = yaml.safe_load(self.POLICY.read_text(encoding="utf-8"))
+            data["reasons"].pop("gates.*")
+            path = Path(directory) / "local-overrides.yaml"
+            path.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
+            doctor.check_local_overrides(ROOT, policy_path=path)
+        self.assertTrue(
+            any("gerekçe yok" in item for item in doctor.ERRORS), doctor.ERRORS
+        )
+
+    def test_gitignore_covers_personal_file(self) -> None:
+        lines = (ROOT / ".gitignore").read_text(encoding="utf-8").splitlines()
+        self.assertIn(".kit/local.yaml", lines)
+
+    def test_tracked_personal_file_is_error(self) -> None:
+        def git_stub(root, *args):
+            if args == ("rev-parse", "--is-inside-work-tree"):
+                return "true"
+            if args[:1] == ("ls-files",):
+                return ".kit/local.yaml"
+            return None
+
+        with patch.object(
+            doctor.doctor_local, "_git_output", side_effect=git_stub
+        ), patch.object(
+            doctor.doctor_local.subprocess,
+            "run",
+            return_value=subprocess.CompletedProcess([], 0),
+        ):
+            doctor.check_local_overrides(ROOT)
+        self.assertTrue(
+            any("git'te izleniyor" in item for item in doctor.ERRORS), doctor.ERRORS
+        )
+
+    def test_resolution_shows_density_change(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / ".kit").mkdir()
+            (root / ".kit" / "local.yaml").write_text(
+                "docs:\n  density: terse\n", encoding="utf-8"
+            )
+            data = doctor.resolver_lib.resolve(
+                doctor.resolver_lib.load_capabilities(),
+                doctor.resolver_lib.load_matrix(),
+                doctor.resolver_lib.load_agent_variants(),
+                "full_product",
+                [],
+                project=root,
+            )
+        self.assertEqual(
+            data["local"]["docs"]["density"],
+            {"value": "terse", "source": ".kit/local.yaml"},
+        )
+        # Doküman yolu listesi kişisel dosyadan etkilenmez.
+        self.assertTrue(all(isinstance(item, str) for item in data["docs"]))
+
+
+class ProcessRigorPolicyTest(unittest.TestCase):
+    """AC-2/AC-4: politika registry'de, I24 ve risk tabanıyla çelişmiyor."""
+
+    POLICY = ROOT / "delivery" / "policies" / "process-rigor.md"
+    P3_PATH = ROOT / "delivery" / "plans" / "P3.yaml"
+    CONTRACT = ROOT / "delivery" / "CONTRACT.md"
+    QUALITY_GATES = ROOT / "delivery" / "policies" / "quality-gates.md"
+    I24 = (
+        "Rigor seviyesi risk tabanını, `auto_escalate` glob'larını veya insan "
+        "kapısını düşüremez; gating reviewer sayısı yalnız riskten gelir "
+        "(low/medium 1, high/critical 2)."
+    )
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.text = cls.POLICY.read_text(encoding="utf-8")
+        cls.registry = yaml.safe_load(
+            (ROOT / "delivery" / "registry.yaml").read_text(encoding="utf-8")
+        )
+
+    def section(self, heading: str, next_heading: str) -> str:
+        return self.text.split(heading, 1)[1].split(next_heading, 1)[0]
+
+    def table_rows(self, text: str) -> list[list[str]]:
+        rows = []
+        for line in text.splitlines():
+            if not line.startswith("|"):
+                continue
+            cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
+            if not cells or cells[0].startswith("---") or cells[0] in {"Risk", "CCGS"}:
+                continue
+            rows.append(cells)
+        return rows
+
+    def test_policy_is_registered(self) -> None:
+        """T-4: registry policies process_rigor kaydı ve dosya varlığı."""
+        self.assertEqual(
+            (self.registry.get("policies") or {}).get("process_rigor"),
+            "delivery/policies/process-rigor.md",
+        )
+        self.assertTrue(self.POLICY.is_file())
+
+    def test_reviewer_counts_match_risk_baseline(self) -> None:
+        """T-2/T-4: low/medium 1, high/critical 2; quality-gates ile aynı."""
+        risk_section = self.section("## Risk tabanı sınırı", "## CCGS")
+        rows = self.table_rows(risk_section)
+        self.assertEqual({row[0].strip("`") for row in rows}, {
+            "low", "medium", "high", "critical"
+        })
+        gate_rows = {}
+        for line in self.QUALITY_GATES.read_text(encoding="utf-8").splitlines():
+            match = re.match(r"^\|\s*`(low|medium|high|critical)`\s*\|(.+)\|\s*$", line)
+            if match:
+                gate_rows[match.group(1)] = [
+                    cell.strip() for cell in match.group(2).split("|")
+                ]
+        for row in rows:
+            risk = row[0].strip("`")
+            count = int(row[1])
+            self.assertEqual(count, doctor.rigor_lib.reviewer_count(risk), risk)
+            gate_count = re.search(r"(\d+)\s*reviewer", gate_rows[risk][4])
+            self.assertIsNotNone(gate_count, risk)
+            self.assertEqual(int(gate_count.group(1)), count, risk)
+            if risk in {"high", "critical"}:
+                self.assertIn("reviews.human", row[2], risk)
+            else:
+                self.assertNotIn("reviews.human", row[2], risk)
+
+    def test_i24_is_quoted_verbatim(self) -> None:
+        """T-2: CONTRACT I24 ve politika aynı cümleyi taşır."""
+        contract = self.CONTRACT.read_text(encoding="utf-8")
+        line = next(
+            (item for item in contract.splitlines() if item.startswith("| I24 |")),
+            "",
+        )
+        self.assertIn(self.I24, line)
+        normalized = " ".join(self.text.split())
+        self.assertIn(self.I24, normalized)
+        self.assertIn("`gate_level`", self.text)
+        self.assertIn("auto_escalate", self.text)
+
+    def test_conflict_verdicts_match_p3(self) -> None:
+        """T-2: beş çelişki kararı P3.yaml ile aynı verdict."""
+        conflict = self.section("## CCGS çelişki tablosu", "## Fallback")
+        verdicts = [row[-1].strip("`") for row in self.table_rows(conflict)]
+        plan = yaml.safe_load(self.P3_PATH.read_text(encoding="utf-8"))
+        self.assertEqual(verdicts, [item["verdict"] for item in plan["risk_conflict"]])
+        self.assertEqual(len(verdicts), 5)
+
+    def test_quality_gates_rigor_defines_and_cites_policy(self) -> None:
+        """Review: Rigor bölümü etkiyi tanımlar, bağlı düğme için bu sayfaya atıf yapar."""
+        gates = self.QUALITY_GATES.read_text(encoding="utf-8")
+        rigor = gates.split("## Rigor", 1)[1].split("\n## ", 1)[0]
+        flat = " ".join(rigor.split())
+        self.assertIn("tanımlar", flat)
+        self.assertNotIn("değiştirir", flat)
+        self.assertIn("[process-rigor.md](process-rigor.md) yazar", flat)
+        self.assertIn("Bugün otomatik uygulanan kısım `docs.density`'dir", flat)
+        # Risk tabanı / reviewer sayısı cümlesi aynen korunur.
+        self.assertIn("bu matristeki risk tabanı ve insan kapısı değişmez", flat)
+        self.assertIn("Gating reviewer sayısı risk-only kalır", flat)
+
+    def test_only_density_is_bound_today(self) -> None:
+        """Review: politika uydurma tüketici iddiası taşımaz."""
+        flat = " ".join(self.text.split())
+        self.assertIn("bugün otomatik uygulanan kısım `docs.density`'dir", flat)
+        knob_table = self.section("## Düğme tablosu", "## `modes.review_mode`")
+        for line in knob_table.splitlines():
+            cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
+            if len(cells) != 7 or not cells[0].startswith("`"):
+                continue
+            reader = cells[5]
+            if cells[0].strip("`") == "docs.density":
+                self.assertIn("resolver.py", reader)
+                self.assertIn("brief.py", reader)
+                continue
+            self.assertEqual(
+                reader,
+                "yok (yalnız doctor --explain rigor matrisinde görünür)",
+                cells[0],
+            )
+
+
+class RiskBaselineInvariantTest(unittest.TestCase):
+    """I24: rigor seviyesi risk tabanını, reviewer sayısını ve insan kapısını düşüremez."""
+
+    LEVELS = ("minimal", "standard", "full")
+    RISKS = ("low", "medium", "high", "critical")
+    COUNTS = {"low": 1, "medium": 1, "high": 2, "critical": 2}
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.registry = doctor.resolver_lib.load_capabilities()
+        cls.matrix = doctor.resolver_lib.load_matrix()
+        cls.variants = doctor.resolver_lib.load_agent_variants()
+
+    def make_project(self, root: Path, level: str) -> Path:
+        """Rigor seviyesi dışında her şeyi aynı olan gerçek proje."""
+        (root / "kit.config.yaml").write_text(
+            "kit:\n  root: .\n  protocol: \"2\"\n"
+            f"process:\n  rigor: {level}\n"
+            "factory:\n  default_profile: web-app\n"
+            "  profiles: [web-app, payments]\n",
+            encoding="utf-8",
+        )
+        (root / "ecosystem.yaml").write_text(
+            "products:\n  app:\n    surfaces:\n      web.app:\n"
+            "        platforms: [web]\n        stacks: [next]\n",
+            encoding="utf-8",
+        )
+        return root
+
+    def test_reviewer_count_is_risk_only(self) -> None:
+        for risk, count in self.COUNTS.items():
+            self.assertEqual(doctor.rigor_lib.reviewer_count(risk), count, risk)
+
+    def test_high_and_critical_keep_human_reviewer_and_gate(self) -> None:
+        for risk in ("high", "critical"):
+            reviewers = doctor.routing.evidence_reviewers({}, risk)
+            self.assertIn("human", reviewers, risk)
+            adversarial = [
+                role for role in reviewers if role.startswith("adversarial")
+            ]
+            self.assertEqual(
+                len(adversarial), doctor.rigor_lib.reviewer_count(risk), risk
+            )
+            self.assertTrue(doctor.routing.human_gates(risk, False), risk)
+
+    def test_rigor_level_cannot_lower_baseline(self) -> None:
+        floors: dict[str, str] = {}
+        roles: dict[str, tuple[str, ...]] = {}
+        matrices: dict[str, tuple] = {}
+        reviewer_sets: dict[str, set[tuple[str, ...]]] = {
+            risk: set() for risk in self.RISKS
+        }
+        gate_sets: dict[str, set[tuple[str, ...]]] = {
+            risk: set() for risk in self.RISKS
+        }
+        for level in self.LEVELS:
+            with tempfile.TemporaryDirectory() as raw:
+                root = self.make_project(Path(raw), level)
+                block = doctor.profiles_lib.compose(root)["rigor"]
+                gates = doctor.profiles_lib.gates_for(root)
+                declared = doctor.resolver_lib.load_declared(root)
+                ecosystem = yaml.safe_load(
+                    (root / "ecosystem.yaml").read_text(encoding="utf-8")
+                )
+                resolution = doctor.resolver_lib.resolve(
+                    self.registry,
+                    self.matrix,
+                    self.variants,
+                    "full_product",
+                    doctor.resolver_lib.project_signals(ecosystem),
+                    declared=declared,
+                )
+                reviewers = {
+                    risk: doctor.routing.evidence_reviewers({}, risk, gates)
+                    for risk in self.RISKS
+                }
+                human = {
+                    risk: doctor.routing.human_gates(risk, False)
+                    for risk in self.RISKS
+                }
+            # Seviye gerçekten uygulandı: fallback değil, kit.config kazandı.
+            self.assertEqual(block["level"], level)
+            self.assertEqual(block["source"], "kit.config.yaml", level)
+            self.assertEqual(block["warnings"], [], level)
+            self.assertEqual(block["knobs"]["modes.workflow"]["value"], level)
+            matrices[level] = tuple(
+                (name, block["knobs"][name]["value"])
+                for name in doctor.rigor_lib.KNOBS
+            )
+            # Çözümleme rigor'dan bağımsız: aynı risk tabanı ve aktif roller.
+            self.assertIn("domain.payments", resolution["capabilities"], level)
+            self.assertEqual(
+                resolution["risk_floor"],
+                self.registry["capabilities"]["domain.payments"]["risk_floor"],
+                level,
+            )
+            floors[level] = resolution["risk_floor"]
+            roles[level] = tuple(resolution["active_roles"])
+            for risk in self.RISKS:
+                label = f"{level}/{risk}"
+                count = doctor.rigor_lib.reviewer_count(risk)
+                self.assertEqual(count, self.COUNTS[risk], label)
+                adversarial = [
+                    role for role in reviewers[risk] if role.startswith("adversarial")
+                ]
+                self.assertEqual(len(adversarial), count, label)
+                if risk in {"high", "critical"}:
+                    self.assertIn("human", reviewers[risk], label)
+                    self.assertTrue(human[risk], label)
+                else:
+                    self.assertNotIn("human", reviewers[risk], label)
+                reviewer_sets[risk].add(tuple(reviewers[risk]))
+                gate_sets[risk].add(tuple(human[risk]))
+            # full low/medium için ikinci gating reviewer üretmemeli.
+            if level == "full":
+                for risk in ("low", "medium"):
+                    self.assertNotIn(
+                        "adversarial-b", reviewers[risk], f"full/{risk}"
+                    )
+            # minimal high/critical insan kapısını düşürmemeli.
+            if level == "minimal":
+                for risk in ("high", "critical"):
+                    self.assertIn("human", reviewers[risk], f"minimal/{risk}")
+                    self.assertTrue(human[risk], f"minimal/{risk}")
+        # Seviyeler gerçekten ayrışıyor; yoksa test üç kez aynı şeyi ölçer.
+        self.assertEqual(len(set(matrices.values())), len(self.LEVELS), matrices)
+        # Rigor seviyesi ne risk tabanını ne rolleri ne de kapıları değiştirir.
+        self.assertEqual(len(set(floors.values())), 1, floors)
+        self.assertEqual(len(set(roles.values())), 1, roles)
+        for risk in self.RISKS:
+            self.assertEqual(
+                len(reviewer_sets[risk]),
+                1,
+                f"{risk}: rigor reviewer kümesini değiştirdi: {reviewer_sets[risk]}",
+            )
+            self.assertEqual(
+                len(gate_sets[risk]),
+                1,
+                f"{risk}: rigor insan kapısını değiştirdi: {gate_sets[risk]}",
+            )
+
+
 if __name__ == "__main__":
     unittest.main()

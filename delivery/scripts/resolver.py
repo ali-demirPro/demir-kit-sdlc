@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import fnmatch
 import json
 import sys
 from pathlib import Path
@@ -15,7 +16,11 @@ AGENTS = ROOT / "delivery" / "agents"
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import profiles  # noqa: E402
+import rigor as rigor_lib  # noqa: E402
 import routing  # noqa: E402
+
+LOCAL_OVERRIDES = ROOT / "delivery" / "local-overrides.yaml"
+LOCAL_FILE = ".kit/local.yaml"
 
 RISK_ORDER = {"low": 0, "medium": 1, "high": 2, "critical": 3}
 CORE_ROLES = {"analist", "developer", "tester", "devops", "documenter"}
@@ -63,6 +68,139 @@ def load_capabilities() -> dict:
 
 def load_matrix() -> dict:
     return load_yaml(ROOT / "delivery" / "capabilities" / "role-matrix.yaml")
+
+
+def load_local_policy() -> dict:
+    """`.kit/local.yaml` beyaz listesi — tek kaynak `delivery/local-overrides.yaml`."""
+    data = load_yaml(LOCAL_OVERRIDES)
+    return {
+        "version": data.get("version", 1),
+        "read": [str(item) for item in data.get("read") or []],
+        "write": [str(item) for item in data.get("write") or []],
+        "values": data.get("values") if isinstance(data.get("values"), dict) else {},
+        "locked": [str(item) for item in data.get("locked") or []],
+        "reasons": data.get("reasons") if isinstance(data.get("reasons"), dict) else {},
+    }
+
+
+def _flatten_local(data: dict, prefix: str = "") -> dict:
+    """Nested veya noktalı anahtarları tek düzlemde topla."""
+    flat: dict = {}
+    for key, value in data.items():
+        name = f"{prefix}{key}"
+        if isinstance(value, dict):
+            flat.update(_flatten_local(value, name + "."))
+        else:
+            flat[name] = value
+    return flat
+
+
+def locked_reason(
+    key: str, policy: dict | None = None, required: tuple[str, ...] | list[str] = ()
+) -> str | None:
+    """Kilitli anahtar gerekçesi; nested alt-anahtar da kilitlidir.
+
+    Tam eşleşme, `fnmatch` globu veya `pattern + "."` ile başlayan alt-anahtar
+    kilitli sayılır: `risk.auto_escalate` iken `risk.auto_escalate.high` de
+    kişisel dosyaya açılmaz. `required` daima kilitli kabul edilir; politika
+    dosyası tek başına zorunlu anahtarı kaldıramaz.
+    """
+    policy = policy if policy is not None else load_local_policy()
+    locked = [str(item) for item in policy.get("locked") or []]
+    locked += [str(item) for item in required if str(item) not in locked]
+    reasons = policy.get("reasons") or {}
+    for pattern in locked:
+        if (
+            key == pattern
+            or fnmatch.fnmatchcase(key, pattern)
+            or key.startswith(pattern + ".")
+        ):
+            reason = reasons.get(pattern)
+            return str(reason or "kilitli anahtar")
+    return None
+
+
+def _locked_reason(key: str, policy: dict) -> str | None:
+    """Geriye dönük iç ad: `locked_reason` ile aynı semantik."""
+    return locked_reason(key, policy)
+
+
+def load_local(project: Path) -> dict:
+    """Beyaz listedeki `.kit/local.yaml` değerlerini oku; kilitli olanı uyar.
+
+    Dönen sözlük `{values, sources, warnings}`: yalnız `read` listesindeki ve
+    geçerli değerler uygulanır. Kilitli, liste dışı veya geçersiz anahtar
+    sessizce yutulmaz — her biri gerekçeli `uyarı:` satırı üretir.
+    """
+    result: dict = {"values": {}, "sources": {}, "warnings": []}
+    path = Path(project) / LOCAL_FILE
+    if not path.is_file():
+        return result
+    policy = load_local_policy()
+    try:
+        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except (OSError, yaml.YAMLError) as exc:
+        result["warnings"].append(f"uyarı: {LOCAL_FILE}: okunamadı — {exc}")
+        return result
+    if not isinstance(data, dict):
+        result["warnings"].append(f"uyarı: {LOCAL_FILE}: kök mapping değil")
+        return result
+    read = set(policy.get("read") or [])
+    values_spec = policy.get("values") or {}
+    for key, value in _flatten_local(data).items():
+        reason = _locked_reason(key, policy)
+        if reason is not None:
+            result["warnings"].append(
+                f"uyarı: {LOCAL_FILE}: '{key}' kilitli — {reason}"
+            )
+            continue
+        if key not in read:
+            result["warnings"].append(
+                f"uyarı: {LOCAL_FILE}: '{key}' beyaz listede değil"
+            )
+            continue
+        allowed = values_spec.get(key)
+        if isinstance(allowed, list) and str(value) not in [
+            str(item) for item in allowed
+        ]:
+            result["warnings"].append(
+                f"uyarı: {LOCAL_FILE}: '{key}' geçersiz — beklenen: "
+                + ", ".join(str(item) for item in allowed)
+            )
+            continue
+        result["values"][key] = value
+        result["sources"][key] = LOCAL_FILE
+    return result
+
+
+def effective_docs_density(project: Path | None, local: dict) -> dict:
+    """Etkin doküman derinliği: kişisel override varsa o, yoksa rigor kaynağı.
+
+    Kişisel değer yoksa kaynak uydurulmaz: değer `kit.config.yaml` içinden
+    geldiyse `kit.config.yaml`, rigor seviyesinden türetildiyse `rigor:<level>`.
+    Geçersiz `process.rigor` gibi bir hata kanonik tabloya düşürür; bu düşüş
+    sessiz olmaz: `source` `fallback` olur ve `warning` rigor hatasını taşır.
+    """
+    if "docs.density" in (local.get("values") or {}):
+        return {
+            "value": local["values"]["docs.density"],
+            "source": local["sources"]["docs.density"],
+        }
+    try:
+        knob = rigor_lib.load_effective(project)["knobs"]["docs.density"]
+        return {"value": knob["value"], "source": knob["source"]}
+    except (ValueError, OSError, KeyError, TypeError) as exc:
+        fallback = rigor_lib.fallback_effective()
+        knob = fallback["knobs"]["docs.density"]
+        return {
+            "value": knob["value"],
+            "source": "fallback",
+            "warning": (
+                f"rigor yapılandırması okunamadı — {exc} "
+                f"(fallback: rigor:{fallback['level']})"
+            ),
+        }
+
 
 
 def declared_path(project: Path) -> Path:
@@ -271,6 +409,7 @@ def resolve(
     delivery_registry: dict | None = None,
     declared: dict | None = None,
     allow_keywords: bool = True,
+    project: Path | None = None,
 ) -> dict:
     delivery = delivery_registry or load_yaml(ROOT / "delivery" / "registry.yaml")
     path_agents = routing.resolve_agents(delivery, path_id)
@@ -348,6 +487,11 @@ def resolve(
         if RISK_ORDER.get(level, 0) > RISK_ORDER.get(risk_floor, 0):
             risk_floor = level
 
+    local = load_local(project or ROOT)
+    # `docs` anahtarı doküman yolu listesidir; etkin derinlik çakışmasın diye
+    # kişisel blok içinde `docs: {density: {value, source}}` olarak taşınır.
+    local["docs"] = {"density": effective_docs_density(project, local)}
+
     return {
         "path_id": path_id,
         "capabilities": sorted(capabilities),
@@ -359,9 +503,77 @@ def resolve(
         "variant_gaps": variant_gaps,
         "risk_floor": risk_floor,
         "docs": docs,
+        "local": local,
         "status": "ready" if not variant_gaps else "gaps",
         "matrix": matrix,
     }
+
+
+def set_local(project: Path, assignment: str) -> int:
+    """`KEY=VALUE` yalnız `write` listesindeki anahtara yazılır.
+
+    Kilitli veya izin dışı anahtar gerekçeli hata ile reddedilir (exit 2);
+    geçerli değer mevcut `.kit/local.yaml` değerlerini koruyarak yazılır.
+    """
+    if "=" not in assignment:
+        print("hata: --set-local KEY=VALUE biçiminde olmalı", file=sys.stderr)
+        return 2
+    key, value = assignment.split("=", 1)
+    key = key.strip()
+    value = value.strip()
+    policy = load_local_policy()
+    reason = _locked_reason(key, policy)
+    if reason is not None:
+        print(f"hata: '{key}' kilitli — {reason}", file=sys.stderr)
+        return 2
+    if key not in set(policy.get("write") or []):
+        print(
+            f"hata: '{key}' yazma beyaz listesinde değil — izinli: "
+            + (", ".join(policy.get("write") or []) or "-"),
+            file=sys.stderr,
+        )
+        return 2
+    allowed = (policy.get("values") or {}).get(key)
+    if isinstance(allowed, list) and value not in [str(item) for item in allowed]:
+        print(
+            f"hata: '{key}' geçersiz — beklenen: "
+            + ", ".join(str(item) for item in allowed),
+            file=sys.stderr,
+        )
+        return 2
+
+    path = Path(project) / LOCAL_FILE
+    existing: dict = {}
+    if path.is_file():
+        try:
+            loaded = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        except (OSError, yaml.YAMLError) as exc:
+            print(f"hata: {LOCAL_FILE} okunamadı — {exc}", file=sys.stderr)
+            return 2
+        if not isinstance(loaded, dict):
+            print(f"hata: {LOCAL_FILE} kök mapping değil", file=sys.stderr)
+            return 2
+        existing = loaded
+    flat = _flatten_local(existing)
+    flat[key] = value
+    data: dict = {}
+    for name, item in flat.items():
+        node = data
+        parts = name.split(".")
+        for part in parts[:-1]:
+            child = node.get(part)
+            if not isinstance(child, dict):
+                child = {}
+                node[part] = child
+            node = child
+        node[parts[-1]] = item
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        yaml.safe_dump(data, sort_keys=False, allow_unicode=True),
+        encoding="utf-8",
+    )
+    print(f"[ok] {LOCAL_FILE}: {key}={value}")
+    return 0
 
 
 def main() -> int:
@@ -373,7 +585,16 @@ def main() -> int:
     parser.add_argument("--distribution", action="append", default=[])
     parser.add_argument("--text", default="")
     parser.add_argument("--json", action="store_true")
+    parser.add_argument("--project", type=Path, default=ROOT, help=".kit/local.yaml kökü")
+    parser.add_argument(
+        "--set-local",
+        metavar="KEY=VALUE",
+        help="kişisel beyaz listedeki anahtarı .kit/local.yaml'a yaz",
+    )
     args = parser.parse_args()
+
+    if args.set_local:
+        return set_local(args.project, args.set_local)
 
     signals = [
         {
@@ -400,6 +621,7 @@ def main() -> int:
         args.path,
         signals,
         args.text,
+        project=args.project,
     )
     data.pop("matrix", None)
     if args.json:
@@ -412,6 +634,10 @@ def main() -> int:
         print("docs:")
         for doc in data["docs"]:
             print(f"  - {doc}")
+        density = data["local"]["docs"]["density"]
+        print(f"docs.density: {density['value']} ({density['source']})")
+        for line in data["local"]["warnings"]:
+            print(line)
     return 0
 
 

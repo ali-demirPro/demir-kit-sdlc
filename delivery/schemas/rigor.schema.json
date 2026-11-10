@@ -1,0 +1,335 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://demir-kit.dev/schemas/rigor.schema.json",
+  "title": "demir-kit rigor configuration",
+  "description": "process.rigor tek kapısı: üç seviye, altı düğme yayma tablosu. Bilinmeyen seviye ve eksik/fazla düğme reddedilir.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "levels",
+    "gating",
+    "mapping",
+    "kit_semantics"
+  ],
+  "properties": {
+    "version": {
+      "type": "integer",
+      "const": 1
+    },
+    "levels": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "minimal",
+        "standard",
+        "full"
+      ],
+      "properties": {
+        "minimal": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "modes.workflow",
+            "docs.density",
+            "qa.level",
+            "modes.story_granularity",
+            "modes.review_mode",
+            "team.size"
+          ],
+          "properties": {
+            "modes.workflow": {
+              "type": "string",
+              "enum": [
+                "minimal",
+                "standard",
+                "full"
+              ]
+            },
+            "docs.density": {
+              "type": "string",
+              "enum": [
+                "terse",
+                "balanced",
+                "thorough"
+              ]
+            },
+            "qa.level": {
+              "type": "string",
+              "enum": [
+                "minimal",
+                "standard",
+                "full"
+              ]
+            },
+            "modes.story_granularity": {
+              "type": "string",
+              "enum": [
+                "coarse",
+                "balanced",
+                "fine"
+              ]
+            },
+            "modes.review_mode": {
+              "type": "string",
+              "enum": [
+                "solo",
+                "lean",
+                "full"
+              ]
+            },
+            "team.size": {
+              "type": "string",
+              "enum": [
+                "individual",
+                "studio"
+              ]
+            }
+          }
+        },
+        "standard": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "modes.workflow",
+            "docs.density",
+            "qa.level",
+            "modes.story_granularity",
+            "modes.review_mode",
+            "team.size"
+          ],
+          "properties": {
+            "modes.workflow": {
+              "type": "string",
+              "enum": [
+                "minimal",
+                "standard",
+                "full"
+              ]
+            },
+            "docs.density": {
+              "type": "string",
+              "enum": [
+                "terse",
+                "balanced",
+                "thorough"
+              ]
+            },
+            "qa.level": {
+              "type": "string",
+              "enum": [
+                "minimal",
+                "standard",
+                "full"
+              ]
+            },
+            "modes.story_granularity": {
+              "type": "string",
+              "enum": [
+                "coarse",
+                "balanced",
+                "fine"
+              ]
+            },
+            "modes.review_mode": {
+              "type": "string",
+              "enum": [
+                "solo",
+                "lean",
+                "full"
+              ]
+            },
+            "team.size": {
+              "type": "string",
+              "enum": [
+                "individual",
+                "studio"
+              ]
+            }
+          }
+        },
+        "full": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "modes.workflow",
+            "docs.density",
+            "qa.level",
+            "modes.story_granularity",
+            "modes.review_mode",
+            "team.size"
+          ],
+          "properties": {
+            "modes.workflow": {
+              "type": "string",
+              "enum": [
+                "minimal",
+                "standard",
+                "full"
+              ]
+            },
+            "docs.density": {
+              "type": "string",
+              "enum": [
+                "terse",
+                "balanced",
+                "thorough"
+              ]
+            },
+            "qa.level": {
+              "type": "string",
+              "enum": [
+                "minimal",
+                "standard",
+                "full"
+              ]
+            },
+            "modes.story_granularity": {
+              "type": "string",
+              "enum": [
+                "coarse",
+                "balanced",
+                "fine"
+              ]
+            },
+            "modes.review_mode": {
+              "type": "string",
+              "enum": [
+                "solo",
+                "lean",
+                "full"
+              ]
+            },
+            "team.size": {
+              "type": "string",
+              "enum": [
+                "individual",
+                "studio"
+              ]
+            }
+          }
+        }
+      }
+    },
+    "gating": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "reviewer_count_source",
+        "reviewer_count"
+      ],
+      "properties": {
+        "reviewer_count_source": {
+          "type": "string",
+          "const": "risk"
+        },
+        "reviewer_count": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "low",
+            "medium",
+            "high",
+            "critical"
+          ],
+          "properties": {
+            "low": {
+              "type": "integer",
+              "const": 1
+            },
+            "medium": {
+              "type": "integer",
+              "const": 1
+            },
+            "high": {
+              "type": "integer",
+              "const": 2
+            },
+            "critical": {
+              "type": "integer",
+              "const": 2
+            }
+          }
+        }
+      }
+    },
+    "mapping": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      },
+      "required": [
+        "modes.workflow",
+        "docs.density",
+        "qa.level",
+        "modes.story_granularity",
+        "modes.review_mode",
+        "team.size"
+      ],
+      "properties": {
+        "modes.workflow": {
+          "type": "string"
+        },
+        "docs.density": {
+          "type": "string"
+        },
+        "qa.level": {
+          "type": "string"
+        },
+        "modes.story_granularity": {
+          "type": "string"
+        },
+        "modes.review_mode": {
+          "type": "string"
+        },
+        "team.size": {
+          "type": "string"
+        }
+      },
+      "allOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "modes.workflow": {},
+            "docs.density": {},
+            "qa.level": {},
+            "modes.story_granularity": {},
+            "modes.review_mode": {},
+            "team.size": {}
+          }
+        }
+      ]
+    },
+    "kit_semantics": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      },
+      "required": [
+        "reviewer_count",
+        "review_mode"
+      ],
+      "properties": {
+        "reviewer_count": {
+          "type": "string"
+        },
+        "review_mode": {
+          "type": "string"
+        },
+        "story_granularity": {
+          "type": "string"
+        }
+      },
+      "allOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "reviewer_count": {},
+            "review_mode": {},
+            "story_granularity": {}
+          }
+        }
+      ]
+    }
+  }
+}

@@ -2,6 +2,16 @@
 
 ## 2.63.0 — 2026-11-09
 
+- **Risk tabanı değişmezi (Epic #290, #327)** — CONTRACT'ta çakışan ikinci
+  `I11-I14` bloğu `I20-I23` olarak yeniden numaralandı; `I24` rigor seviyesinin
+  risk tabanını, `auto_escalate` glob'larını veya insan kapısını
+  düşüremeyeceğini yazar. Gating reviewer sayısı yalnız riskten gelir
+  (low/medium 1, high/critical 2).
+- `learnings.py` epic-done insan kabulü atfı `I22`'ye bağlandı;
+  Self-improvement lane aynı numarayı kullanır.
+- Testler minimal/standard/full seviyelerinde reviewer sayısının ve
+  high/critical insan kapısının değişmediğini gerçek `rigor` ve `routing`
+  fonksiyonlarıyla kanıtlar (`test_doctor.py`).
 - **İnsan-only onay (Epic 323, #260)** — `agent-approved` ve epic
   `demir-kit-accept` yalnız insan authored yorumla verilir; ajan authored blok
   reddedilir ve `--accept` yalnız ek doğrulamadır.
@@ -632,7 +642,7 @@
   glob'ları eklenebilir (yalnız ekleme sınıfı); `guard.sh` ve `risk_filter`
   overlay'i okur, `doctor --product` biçimini doğrular. Vendor sync'ten
   etkilenmez.
-- **Proje öncelikleri (I14)** — `policies/project-priorities.md`: design system
+- **Proje öncelikleri (I23)** — `policies/project-priorities.md`: design system
   uyumu, mimari koruma, plana sadakat, kalite zemini ve "uydurma yok" kuralı
   bağlayıcı. `kit.config.yaml product.priorities` beyanı `brief.py` ile her
   agent brief'ine taşınır; `seal.md` referans zorunluluğu getirir;
@@ -658,7 +668,7 @@
 ## 2.27.0 — 2026-10-28
 
 - **Self-improvement lane** — kit kendi kendini geliştirmede insan kapısı
-  kalktı: `I13` "agent kendi kabulünü yazamaz" kuralının kapsamı ürün
+  kalktı: `I22` "agent kendi kabulünü yazamaz" kuralının kapsamı ürün
   teslimatına daraltıldı; kit self-improvement'ta kabul `doctor --strict` +
   testler yeşilidir.
 - **Öğrenim federasyonu** — `learnings.py` filo repolarından `learning`

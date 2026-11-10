@@ -5,7 +5,13 @@ Run: python3 -m unittest discover -s delivery/tests -v
 
 from __future__ import annotations
 
+import contextlib
 import importlib.util
+import io
+import json
+import subprocess
+import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -26,6 +32,7 @@ class ModuleSplitTest(unittest.TestCase):
             "doctor_explain.py",
             "doctor_compat.py",
             "doctor_version.py",
+            "doctor_local.py",
         ):
             self.assertTrue((SCRIPTS / name).is_file(), name)
 
@@ -62,7 +69,10 @@ class ModuleSplitTest(unittest.TestCase):
         lines = len((SCRIPTS / "doctor.py").read_text(encoding="utf-8").splitlines())
         # 1800 + 2: frequency.yaml şema kontrolü (issue 315) doctor.py'ye
         # bir import ve bir report çağrısı ekledi; payda tek satır bırakıldı.
-        self.assertLess(lines, 1802, lines)
+        # +30: rigor.yaml denetimi (issue 325) import, check_rigor ve main çağrısı.
+        # +10: local-overrides denetimi (issue 328); gövde doctor_local.py'de,
+        # doctor.py'de yalnız import, ince sarmalayıcı ve main çağrısı kaldı.
+        self.assertLess(lines, 1843, lines)
 
     def test_skill_lint_behaviour_is_unchanged(self) -> None:
         path = ROOT / "skills" / "demo" / "SKILL.md"
@@ -73,6 +83,87 @@ class ModuleSplitTest(unittest.TestCase):
         errors, warnings = doctor.lint_skill(path, text)
         self.assertEqual(errors, [])
         self.assertEqual(warnings, [])
+
+
+class ExplainRigorTest(unittest.TestCase):
+    """T-2: `--explain rigor` matrisi ve `--explain gates` değişmezliği."""
+
+    def run_doctor(self, *args: str) -> subprocess.CompletedProcess:
+        return subprocess.run(
+            [sys.executable, str(SCRIPTS / "doctor.py"), *args],
+            cwd=str(ROOT),
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+    def test_explain_rigor_matrix(self) -> None:
+        result = self.run_doctor("--explain", "rigor")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lines = result.stdout.splitlines()
+        self.assertEqual(lines[0], "explain: rigor")
+        level_line = next(line for line in lines if line.startswith("level: "))
+        self.assertRegex(level_line, r"^level: (minimal|standard|full) source=\S+$")
+        knob_lines = [line for line in lines if line.startswith("knob: ")]
+        self.assertEqual(len(knob_lines), 6)
+        parsed = {}
+        for line in knob_lines:
+            name, rest = line[len("knob: ") :].split(" ", 1)
+            self.assertTrue(rest.startswith("value="), rest)
+            self.assertIn(" source=", rest)
+            value, source = rest.split(" source=", 1)
+            parsed[name] = {"value": value[len("value=") :], "source": source}
+
+        # profiles --json aynı veriyi rigor bloğunda taşır.
+        json_result = subprocess.run(
+            [
+                sys.executable,
+                str(SCRIPTS / "profiles.py"),
+                "--project",
+                str(ROOT),
+                "--json",
+            ],
+            cwd=str(ROOT),
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(json_result.returncode, 0, json_result.stderr)
+        block = json.loads(json_result.stdout)["rigor"]
+        self.assertEqual(len(block["knobs"]), 6)
+        self.assertEqual(
+            parsed,
+            {
+                name: {"value": item["value"], "source": item["source"]}
+                for name, item in block["knobs"].items()
+            },
+        )
+
+    def test_explain_gates_is_unchanged(self) -> None:
+        captured = io.StringIO()
+        with contextlib.redirect_stdout(captured):
+            code = doctor.doctor_explain.gates(ROOT)
+        result = self.run_doctor("--explain", "gates")
+        self.assertEqual(code, 0)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, captured.getvalue())
+        self.assertEqual(result.stdout.splitlines()[0], "explain: gates")
+        self.assertNotIn("rigor", result.stdout)
+
+    def test_explain_rigor_invalid_config_exits_2(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "kit.config.yaml").write_text(
+                'kit:\n  protocol: "2"\nprocess:\n  rigor: extreme\n',
+                encoding="utf-8",
+            )
+            result = self.run_doctor(
+                "--explain", "rigor", "--product", "--root", str(root)
+            )
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertIn("uyarı: ", result.stdout)
+        self.assertIn("fallback: standard (", result.stdout)
+        self.assertIn("level: standard source=fallback", result.stdout)
 
 
 if __name__ == "__main__":

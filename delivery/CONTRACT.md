@@ -145,15 +145,16 @@ otomatik yükselir; agent düşüremez. Ayrıntı: `policies/quality-gates.md`.
 | I17 | Worktree yalnız `orca worktree create` ile açılır; ham `git worktree add` kayıtlı degrade mod dışında yasaktır. Linked worktree Orca'da kayıtlı değilse `doctor` hata verir. |
 | I18 | Ürün reposu kit deposuna yama yazmaz. Kit düzeltmesi bu repoda yapılır; ürün submodule'ü yalnız `origin/main` atası (yayınlanmış) bir commit'e pinlenir, `doctor --product` bunu denetler. |
 | I19 | Kaynak değişikliği sealed leaf olmadan başlamaz: `next-leaf` kirli ağaçta BLOCKED, `doctor` ana dalda kirli kaynağı hata sayar, pre-commit/pre-push ve CI main kapısı devrededir. |
-| I11 | Etiket geçişleri yalnız `scripts/transition.sh` ile yapılır; doğrudan etiket yazımı yasaktır. |
-| I12 | Capability seviyesi kanıtla atanır; agent `expert` üstüne çıkamaz, `authority` insan/principal içindir. |
-| I13 | `epic-done` yalnız insan-authored `demir-kit-accept` + kapalı child'larla; agent kendi kabulünü yazamaz. Kit self-improvement lane'de de T2 insan onayı ve T9 insan kabulü zorunludur; makine kapısı (`doctor --strict` + testler) ek kanıttır. |
-| I14 | Proje öncelikleri (`kit.config.yaml product.priorities` + `policies/project-priorities.md`) bağlayıcıdır: design system varsa uyulur, mimari sınırlar korunur, plana sadık kalınır, kalite zemini düşmez; uydurma bilgi üretilmez. |
+| I20 | Etiket geçişleri yalnız `scripts/transition.sh` ile yapılır; doğrudan etiket yazımı yasaktır. |
+| I21 | Capability seviyesi kanıtla atanır; agent `expert` üstüne çıkamaz, `authority` insan/principal içindir. |
+| I22 | `epic-done` yalnız insan-authored `demir-kit-accept` + kapalı child'larla; agent kendi kabulünü yazamaz. Kit self-improvement lane'de de T2 insan onayı ve T9 insan kabulü zorunludur; makine kapısı (`doctor --strict` + testler) ek kanıttır. |
+| I23 | Proje öncelikleri (`kit.config.yaml product.priorities` + `policies/project-priorities.md`) bağlayıcıdır: design system varsa uyulur, mimari sınırlar korunur, plana sadık kalınır, kalite zemini düşmez; uydurma bilgi üretilmez. |
+| I24 | Rigor seviyesi risk tabanını, `auto_escalate` glob'larını veya insan kapısını düşüremez; gating reviewer sayısı yalnız riskten gelir (low/medium 1, high/critical 2). |
 
 ## Self-improvement lane (kit kendi kendini geliştirir)
 
 Hedef projelerdeki deneyimler `learnings.py` ile beyne (bu repo) taşınır
-(`delivery/fleet.yaml`). Bu şeritte de `I10`/`I13` insan kapıları geçerlidir:
+(`delivery/fleet.yaml`). Bu şeritte de `I10`/`I22` insan kapıları geçerlidir:
 kabul için T2 insan onayı ve T9 insan kabulü gerekir; `doctor.sh --strict` +
 testler yeşil olması ek kanıttır, tek başına kabul değildir.
 

@@ -9,6 +9,8 @@
 .kit/resources.jsonl
 .kit/gate-cache.json
 .kit/context-metrics.jsonl
+# kişisel tercih: beyaz liste `delivery/local-overrides.yaml`, depoya girmez
+.kit/local.yaml
 .kit/context-metrics.jsonl.tmp
 .kit/context-metrics.lock
 .kit/brief-*.json
