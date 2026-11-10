@@ -227,15 +227,18 @@ def check_manifest(root: Path) -> dict:
     result["extra"] = sorted(set(actual) - set(expected))
     changed = []
     for path in sorted(set(expected) & set(actual)):
+        expected_bytes = int(expected[path].get("bytes", -1))
         if (
             str(expected[path].get("sha256")) != actual[path]["sha256"]
-            or int(expected[path].get("bytes") or -1) != actual[path]["bytes"]
+            or expected_bytes != actual[path]["bytes"]
         ):
             changed.append(
                 {
                     "path": path,
                     "expected": str(expected[path].get("sha256")),
                     "actual": actual[path]["sha256"],
+                    "expected_bytes": expected_bytes,
+                    "actual_bytes": actual[path]["bytes"],
                 }
             )
     result["changed"] = changed

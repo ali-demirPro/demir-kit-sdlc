@@ -240,6 +240,16 @@ class KitManifestTests(unittest.TestCase):
             self.assertRegex(changed["actual"], r"^[0-9a-f]{64}$")
             self.assertNotEqual(changed["expected"], changed["actual"])
 
+    def test_offline_check_accepts_empty_file(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.make_tree(root)
+            (root / "delivery" / "EMPTY.md").write_text("")
+            self.seal(root)
+            result = vendor_sync.check_manifest(root)
+            self.assertEqual(result["status"], "pass", result)
+            self.assertEqual(result["changed"], [])
+
     def test_offline_check_without_manifest_is_not_run(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
