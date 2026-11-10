@@ -63,7 +63,8 @@ Kurallar:
 
 - T3–T6 otomatiktir; T2 ve T7, T9 insan ister. T2 leaf parent epic `scope-confirmed` ise `intake`tan da mühürlenebilir.
 - T2 kabulü `binding_sha256` taşıyorsa digest seal gövdesi + onay anındaki
-  taban commit (`binding_base`) üzerinden üretilir. Seal sonradan değişirse ya
+  taban commit (`binding_base`) üzerinden üretilir; kısa sha tam sha'ya
+  çözülür. Seal sonradan değişirse ya
   da taban commit HEAD'in atası değilse onay geçersizdir; `doctor --issue` hata
   verir, `guard.sh` kaynak yazımını reddeder. Alanı taşımayan eski kayıtlar
   geriye dönük geçerlidir.

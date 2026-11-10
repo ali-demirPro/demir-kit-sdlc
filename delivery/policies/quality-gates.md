@@ -141,6 +141,9 @@ hata verir, `guard.sh --issue` G1 ihlaliyle kaynak yazımını reddeder. Alanı
 taşımayan eski onay kayıtları geçerli kalır (geriye dönük uyum). Evidence'daki
 `commit`, `doctor --issue` sırasında HEAD'in atası olmalıdır; değilse kanıt
 bayattır. Eşitlik gerekmez: sonraki CP commit'leri önceki kanıtı geçersiz kılmaz.
+Çözülemeyen `evidence.commit` de hatadır; `doctor --evidence` ile verilen kayıt
+aynı ata kuralından geçer. `guard.sh`, onay yorumlarını veya seal gövdesini
+okuyamazsa fail-closed davranır: G1 BLOCK.
 
 ## Bağımsızlık
 

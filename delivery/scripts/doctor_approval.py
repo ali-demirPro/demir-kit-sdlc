@@ -32,12 +32,23 @@ def check_binding(
     ]
 
 
-def evidence_head_errors(comments: list[dict], root: Path) -> list[str]:
-    """Evidence commits must be ancestors of HEAD when the issue is validated."""
+def evidence_head_errors(
+    comments: list[dict], root: Path, evidence_text: str | None = None
+) -> list[str]:
+    """Evidence commits must be ancestors of HEAD when the issue is validated.
+
+    ``evidence_text`` carries a record passed via ``doctor --evidence``; it is
+    checked with the same ancestry rule as commented evidence.
+    """
     head = evidence_lib.head_commit(root)
     errors: list[str] = []
-    for comment in comments:
-        for raw in EVIDENCE_RE.findall(comment.get("body") or ""):
+    bodies = (
+        [evidence_text]
+        if evidence_text is not None
+        else [comment.get("body") or "" for comment in comments]
+    )
+    for body in bodies:
+        for raw in EVIDENCE_RE.findall(body):
             try:
                 record = yaml.safe_load(raw) or {}
             except yaml.YAMLError:
@@ -47,11 +58,14 @@ def evidence_head_errors(comments: list[dict], root: Path) -> list[str]:
             verification = record.get("verification")
             if not isinstance(verification, dict):
                 continue
-            commit = str(verification.get("commit") or "")
-            if not commit or not evidence_lib.resolve_commit(commit, root):
+            commit = str(verification.get("commit") or "").strip()
+            if not commit:
+                continue
+            cp_id = record.get("cp_id") or "evidence"
+            if not evidence_lib.commit_exists(commit, root):
+                errors.append(f"{cp_id}: verification — evidence.commit çözülemedi")
                 continue
             if not head or not evidence_lib.is_ancestor(commit, head, root):
-                cp_id = record.get("cp_id") or "evidence"
                 errors.append(
                     f"{cp_id}: verification — evidence.commit HEAD'in atası değil"
                 )
@@ -59,10 +73,14 @@ def evidence_head_errors(comments: list[dict], root: Path) -> list[str]:
 
 
 def check_issue_extras(
-    number: int, body: str, comments: list[dict], root: Path
+    number: int,
+    body: str,
+    comments: list[dict],
+    root: Path,
+    evidence_text: str | None = None,
 ) -> list[str]:
     return check_binding(number, body, comments, root) + evidence_head_errors(
-        comments, root
+        comments, root, evidence_text
     )
 
 

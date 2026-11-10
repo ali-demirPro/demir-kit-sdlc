@@ -115,10 +115,24 @@ fi
 
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
-gh issue view "$ISSUE" --repo "$REPO" --json body -q .body \
-  > "$TMP_DIR/body.md" 2>/dev/null || : > "$TMP_DIR/body.md"
-gh api "repos/${REPO}/issues/${ISSUE}/comments?per_page=100" --paginate \
-  > "$TMP_DIR/comments.json" 2>/dev/null || : > "$TMP_DIR/comments.json"
+if ! gh issue view "$ISSUE" --repo "$REPO" --json body -q .body \
+  > "$TMP_DIR/body.md" 2>/dev/null; then
+  echo "guard: BLOCKED — seal gövdesi okunamadı (fail-closed)" >&2
+  exit 1
+fi
+if [[ ! -s "$TMP_DIR/body.md" ]]; then
+  echo "guard: BLOCKED — seal gövdesi boş (fail-closed)" >&2
+  exit 1
+fi
+if ! gh api "repos/${REPO}/issues/${ISSUE}/comments?per_page=100" --paginate \
+  > "$TMP_DIR/comments.json" 2>/dev/null; then
+  echo "guard: BLOCKED — onay yorumları okunamadı (fail-closed)" >&2
+  exit 1
+fi
+if [[ ! -s "$TMP_DIR/comments.json" ]]; then
+  echo "guard: BLOCKED — onay yorumları okunamadı (fail-closed)" >&2
+  exit 1
+fi
 
 if ! python3 "${KIT_ROOT}/delivery/scripts/approvals.py" check-binding \
   --issue "$ISSUE" --root "$ROOT" --quiet \

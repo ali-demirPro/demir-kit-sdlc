@@ -203,6 +203,46 @@ class BindingDigestTests(unittest.TestCase):
             approvals.binding_digest(body, git_head()),
         )
 
+    def test_short_base_sha_resolves_to_full_sha(self) -> None:
+        body = self.seal()
+        full = git_head("HEAD~1")
+        short = full[:7]
+        digest = approvals.binding_digest(body, short)
+        self.assertEqual(digest, approvals.binding_digest(body, full))
+        result = approvals.approval_binding(
+            body, [self.bound_comment(digest, short)], 333, ROOT
+        )
+        self.assertEqual(result["state"], "bound")
+        self.assertEqual(result["base"], short)
+
+    def test_different_base_commit_mismatches(self) -> None:
+        body = self.seal()
+        digest = approvals.binding_digest(body, git_head("HEAD~1"))
+        result = approvals.approval_binding(
+            body, [self.bound_comment(digest, git_head())], 333, ROOT
+        )
+        self.assertEqual(result["state"], "mismatch")
+        self.assertIn("uyuşmuyor", result["detail"])
+
+    def test_legacy_short_sha_digest_still_passes(self) -> None:
+        body = self.seal()
+        short = git_head("HEAD~1")[:7]
+        legacy = approvals._payload_digest(body, short)
+        result = approvals.approval_binding(
+            body, [self.bound_comment(legacy, short)], 333, ROOT
+        )
+        self.assertEqual(result["state"], "bound")
+
+    def test_unresolvable_base_sha_mismatches(self) -> None:
+        body = self.seal()
+        base = "deadbeef" * 5
+        digest = approvals.binding_digest(body, base)
+        result = approvals.approval_binding(
+            body, [self.bound_comment(digest, base)], 333, ROOT
+        )
+        self.assertEqual(result["state"], "mismatch")
+        self.assertIn("çözülemedi", result["detail"])
+
     def bound_comment(self, digest: str, base: str, issue: int = 333) -> dict:
         body = (
             "```yaml demir-kit-accept\n"

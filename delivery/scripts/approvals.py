@@ -4,7 +4,9 @@
 Approvals may carry a ``binding_sha256`` digest over the issue seal and the
 ``binding_base`` commit the human approved against. A seal edited after the
 fact, or a base commit that is no longer an ancestor of HEAD, invalidates the
-approval. Records without the digest stay valid for backward compatibility.
+approval. Short ``binding_base`` shas resolve to the full 40-char commit before
+hashing, so producers and validators agree. Records without the digest stay
+valid for backward compatibility.
 """
 
 from __future__ import annotations
@@ -70,17 +72,6 @@ def _canonical_seal(body: str) -> str:
     return yaml.safe_dump(data, sort_keys=True, allow_unicode=True).strip()
 
 
-def binding_digest(body: str, base_commit: str) -> str:
-    """Canonical sha256 over the issue seal and the approved base commit."""
-    payload = json.dumps(
-        {"body": _canonical_seal(body), "base": str(base_commit or "").strip()},
-        sort_keys=True,
-        ensure_ascii=False,
-        separators=(",", ":"),
-    )
-    return "sha256:" + hashlib.sha256(payload.encode("utf-8")).hexdigest()
-
-
 def _git(args: list[str], root: Path) -> str | None:
     try:
         result = subprocess.run(
@@ -97,6 +88,33 @@ def _git(args: list[str], root: Path) -> str | None:
 def resolve_commit(value: str, root: Path) -> str | None:
     result = _git(["rev-parse", "--verify", f"{value}^{{commit}}"], root)
     return result.strip() if result else None
+
+
+def canonical_base(base_commit: str, root: Path | str = ".") -> str:
+    """Full 40-char sha of ``base_commit``; the raw value when unresolvable.
+
+    Approval producers and validators share this helper, so a short sha in
+    ``binding_base`` hashes to the same value as the full sha it names.
+    """
+    value = str(base_commit or "").strip()
+    if not value:
+        return ""
+    return resolve_commit(value, Path(root)) or value
+
+
+def _payload_digest(body: str, base_text: str) -> str:
+    payload = json.dumps(
+        {"body": _canonical_seal(body), "base": base_text},
+        sort_keys=True,
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
+    return "sha256:" + hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def binding_digest(body: str, base_commit: str, root: Path | str = ".") -> str:
+    """Canonical sha256 over the issue seal and the approved base commit."""
+    return _payload_digest(body, canonical_base(base_commit, root))
 
 
 def is_ancestor(commit: str, head: str, root: Path) -> bool:
@@ -221,7 +239,9 @@ def approval_binding(
     States: ``none`` (no human acceptance), ``legacy`` (record without a
     digest), ``bound`` (digest matches and the base commit is an ancestor of
     HEAD) and ``mismatch`` (stale approval). Live changed files never enter the
-    comparison; only the seal and the approved base commit do.
+    comparison; only the seal and the approved base commit do. A digest over the
+    raw short ``binding_base`` (produced before canonical hashing) stays bound
+    for backward compatibility.
     """
     root = Path(root)
     acceptance = human_acceptance_for(comments, issue)
@@ -231,7 +251,7 @@ def approval_binding(
     if not recorded:
         return {"state": "legacy", "detail": "digest taşımayan eski onay"}
     base = str(acceptance.get("binding_base") or "").strip()
-    actual = binding_digest(body, base)
+    actual = binding_digest(body, base, root)
     if not BINDING_RE.fullmatch(recorded):
         return _mismatch(
             acceptance, recorded, actual, "onay digest'i sha256 biçiminde değil"
@@ -244,12 +264,21 @@ def approval_binding(
         return _mismatch(
             acceptance, recorded, actual, "onay taban commit'i sha biçiminde değil"
         )
-    if recorded != actual:
+    resolved = resolve_commit(base, root)
+    if not resolved:
+        return _mismatch(
+            acceptance,
+            recorded,
+            actual,
+            "onay taban commit'i çözülemedi — HEAD'in atası değil",
+        )
+    actual = _payload_digest(body, resolved)
+    if recorded != actual and recorded != _payload_digest(body, base):
         return _mismatch(
             acceptance, recorded, actual, "onay digest'i güncel seal gövdesiyle uyuşmuyor"
         )
     head = head_commit(root)
-    if not head or not is_ancestor(base, head, root):
+    if not head or not is_ancestor(resolved, head, root):
         return _mismatch(
             acceptance, recorded, actual, "onay taban commit'i HEAD'in atası değil"
         )
@@ -308,8 +337,14 @@ def main(argv: list[str] | None = None) -> int:
 
     args = parser.parse_args(argv)
     if args.command == "digest":
-        base = resolve_commit(args.base, args.root) or args.base
-        print(binding_digest(args.body_file.read_text(encoding="utf-8"), base))
+        base = resolve_commit(args.base, args.root)
+        if not base:
+            print(
+                f"approvals: taban commit çözülemedi: {args.base}",
+                file=sys.stderr,
+            )
+            return 1
+        print(binding_digest(args.body_file.read_text(encoding="utf-8"), base, args.root))
         return 0
 
     body = args.body_file.read_text(encoding="utf-8")

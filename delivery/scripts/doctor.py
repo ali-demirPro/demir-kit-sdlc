@@ -1341,7 +1341,7 @@ def check_issue(
     evidence_text = normalize_evidence_text(
         evidence_file.read_text(encoding="utf-8") if evidence_file else None
     )
-    for message in doctor_approval.check_issue_extras(number, body, comments, root=root):
+    for message in doctor_approval.check_issue_extras(number, body, comments, root, evidence_text):
         error(message)
     if re.search(r"```yaml\s+demir-kit\s*\n", body):
         check_issue_body(

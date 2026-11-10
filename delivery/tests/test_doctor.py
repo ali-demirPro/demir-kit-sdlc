@@ -2165,11 +2165,17 @@ class ApprovalBindingTests(DoctorTestCase):
         }
 
     def digest(self, body: str, base: str) -> str:
-        return doctor.approvals_lib.binding_digest(body, base)
+        return doctor.approvals_lib.binding_digest(body, base, ROOT)
 
     def test_matching_digest_passes(self) -> None:
         body = fenced("demir-kit", leaf())
         base = self.git("rev-parse", "HEAD")
+        self.run_issue(body, [self.accept(self.digest(body, base), base)])
+        self.assertFalse(any("onay geçersiz" in item for item in doctor.ERRORS))
+
+    def test_short_base_sha_passes(self) -> None:
+        body = fenced("demir-kit", leaf())
+        base = self.git("rev-parse", "HEAD~1")[:7]
         self.run_issue(body, [self.accept(self.digest(body, base), base)])
         self.assertFalse(any("onay geçersiz" in item for item in doctor.ERRORS))
 
@@ -2221,7 +2227,7 @@ class EvidenceHeadTests(DoctorTestCase):
             check=True,
         ).stdout.strip()
 
-    def run_record(self, commit: str) -> None:
+    def record(self, commit: str) -> dict:
         verification = {
             "commit": commit,
             "diff_hash": "sha256:" + "0" * 64,
@@ -2236,12 +2242,18 @@ class EvidenceHeadTests(DoctorTestCase):
                 }
             ],
         }
-        record = evidence(verification=verification)
-        issue = {
+        return evidence(verification=verification)
+
+    def issue_with(self, comments: list[dict]) -> dict:
+        return {
             "body": fenced("demir-kit", leaf(package_version=2)),
             "labels": [{"name": "leaf-done"}],
             "title": "test",
         }
+
+    def run_record(self, commit: str) -> None:
+        record = self.record(commit)
+        issue = self.issue_with([])
         comments = [{"body": fenced("demir-kit-evidence", record)}]
 
         def fake_run(command):
@@ -2253,6 +2265,23 @@ class EvidenceHeadTests(DoctorTestCase):
             doctor.evidence_lib, "verify", return_value=[]
         ):
             doctor.check_issue(333, root=ROOT)
+
+    def run_evidence_file(self, commit: str):
+        issue = self.issue_with([])
+        comments: list[dict] = []
+
+        def fake_run(command):
+            if "/comments" in command[-1]:
+                return json.dumps(comments)
+            return json.dumps(issue)
+
+        with tempfile.TemporaryDirectory(prefix="evidence-file-") as tmp:
+            path = Path(tmp) / "evidence.yaml"
+            path.write_text(yaml.safe_dump(self.record(commit)), encoding="utf-8")
+            with patch.object(doctor, "run", side_effect=fake_run), patch.object(
+                doctor.evidence_lib, "verify", return_value=[]
+            ):
+                doctor.check_issue(333, root=ROOT, evidence_file=path)
 
     def orphan_commit(self) -> str:
         tree = self.git("rev-parse", "HEAD^{tree}")
@@ -2280,6 +2309,24 @@ class EvidenceHeadTests(DoctorTestCase):
         self.run_record(self.orphan_commit())
         self.assertTrue(
             any("evidence.commit HEAD'in atası değil" in item for item in doctor.ERRORS)
+        )
+
+    def test_unresolvable_evidence_commit_fails(self) -> None:
+        self.run_record("b" * 40)
+        self.assertTrue(
+            any("evidence.commit çözülemedi" in item for item in doctor.ERRORS)
+        )
+
+    def test_evidence_file_commit_not_ancestor_fails(self) -> None:
+        self.run_evidence_file(self.orphan_commit())
+        self.assertTrue(
+            any("evidence.commit HEAD'in atası değil" in item for item in doctor.ERRORS)
+        )
+
+    def test_evidence_file_commit_ancestor_passes(self) -> None:
+        self.run_evidence_file(self.git("rev-parse", "HEAD~1"))
+        self.assertFalse(
+            any("evidence.commit HEAD" in item for item in doctor.ERRORS)
         )
 
     def test_approval_block_schema_is_optional_and_typed(self) -> None:

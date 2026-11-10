@@ -11,6 +11,10 @@
   CP commit'leri önceki kanıtı geçersiz kılmaz; `evidence.schema.json` opsiyonel
   `approval` bloğu (`binding_sha256`, `binding_base`, `approved_at`,
   `approved_by`) kazandı.
+- Kısa `binding_base` sha'sı digest üretiminde ve doğrulamasında tam sha'ya
+  çözülür; `doctor --evidence` kaydı da ata kuralından geçer, çözülemeyen
+  `evidence.commit` hatadır. `guard.sh` onay yorumlarını veya seal gövdesini
+  okuyamazsa fail-closed BLOCK verir.
 - T2 ve I1 sözleşme satırları digest + taban commit bağını yazacak şekilde
   güncellendi.
 

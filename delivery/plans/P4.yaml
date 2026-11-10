@@ -113,15 +113,15 @@ children:
     issue: 333
     title: "P4-2 evidence.approval.binding + doctor --issue geçersizleştirme"
     intent: >-
-      Onayı issue gövdesi + değişen dosya listesinin digest'ine bağla; onaydan
-      sonra değişiklik olursa onayı geçersiz say ve evidence.commit'i HEAD ile
-      doğrula.
+      Onayı issue gövdesindeki seal bloğu + onay anındaki taban commit'in
+      digest'ine bağla; seal değişirse ya da taban commit HEAD'in atası değilse
+      onayı geçersiz say ve evidence.commit'in HEAD'in atası olmasını doğrula.
     risk: medium
     depends_on: []
     ac:
-      - "Onay digest'i issue gövdesi + değişen dosya listesinden kanonik olarak üretilir ve `demir-kit-accept` bloğunda taşınır."
-      - "Onaydan sonra gövde ya da dosya listesi değişirse `doctor.py --issue` exit 1 verir; değişmediyse geçer."
-      - "`evidence.commit` HEAD'den farklıysa doctor hata verir; aynı commit geçer."
+      - "Onay digest'i issue gövdesindeki seal bloğu + onay anındaki taban commit (`binding_base`) üzerinden kanonik olarak üretilir ve `demir-kit-accept` bloğunda `binding_sha256` olarak taşınır."
+      - "Onaydan sonra seal gövdesi değişirse ya da taban commit HEAD'in atası değilse `doctor.py --issue` exit 1 verir; değişmediyse geçer."
+      - "`evidence.commit` HEAD'in atası değilse doctor hata verir; ata ise (HEAD'e eşit olmasa da) geçer."
       - "`guard.sh --issue` digest uyuşmazlığında kaynak yazımını reddeder; eşleşmede bugünkü davranış değişmez."
 
   - slug: p4-3-role-path-allowlist

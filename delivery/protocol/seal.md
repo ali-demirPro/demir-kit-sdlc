@@ -53,6 +53,11 @@ BASE="$(git rev-parse HEAD)"
 python3 delivery/scripts/approvals.py digest --body-file /tmp/leaf.md --base "$BASE"
 ```
 
+`binding_base` alanına tam 40 karakter sha yaz; kısa sha de kabul edilir ve
+digest üretilirken/doğrulanırken `git rev-parse` ile tam sha'ya çözülür.
+Çözülemeyen taban commit digest üretmez ve onayı geçersiz sayar. Kısa sha'nın
+ham metni üzerinden üretilmiş eski digest'ler geriye dönük geçerlidir.
+
 Onaydan sonra seal gövdesi değişirse ya da taban commit HEAD'in atası değilse
 `doctor --issue` hata verir; `guard.sh --issue` kaynak yazımını reddeder. Alanı
 taşımayan eski kayıtlar geriye dönük geçerlidir.

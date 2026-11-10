@@ -39,15 +39,27 @@ def git(root: Path, *args: str) -> None:
     subprocess.run(["git", "-C", str(root), *args], check=True, capture_output=True)
 
 
-def write_gh(directory: Path, body_file: Path, comments_file: Path) -> Path:
+def write_gh(
+    directory: Path,
+    body_file: Path,
+    comments_file: Path,
+    comments_ok: bool = True,
+    body_ok: bool = True,
+) -> Path:
     directory.mkdir(parents=True, exist_ok=True)
     script = directory / "gh"
+    comments = (
+        f'cat {shlex.quote(str(comments_file))}'
+        if comments_ok
+        else "exit 1"
+    )
+    body = f'cat {shlex.quote(str(body_file))}' if body_ok else "exit 1"
     script.write_text(
         "#!/bin/sh\n"
         'case "$*" in\n'
-        f'  *"/comments"*) cat {shlex.quote(str(comments_file))} ;;\n'
+        f'  *"/comments"*) {comments} ;;\n'
         '  *"--json labels"*) echo agent-approved ;;\n'
-        f'  *"--json body"*) cat {shlex.quote(str(body_file))} ;;\n'
+        f'  *"--json body"*) {body} ;;\n'
         '  *"issue comment"*) exit 0 ;;\n'
         '  *) echo "" ;;\n'
         "esac\n",
@@ -112,13 +124,23 @@ class GuardBindingTests(unittest.TestCase):
         }
 
     def run_guard(
-        self, digest: str | None, base: str | None = None
+        self,
+        digest: str | None,
+        base: str | None = None,
+        comments_ok: bool = True,
+        body_ok: bool = True,
     ) -> subprocess.CompletedProcess:
         suffix = []
         if digest is not None:
             suffix = [self.accept(digest, base or self.head())]
         self.comments_file.write_text(json.dumps(suffix), encoding="utf-8")
-        write_gh(self.stub, self.body_file, self.comments_file)
+        write_gh(
+            self.stub,
+            self.body_file,
+            self.comments_file,
+            comments_ok=comments_ok,
+            body_ok=body_ok,
+        )
         env = dict(os.environ)
         env["PATH"] = f"{self.stub}{os.pathsep}{env.get('PATH', '')}"
         return subprocess.run(
@@ -165,6 +187,18 @@ class GuardBindingTests(unittest.TestCase):
         result = self.run_guard(None)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("guard: OK", result.stdout)
+
+    def test_comments_api_failure_blocks_fail_closed(self) -> None:
+        result = self.run_guard(self.current_digest(), comments_ok=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("BLOCKED", result.stderr)
+        self.assertIn("onay yorumları okunamadı", result.stderr)
+
+    def test_seal_body_failure_blocks_fail_closed(self) -> None:
+        result = self.run_guard(self.current_digest(), body_ok=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("BLOCKED", result.stderr)
+        self.assertIn("seal gövdesi okunamadı", result.stderr)
 
 
 if __name__ == "__main__":
