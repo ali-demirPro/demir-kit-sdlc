@@ -66,6 +66,64 @@ export interface StatusEvaluations {
   updated_at: string | null
 }
 
+/** Lead süresi örnekleri; `p50`/`p90` dakika, örnek yoksa `null`. */
+export interface StatusPulseLead {
+  n: number
+  p50: number | null
+  p90: number | null
+  samples: number[]
+}
+
+/**
+ * `.kit/cycle.jsonl`dan türetilen pencere nabzı. Defter yoksa `status: missing`
+ * ve tüm sayılar `null`; önceki pencerede hiç olay yoksa `prev_delta` `null`.
+ */
+export interface StatusPulse {
+  status: 'ok' | 'missing'
+  window_days: number
+  leaves_done: number | null
+  prev_delta: number | null
+  gates: number | null
+  gate_failures: number | null
+  review_rounds: number | null
+  blocked: number | null
+  deferred: number | null
+  /** Pencere içi günlük `leaf-done`; eski→yeni, uzunluk `window_days`. */
+  daily: number[]
+  lead: StatusPulseLead
+}
+
+/** Epic ömrü boyunca süreç sayıları; defter yoksa alan `null`. */
+export interface StatusMachinery {
+  gate_runs: number
+  gate_failures: number
+  review_rounds: number
+  leaves_done: number
+  blocked: number
+  deferred: number
+  lead_minutes: number | null
+  prevented: number
+}
+
+/** İşçinin proje nabızlarından topladığı filo özeti. */
+export interface FleetPulse {
+  /** Ölçüm taşıyan proje sayısı. */
+  projects: number
+  /** Bazı projelerde nabız yoksa true; sıfır sayılmaz. */
+  partial: boolean
+  window_days: number
+  leaves_done: number | null
+  prev_delta: number | null
+  gates: number | null
+  gate_failures: number | null
+  review_rounds: number | null
+  blocked: number | null
+  deferred: number | null
+  /** Pencere içi günlük `leaf-done`; eski→yeni, uzunluk `window_days`. */
+  daily: number[]
+  lead: StatusPulseLead
+}
+
 export interface StatusEpic {
   number: number
   title?: string
@@ -88,6 +146,8 @@ export interface StatusEpic {
    * yoksa `null` da gönderebilir. İki durumda da panel eval satırı çizmez.
    */
   evaluations?: StatusEvaluations | null
+  /** Eski `status.py` alanı taşımaz; defter yoksa `null`. */
+  machinery?: StatusMachinery | null
 }
 
 export interface StatusCounts {
@@ -118,6 +178,8 @@ export interface StatusProject {
   live?: StatusLive
   warnings: string[]
   stale: boolean
+  /** Eski `status.py` alanı taşımaz (`undefined`); panel `pulse yok` çizer. */
+  pulse?: StatusPulse | null
 }
 
 /** What `status.snapshot` answers: every workspace that carries a demir-kit. */
@@ -137,6 +199,8 @@ export interface StatusSnapshot {
   live?: StatusLive
   /** Odaktan bağımsız açık iş özeti. */
   active?: StatusActive
+  /** Bütün projelerin nabız toplamı; hiç ölçüm yoksa `null`. */
+  pulse?: FleetPulse | null
   projects: StatusProject[]
   warnings: string[]
   error?: string

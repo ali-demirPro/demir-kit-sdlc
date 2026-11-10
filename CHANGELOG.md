@@ -8,6 +8,13 @@
   (`reason` içinde `exit=N`, N>0) olarak tanımlandı; satırlar CP değil çağrı
   başına yazılıyor.
 - Eski (pulse'suz/machinery'siz) önbellek `--offline` ile yüklenmeye devam eder.
+- **Görünür panel (Epic P10, #348)** — Orca paneli filo şeridi, proje nabzı
+  (sparkline dahil), epic detayında süreç karnesi ve canlı epic panosu
+  (`bitti`/`devam`/`sırada`) çizer. Nabız toplama saf `src/pulse.ts` içinde;
+  `cost` durum çubuğu ölçüm yokken `-` yerine `yok` yazar.
+- Test izolasyonu (#346): kurulu skill denetimi testte atlanır
+  (`DEMIR_KIT_DOCTOR_IGNORE_INSTALLED=1`), `seal_lint` `.ts`/`orca plugin`
+  izlerini kanıt sayar.
 - Sürüm 2.64.0.
 
 # Changelog
