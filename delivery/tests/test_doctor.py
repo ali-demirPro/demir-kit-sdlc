@@ -2121,5 +2121,158 @@ class RiskBaselineInvariantTest(unittest.TestCase):
             )
 
 
+class ApprovalBindingTests(DoctorTestCase):
+    def run_issue(
+        self, body: str, comments: list[dict], files: list[str]
+    ) -> None:
+        issue = {
+            "body": body,
+            "labels": [{"name": "agent-approved"}],
+            "title": "test",
+        }
+
+        def fake_run(command):
+            if "/comments" in command[-1]:
+                return json.dumps(comments)
+            return json.dumps(issue)
+
+        with patch.object(doctor, "run", side_effect=fake_run), patch.object(
+            doctor.doctor_approval, "changed_files", return_value=files
+        ):
+            doctor.check_issue(333, root=ROOT)
+
+    def accept(self, digest: str, issue: int = 333) -> dict:
+        body = (
+            "```yaml demir-kit-accept\n"
+            'demir_kit_version: "2"\n'
+            f"issue: {issue}\n"
+            "by: human\n"
+            "decision: accepted\n"
+            f"binding_sha256: {digest}\n"
+            "```\n"
+        )
+        return {
+            "body": body,
+            "user": {"login": "human"},
+            "author_association": "MEMBER",
+            "created_at": "2026-11-10T06:00:00Z",
+        }
+
+    def digest(self, body: str, files: list[str]) -> str:
+        return doctor.approvals_lib.binding_digest(body, files)
+
+    def test_matching_digest_passes(self) -> None:
+        body = fenced("demir-kit", leaf())
+        files = ["delivery/scripts/doctor.py"]
+        self.run_issue(body, [self.accept(self.digest(body, files))], files)
+        self.assertFalse(any("onay geçersiz" in item for item in doctor.ERRORS))
+
+    def test_changed_body_invalidates_approval(self) -> None:
+        body = fenced("demir-kit", leaf())
+        files = ["delivery/scripts/doctor.py"]
+        stale = self.digest(fenced("demir-kit", leaf(intent="Başka bir niyet.")), files)
+        self.run_issue(body, [self.accept(stale)], files)
+        self.assertTrue(any("onay geçersiz" in item for item in doctor.ERRORS))
+
+    def test_changed_file_list_invalidates_approval(self) -> None:
+        body = fenced("demir-kit", leaf())
+        stale = self.digest(body, ["delivery/scripts/doctor.py"])
+        self.run_issue(
+            body,
+            [self.accept(stale)],
+            ["delivery/scripts/doctor.py", "delivery/scripts/guard.sh"],
+        )
+        self.assertTrue(any("onay geçersiz" in item for item in doctor.ERRORS))
+
+    def test_legacy_approval_still_passes(self) -> None:
+        body = fenced("demir-kit", leaf())
+        legacy = {
+            "body": (
+                "```yaml demir-kit-accept\n"
+                'demir_kit_version: "2"\n'
+                "issue: 333\n"
+                "by: human\n"
+                "decision: accepted\n"
+                "```\n"
+            ),
+            "user": {"login": "human"},
+            "author_association": "MEMBER",
+        }
+        self.run_issue(body, [legacy], ["delivery/scripts/doctor.py"])
+        self.assertFalse(any("onay geçersiz" in item for item in doctor.ERRORS))
+
+
+class EvidenceHeadTests(DoctorTestCase):
+    def git(self, *args: str) -> str:
+        return subprocess.run(
+            ["git", *args],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+
+    def run_record(self, commit: str) -> None:
+        verification = {
+            "commit": commit,
+            "diff_hash": "sha256:" + "0" * 64,
+            "ci": {"status": "skipped", "reason": "unit test"},
+            "reviewers": [
+                {
+                    "role": "adversarial",
+                    "id": "ses_reviewer",
+                    "model": "test-model",
+                    "prompt_hash": "sha256:" + "1" * 64,
+                    "diff_hash": "sha256:" + "0" * 64,
+                }
+            ],
+        }
+        record = evidence(verification=verification)
+        issue = {
+            "body": fenced("demir-kit", leaf(package_version=2)),
+            "labels": [{"name": "leaf-done"}],
+            "title": "test",
+        }
+        comments = [{"body": fenced("demir-kit-evidence", record)}]
+
+        def fake_run(command):
+            if "/comments" in command[-1]:
+                return json.dumps(comments)
+            return json.dumps(issue)
+
+        with patch.object(doctor, "run", side_effect=fake_run), patch.object(
+            doctor.evidence_lib, "verify", return_value=[]
+        ):
+            doctor.check_issue(333, root=ROOT)
+
+    def test_evidence_commit_at_head_passes(self) -> None:
+        self.run_record(self.git("rev-parse", "HEAD"))
+        self.assertFalse(
+            any("evidence.commit HEAD" in item for item in doctor.ERRORS)
+        )
+
+    def test_evidence_commit_behind_head_fails(self) -> None:
+        self.run_record(self.git("rev-parse", "HEAD~1"))
+        self.assertTrue(
+            any("evidence.commit HEAD" in item for item in doctor.ERRORS)
+        )
+
+    def test_approval_block_schema_is_optional_and_typed(self) -> None:
+        record = evidence(
+            approval={
+                "binding_sha256": "sha256:" + "0" * 64,
+                "approved_at": "2026-11-10T06:00:00Z",
+                "approved_by": "human",
+            }
+        )
+        self.assertEqual(doctor.validate_schema(record, EVIDENCE_SCHEMA), [])
+        self.assertTrue(
+            doctor.validate_schema(
+                evidence(approval={"binding_sha256": "sha256:" + "0" * 64}),
+                EVIDENCE_SCHEMA,
+            )
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

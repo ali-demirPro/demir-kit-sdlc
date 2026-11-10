@@ -42,7 +42,18 @@ taşımayan unit/gate case'i, tekrarlı ID veya bilinmeyen AC/CP. Uyarılar
 issue: 260
 by: <login>
 decision: accepted
+binding_sha256: sha256:<64 hex>
 ```
+
+`binding_sha256` seal bloğu + değişen dosya listesinin kanonik digest'idir:
+
+```bash
+python3 delivery/scripts/approvals.py digest --body-file /tmp/leaf.md
+```
+
+Onaydan sonra seal gövdesi veya dosya listesi değişirse `doctor --issue` hata
+verir; `guard.sh --issue` kaynak yazımını reddeder. Alanı taşımayan eski
+kayıtlar geriye dönük geçerlidir.
 
 7. Sıradaki adım: [health-check.md](health-check.md).
 

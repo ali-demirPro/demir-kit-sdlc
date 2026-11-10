@@ -138,6 +138,112 @@ class ApprovalTests(unittest.TestCase):
         )
 
 
+class BindingDigestTests(unittest.TestCase):
+    def seal(self, intent: str = "Onayı seal ve dosya listesine bağla.", extra: str = "") -> str:
+        return (
+            "## Neden\n\nOnay digest'i gerekli.\n\n"
+            "```yaml demir-kit\n"
+            'demir_kit_version: "2"\n'
+            "package_version: 4\n"
+            "epic: 292\n"
+            f"intent: {intent}\n"
+            "risk: {level: medium, reasons: [approval]}\n"
+            f"{extra}"
+            "```\n"
+        )
+
+    def test_digest_is_stable_for_same_input(self) -> None:
+        body = self.seal()
+        files = ["delivery/scripts/doctor.py", "delivery/scripts/guard.sh"]
+        self.assertEqual(
+            approvals.binding_digest(body, files),
+            approvals.binding_digest(body, list(reversed(files))),
+        )
+        self.assertRegex(approvals.binding_digest(body, files), approvals.BINDING_RE)
+
+    def test_digest_ignores_seal_formatting(self) -> None:
+        first = self.seal()
+        second = (
+            "```yaml demir-kit\n"
+            "risk: {reasons: [approval], level: medium}\n"
+            "epic: 292\n"
+            "package_version: 4\n"
+            'demir_kit_version: "2"\n'
+            "intent: Onayı seal ve dosya listesine bağla.\n"
+            "```\n"
+        )
+        self.assertEqual(
+            approvals.binding_digest(first, ["a.py"]),
+            approvals.binding_digest(second, ["a.py"]),
+        )
+
+    def test_digest_changes_with_body(self) -> None:
+        files = ["a.py"]
+        self.assertNotEqual(
+            approvals.binding_digest(self.seal(), files),
+            approvals.binding_digest(self.seal(intent="Değişti."), files),
+        )
+
+    def test_digest_changes_with_files(self) -> None:
+        body = self.seal()
+        self.assertNotEqual(
+            approvals.binding_digest(body, ["a.py"]),
+            approvals.binding_digest(body, ["a.py", "b.py"]),
+        )
+
+    def bound_comment(self, digest: str, issue: int = 333) -> dict:
+        body = (
+            "```yaml demir-kit-accept\n"
+            'demir_kit_version: "2"\n'
+            f"issue: {issue}\n"
+            "by: human\n"
+            "decision: accepted\n"
+            f"binding_sha256: {digest}\n"
+            "```\n"
+        )
+        return {
+            "body": body,
+            "user": {"login": "human"},
+            "author_association": "MEMBER",
+            "created_at": "2026-11-10T06:00:00Z",
+        }
+
+    def test_binding_matches(self) -> None:
+        body = self.seal()
+        files = ["a.py"]
+        digest = approvals.binding_digest(body, files)
+        result = approvals.approval_binding(
+            body, files, [self.bound_comment(digest)], 333
+        )
+        self.assertEqual(result["state"], "bound")
+        self.assertEqual(result["by"], "human")
+
+    def test_binding_mismatch_after_body_or_files_change(self) -> None:
+        body = self.seal()
+        digest = approvals.binding_digest(body, ["a.py"])
+        comment = self.bound_comment(digest)
+        self.assertEqual(
+            approvals.approval_binding(
+                self.seal(intent="Değişti."), ["a.py"], [comment], 333
+            )["state"],
+            "mismatch",
+        )
+        self.assertEqual(
+            approvals.approval_binding(body, ["a.py", "b.py"], [comment], 333)["state"],
+            "mismatch",
+        )
+
+    def test_binding_legacy_record_without_digest(self) -> None:
+        result = approvals.approval_binding(
+            self.seal(), ["a.py"], [issue_comment("human", "OWNER")], 48
+        )
+        self.assertEqual(result["state"], "legacy")
+
+    def test_binding_without_acceptance(self) -> None:
+        result = approvals.approval_binding(self.seal(), ["a.py"], [], 333)
+        self.assertEqual(result["state"], "none")
+
+
 class ApprovalContractTests(unittest.TestCase):
     def test_approval_contract_is_human_only(self) -> None:
         contract = (ROOT / "delivery" / "CONTRACT.md").read_text(encoding="utf-8")

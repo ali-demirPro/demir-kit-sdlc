@@ -33,6 +33,30 @@
     "commit": {
       "type": "string"
     },
+    "approval": {
+      "type": "object",
+      "description": "İnsan onayının seal + dosya listesi digest'i (geriye dönük uyum: opsiyonel).",
+      "additionalProperties": false,
+      "required": [
+        "binding_sha256",
+        "approved_at",
+        "approved_by"
+      ],
+      "properties": {
+        "binding_sha256": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "approved_at": {
+          "type": "string",
+          "minLength": 10
+        },
+        "approved_by": {
+          "type": "string",
+          "minLength": 2
+        }
+      }
+    },
     "behavior": {
       "type": "object",
       "additionalProperties": false,

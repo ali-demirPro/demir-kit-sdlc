@@ -21,6 +21,7 @@ import approvals as approvals_lib  # noqa: E402
 import capabilities as capabilities_lib  # noqa: E402
 import context_metrics  # noqa: E402
 import delivery_block  # noqa: E402
+import doctor_approval  # noqa: E402
 import doctor_compat  # noqa: E402
 import doctor_local  # noqa: E402
 import doctor_mcp  # noqa: E402
@@ -1340,6 +1341,8 @@ def check_issue(
     evidence_text = normalize_evidence_text(
         evidence_file.read_text(encoding="utf-8") if evidence_file else None
     )
+    for message in doctor_approval.check_issue_extras(number, body, comments, root=root):
+        error(message)
     if re.search(r"```yaml\s+demir-kit\s*\n", body):
         check_issue_body(
             body,
@@ -1820,9 +1823,7 @@ def main() -> int:
             evidence_file=args.evidence,
         )
     if args.body:
-        check_issue_body(
-            args.body.read_text(encoding="utf-8"), [], None, checkpoint=args.checkpoint
-        )
+        check_issue_body(args.body.read_text(encoding="utf-8"), [], None, checkpoint=args.checkpoint)
 
     for item in ERRORS:
         print(f"[fail] {item}")

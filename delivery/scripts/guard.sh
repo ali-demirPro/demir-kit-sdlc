@@ -113,7 +113,23 @@ if ! grep -qx 'agent-approved' <<< "$LABELS"; then
   exit 1
 fi
 
-RISK="$(gh issue view "$ISSUE" --repo "$REPO" --json body -q .body | python3 -c '
+TMP_DIR="$(mktemp -d)"
+trap 'rm -rf "$TMP_DIR"' EXIT
+gh issue view "$ISSUE" --repo "$REPO" --json body -q .body \
+  > "$TMP_DIR/body.md" 2>/dev/null || : > "$TMP_DIR/body.md"
+gh api "repos/${REPO}/issues/${ISSUE}/comments?per_page=100" --paginate \
+  > "$TMP_DIR/comments.json" 2>/dev/null || : > "$TMP_DIR/comments.json"
+
+if ! python3 "${KIT_ROOT}/delivery/scripts/approvals.py" check-binding \
+  --issue "$ISSUE" --root "$ROOT" --quiet \
+  --body-file "$TMP_DIR/body.md" --comments-file "$TMP_DIR/comments.json"; then
+  echo "guard: BLOCKED — onay digest'i uyuşmuyor (#${ISSUE})" >&2
+  echo "  Onaydan sonra issue gövdesi veya dosya listesi değişti." >&2
+  echo "  Yeniden onay al (demir-kit-accept + binding_sha256)." >&2
+  exit 1
+fi
+
+RISK="$(python3 -c '
 import re, sys, yaml
 body = sys.stdin.read()
 match = re.search(r"```yaml\s+demir-kit\s*\n(.*?)```", body, re.S)
@@ -124,7 +140,7 @@ try:
     print((data.get("risk") or {}).get("level", ""))
 except Exception:
     print("")
-')"
+' < "$TMP_DIR/body.md")"
 
 if [[ "$RISK_REQUIRED" == "critical" && "$RISK" != "high" && "$RISK" != "critical" ]]; then
   echo "guard: BLOCKED — registry critical glob'u, seal riski '${RISK:-yok}'" >&2
