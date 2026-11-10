@@ -29,11 +29,11 @@ mechanisms:
       hangisine hangi kanıtla" sorusu ancak insan okuyarak yanıtlanıyor; yeni
       geçiş eklendiğinde makinenin güncellendiğini denetleyen yok.
     statechart: >-
-      business/order/Order.tla: VARIABLES order, paid, pearls, remakes; Init;
+      business/order/Order.tla:3 VARIABLES order, paid, pearls, remakes; Init;
       YouOrder/YouPay/PearlsRunOut/BaristaStarts/MoneyBack/NumberCalled/
       WrongDrink/YouPickItUp/Done adlandırılmış guard'lı aksiyonlar; Next
-      disjunction; Spec == Init /\ [][Next]_vars. Order.cfg INVARIANT TypeOK,
-      PaidForEveryDrink, RefundsGiveMoneyBack.
+      disjunction; Order.tla:68 Spec == Init /\ [][Next]_vars; Order.cfg:2-4
+      INVARIANT TypeOK, PaidForEveryDrink, RefundsGiveMoneyBack.
     target: >-
       delivery/model/delivery.py; P7-2 (#355)
 
@@ -46,9 +46,10 @@ mechanisms:
       Init'ten tüm ulaşılabilir durumları gezen, durum tekrarını kıran ve sayan
       bir BFS yok. İhlal ancak ilgili script o an çalışırsa görülüyor.
     statechart: >-
-      README: TLC "takes every step from every state the model can reach and
-      checks each rule in each one". order/chart/report.md "TLC reached 13
-      states and 17 steps"; bug/chart/report.md "36 states and 90 steps".
+      README.md "How they are made": TLC "takes every step from every state the
+      model can reach and checks each rule in each one";
+      business/order/chart/report.md:3 "TLC reached 13 states and 17 steps";
+      business/bug/chart/report.md:3 "36 states and 90 steps".
     target: >-
       delivery/scripts/doctor.py --model + delivery/model/delivery.py; P7-3 (#356)
 
@@ -62,8 +63,9 @@ mechanisms:
       Invariant'lar her ulaşılabilir durumda predicate olarak denetlenmiyor;
       hangi invariant'ın hangi durumda kırıldığı raporlanmıyor.
     statechart: >-
-      Order.cfg ve Bug.cfg INVARIANT satırları; TLC her invariant'ı her
-      ulaşılabilir durumda kontrol eder, NoDeadlock'u ayrıca raporlar.
+      business/order/Order.cfg:2-4 ve business/bug/Bug.cfg:2-3 INVARIANT
+      satırları; TLC her invariant'ı her ulaşılabilir durumda kontrol eder,
+      NoDeadlock'u ayrıca raporlar.
     target: >-
       delivery/model/delivery.py + delivery/scripts/doctor.py; P7-2 (#355),
       P7-3 (#356)
@@ -76,9 +78,10 @@ mechanisms:
       En kısa ihlal yolu (BFS predecessor) ve adım adım aksiyon/durum listesi
       yok; insan izi kendi kuruyor.
     statechart: >-
-      business/bug/chart/report.md: "The shortest path has 6 steps" ve 0–6
+      business/bug/chart/report.md:6-7 "The shortest path has 6 steps" ve 0–6
       numaralı adımlar (just boiled → chewy → getting firm → too old → rush →
-      an old cup is served); chart.mmd bugPath class'ı yolu kırmızı çizer.
+      an old cup is served); business/bug/chart/chart.mmd bugPath class'ı yolu
+      kırmızı çizer.
     target: >-
       delivery/scripts/doctor.py --model; P7-3 (#356)
 
@@ -91,9 +94,10 @@ mechanisms:
       view.mjs gibi state(v)/step(action, from, to) katmanı yok; model
       değişince diyagramın güncellenip güncellenmediği ancak gözle anlaşılıyor.
     statechart: >-
-      business/order/view.mjs: state(v) = v.order, STEPS eşlemesi,
-      step(action); bug/view.mjs koşullu etiket ("a cup is served [in a
-      rush]"); report "does not draw 6 steps that stay in one chart state".
+      business/order/view.mjs:3,5,17 state(v) = v.order, STEPS eşlemesi,
+      step(action); business/bug/view.mjs:5,19-20 koşullu etiket ("a cup is
+      served [in a rush]"); business/order/chart/report.md:4 "does not draw 6
+      steps that stay in one chart state".
     target: >-
       delivery/model/view.py + delivery/CONTRACT.md; P7-4 (#357)
 
@@ -104,9 +108,9 @@ mechanisms:
     gap: >-
       Deterministik üretim ve commit'li artefaktla diff (drift) yok.
     statechart: >-
-      README: statechart "writes only to a new or empty folder, so give it a new
-      one and compare that with chart/"; layout.mmd config/direction korunarak
-      kopyalanır.
+      README.md "Make them again" son paragrafı: statechart "writes only to a
+      new or empty folder, so give it a new one and compare that with chart/";
+      layout.mmd config/direction korunarak kopyalanır.
     target: >-
       delivery/scripts/doctor.py --model --check + delivery/model/view.py;
       P7-4 (#357)
@@ -118,8 +122,9 @@ mechanisms:
     gap: >-
       Kasıtlı mutasyon + beklenen counterexample üreten iki yönlü test yok.
     statechart: >-
-      business/bug/Bug.tla bilinçli olarak NeverServeOldPearls'ı bozar; TLC
-      exit 1 verir; report ihlal yolunu ve kuralı yazar.
+      business/bug/Bug.tla:58 bilinçli olarak NeverServeOldPearls'ı bozar;
+      business/bug/Bug.cfg:3 INVARIANT; TLC exit 1 verir;
+      business/bug/chart/report.md:6 ihlal yolunu ve kuralı yazar.
     target: >-
       delivery/tests/test_model.py + doctor --mutate; P7-5 (#358)
 
@@ -131,13 +136,16 @@ mechanisms:
       Bileşik (epic/leaf/CP) ve paralel (ayrık depends_on) durum temsili yok;
       düz model bu ihlalleri kaçırır.
     statechart: >-
-      business/day/Day.tla tek phase değişkeninde üst durum;
-      business/counter/Counter.tla barista + pot iki bağımsız bölge ve
+      business/day/Day.tla:2 tek phase değişkeninde üst durum;
+      business/counter/Counter.tla:2,50 barista + pot iki bağımsız bölge ve
       NoDrinkWhileCooking bölgeler arası invariant.
     target: >-
       delivery/model/delivery.py; P7-2 (#355)
 
 mapping:
+  scope_note: >-
+    Seal AC-2 kapsamı I1–I19'dur. CONTRACT'taki I20–I24 out_of_scope olarak
+    listelenir; sessizce düşmez, ayrı bir leaf'te değerlendirilir.
   transitions:
     - {id: T1, from: intake, to: scope_confirmed, model: "triage tablosu + her KEEP issue'lu", status: modeled}
     - {id: T2, from: "intake/scope_confirmed", to: agent_approved, model: "seal şeması + AC↔tests_plan + binding digest + insan kabulü", status: modeled}
@@ -146,8 +154,14 @@ mapping:
     - {id: T5, from: executing, to: blocked, model: "escalation maddesi", status: modeled}
     - {id: T6, from: blocked, to: executing, model: "blocker çözüldü", status: modeled}
     - {id: T7, from: "agent_approved/executing", to: deferred, model: "insan kararı + defer issue", status: modeled}
-    - {id: T8, from: "leaf_done/deferred", to: closure, model: "tüm leaf'ler kapalı", status: modeled}
-    - {id: T9, from: "closure pass", to: epic_done, model: "rapor pass + child'lar kapalı + insan kabul + merge PR", status: modeled}
+    - {id: T8, from: "leaf_done/deferred", to: epic_reconcile, model: "closure fail; tüm leaf'ler kapalı", status: modeled}
+    - {id: T9, from: "epic_reconcile pass", to: epic_done, model: "rapor pass + child'lar kapalı + insan kabul + merge PR", status: modeled}
+    - {id: T10, from: epic_reconcile, to: agent_approved, model: "düzeltme leaf'i (CONTRACT mermaid)", status: modeled}
+  model_edges:
+    - {from: executing, to: executing, label: "CP döngüsü", status: modeled}
+    - {from: leaf_done, to: leaf_done, label: "sonraki leaf", status: modeled}
+    - {from: epic_done, to: "[*]", label: "terminal", status: modeled}
+    - {from: deferred, to: "[*]", label: "terminal", status: modeled}
   invariants:
     - {id: I1, class: modeled, model: "kaynak yazımı yalnız executing + agent-approved + digest/base ancestor"}
     - {id: I2, class: modeled, model: "leaf_done => evidence complete"}
@@ -162,12 +176,17 @@ mapping:
     - {id: I11, class: static, model: "tek worktree + tek branch + tek PR"}
     - {id: I12, class: static, model: "kaynak yalnız epic worktree'sinde"}
     - {id: I13, class: static, model: "rebase yok; yeni leaf öncesi origin/main merge"}
-    - {id: I14, class: modeled, model: "worker kaydı veya kayıtlı degrade"}
-    - {id: I15, class: modeled, model: "Orca canlı + GitHub kalıcı kayıt senkronu"}
-    - {id: I16, class: modeled, model: "Orca gate + human-qa + evidence gate kaydı"}
+    - {id: I14, class: static, model: "worker kaydı veya kayıtlı degrade; evidence alanı, model dışı"}
+    - {id: I15, class: static, model: "Orca canlı + GitHub kalıcı kayıt senkronu; runtime, model dışı"}
+    - {id: I16, class: static, model: "Orca gate + human-qa + evidence gate kaydı; runtime, model dışı"}
     - {id: I17, class: static, model: "worktree yalnız orca worktree create"}
     - {id: I18, class: static, model: "ürün kit'i yamalamaz; pin origin/main atası"}
     - {id: I19, class: modeled, model: "sealed leaf olmadan kaynak yok; kirli ağaç bloklar"}
+    - {id: I20, class: out_of_scope, model: "etiket geçişleri yalnız transition.sh; araç/CI"}
+    - {id: I21, class: out_of_scope, model: "capability seviyesi kanıtla; registry/doctor"}
+    - {id: I22, class: out_of_scope, model: "epic-done insan kabulü; T9 guard'ında ayrıca ele alınacak"}
+    - {id: I23, class: out_of_scope, model: "proje öncelikleri; politika/doctor"}
+    - {id: I24, class: out_of_scope, model: "rigor seviyesi; politika/doctor"}
 
 children:
   - slug: p7-1-analysis
@@ -181,10 +200,11 @@ children:
     target:
       - delivery/plans/P7.yaml
     ac:
-      - "Pinlenmiş commit sha'sı, okunan dosya listesi ve plan yolu epic yorumunda yazılı."
-      - "TLA+/TLC ve ulaşılabilirlik mekanizması .tla/.cfg ve view.mjs'den okundu; T1–T9 + I1–I19 eşlemesi yazıldı."
-      - "En az 4 çocuk issue açıldı; her biri niyet, kaba AC, risk, hedef dosya ve depends_on taşıyor."
-      - "delivery/plans/P7.yaml epic keep/children ile aynı; epic gövdesi güncellendi ve çocuklar intake."
+      - "AC-1: Pinlenmiş commit sha'sı, okunan dosya listesi ve plan yolu epic yorumunda yazılı."
+      - "AC-2: TLA+/TLC ve ulaşılabilirlik mekanizması .tla/.cfg ve view.mjs'den okundu; T1–T9 + I1–I19 eşlemesi yazıldı."
+      - "AC-3: En az 4 çocuk issue açıldı; her biri niyet, kaba AC, risk, hedef dosya ve depends_on taşıyor."
+      - "AC-4: delivery/plans/P7.yaml epic keep/children ile birebir aynı."
+      - "AC-5: Epic gövdesi güncellendi, çocuklar intake ve update.py yorumu atıldı."
 
   - slug: p7-2-state-model
     issue: 355
@@ -201,7 +221,8 @@ children:
       - delivery/CONTRACT.md
     ac:
       - "Dokuz durum ve T1–T9 geçişleri adlandırılmış guard'larla tanımlı; guard'lar CONTRACT tablosuyla birebir."
-      - "I1–I19'dan model-checkable olanlar predicate; dosya/CI tabanlılar static_only + gerekçeli."
+      - "T8 epic_reconcile'a gider; T10 (epic_reconcile→agent_approved) ve CP/leaf self-loop'ları CONTRACT mermaid'inden modele girer."
+      - "I1–I19'dan model-checkable olanlar predicate; dosya/CI tabanlılar static_only + gerekçeli; I20–I24 out_of_scope."
       - "Epic→leaf→CP bileşik durumu ve I7'nin ayrık depends_on istisnası temsil edilir; I8 no-op."
       - "`python3 -m unittest delivery.tests.test_model` exit 0; TLA+/TLC bağımlılığı yok."
 
