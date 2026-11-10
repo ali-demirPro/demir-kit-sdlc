@@ -31,6 +31,7 @@ import doctor_skills  # noqa: E402
 import doctor_version  # noqa: E402
 import epic_worktree  # noqa: E402
 import evidence as evidence_lib  # noqa: E402
+import doctor_evidence  # noqa: E402
 from schema_lite import validate_schema  # noqa: E402, F401
 import process_gate  # noqa: E402
 import profiles as profiles_lib  # noqa: E402
@@ -1092,6 +1093,8 @@ def check_issue_body(
                 error(f"evidence: cp_id '{record['cp_id']}' seal'de yok")
             evidence[record["cp_id"]] = record
 
+        doctor_evidence.report_evidence_tests(evidence, note)
+
         if evidence_text is not None:
             if not evidence:
                 error("evidence: kayıt bulunamadı")
@@ -1271,7 +1274,6 @@ def check_issue_body(
                 result = test.get("result")
                 if result != "pass" and result != "not_run":
                     error(f"{cp_id}: test '{test.get('case')}' pass değil")
-            report_not_run(cp_id, tests)
             if (
                 risk in {"high", "critical"}
                 and needs_platform
@@ -1598,24 +1600,6 @@ def kit_pin_status(root: Path, kit_path: Path) -> tuple[str, str]:
     if result.returncode == 1:
         return "unmerged", sha
     return "unverifiable", f"{sha[:7]} kit klonunda yok"
-
-
-def report_not_run(cp_id: str, tests) -> dict:
-    """Print each not-run row with its reason, then the run/not-run counts."""
-    for test in tests if isinstance(tests, list) else []:
-        if not isinstance(test, dict) or test.get("result") != "not_run":
-            continue
-        note(
-            f"{cp_id} not_run: {test.get('case')} — "
-            f"{test.get('note') or 'gerekçe yok'}"
-        )
-    summary = evidence_lib.summarize_tests(tests)
-    if summary["not_run"]:
-        note(
-            f"{cp_id}: {summary['ran']} koştu, "
-            f"{summary['not_run']} koşmadı"
-        )
-    return summary
 
 
 def check_product(root: Path) -> None:

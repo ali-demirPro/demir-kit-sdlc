@@ -57,24 +57,47 @@ class NotRunReportTests(unittest.TestCase):
         doctor.NOTES.clear()
 
     def test_not_run_rows_and_counts_are_printed(self) -> None:
-        summary = doctor.report_not_run(
+        summary = doctor.doctor_evidence.report_not_run(
             "CP-1",
             [
                 {"case": "T-1", "result": "pass"},
                 {"case": "T-2", "result": "not_run", "note": "araç PATH'te yok"},
             ],
+            doctor.note,
         )
         self.assertEqual(summary["not_run"], 1)
         self.assertIn("CP-1 not_run: T-2 — araç PATH'te yok", doctor.NOTES)
         self.assertIn("CP-1: 1 koştu, 1 koşmadı", doctor.NOTES)
 
     def test_not_run_without_reason_is_loud(self) -> None:
-        doctor.report_not_run("CP-2", [{"case": "T-9", "result": "not_run"}])
+        doctor.doctor_evidence.report_not_run(
+            "CP-2", [{"case": "T-9", "result": "not_run"}], doctor.note
+        )
         self.assertIn("CP-2 not_run: T-9 — gerekçe yok", doctor.NOTES)
 
     def test_clean_tests_leave_no_note(self) -> None:
-        doctor.report_not_run("CP-3", [{"case": "T-1", "result": "pass"}])
+        doctor.doctor_evidence.report_not_run(
+            "CP-3", [{"case": "T-1", "result": "pass"}], doctor.note
+        )
         self.assertEqual(doctor.NOTES, [])
+
+    def test_failed_record_still_reports_not_run(self) -> None:
+        # status: fail is the only valid home for not_run; the report must not
+        # depend on the status gate that rejects the record for closure.
+        doctor.doctor_evidence.report_evidence_tests(
+            {
+                "CP-1": {
+                    "status": "fail",
+                    "tests": [
+                        {"case": "T-1", "result": "pass"},
+                        {"case": "T-2", "result": "not_run", "note": "ağ yok"},
+                    ],
+                }
+            },
+            doctor.note,
+        )
+        self.assertIn("CP-1 not_run: T-2 — ağ yok", doctor.NOTES)
+        self.assertIn("CP-1: 1 koştu, 1 koşmadı", doctor.NOTES)
 
 
 if __name__ == "__main__":
