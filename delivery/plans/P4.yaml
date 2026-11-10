@@ -1,0 +1,151 @@
+source:
+  repo: https://github.com/eduwxyz/tucano
+  commit: 35db1c360e5178ee7daf6c8a635a79ae031fcf59
+  read_at: "2026-11-10"
+  plan: delivery/plans/P4.yaml
+  files:
+    - SECURITY.md
+    - docs/spec-mvp.md
+    - package.json
+    - src/core/policy.ts
+    - src/core/gateway.ts
+    - src/core/runs.ts
+    - src/core/computer.ts
+    - src/core/skills.ts
+    - src/shared/actions.ts
+    - src/shared/classify.ts
+
+mechanisms:
+  - name: grant-scope
+    ours: >-
+      `surfaces` yalnız rol/risk eşlemesi için; `guard.sh` yalnız
+      `factory.app_paths` ve registry risk glob'larına bakıyor. Bir capability
+      "şu domain" dese de domain dışına yazımı engelleyen glob yok; brief'in
+      path seçimi sinyale dayanıyor ama zorlama guard'da değil.
+    gap: >-
+      Ajan/rol × surface grant'inin ve `tools/list` eşdeğerinin karşılığı yok:
+      capability tanımı yazma sınırını taşımıyor, ihlal ancak insan fark ederse
+      yakalanıyor.
+    target: >-
+      delivery/capabilities/registry.yaml + delivery/schemas/capability.schema.json
+      + delivery/scripts/guard.sh; P4-3 (#334)
+
+  - name: approval-binding
+    ours: >-
+      Onay = `agent-approved` etiketi + `demir-kit-accept` yorumu; seal
+      gövdesinin veya diff'in digest'i yok. Onaydan sonra gövde değişse etiket
+      geçerli kalıyor; `evidence.commit` HEAD ile karşılaştırılmıyor.
+      `approvals.py` yalnız karar bloğunu okuyor.
+    gap: >-
+      Onay gösterilen şeye bağlı değil: "onaylanan çağrı aynen çalışır" ve
+      "çalıştırma anında yeniden kontrol" kurallarının karşılığı yok.
+    target: >-
+      delivery/schemas/evidence.schema.json + delivery/scripts/approvals.py
+      + delivery/scripts/doctor.py --issue + delivery/scripts/guard.sh
+      + delivery/scripts/evidence.py; P4-2 (#333)
+
+  - name: rejection-reason
+    ours: >-
+      `revise_required` / `rejected` bulguları evidence `findings` içinde
+      kalıyor; `brief.py` bunları okumuyor. Sonraki CP veya leaf brief'i temiz
+      başlıyor.
+    gap: >-
+      Ret gerekçesi sonraki turun görev metnine girmiyor; ajan aynı hatayı
+      tekrarlayabiliyor, karar/zaman/gerekçe geçmişi brief'e taşınmıyor.
+    target: >-
+      delivery/scripts/brief.py (+ gerekirse delivery/scripts/transition.py);
+      P4-4 (#335)
+
+  - name: skill-proposal
+    ours: >-
+      `learnings.py --harvest/--digest/--emit/--apply` var; beyaz listedeki
+      türler otomatik uygulanıyor. Taslak + issue önerisi, diff incelemesi ve
+      sürüm geçmişi yok.
+    gap: >-
+      Öğrenim doğrudan canlı skill'e yazılıyor; insan incelemesi, bekleyen
+      öneri sınırı ve geri dönüş yolu yok.
+    target: >-
+      delivery/scripts/learnings.py (+ skills/ taslak yolu); P4-5 (#336)
+
+children:
+  - slug: p4-1-analysis
+    issue: 293
+    title: "P4-1: derin analiz — eduwxyz/tucano"
+    intent: >-
+      eduwxyz/tucano deposunu pinlenmiş commit'te kod seviyesinde incele;
+      mekanizmaları hedef dosya, AC, risk ve CP'ye çevir; alt issue'ları aç.
+    risk: low
+    depends_on: []
+    ac:
+      - "Pinlenmiş commit sha'sı, okunan dosya listesi ve plan yolu epic yorumunda yazılı."
+      - "gateway'in araç-kısıtlama ve onay-kartı mekanizması SECURITY.md ile docs/spec-mvp.md'den okundu; evidence/guard ile farkı yazıldı."
+      - "En az 4 çocuk issue açıldı; her biri niyet, kaba AC, risk, hedef dosya ve depends_on taşıyor."
+      - "delivery/plans/P4.yaml dosyası var; epic gövdesindeki keep ve children ile birebir aynı."
+      - "Epic gövdesi güncellendi (defer→keep, children), çocuklar intake etiketli ve update.py yorumu atıldı."
+
+  - slug: p4-2-approval-binding
+    issue: 333
+    title: "P4-2 onay bağlama: evidence.approval.binding + doctor --issue geçersizleştirme"
+    intent: >-
+      Onayı issue gövdesi + değişen dosya listesinin digest'ine bağla; onaydan
+      sonra değişiklik olursa onayı geçersiz say ve evidence.commit'i HEAD ile
+      doğrula.
+    risk: medium
+    depends_on: []
+    ac:
+      - "Onay digest'i issue gövdesi + değişen dosya listesinden kanonik olarak üretilir ve `demir-kit-accept` bloğunda taşınır."
+      - "Onaydan sonra gövde ya da dosya listesi değişirse `doctor.py --issue` exit 1 verir; değişmediyse geçer."
+      - "`evidence.commit` HEAD'den farklıysa doctor hata verir; aynı commit geçer."
+      - "`guard.sh --issue` digest uyuşmazlığında kaynak yazımını reddeder; eşleşmede bugünkü davranış değişmez."
+
+  - slug: p4-3-role-path-allowlist
+    issue: 334
+    title: "P4-3 guard.sh rol-path allowlist (capability→glob)"
+    intent: >-
+      Capability'yi yazma sınırına çevir: surface → path glob allowlist'i
+      registry'de tanımla, guard.sh capability dışı yazımı G1 ihlali saysın.
+    risk: medium
+    depends_on: []
+    ac:
+      - "Her capability en az bir path glob taşır; şema eksik glob'u ve bilinmeyen surface'ı reddeder."
+      - "`guard.sh --issue` capability dışı dosya değişince exit non-zero verir ve hangi surface/glob olduğunu yazar."
+      - "Glob içi değişiklik geçer; `factory.app_paths` ve risk glob'ları eskisi gibi çalışır."
+      - "`doctor.sh --strict` 0 uyarı verir; registry'de tanımsız surface kalmaz."
+
+  - slug: p4-4-rejection-reason
+    issue: 335
+    title: "P4-4 ret gerekçesi → sonraki brief"
+    intent: >-
+      Son `revise_required`/`rejected` kaydını sonraki CP brief'ine taşı;
+      ajan ret gerekçesini görerek başlasın.
+    risk: low
+    depends_on: []
+    ac:
+      - "`brief.py` aynı issue'nun son ret kaydını bulur ve brief'e \"Önceki ret\" bölümü ekler; karar, zaman, gerekçe ve kaynak yazılıdır."
+      - "Ret kaydı yoksa bölüm çıkmaz; brief çıktısı bugünküyle aynı kalır."
+      - "Ret gerekçesi sonraki CP brief'inde görünür; `brief.py --json` aynı alanı taşır."
+      - "`./delivery/scripts/doctor.sh --strict` 0 uyarı verir."
+
+  - slug: p4-5-skill-proposal
+    issue: 336
+    title: "P4-5 learnings.py --propose (taslak skill + issue)"
+    intent: >-
+      Öğrenimi doğrudan uygulamak yerine taslak skill + diff + issue önerisi
+      üret; onaya kadar canlı skill değişmesin, önceki sürüm saklansın.
+    risk: low
+    depends_on: []
+    ac:
+      - "`learnings.py --propose` taslak skill + diff üretir; taslak `skills/` altında yalnız öneri olarak durur, canlı skill değişmez."
+      - "Onaylanmamış taslak için issue/PR önerisi üretilir; ajan başına bekleyen öneri 5 ile sınırlanır."
+      - "Onayda önceki sürüm saklanır ve geri dönüş mümkündür; reddedilen taslak silinir."
+      - "Mevcut `--apply` davranışı korunur; `./delivery/scripts/doctor.sh --strict` 0 uyarı verir."
+
+not_taking:
+  - "Masaüstü uygulama / Electron (package.json: electron-vite, react, electron-builder)"
+  - "Kanal UX'i, Telegram onayı ve bildirimler"
+  - "Kendi SQLite/depo katmanı"
+  - "Runtime MCP gateway, tool proxy ve OAuth akışı"
+  - "Docker/agent computer izolasyonu (computer.ts)"
+  - "Prompt-injection dış-içerik guard'ı (actions.ts `outside`)"
+  - "Model/engine yönetimi, bütçe ve token sayacı"
+  - "Repo kodunu kit'e kopyalamak"
