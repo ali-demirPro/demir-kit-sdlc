@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
-"""Sync a product repo's vendored demir-kit to the source kit version."""
+"""Sync a product repo's vendored demir-kit to the source kit version.
+
+The transfer path is ``--apply`` (copy + seal). ``--check`` verifies the
+vendored copy against its own ``KIT-MANIFEST.json`` without a source checkout;
+``--check-live`` keeps the older source-tree comparison for callers that do
+have the kit checkout.
+"""
 
 from __future__ import annotations
 
@@ -398,7 +404,12 @@ def main() -> int:
     parser.add_argument("--source", type=Path, default=ROOT)
     parser.add_argument("--target", type=Path, default=Path.cwd())
     parser.add_argument("--kit", type=Path, help="seal/check için kit kökü")
-    parser.add_argument("--check", action="store_true")
+    parser.add_argument("--check", action="store_true", help="offline manifest denetimi")
+    parser.add_argument(
+        "--check-live",
+        action="store_true",
+        help="kaynak kit ile hedef kopyayı canlı karşılaştır",
+    )
     parser.add_argument("--seal", action="store_true")
     parser.add_argument("--apply", action="store_true")
     parser.add_argument("--json", action="store_true")
@@ -407,6 +418,23 @@ def main() -> int:
     source = args.source.resolve()
     project = args.target.resolve()
     kit = resolve_kit(args, source, project)
+
+    if args.check_live:
+        try:
+            plan = build_plan(source, project)
+        except (ValueError, OSError) as exc:
+            sys.exit(f"vendor_sync: {exc}")
+        if args.json:
+            print(json.dumps(plan, ensure_ascii=False, indent=2))
+        else:
+            print(
+                f"source: {plan['source_version']} · target: "
+                f"{plan['target_version'] or 'yok'}"
+            )
+            for key in ("changed", "extra", "legacy"):
+                for value in plan.get(key) or []:
+                    print(f"{key}: {value}")
+        return 0 if plan["clean"] else 1
 
     if args.seal:
         try:

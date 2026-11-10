@@ -286,6 +286,35 @@ class KitManifestTests(unittest.TestCase):
                 any("allowlist dışı" in item for item in vendor_sync.validate_manifest(outside))
             )
 
+    def test_check_live_reports_source_drift(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "source"
+            product = Path(directory) / "product"
+            source.mkdir()
+            product.mkdir()
+            self.make_tree(source)
+            make_product(product)
+            command = [
+                sys.executable,
+                str(SCRIPTS / "vendor_sync.py"),
+                "--check-live",
+                "--source",
+                str(source),
+                "--target",
+                str(product),
+                "--json",
+            ]
+            drifted = subprocess.run(command, capture_output=True, text=True)
+            self.assertEqual(drifted.returncode, 1)
+            plan = json.loads(drifted.stdout)
+            self.assertFalse(plan["clean"])
+            self.assertIn("delivery/CONTRACT.md", plan["changed"])
+
+            vendor_sync.apply_plan(source, product)
+            clean = subprocess.run(command, capture_output=True, text=True)
+            self.assertEqual(clean.returncode, 0, clean.stderr)
+            self.assertTrue(json.loads(clean.stdout)["clean"])
+
     def test_check_cli_exit_codes(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
