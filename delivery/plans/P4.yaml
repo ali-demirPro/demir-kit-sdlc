@@ -70,7 +70,7 @@ mechanisms:
 children:
   - slug: p4-1-analysis
     issue: 293
-    title: "P4-1: derin analiz — eduwxyz/tucano"
+    title: "P4-1 derin analiz — eduwxyz/tucano"
     intent: >-
       eduwxyz/tucano deposunu pinlenmiş commit'te kod seviyesinde incele;
       mekanizmaları hedef dosya, AC, risk ve CP'ye çevir; alt issue'ları aç.
@@ -85,7 +85,7 @@ children:
 
   - slug: p4-2-approval-binding
     issue: 333
-    title: "P4-2 onay bağlama: evidence.approval.binding + doctor --issue geçersizleştirme"
+    title: "P4-2 evidence.approval.binding + doctor --issue geçersizleştirme"
     intent: >-
       Onayı issue gövdesi + değişen dosya listesinin digest'ine bağla; onaydan
       sonra değişiklik olursa onayı geçersiz say ve evidence.commit'i HEAD ile
