@@ -416,12 +416,12 @@ def validate(issue: dict, target: str, args) -> tuple[bool, str]:
             return False, "agent-approved için insan authored demir-kit-accept comment'i gerekli"
         binding = approvals.approval_binding(
             issue.get("body") or "",
-            approvals.changed_files(Path.cwd()),
             issue.get("comments") or [],
             issue.get("number") or 0,
+            Path.cwd(),
         )
         if binding.get("state") == "mismatch":
-            return False, "onay digest'i uyuşmuyor; seal/dosya listesi değişti, yeniden onay gerekli"
+            return False, "onay geçersiz; seal değişti veya taban commit HEAD'in atası değil, yeniden onay gerekli"
         if args.accept and str(args.accept) != acceptance["by"]:
             return False, f"--accept '{args.accept}' insan onayıyla eşleşmiyor"
     elif target == "executing":

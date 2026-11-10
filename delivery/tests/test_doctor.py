@@ -2122,9 +2122,16 @@ class RiskBaselineInvariantTest(unittest.TestCase):
 
 
 class ApprovalBindingTests(DoctorTestCase):
-    def run_issue(
-        self, body: str, comments: list[dict], files: list[str]
-    ) -> None:
+    def git(self, *args: str) -> str:
+        return subprocess.run(
+            ["git", *args],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+
+    def run_issue(self, body: str, comments: list[dict]) -> None:
         issue = {
             "body": body,
             "labels": [{"name": "agent-approved"}],
@@ -2136,12 +2143,10 @@ class ApprovalBindingTests(DoctorTestCase):
                 return json.dumps(comments)
             return json.dumps(issue)
 
-        with patch.object(doctor, "run", side_effect=fake_run), patch.object(
-            doctor.doctor_approval, "changed_files", return_value=files
-        ):
+        with patch.object(doctor, "run", side_effect=fake_run):
             doctor.check_issue(333, root=ROOT)
 
-    def accept(self, digest: str, issue: int = 333) -> dict:
+    def accept(self, digest: str, base: str, issue: int = 333) -> dict:
         body = (
             "```yaml demir-kit-accept\n"
             'demir_kit_version: "2"\n'
@@ -2149,6 +2154,7 @@ class ApprovalBindingTests(DoctorTestCase):
             "by: human\n"
             "decision: accepted\n"
             f"binding_sha256: {digest}\n"
+            f"binding_base: {base}\n"
             "```\n"
         )
         return {
@@ -2158,31 +2164,34 @@ class ApprovalBindingTests(DoctorTestCase):
             "created_at": "2026-11-10T06:00:00Z",
         }
 
-    def digest(self, body: str, files: list[str]) -> str:
-        return doctor.approvals_lib.binding_digest(body, files)
+    def digest(self, body: str, base: str) -> str:
+        return doctor.approvals_lib.binding_digest(body, base)
 
     def test_matching_digest_passes(self) -> None:
         body = fenced("demir-kit", leaf())
-        files = ["delivery/scripts/doctor.py"]
-        self.run_issue(body, [self.accept(self.digest(body, files))], files)
+        base = self.git("rev-parse", "HEAD")
+        self.run_issue(body, [self.accept(self.digest(body, base), base)])
+        self.assertFalse(any("onay geçersiz" in item for item in doctor.ERRORS))
+
+    def test_ancestor_base_passes_without_head_equality(self) -> None:
+        body = fenced("demir-kit", leaf())
+        base = self.git("rev-parse", "HEAD~1")
+        self.run_issue(body, [self.accept(self.digest(body, base), base)])
         self.assertFalse(any("onay geçersiz" in item for item in doctor.ERRORS))
 
     def test_changed_body_invalidates_approval(self) -> None:
         body = fenced("demir-kit", leaf())
-        files = ["delivery/scripts/doctor.py"]
-        stale = self.digest(fenced("demir-kit", leaf(intent="Başka bir niyet.")), files)
-        self.run_issue(body, [self.accept(stale)], files)
+        base = self.git("rev-parse", "HEAD")
+        stale = self.digest(fenced("demir-kit", leaf(intent="Başka bir niyet.")), base)
+        self.run_issue(body, [self.accept(stale, base)])
         self.assertTrue(any("onay geçersiz" in item for item in doctor.ERRORS))
 
-    def test_changed_file_list_invalidates_approval(self) -> None:
+    def test_base_not_ancestor_invalidates_approval(self) -> None:
         body = fenced("demir-kit", leaf())
-        stale = self.digest(body, ["delivery/scripts/doctor.py"])
-        self.run_issue(
-            body,
-            [self.accept(stale)],
-            ["delivery/scripts/doctor.py", "delivery/scripts/guard.sh"],
-        )
+        base = "deadbeef" * 5
+        self.run_issue(body, [self.accept(self.digest(body, base), base)])
         self.assertTrue(any("onay geçersiz" in item for item in doctor.ERRORS))
+        self.assertTrue(any("atası değil" in item for item in doctor.ERRORS))
 
     def test_legacy_approval_still_passes(self) -> None:
         body = fenced("demir-kit", leaf())
@@ -2198,7 +2207,7 @@ class ApprovalBindingTests(DoctorTestCase):
             "user": {"login": "human"},
             "author_association": "MEMBER",
         }
-        self.run_issue(body, [legacy], ["delivery/scripts/doctor.py"])
+        self.run_issue(body, [legacy])
         self.assertFalse(any("onay geçersiz" in item for item in doctor.ERRORS))
 
 
@@ -2245,16 +2254,32 @@ class EvidenceHeadTests(DoctorTestCase):
         ):
             doctor.check_issue(333, root=ROOT)
 
+    def orphan_commit(self) -> str:
+        tree = self.git("rev-parse", "HEAD^{tree}")
+        return subprocess.run(
+            ["git", "commit-tree", tree, "-m", "orphan evidence commit"],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+
     def test_evidence_commit_at_head_passes(self) -> None:
         self.run_record(self.git("rev-parse", "HEAD"))
         self.assertFalse(
             any("evidence.commit HEAD" in item for item in doctor.ERRORS)
         )
 
-    def test_evidence_commit_behind_head_fails(self) -> None:
+    def test_evidence_commit_behind_head_passes(self) -> None:
         self.run_record(self.git("rev-parse", "HEAD~1"))
-        self.assertTrue(
+        self.assertFalse(
             any("evidence.commit HEAD" in item for item in doctor.ERRORS)
+        )
+
+    def test_evidence_commit_not_ancestor_fails(self) -> None:
+        self.run_record(self.orphan_commit())
+        self.assertTrue(
+            any("evidence.commit HEAD'in atası değil" in item for item in doctor.ERRORS)
         )
 
     def test_approval_block_schema_is_optional_and_typed(self) -> None:
@@ -2266,6 +2291,15 @@ class EvidenceHeadTests(DoctorTestCase):
             }
         )
         self.assertEqual(doctor.validate_schema(record, EVIDENCE_SCHEMA), [])
+        with_base = evidence(
+            approval={
+                "binding_sha256": "sha256:" + "0" * 64,
+                "binding_base": "0123456",
+                "approved_at": "2026-11-10T06:00:00Z",
+                "approved_by": "human",
+            }
+        )
+        self.assertEqual(doctor.validate_schema(with_base, EVIDENCE_SCHEMA), [])
         self.assertTrue(
             doctor.validate_schema(
                 evidence(approval={"binding_sha256": "sha256:" + "0" * 64}),

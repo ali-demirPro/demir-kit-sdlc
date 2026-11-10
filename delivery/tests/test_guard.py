@@ -86,7 +86,15 @@ class GuardBindingTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.tmp.cleanup()
 
-    def accept(self, digest: str) -> dict:
+    def head(self) -> str:
+        return subprocess.run(
+            ["git", "-C", str(self.root), "rev-parse", "HEAD"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+
+    def accept(self, digest: str, base: str) -> dict:
         body = (
             "```yaml demir-kit-accept\n"
             'demir_kit_version: "2"\n'
@@ -94,6 +102,7 @@ class GuardBindingTests(unittest.TestCase):
             "by: human\n"
             "decision: accepted\n"
             f"binding_sha256: {digest}\n"
+            f"binding_base: {base}\n"
             "```\n"
         )
         return {
@@ -102,10 +111,12 @@ class GuardBindingTests(unittest.TestCase):
             "author_association": "MEMBER",
         }
 
-    def run_guard(self, digest: str | None) -> subprocess.CompletedProcess:
+    def run_guard(
+        self, digest: str | None, base: str | None = None
+    ) -> subprocess.CompletedProcess:
         suffix = []
         if digest is not None:
-            suffix = [self.accept(digest)]
+            suffix = [self.accept(digest, base or self.head())]
         self.comments_file.write_text(json.dumps(suffix), encoding="utf-8")
         write_gh(self.stub, self.body_file, self.comments_file)
         env = dict(os.environ)
@@ -127,8 +138,7 @@ class GuardBindingTests(unittest.TestCase):
         )
 
     def current_digest(self) -> str:
-        files = approvals.changed_files(self.root)
-        return approvals.binding_digest(BODY, files)
+        return approvals.binding_digest(BODY, self.head())
 
     def test_matching_digest_keeps_current_behaviour(self) -> None:
         result = self.run_guard(self.current_digest())
@@ -136,11 +146,20 @@ class GuardBindingTests(unittest.TestCase):
         self.assertIn("guard: OK", result.stdout)
 
     def test_mismatched_digest_blocks_source_write(self) -> None:
-        stale = approvals.binding_digest(BODY, ["src/nothing.ts"])
+        body = BODY.replace("Onay digest'i testi.", "Değişmiş seal.")
+        stale = approvals.binding_digest(body, self.head())
         result = self.run_guard(stale)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("BLOCKED", result.stderr)
         self.assertIn("digest", result.stderr)
+
+    def test_base_not_ancestor_blocks_source_write(self) -> None:
+        base = "deadbeef" * 5
+        stale = approvals.binding_digest(BODY, base)
+        result = self.run_guard(stale, base)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("BLOCKED", result.stderr)
+        self.assertIn("atası değil", result.stderr)
 
     def test_legacy_accept_without_digest_still_passes(self) -> None:
         result = self.run_guard(None)

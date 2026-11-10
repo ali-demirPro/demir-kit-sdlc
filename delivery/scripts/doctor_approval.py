@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
-"""Approval-binding and evidence-HEAD checks split from doctor.py.
+"""Approval-binding and evidence-ancestry checks split from doctor.py.
 
 `check_issue_extras` returns error strings for `doctor --issue`; the caller owns
 printing. Records without a `binding_sha256` stay valid (backward compatible).
+Evidence commits must be ancestors of HEAD, not equal to it, so a later
+checkpoint's commits do not invalidate an earlier checkpoint's evidence.
 """
 
 from __future__ import annotations
@@ -18,16 +20,10 @@ import evidence as evidence_lib
 EVIDENCE_RE = re.compile(r"```yaml\s+demir-kit-evidence\s*\n(.*?)```", re.S)
 
 
-def changed_files(root: Path) -> list[str]:
-    return approvals_lib.changed_files(root)
-
-
 def check_binding(
     number: int, body: str, comments: list[dict], root: Path
 ) -> list[str]:
-    result = approvals_lib.approval_binding(
-        body, changed_files(root), comments, number
-    )
+    result = approvals_lib.approval_binding(body, comments, number, root)
     if result.get("state") != "mismatch":
         return []
     return [
@@ -37,7 +33,8 @@ def check_binding(
 
 
 def evidence_head_errors(comments: list[dict], root: Path) -> list[str]:
-    """Evidence commits must match HEAD when the issue is validated."""
+    """Evidence commits must be ancestors of HEAD when the issue is validated."""
+    head = evidence_lib.head_commit(root)
     errors: list[str] = []
     for comment in comments:
         for raw in EVIDENCE_RE.findall(comment.get("body") or ""):
@@ -53,10 +50,10 @@ def evidence_head_errors(comments: list[dict], root: Path) -> list[str]:
             commit = str(verification.get("commit") or "")
             if not commit or not evidence_lib.resolve_commit(commit, root):
                 continue
-            if not evidence_lib.is_head(commit, root):
+            if not head or not evidence_lib.is_ancestor(commit, head, root):
                 cp_id = record.get("cp_id") or "evidence"
                 errors.append(
-                    f"{cp_id}: verification — evidence.commit HEAD ile aynı değil"
+                    f"{cp_id}: verification — evidence.commit HEAD'in atası değil"
                 )
     return errors
 

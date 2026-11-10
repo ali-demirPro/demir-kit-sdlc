@@ -3,13 +3,16 @@
 ## 2.64.0 — 2026-11-10
 
 - **Onay bağlama (Epic #292, #333)** — `demir-kit-accept` bloğu artık
-  `binding_sha256` taşır: seal gövdesi + sıralı değişen dosya listesinin
-  digest'i. Seal veya dosya listesi onaydan sonra değişirse `doctor --issue`
-  hata verir ve `guard.sh` kaynak yazımını reddeder; alanı taşımayan eski
-  kayıtlar geriye dönük geçerlidir.
-- `evidence.commit` HEAD ile karşılaştırılır; `evidence.schema.json` opsiyonel
-  `approval` bloğu (`binding_sha256`, `approved_at`, `approved_by`) kazandı.
-- T2 ve I1 sözleşme satırları digest bağını yazacak şekilde güncellendi.
+  `binding_sha256` + `binding_base` taşır: seal gövdesi + onay anındaki taban
+  commit'in digest'i. Seal onaydan sonra değişirse ya da taban commit HEAD'in
+  atası değilse `doctor --issue` hata verir ve `guard.sh` kaynak yazımını
+  reddeder; alanı taşımayan eski kayıtlar geriye dönük geçerlidir.
+- `evidence.commit` HEAD'in atası olmalıdır (eşitlik değil), böylece sonraki
+  CP commit'leri önceki kanıtı geçersiz kılmaz; `evidence.schema.json` opsiyonel
+  `approval` bloğu (`binding_sha256`, `binding_base`, `approved_at`,
+  `approved_by`) kazandı.
+- T2 ve I1 sözleşme satırları digest + taban commit bağını yazacak şekilde
+  güncellendi.
 
 ## 2.63.0 — 2026-11-09
 

@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Human approval parsing for epic/leaf gates.
 
-Approvals may carry a ``binding_sha256`` digest over the issue seal plus the
-changed-file list, so a body or diff edit after the fact invalidates the
-approval. Records without the field stay valid for backward compatibility.
+Approvals may carry a ``binding_sha256`` digest over the issue seal and the
+``binding_base`` commit the human approved against. A seal edited after the
+fact, or a base commit that is no longer an ancestor of HEAD, invalidates the
+approval. Records without the digest stay valid for backward compatibility.
 """
 
 from __future__ import annotations
@@ -22,6 +23,7 @@ ACCEPT_RE = re.compile(r"```yaml\s+demir-kit-accept\s*\n(.*?)```", re.S)
 SEAL_RE = re.compile(r"```yaml\s+demir-kit\s*\n(.*?)```", re.S)
 HUMAN_ASSOCIATIONS = {"OWNER", "MEMBER", "COLLABORATOR"}
 BINDING_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
+COMMIT_RE = re.compile(r"^[0-9a-f]{7,40}$")
 
 
 def login(comment: dict) -> str:
@@ -68,20 +70,10 @@ def _canonical_seal(body: str) -> str:
     return yaml.safe_dump(data, sort_keys=True, allow_unicode=True).strip()
 
 
-def normalize_files(files) -> list[str]:
-    """Sorted, deduplicated, slash-normalised file list."""
-    items = {
-        str(item).replace("\\", "/").strip()
-        for item in files or []
-        if str(item).strip()
-    }
-    return sorted(items)
-
-
-def binding_digest(body: str, files) -> str:
-    """Canonical sha256 over the issue seal and the changed-file list."""
+def binding_digest(body: str, base_commit: str) -> str:
+    """Canonical sha256 over the issue seal and the approved base commit."""
     payload = json.dumps(
-        {"body": _canonical_seal(body), "files": normalize_files(files)},
+        {"body": _canonical_seal(body), "base": str(base_commit or "").strip()},
         sort_keys=True,
         ensure_ascii=False,
         separators=(",", ":"),
@@ -102,29 +94,29 @@ def _git(args: list[str], root: Path) -> str | None:
     return result.stdout if result.returncode == 0 else None
 
 
-def _git_names(args: list[str], root: Path) -> list[str]:
-    raw = _git([*args, "-z"], root)
-    if raw is None:
-        return []
-    return [item.strip("\n") for item in raw.split("\0") if item.strip("\n")]
+def resolve_commit(value: str, root: Path) -> str | None:
+    result = _git(["rev-parse", "--verify", f"{value}^{{commit}}"], root)
+    return result.strip() if result else None
 
 
-def changed_files(root: Path | str = ".") -> list[str]:
-    """Union of branch, staged/worktree and untracked changes, sorted."""
-    root = Path(root)
-    base = _git(["merge-base", "origin/main", "HEAD"], root)
-    if base is None:
-        base = _git(["rev-list", "--max-parents=0", "-1", "HEAD"], root)
-    paths: set[str] = set()
-    if base:
-        paths.update(_git_names(["diff", "--name-only", f"{base.strip()}...HEAD"], root))
-    paths.update(_git_names(["diff", "--name-only", "HEAD"], root))
-    paths.update(_git_names(["ls-files", "--others", "--exclude-standard"], root))
-    return sorted(paths)
+def is_ancestor(commit: str, head: str, root: Path) -> bool:
+    """True when ``commit`` is an ancestor of (or equal to) ``head``."""
+    if not (COMMIT_RE.fullmatch(commit or "") and COMMIT_RE.fullmatch(head or "")):
+        return False
+    return _git(["merge-base", "--is-ancestor", commit, head], root) is not None
+
+
+def head_commit(root: Path) -> str | None:
+    return resolve_commit("HEAD", root)
 
 
 def _binding_of(block: dict) -> str:
     return str(block.get("binding_sha256") or "").strip()
+
+
+def _base_of(block: dict) -> str:
+    value = block.get("binding_base")
+    return "" if value is None else str(value).strip()
 
 
 def latest_human_decision(comments: list[dict], epic: int | str) -> dict | None:
@@ -155,6 +147,7 @@ def latest_human_decision(comments: list[dict], epic: int | str) -> dict | None:
             "comment_id": comment.get("id") or comment.get("url"),
             "body": comment.get("body"),
             "binding_sha256": _binding_of(block),
+            "binding_base": _base_of(block),
             "approved_at": comment.get("created_at") or comment.get("createdAt"),
         }
     return found
@@ -199,54 +192,75 @@ def human_acceptance_for(comments: list[dict], issue: int | str) -> dict | None:
             "comment_id": comment.get("id") or comment.get("url"),
             "body": comment.get("body"),
             "binding_sha256": _binding_of(block),
+            "binding_base": _base_of(block),
             "approved_at": comment.get("created_at") or comment.get("createdAt"),
         }
     return found if found and found.get("decision") == "accepted" else None
 
 
+def _mismatch(acceptance: dict, recorded: str, actual: str, detail: str) -> dict:
+    return {
+        "state": "mismatch",
+        "recorded": recorded,
+        "actual": actual,
+        "base": acceptance.get("binding_base"),
+        "by": acceptance.get("by"),
+        "approved_at": acceptance.get("approved_at"),
+        "detail": detail,
+    }
+
+
 def approval_binding(
     body: str,
-    files,
     comments: list[dict],
     issue: int | str,
+    root: Path | str = ".",
 ) -> dict:
-    """Compare the latest human acceptance digest with the current state.
+    """Compare the latest human acceptance with the current seal and HEAD.
 
     States: ``none`` (no human acceptance), ``legacy`` (record without a
-    digest), ``bound`` (digest matches) and ``mismatch`` (stale approval).
+    digest), ``bound`` (digest matches and the base commit is an ancestor of
+    HEAD) and ``mismatch`` (stale approval). Live changed files never enter the
+    comparison; only the seal and the approved base commit do.
     """
+    root = Path(root)
     acceptance = human_acceptance_for(comments, issue)
     if not acceptance:
         return {"state": "none", "detail": "insan kabulü yok"}
     recorded = str(acceptance.get("binding_sha256") or "")
     if not recorded:
         return {"state": "legacy", "detail": "digest taşımayan eski onay"}
+    base = str(acceptance.get("binding_base") or "").strip()
+    actual = binding_digest(body, base)
     if not BINDING_RE.fullmatch(recorded):
-        return {
-            "state": "mismatch",
-            "recorded": recorded,
-            "actual": binding_digest(body, files),
-            "by": acceptance.get("by"),
-            "approved_at": acceptance.get("approved_at"),
-            "detail": "onay digest'i sha256 biçiminde değil",
-        }
-    actual = binding_digest(body, files)
+        return _mismatch(
+            acceptance, recorded, actual, "onay digest'i sha256 biçiminde değil"
+        )
+    if not base:
+        return _mismatch(
+            acceptance, recorded, actual, "onay taban commit taşımıyor"
+        )
+    if not COMMIT_RE.fullmatch(base):
+        return _mismatch(
+            acceptance, recorded, actual, "onay taban commit'i sha biçiminde değil"
+        )
     if recorded != actual:
-        return {
-            "state": "mismatch",
-            "recorded": recorded,
-            "actual": actual,
-            "by": acceptance.get("by"),
-            "approved_at": acceptance.get("approved_at"),
-            "detail": "onay digest'i güncel seal + dosya listesiyle uyuşmuyor",
-        }
+        return _mismatch(
+            acceptance, recorded, actual, "onay digest'i güncel seal gövdesiyle uyuşmuyor"
+        )
+    head = head_commit(root)
+    if not head or not is_ancestor(base, head, root):
+        return _mismatch(
+            acceptance, recorded, actual, "onay taban commit'i HEAD'in atası değil"
+        )
     return {
         "state": "bound",
         "recorded": recorded,
         "actual": actual,
+        "base": base,
         "by": acceptance.get("by"),
         "approved_at": acceptance.get("approved_at"),
-        "detail": "onay digest'i güncel",
+        "detail": "onay digest'i ve taban commit güncel",
     }
 
 
@@ -274,10 +288,6 @@ def _load_comments(path: Path) -> list[dict]:
     return items
 
 
-def _read_lines(path: Path) -> list[str]:
-    return [line for line in path.read_text(encoding="utf-8").splitlines() if line]
-
-
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="approval binding digest")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -285,34 +295,26 @@ def main(argv: list[str] | None = None) -> int:
     digest_p = sub.add_parser("digest", help="print the binding digest")
     digest_p.add_argument("--body-file", type=Path, required=True)
     digest_p.add_argument("--root", type=Path, default=Path("."))
-    digest_p.add_argument("--files-file", type=Path)
+    digest_p.add_argument(
+        "--base", default="HEAD", help="onay anındaki taban commit (varsayılan HEAD)"
+    )
 
     check_p = sub.add_parser("check-binding", help="exit 1 on a stale approval")
     check_p.add_argument("--issue", type=int, required=True)
     check_p.add_argument("--body-file", type=Path, required=True)
     check_p.add_argument("--comments-file", type=Path, required=True)
     check_p.add_argument("--root", type=Path, default=Path("."))
-    check_p.add_argument("--files-file", type=Path)
     check_p.add_argument("--quiet", action="store_true")
 
     args = parser.parse_args(argv)
     if args.command == "digest":
-        files = (
-            _read_lines(args.files_file)
-            if args.files_file
-            else changed_files(args.root)
-        )
-        print(binding_digest(args.body_file.read_text(encoding="utf-8"), files))
+        base = resolve_commit(args.base, args.root) or args.base
+        print(binding_digest(args.body_file.read_text(encoding="utf-8"), base))
         return 0
 
     body = args.body_file.read_text(encoding="utf-8")
     comments = _load_comments(args.comments_file)
-    files = (
-        _read_lines(args.files_file)
-        if args.files_file
-        else changed_files(args.root)
-    )
-    result = approval_binding(body, files, comments, args.issue)
+    result = approval_binding(body, comments, args.issue, args.root)
     stale = result.get("state") == "mismatch"
     if not args.quiet or stale:
         print(json.dumps(result, ensure_ascii=False))

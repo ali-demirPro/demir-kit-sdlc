@@ -135,11 +135,12 @@ capability `risk_floor` seal riskinin altına inemez (`doctor`).
 ## Onay digest'i
 
 İnsan `demir-kit-accept` bloğu `binding_sha256` taşıyorsa digest seal gövdesi +
-değişen dosya listesinden kanonik olarak üretilir. Gövde ya da dosya listesi
-sonradan değişirse `doctor --issue` hata verir, `guard.sh --issue` G1 ihlaliyle
-kaynak yazımını reddeder. Alanı taşımayan eski onay kayıtları geçerli kalır
-(geriye dönük uyum). Evidence'daki `commit`, `doctor --issue` sırasında HEAD ile
-aynı olmalıdır; farklıysa kanıt bayattır.
+onay anındaki taban commit (`binding_base`) üzerinden kanonik olarak üretilir.
+Seal sonradan değişirse ya da taban commit HEAD'in atası değilse `doctor --issue`
+hata verir, `guard.sh --issue` G1 ihlaliyle kaynak yazımını reddeder. Alanı
+taşımayan eski onay kayıtları geçerli kalır (geriye dönük uyum). Evidence'daki
+`commit`, `doctor --issue` sırasında HEAD'in atası olmalıdır; değilse kanıt
+bayattır. Eşitlik gerekmez: sonraki CP commit'leri önceki kanıtı geçersiz kılmaz.
 
 ## Bağımsızlık
 

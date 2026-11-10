@@ -50,7 +50,7 @@ stateDiagram-v2
 | # | From | To | Kim | Guard | Kanıt | Etiket |
 |---|------|----|-----|-------|-------|--------|
 | T1 | `intake` | `scope-confirmed` | orchestrator | KEEP/DEFER/CUT tablosu + child listesi | epic comment | `+scope-confirmed` |
-| T2 | `intake` / `scope-confirmed` | `agent-approved` | insan | leaf şeması geçerli, AC ↔ tests_plan tam, `binding_sha256` seal + dosya listesi digest'i | insan authored demir-kit-accept | `+agent-approved` |
+| T2 | `intake` / `scope-confirmed` | `agent-approved` | insan | leaf şeması geçerli, AC ↔ tests_plan tam, `binding_sha256` seal + taban commit (`binding_base`) digest'i | insan authored demir-kit-accept | `+agent-approved` |
 | T3 | `agent-approved` | `executing` | coordinator | health-check `ready`, bağımlılıklar kapalı, claim | run comment | `+executing` |
 | T4 | `executing` | `leaf-done` | coordinator | tüm CP evidence + risk gate'leri | evidence comment'leri | `+leaf-done -executing` |
 | T5 | `executing` | `blocked` | coordinator | `policies/escalation.md` maddesi | blocker comment | `+blocked` |
@@ -62,9 +62,11 @@ stateDiagram-v2
 Kurallar:
 
 - T3–T6 otomatiktir; T2 ve T7, T9 insan ister. T2 leaf parent epic `scope-confirmed` ise `intake`tan da mühürlenebilir.
-- T2 kabulü `binding_sha256` taşıyorsa seal gövdesi veya değişen dosya listesi
-  sonradan değişirse onay geçersizdir; `doctor --issue` hata verir, `guard.sh`
-  kaynak yazımını reddeder. Alanı taşımayan eski kayıtlar geriye dönük geçerlidir.
+- T2 kabulü `binding_sha256` taşıyorsa digest seal gövdesi + onay anındaki
+  taban commit (`binding_base`) üzerinden üretilir. Seal sonradan değişirse ya
+  da taban commit HEAD'in atası değilse onay geçersizdir; `doctor --issue` hata
+  verir, `guard.sh` kaynak yazımını reddeder. Alanı taşımayan eski kayıtlar
+  geriye dönük geçerlidir.
 - T4, evidence şeması geçerli değilse **imkânsızdır** (`doctor.sh --issue N`).
 - T9, closure `status: pass` değilse, açık child varsa veya kabul bloğu insan
   tarafından yazılmadıysa yasaktır; "epic bitti" demek contract ihlalidir.
@@ -129,7 +131,7 @@ otomatik yükselir; agent düşüremez. Ayrıntı: `policies/quality-gates.md`.
 
 | # | Kural |
 |---|-------|
-| I1 | `agent-approved` olmadan uygulama kaynağı değişmez (`scripts/guard.sh`); onay digest'i güncel seal + dosya listesiyle eşleşmelidir. |
+| I1 | `agent-approved` olmadan uygulama kaynağı değişmez (`scripts/guard.sh`); onay digest'i güncel seal + taban commit ile eşleşmeli, taban commit HEAD'in atası olmalıdır. |
 | I2 | Evidence şeması dolmadan `leaf-done` yok. |
 | I3 | Closure `pass` olmadan `epic-done` yok. |
 | I4 | Uygulayan onaylayamaz; reviewer temiz context'te çalışır. |

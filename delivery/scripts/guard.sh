@@ -124,8 +124,8 @@ if ! python3 "${KIT_ROOT}/delivery/scripts/approvals.py" check-binding \
   --issue "$ISSUE" --root "$ROOT" --quiet \
   --body-file "$TMP_DIR/body.md" --comments-file "$TMP_DIR/comments.json"; then
   echo "guard: BLOCKED — onay digest'i uyuşmuyor (#${ISSUE})" >&2
-  echo "  Onaydan sonra issue gövdesi veya dosya listesi değişti." >&2
-  echo "  Yeniden onay al (demir-kit-accept + binding_sha256)." >&2
+  echo "  Onaydan sonra seal gövdesi değişti veya taban commit HEAD'in atası değil." >&2
+  echo "  Yeniden onay al (demir-kit-accept + binding_sha256 + binding_base)." >&2
   exit 1
 fi
 

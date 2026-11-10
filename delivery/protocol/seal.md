@@ -43,17 +43,19 @@ issue: 260
 by: <login>
 decision: accepted
 binding_sha256: sha256:<64 hex>
+binding_base: <onay anındaki HEAD sha>
 ```
 
-`binding_sha256` seal bloğu + değişen dosya listesinin kanonik digest'idir:
+`binding_sha256` seal bloğu + taban commit'in kanonik digest'idir:
 
 ```bash
-python3 delivery/scripts/approvals.py digest --body-file /tmp/leaf.md
+BASE="$(git rev-parse HEAD)"
+python3 delivery/scripts/approvals.py digest --body-file /tmp/leaf.md --base "$BASE"
 ```
 
-Onaydan sonra seal gövdesi veya dosya listesi değişirse `doctor --issue` hata
-verir; `guard.sh --issue` kaynak yazımını reddeder. Alanı taşımayan eski
-kayıtlar geriye dönük geçerlidir.
+Onaydan sonra seal gövdesi değişirse ya da taban commit HEAD'in atası değilse
+`doctor --issue` hata verir; `guard.sh --issue` kaynak yazımını reddeder. Alanı
+taşımayan eski kayıtlar geriye dönük geçerlidir.
 
 7. Sıradaki adım: [health-check.md](health-check.md).
 

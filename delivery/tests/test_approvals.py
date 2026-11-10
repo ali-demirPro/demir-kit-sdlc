@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import subprocess
 import sys
 import unittest
 from pathlib import Path
@@ -138,8 +139,18 @@ class ApprovalTests(unittest.TestCase):
         )
 
 
+def git_head(rev: str = "HEAD") -> str:
+    return subprocess.run(
+        ["git", "rev-parse", rev],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+
+
 class BindingDigestTests(unittest.TestCase):
-    def seal(self, intent: str = "Onayı seal ve dosya listesine bağla.", extra: str = "") -> str:
+    def seal(self, intent: str = "Onayı seal ve taban commit'e bağla.", extra: str = "") -> str:
         return (
             "## Neden\n\nOnay digest'i gerekli.\n\n"
             "```yaml demir-kit\n"
@@ -154,12 +165,12 @@ class BindingDigestTests(unittest.TestCase):
 
     def test_digest_is_stable_for_same_input(self) -> None:
         body = self.seal()
-        files = ["delivery/scripts/doctor.py", "delivery/scripts/guard.sh"]
+        base = git_head("HEAD~1")
         self.assertEqual(
-            approvals.binding_digest(body, files),
-            approvals.binding_digest(body, list(reversed(files))),
+            approvals.binding_digest(body, base),
+            approvals.binding_digest(body, base),
         )
-        self.assertRegex(approvals.binding_digest(body, files), approvals.BINDING_RE)
+        self.assertRegex(approvals.binding_digest(body, base), approvals.BINDING_RE)
 
     def test_digest_ignores_seal_formatting(self) -> None:
         first = self.seal()
@@ -169,29 +180,30 @@ class BindingDigestTests(unittest.TestCase):
             "epic: 292\n"
             "package_version: 4\n"
             'demir_kit_version: "2"\n'
-            "intent: Onayı seal ve dosya listesine bağla.\n"
+            "intent: Onayı seal ve taban commit'e bağla.\n"
             "```\n"
         )
+        base = git_head()
         self.assertEqual(
-            approvals.binding_digest(first, ["a.py"]),
-            approvals.binding_digest(second, ["a.py"]),
+            approvals.binding_digest(first, base),
+            approvals.binding_digest(second, base),
         )
 
     def test_digest_changes_with_body(self) -> None:
-        files = ["a.py"]
+        base = git_head()
         self.assertNotEqual(
-            approvals.binding_digest(self.seal(), files),
-            approvals.binding_digest(self.seal(intent="Değişti."), files),
+            approvals.binding_digest(self.seal(), base),
+            approvals.binding_digest(self.seal(intent="Değişti."), base),
         )
 
-    def test_digest_changes_with_files(self) -> None:
+    def test_digest_changes_with_base(self) -> None:
         body = self.seal()
         self.assertNotEqual(
-            approvals.binding_digest(body, ["a.py"]),
-            approvals.binding_digest(body, ["a.py", "b.py"]),
+            approvals.binding_digest(body, git_head("HEAD~1")),
+            approvals.binding_digest(body, git_head()),
         )
 
-    def bound_comment(self, digest: str, issue: int = 333) -> dict:
+    def bound_comment(self, digest: str, base: str, issue: int = 333) -> dict:
         body = (
             "```yaml demir-kit-accept\n"
             'demir_kit_version: "2"\n'
@@ -199,6 +211,7 @@ class BindingDigestTests(unittest.TestCase):
             "by: human\n"
             "decision: accepted\n"
             f"binding_sha256: {digest}\n"
+            f"binding_base: {base}\n"
             "```\n"
         )
         return {
@@ -208,39 +221,67 @@ class BindingDigestTests(unittest.TestCase):
             "created_at": "2026-11-10T06:00:00Z",
         }
 
-    def test_binding_matches(self) -> None:
+    def test_binding_matches_when_base_is_an_ancestor_not_head(self) -> None:
         body = self.seal()
-        files = ["a.py"]
-        digest = approvals.binding_digest(body, files)
+        base = git_head("HEAD~1")
+        digest = approvals.binding_digest(body, base)
         result = approvals.approval_binding(
-            body, files, [self.bound_comment(digest)], 333
+            body, [self.bound_comment(digest, base)], 333, ROOT
         )
         self.assertEqual(result["state"], "bound")
         self.assertEqual(result["by"], "human")
+        self.assertEqual(result["base"], base)
 
-    def test_binding_mismatch_after_body_or_files_change(self) -> None:
+    def test_binding_mismatch_after_body_change(self) -> None:
         body = self.seal()
-        digest = approvals.binding_digest(body, ["a.py"])
-        comment = self.bound_comment(digest)
+        base = git_head()
+        digest = approvals.binding_digest(body, base)
+        comment = self.bound_comment(digest, base)
         self.assertEqual(
             approvals.approval_binding(
-                self.seal(intent="Değişti."), ["a.py"], [comment], 333
+                self.seal(intent="Değişti."), [comment], 333, ROOT
             )["state"],
             "mismatch",
         )
-        self.assertEqual(
-            approvals.approval_binding(body, ["a.py", "b.py"], [comment], 333)["state"],
-            "mismatch",
+
+    def test_binding_mismatch_when_base_is_not_ancestor(self) -> None:
+        body = self.seal()
+        base = "deadbeef" * 5
+        digest = approvals.binding_digest(body, base)
+        result = approvals.approval_binding(
+            body, [self.bound_comment(digest, base)], 333, ROOT
         )
+        self.assertEqual(result["state"], "mismatch")
+        self.assertIn("atası değil", result["detail"])
+
+    def test_binding_mismatch_without_base(self) -> None:
+        body = self.seal()
+        digest = approvals.binding_digest(body, "")
+        comment = {
+            "body": (
+                "```yaml demir-kit-accept\n"
+                'demir_kit_version: "2"\n'
+                "issue: 333\n"
+                "by: human\n"
+                "decision: accepted\n"
+                f"binding_sha256: {digest}\n"
+                "```\n"
+            ),
+            "user": {"login": "human"},
+            "author_association": "MEMBER",
+        }
+        result = approvals.approval_binding(body, [comment], 333, ROOT)
+        self.assertEqual(result["state"], "mismatch")
+        self.assertIn("taban commit", result["detail"])
 
     def test_binding_legacy_record_without_digest(self) -> None:
         result = approvals.approval_binding(
-            self.seal(), ["a.py"], [issue_comment("human", "OWNER")], 48
+            self.seal(), [issue_comment("human", "OWNER")], 48, ROOT
         )
         self.assertEqual(result["state"], "legacy")
 
     def test_binding_without_acceptance(self) -> None:
-        result = approvals.approval_binding(self.seal(), ["a.py"], [], 333)
+        result = approvals.approval_binding(self.seal(), [], 333, ROOT)
         self.assertEqual(result["state"], "none")
 
 

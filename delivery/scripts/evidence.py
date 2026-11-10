@@ -69,13 +69,6 @@ def head_commit(root: Path = ROOT) -> str | None:
     return resolve_commit("HEAD", root)
 
 
-def is_head(commit: str, root: Path = ROOT) -> bool:
-    """True when ``commit`` resolves to the checkout's HEAD."""
-    resolved = resolve_commit(commit, root)
-    head = head_commit(root)
-    return bool(resolved and head and resolved == head)
-
-
 def diff_hash(commit: str, root: Path = ROOT) -> str | None:
     """Hash the binary diff of a commit; root commits use `git show`."""
     result = git(["diff", "--binary", f"{commit}^", commit], root)
