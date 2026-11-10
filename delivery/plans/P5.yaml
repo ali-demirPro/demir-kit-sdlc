@@ -52,8 +52,10 @@ mechanisms:
       commit'ten, hangi araçla ve ne zaman üretildiği yazılı değil.
       `vendor_sync --apply` dosyaları kopyalar ama kaynak commit'i kaydetmez.
     gap: >-
-      Manifestte `source_commit`, `generated_at` ve üretici kimliği yok; iki
-      farklı kit kopyasının aynı sürümden geldiği kanıtlanamıyor.
+      Manifestte `source_commit` ve deterministik üretici sürümü
+      (`generator_version`) yok; iki farklı kit kopyasının aynı sürümden
+      geldiği kanıtlanamıyor. Zaman damgası bilinçli olarak yok: yeniden
+      mühürleme bayt-aynı olmalı (P5-2 AC-1).
     reference: >-
       asm `release.json` sürüm + digest + yayın zamanı taşır; registry-v2
       sınırlı yayın kayıtlarını imzayla bağlar (`docs/specs/registry-v2.md`,
