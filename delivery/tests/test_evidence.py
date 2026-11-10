@@ -453,5 +453,68 @@ class EvidenceTests(unittest.TestCase):
         self.assertTrue(any("unchanged" in item for item in errors), errors)
 
 
+class EvidenceNotRunSchemaTests(unittest.TestCase):
+    def setUp(self) -> None:
+        import schema_lite
+
+        self.schema_lite = schema_lite
+        source = json.loads(
+            (ROOT / "delivery" / "schemas" / "evidence.schema.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        self.schema = source
+
+    def record(self, result: str = "pass", note: str | None = None, status: str = "pass"):
+        test = {"case": "T-1", "result": result}
+        if note is not None:
+            test["note"] = note
+        return {
+            "demir_kit_version": "2",
+            "cp_id": "CP-1",
+            "issue": 1,
+            "behavior": {"command": "true", "exit_code": 0},
+            "reviews": {},
+            "tests": [test],
+            "status": status,
+        }
+
+    def errors(self, record: dict) -> list[str]:
+        return self.schema_lite.validate_schema(record, self.schema)
+
+    def test_not_run_with_note_is_valid(self) -> None:
+        self.assertEqual(self.errors(self.record("not_run", "araç yok", "fail")), [])
+
+    def test_not_run_without_note_is_rejected(self) -> None:
+        self.assertTrue(self.errors(self.record("not_run", None, "fail")))
+
+    def test_status_pass_cannot_carry_not_run(self) -> None:
+        self.assertTrue(self.errors(self.record("not_run", "araç yok", "pass")))
+
+    def test_legacy_skip_record_stays_valid_without_not_run(self) -> None:
+        self.assertEqual(self.errors(self.record("skip", "legacy", "fail")), [])
+
+    def test_waived_finding_requires_reason(self) -> None:
+        record = self.record()
+        record["findings"] = [{"id": "F-1", "status": "waived"}]
+        self.assertTrue(self.errors(record))
+        record["findings"][0]["note"] = "kabul edildi"
+        self.assertEqual(self.errors(record), [])
+
+    def test_summary_counts_ran_and_not_run(self) -> None:
+        summary = evidence.summarize_tests(
+            [
+                {"case": "T-1", "result": "pass"},
+                {"case": "T-2", "result": "not_run", "note": "araç yok"},
+                {"case": "T-3", "result": "skip"},
+                {"case": "T-4", "result": "fail"},
+            ]
+        )
+        self.assertEqual(summary["ran"], 2)
+        self.assertEqual(summary["not_run"], 1)
+        self.assertEqual(summary["skipped"], 1)
+        self.assertEqual(summary["not_run_rows"], [{"case": "T-2", "note": "araç yok"}])
+
+
 if __name__ == "__main__":
     unittest.main()

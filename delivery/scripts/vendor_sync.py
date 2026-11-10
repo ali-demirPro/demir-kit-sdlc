@@ -1,21 +1,34 @@
 #!/usr/bin/env python3
-"""Sync a product repo's vendored demir-kit to the source kit version."""
+"""Sync a product repo's vendored demir-kit to the source kit version.
+
+The transfer path is ``--apply`` (copy + seal). ``--check`` verifies the
+vendored copy against its own ``KIT-MANIFEST.json`` without a source checkout;
+``--check-live`` keeps the older source-tree comparison for callers that do
+have the kit checkout.
+"""
 
 from __future__ import annotations
 
 import argparse
 import hashlib
 import json
+import os
 import re
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 
 import yaml
 
+import schema_lite
+
 ROOT = Path(__file__).resolve().parents[2]
 ALLOW_DIRS = ("delivery", "skills")
 ALLOW_FILES = ("install.sh", "VERSION", "CHANGELOG.md", "README.md", ".gitignore")
+MANIFEST_NAME = "KIT-MANIFEST.json"
+MANIFEST_SCHEMA = ROOT / "delivery" / "schemas" / "kit_manifest.schema.json"
+GENERATOR_VERSION = 1
 LEGACY = (
     "references",
     "orchestration",
@@ -56,6 +69,189 @@ def source_version(source: Path) -> str:
 
 def digest(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _allowed_relative(path: str) -> bool:
+    """True when ``path`` belongs to the vendor_sync allowlist."""
+    candidate = Path(path)
+    if candidate.is_absolute() or ".." in candidate.parts:
+        return False
+    parts = candidate.parts
+    if not parts:
+        return False
+    if path in ALLOW_FILES:
+        return True
+    top = parts[0]
+    if top not in ALLOW_DIRS:
+        return False
+    if any(part == "__pycache__" for part in parts) or path.endswith(".pyc"):
+        return False
+    if top == "delivery" and len(parts) > 1 and parts[1] == "tests":
+        return False
+    return True
+
+
+def snapshot(root: Path) -> dict[str, dict]:
+    """Every allowlisted file with its digest and byte length."""
+    snapshot: dict[str, dict] = {}
+    for path in file_map(root):
+        full = root / path
+        data = full.read_bytes()
+        snapshot[path] = {
+            "sha256": hashlib.sha256(data).hexdigest(),
+            "bytes": len(data),
+        }
+    return snapshot
+
+
+def source_commit(root: Path) -> str:
+    """Kit source commit when ``root`` is its own git checkout, else 'unknown'."""
+    override = os.environ.get("DEMIR_KIT_SOURCE_COMMIT")
+    if override:
+        return override.strip()
+    def git(*args: str) -> str:
+        result = subprocess.run(
+            ["git", "-C", str(root), *args],
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
+        )
+        return result.stdout.strip() if result.returncode == 0 else ""
+
+    try:
+        toplevel = git("rev-parse", "--show-toplevel")
+        commit = git("rev-parse", "HEAD")
+    except (OSError, subprocess.SubprocessError):
+        return "unknown"
+    if not toplevel or not commit:
+        return "unknown"
+    try:
+        inside = Path(toplevel).resolve() == Path(root).resolve()
+    except OSError:
+        return "unknown"
+    return commit if inside else "unknown"
+
+
+def manifest_payload(root: Path, commit: str | None = None) -> dict:
+    """Deterministic manifest payload for one kit tree."""
+    version_path = root / "VERSION"
+    if not version_path.is_file():
+        raise ValueError("kaynak VERSION yok")
+    files = [
+        {"path": path, "sha256": item["sha256"], "bytes": item["bytes"]}
+        for path, item in sorted(snapshot(root).items())
+    ]
+    if not files:
+        raise ValueError("manifest için allowlist dosyası yok")
+    return {
+        "demir_kit_version": "2",
+        "schema_version": 1,
+        "version": version_path.read_text(encoding="utf-8").strip(),
+        "source_commit": commit or source_commit(root),
+        "generator_version": GENERATOR_VERSION,
+        "files": files,
+    }
+
+
+def seal(root: Path, commit: str | None = None) -> dict:
+    """Write KIT-MANIFEST.json; the same tree produces the same bytes."""
+    payload = manifest_payload(root, commit=commit)
+    path = root / MANIFEST_NAME
+    path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    return payload
+
+
+def validate_manifest(data: dict) -> list[str]:
+    """Schema and scope checks for a manifest payload."""
+    errors: list[str] = []
+    if not isinstance(data, dict):
+        return ["manifest kök mapping değil"]
+    try:
+        schema = json.loads(MANIFEST_SCHEMA.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return [f"kit manifest şeması okunamadı: {exc}"]
+    errors += schema_lite.validate_schema(data, schema)
+    files = data.get("files") or []
+    if isinstance(files, list):
+        paths = [item.get("path") for item in files if isinstance(item, dict)]
+        duplicates = sorted(
+            {str(path) for path in paths if paths.count(path) > 1}
+        )
+        for path in duplicates:
+            errors.append(f"tekrarlı yol: {path}")
+        if paths != sorted(str(path) for path in paths):
+            errors.append("dosya yolları sıralı değil")
+        for path in paths:
+            if not isinstance(path, str) or not _allowed_relative(path):
+                errors.append(f"allowlist dışı yol: {path}")
+    return errors
+
+
+def load_manifest(root: Path) -> tuple[dict | None, list[str]]:
+    path = root / MANIFEST_NAME
+    if not path.is_file():
+        return None, [f"{MANIFEST_NAME} yok"]
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return None, [f"{MANIFEST_NAME} okunamadı: {exc}"]
+    return data, validate_manifest(data)
+
+
+def check_manifest(root: Path) -> dict:
+    """Offline integrity check: manifest plus local files, no source checkout."""
+    data, errors = load_manifest(root)
+    result = {
+        "manifest": str(root / MANIFEST_NAME),
+        "files": len((data or {}).get("files") or []) if isinstance(data, dict) else 0,
+        "missing": [],
+        "extra": [],
+        "changed": [],
+        "errors": errors,
+    }
+    if data is None:
+        return {
+            **result,
+            "status": "not_run",
+            "reason": (
+                f"{MANIFEST_NAME} yok — 'vendor_sync.py --seal' ile üret"
+            ),
+        }
+    if errors:
+        return {**result, "status": "invalid", "reason": "manifest geçersiz"}
+    expected = {
+        str(item.get("path")): item
+        for item in data.get("files") or []
+        if isinstance(item, dict)
+    }
+    actual = snapshot(root)
+    result["missing"] = sorted(set(expected) - set(actual))
+    result["extra"] = sorted(set(actual) - set(expected))
+    changed = []
+    for path in sorted(set(expected) & set(actual)):
+        expected_bytes = int(expected[path].get("bytes", -1))
+        if (
+            str(expected[path].get("sha256")) != actual[path]["sha256"]
+            or expected_bytes != actual[path]["bytes"]
+        ):
+            changed.append(
+                {
+                    "path": path,
+                    "expected": str(expected[path].get("sha256")),
+                    "actual": actual[path]["sha256"],
+                    "expected_bytes": expected_bytes,
+                    "actual_bytes": actual[path]["bytes"],
+                }
+            )
+    result["changed"] = changed
+    clean = not (result["missing"] or result["extra"] or changed)
+    result["status"] = "pass" if clean else "fail"
+    result["reason"] = "manifest ve yerel dosyalar aynı" if clean else "fark var"
+    return result
 
 
 def file_map(root: Path) -> dict[str, str]:
@@ -187,21 +383,92 @@ def apply_plan(source: Path, project: Path) -> dict:
         actions.append(f"remove legacy {name}")
     update_config(project, plan["source_version"])
     actions.append("update kit.config version/protocol")
+    seal(kit, commit=source_commit(source))
+    actions.append(f"seal {MANIFEST_NAME}")
     after = build_plan(source, project)
     return {**after, "actions": actions}
+
+
+def resolve_kit(args, source: Path, project: Path) -> Path:
+    """Kit root for seal/check: explicit flag, product config, else the tree."""
+    if args.kit:
+        return args.kit.resolve()
+    config = project / "kit.config.yaml"
+    if config.is_file():
+        return target_kit(project)
+    return source
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="sync vendored demir-kit")
     parser.add_argument("--source", type=Path, default=ROOT)
     parser.add_argument("--target", type=Path, default=Path.cwd())
-    parser.add_argument("--check", action="store_true")
+    parser.add_argument("--kit", type=Path, help="seal/check için kit kökü")
+    parser.add_argument("--check", action="store_true", help="offline manifest denetimi")
+    parser.add_argument(
+        "--check-live",
+        action="store_true",
+        help="kaynak kit ile hedef kopyayı canlı karşılaştır",
+    )
+    parser.add_argument("--seal", action="store_true")
     parser.add_argument("--apply", action="store_true")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
 
     source = args.source.resolve()
     project = args.target.resolve()
+    kit = resolve_kit(args, source, project)
+
+    if args.check_live:
+        try:
+            plan = build_plan(source, project)
+        except (ValueError, OSError) as exc:
+            sys.exit(f"vendor_sync: {exc}")
+        if args.json:
+            print(json.dumps(plan, ensure_ascii=False, indent=2))
+        else:
+            print(
+                f"source: {plan['source_version']} · target: "
+                f"{plan['target_version'] or 'yok'}"
+            )
+            for key in ("changed", "extra", "legacy"):
+                for value in plan.get(key) or []:
+                    print(f"{key}: {value}")
+        return 0 if plan["clean"] else 1
+
+    if args.seal:
+        try:
+            payload = seal(kit)
+        except (ValueError, OSError) as exc:
+            sys.exit(f"vendor_sync: {exc}")
+        if args.json:
+            print(json.dumps(payload, ensure_ascii=False, indent=2))
+        else:
+            print(
+                f"sealed: {len(payload['files'])} dosya · version "
+                f"{payload['version']} · commit {payload['source_commit'][:7]}"
+            )
+        return 0
+
+    if args.check:
+        result = check_manifest(kit)
+        if args.json:
+            print(json.dumps(result, ensure_ascii=False, indent=2))
+        else:
+            print(f"manifest: {result['manifest']}")
+            print(f"status: {result['status']} — {result.get('reason', '')}")
+            for key in ("missing", "extra"):
+                for value in result.get(key) or []:
+                    print(f"{key}: {value}")
+            for item in result.get("changed") or []:
+                print(
+                    f"changed: {item['path']} — beklenen "
+                    f"{item['expected']} gerçek {item['actual']}"
+                )
+            for value in result.get("errors") or []:
+                print(f"error: {value}")
+        return 0 if result["status"] == "pass" else (1 if result["status"] == "fail" else 2)
+
     try:
         if args.apply:
             plan = apply_plan(source, project)

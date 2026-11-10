@@ -24,12 +24,14 @@ import delivery_block  # noqa: E402
 import doctor_approval  # noqa: E402
 import doctor_compat  # noqa: E402
 import doctor_local  # noqa: E402
+import doctor_manifest  # noqa: E402
 import doctor_mcp  # noqa: E402
 import doctor_explain  # noqa: E402
 import doctor_skills  # noqa: E402
 import doctor_version  # noqa: E402
 import epic_worktree  # noqa: E402
 import evidence as evidence_lib  # noqa: E402
+import doctor_evidence  # noqa: E402
 from schema_lite import validate_schema  # noqa: E402, F401
 import process_gate  # noqa: E402
 import profiles as profiles_lib  # noqa: E402
@@ -71,6 +73,7 @@ DELIVERY = ROOT / "delivery"
 
 ERRORS: list[str] = []
 WARNS: list[str] = []
+NOTES: list[str] = []
 CHECKS = 0
 
 CORE_LABELS = {
@@ -171,6 +174,11 @@ def error(msg: str) -> None:
 
 def warn(msg: str) -> None:
     WARNS.append(msg)
+
+
+def note(msg: str) -> None:
+    """Informational line: visible in output, never a strict-mode failure."""
+    NOTES.append(msg)
 
 
 def check(msg: str) -> None:
@@ -1085,6 +1093,8 @@ def check_issue_body(
                 error(f"evidence: cp_id '{record['cp_id']}' seal'de yok")
             evidence[record["cp_id"]] = record
 
+        doctor_evidence.report_evidence_tests(evidence, note)
+
         if evidence_text is not None:
             if not evidence:
                 error("evidence: kayıt bulunamadı")
@@ -1261,7 +1271,8 @@ def check_issue_body(
                 if not isinstance(test, dict):
                     error(f"{cp_id}: test öğesi mapping değil")
                     continue
-                if test.get("result") != "pass":
+                result = test.get("result")
+                if result != "pass" and result != "not_run":
                     error(f"{cp_id}: test '{test.get('case')}' pass değil")
             if (
                 risk in {"high", "critical"}
@@ -1626,6 +1637,11 @@ def check_product(root: Path) -> None:
             f"kit pin doğrulanamadı ({pin_detail}) — "
             f"'git -C {kit_root} fetch origin main' sonrası tekrar çalıştır"
         )
+    elif pin_state == "ok":
+        print(f"kit pin: commit ok ({pin_detail[:7]})")
+    else:
+        print("kit pin: commit not_run (kit bir git checkout değil)")
+    doctor_manifest.report(root / kit_root, error, warn)
 
     factory = config.get("factory") or {}
     app_paths = factory.get("app_paths") or ["src", "app", "lib"]
@@ -1851,6 +1867,8 @@ def main() -> int:
         print(f"[fail] {item}")
     for item in WARNS:
         print(f"[warn] {item}")
+    for item in NOTES:
+        print(f"[note] {item}")
 
     failed = bool(ERRORS) or (args.strict and bool(WARNS))
     print(
