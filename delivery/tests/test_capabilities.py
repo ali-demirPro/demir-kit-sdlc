@@ -129,6 +129,51 @@ class CapabilityTests(unittest.TestCase):
         self.assertIn("architect", text)
         self.assertIn("platform.web"[:0] or "web", text)
 
+    def test_every_capability_has_path_globs(self) -> None:
+        for cap_id, capability in REGISTRY["capabilities"].items():
+            self.assertTrue(capability.get("paths"), cap_id)
+
+    def test_missing_paths_rejected_by_schema(self) -> None:
+        registry = copy.deepcopy(REGISTRY)
+        del registry["capabilities"]["platform.web"]["paths"]
+        errors = doctor.validate_schema(registry, CAP_SCHEMA)
+        self.assertTrue(any(".paths: eksik" in item for item in errors), errors)
+
+    def test_empty_paths_rejected_by_schema(self) -> None:
+        registry = copy.deepcopy(REGISTRY)
+        registry["capabilities"]["platform.web"]["paths"] = []
+        errors = doctor.validate_schema(registry, CAP_SCHEMA)
+        self.assertTrue(any("en az 1 öğe" in item for item in errors), errors)
+
+    def test_unknown_surface_rejected(self) -> None:
+        registry = copy.deepcopy(REGISTRY)
+        registry["capabilities"]["platform.web"]["match"]["surfaces"] = ["unknown.surface"]
+        errors = capabilities.validate_references(registry, MATRIX, ROLES, PACKS, ROLES)
+        self.assertTrue(any("bilinmeyen surface" in item for item in errors), errors)
+
+    def test_surface_without_paths_rejected(self) -> None:
+        registry = copy.deepcopy(REGISTRY)
+        registry["surfaces"]["kit.docs"] = {"label": "Kit dokümanı"}
+        schema_errors = doctor.validate_schema(registry, CAP_SCHEMA)
+        self.assertTrue(any(".paths: eksik" in item for item in schema_errors), schema_errors)
+        reference_errors = capabilities.validate_references(
+            registry, MATRIX, ROLES, PACKS, ROLES
+        )
+        self.assertTrue(
+            any("paths glob listesi boş" in item for item in reference_errors),
+            reference_errors,
+        )
+
+    def test_capability_surfaces_are_declared(self) -> None:
+        declared = set(REGISTRY["surfaces"])
+        used = {
+            str(surface)
+            for capability in REGISTRY["capabilities"].values()
+            for surface in (capability.get("match") or {}).get("surfaces") or []
+        }
+        self.assertEqual(used - declared, set())
+        self.assertIn("kit.docs", declared)
+
 
 if __name__ == "__main__":
     unittest.main()

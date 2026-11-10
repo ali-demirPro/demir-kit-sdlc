@@ -89,12 +89,25 @@ def validate_references(
         errors.append("capabilities boş")
         capabilities = {}
 
+    surface_table = registry.get("surfaces")
+    if not isinstance(surface_table, dict) or not surface_table:
+        errors.append("surfaces boş")
+        surface_table = {}
+    for surface, spec in surface_table.items():
+        if not isinstance(spec, dict) or not spec.get("paths"):
+            errors.append(f"surfaces.{surface}: paths glob listesi boş")
+
     for cap_id, cap in capabilities.items():
         if not CAP_RE.match(cap_id):
             errors.append(f"capability id geçersiz: {cap_id}")
         if not isinstance(cap, dict):
             errors.append(f"{cap_id}: obje değil")
             continue
+        if not cap.get("paths"):
+            errors.append(f"{cap_id}: paths glob listesi boş")
+        for surface in (cap.get("match") or {}).get("surfaces") or []:
+            if surface not in surface_table:
+                errors.append(f"{cap_id}: bilinmeyen surface {surface}")
         roles = cap.get("roles")
         if not isinstance(roles, dict) or not roles:
             errors.append(f"{cap_id}: roles boş")

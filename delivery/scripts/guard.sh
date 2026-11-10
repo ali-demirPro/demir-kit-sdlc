@@ -74,8 +74,113 @@ NEED_ISSUE=false
 if [[ ${#VIOLATIONS[@]} -gt 0 || "$RISK_REQUIRED" != "none" ]]; then
   NEED_ISSUE=true
 fi
-if ! $NEED_ISSUE; then
-  echo "guard: OK (uygulama yolu ve risk glob'u değişmedi)"
+
+# Capability path allowlist: seal yüzeylerinin glob'ları dışındaki yazım G1 ihlali.
+# Seal yoksa veya allowlist çözülemezse davranış bugünkü gibi kalır (uyarı ile).
+SCOPE_FILES=()
+SCOPE_SURFACES=""
+SCOPE_GLOBS=""
+TMP_DIR="$(mktemp -d)"
+trap 'rm -rf "$TMP_DIR"' EXIT
+if [[ -n "$ISSUE" ]]; then
+  REPO="$(python3 - <<'PY'
+import yaml
+try:
+    eco = yaml.safe_load(open("ecosystem.yaml")) or {}
+    print((eco.get("tracker") or {}).get("repo", ""))
+except FileNotFoundError:
+    print("")
+PY
+)"
+  [[ -z "$REPO" ]] && REPO="$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null || true)"
+  printf '%s\n' "$CHANGED" > "$TMP_DIR/changed.txt"
+  if [[ -n "$REPO" ]] && gh issue view "$ISSUE" --repo "$REPO" --json body -q .body \
+    > "$TMP_DIR/body.md" 2>/dev/null && [[ -s "$TMP_DIR/body.md" ]]; then
+    SCOPE_REPORT="$(python3 - "$TMP_DIR/body.md" "$TMP_DIR/changed.txt" \
+      "${KIT_ROOT}/delivery/capabilities/registry.yaml" <<'PY'
+import re
+import sys
+
+import yaml
+
+body_path, changed_path, registry_path = sys.argv[1:4]
+body = open(body_path, encoding="utf-8").read()
+match = re.search(r"```yaml\s+demir-kit\s*\n(.*?)```", body, re.S)
+seal = yaml.safe_load(match.group(1)) if match else {}
+seal = seal if isinstance(seal, dict) else {}
+surfaces = [str(item) for item in seal.get("surfaces") or []]
+if not surfaces:
+    print("SKIP|seal yüzey bildirmiyor")
+    raise SystemExit
+try:
+    registry = yaml.safe_load(open(registry_path, encoding="utf-8")) or {}
+except OSError:
+    print("WARN|capability registry okunamadı, allowlist uygulanmadı")
+    raise SystemExit
+
+table = registry.get("surfaces") or {}
+capabilities = registry.get("capabilities") or {}
+scopes = []
+for surface in surfaces:
+    found = [
+        (surface, str(glob))
+        for glob in (table.get(surface) or {}).get("paths") or []
+    ]
+    for cap in capabilities.values():
+        if surface in ((cap.get("match") or {}).get("surfaces") or []):
+            found += [(surface, str(glob)) for glob in cap.get("paths") or []]
+    if not found:
+        print(f"WARN|registry'de tanımsız surface '{surface}', allowlist uygulanmadı")
+    scopes += found
+if not scopes:
+    print("SKIP|allowlist çözülemedi, davranış bugünkü gibi")
+    raise SystemExit
+scopes += [("common", str(glob)) for glob in registry.get("common_paths") or []]
+
+
+def to_regex(glob):
+    out, index = ["^"], 0
+    while index < len(glob):
+        if glob.startswith("**", index):
+            out.append(".*")
+            index += 2
+            continue
+        char = glob[index]
+        out.append(
+            "[^/]*" if char == "*" else "[^/]" if char == "?" else re.escape(char)
+        )
+        index += 1
+    out.append("$")
+    return re.compile("".join(out))
+
+
+compiled = [(surface, glob, to_regex(glob)) for surface, glob in scopes]
+names = ", ".join(dict.fromkeys(s for s, _ in scopes if s != "common"))
+globs = ", ".join(dict.fromkeys(glob for _, glob in scopes))
+blocked = [
+    file
+    for file in (line.strip() for line in open(changed_path, encoding="utf-8"))
+    if file and not any(pattern.match(file) for _, _, pattern in compiled)
+]
+for file in blocked:
+    print(f"BLOCK|{file}|{names}|{globs}")
+if not blocked:
+    print(f"SCOPE|{names}|{globs}")
+PY
+)" || SCOPE_REPORT="WARN|capability allowlist hesaplanamadı"
+    while IFS='|' read -r kind one two three; do
+      case "$kind" in
+        WARN) echo "guard: uyarı — $one" >&2 ;;
+        BLOCK) SCOPE_FILES+=("$one"); SCOPE_SURFACES="$two"; SCOPE_GLOBS="$three" ;;
+      esac
+    done <<< "$SCOPE_REPORT"
+  else
+    echo "guard: uyarı — seal gövdesi okunamadı, capability allowlist uygulanmadı" >&2
+  fi
+fi
+
+if ! $NEED_ISSUE && [[ ${#SCOPE_FILES[@]} -eq 0 ]]; then
+  echo "guard: OK (uygulama yolu, risk glob'u ve capability kapsamı değişmedi)"
   exit 0
 fi
 
@@ -91,16 +196,6 @@ if [[ -z "$ISSUE" ]]; then
   exit 1
 fi
 
-REPO="$(python3 - <<'PY'
-import yaml
-try:
-    eco = yaml.safe_load(open("ecosystem.yaml")) or {}
-    print((eco.get("tracker") or {}).get("repo", ""))
-except FileNotFoundError:
-    print("")
-PY
-)"
-[[ -z "$REPO" ]] && REPO="$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null || true)"
 if [[ -z "$REPO" ]]; then
   echo "guard: BLOCKED — tracker.repo bulunamadı" >&2
   exit 1
@@ -163,6 +258,15 @@ if [[ "$RISK_REQUIRED" == "critical" && "$RISK" != "high" && "$RISK" != "critica
 fi
 if [[ "$RISK_REQUIRED" == "high" && "$RISK" != "high" && "$RISK" != "critical" ]]; then
   echo "guard: BLOCKED — registry high glob'u, seal '${RISK:-yok}'" >&2
+  exit 1
+fi
+
+if [[ ${#SCOPE_FILES[@]} -gt 0 ]]; then
+  echo "guard: BLOCKED — capability dışı yazım (G1), yüzey allowlist'i dışında:" >&2
+  printf '  %s\n' "${SCOPE_FILES[@]}" >&2
+  echo "  yüzey: ${SCOPE_SURFACES}" >&2
+  echo "  izinli glob'lar: ${SCOPE_GLOBS}" >&2
+  echo "  Kapsamı daralt veya delivery/capabilities/registry.yaml içine glob ekle." >&2
   exit 1
 fi
 

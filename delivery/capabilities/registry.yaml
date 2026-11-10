@@ -33,6 +33,70 @@ risk_requirements:
     human_gate: always
     human_count: 2
 
+# Yüzey → yazma allowlist'i. `guard.sh --issue`, seal'deki yüzeylerin
+# glob'ları dışında kalan değişikliği G1 ihlali sayar. Registry'de tanımsız
+# yüzey bloklamaz; guard bugünkü davranışı korur ve uyarır.
+surfaces:
+  kit.docs:
+    label: Kit dokümanı
+    paths: ["delivery/**", "skills/**", "discovery/**", ".github/**", "VERSION", "install.sh"]
+  web.app:
+    label: Web uygulaması
+    paths: ["web/**", "app/**", "src/**", "pages/**", "public/**", "assets/**"]
+  web:
+    label: Web
+    paths: ["web/**", "public/**", "assets/**"]
+  marketing.site:
+    label: Pazarlama sitesi
+    paths: ["site/**", "marketing/**", "content/**", "public/**"]
+  ios.app:
+    label: iOS uygulaması
+    paths: ["ios/**", "App/**", "Sources/**", "*.xcodeproj/**", "*.xcworkspace/**"]
+  macos.app:
+    label: macOS uygulaması
+    paths: ["macos/**", "Apps/**", "Sources/**", "*.xcodeproj/**"]
+  android.app:
+    label: Android uygulaması
+    paths: ["android/**", "app/**", "src/main/**"]
+  api:
+    label: API sözleşmesi
+    paths: ["api/**", "server/**", "src/api/**", "src/server/**"]
+  cli:
+    label: CLI aracı
+    paths: ["cli/**", "bin/**", "src/cli/**", "scripts/**"]
+  auth:
+    label: Kimlik ve yetki
+    paths: ["auth/**", "src/auth/**", "api/auth/**"]
+  payments:
+    label: Ödeme
+    paths: ["payments/**", "src/payments/**", "api/payments/**", "src/billing/**"]
+  data:
+    label: Veri
+    paths: ["db/**", "migrations/**", "src/db/**", "scripts/db/**"]
+  analytics:
+    label: Analitik
+    paths: ["analytics/**", "src/analytics/**", "src/telemetry/**"]
+  offline:
+    label: Çevrimdışı
+    paths: ["sync/**", "src/sync/**", "src/offline/**"]
+  i18n:
+    label: Çok dilli içerik
+    paths: ["i18n/**", "locales/**", "src/locales/**"]
+
+# Yüzeyden bağımsız kök dosyalar (kod değil): paylaşılan yapılandırma.
+common_paths:
+  - "*.md"
+  - "*.json"
+  - "*.toml"
+  - "*.yaml"
+  - "*.yml"
+  - "*.lock"
+  - "LICENSE"
+  - ".gitignore"
+  - ".editorconfig"
+  - ".env.example"
+  - "Makefile"
+
 capabilities:
   # ---------------------------------------------------------------- platform
   platform.web:
@@ -44,6 +108,7 @@ capabilities:
       stacks: [next, react, vite, svelte, vue]
       surfaces: [web.app, web, marketing.site]
       keywords: [web, tarayıcı, browser, responsive]
+    paths: ["web/**", "app/**", "src/app/**", "src/components/**", "public/**"]
     roles:
       architect: expert
       designer: expert
@@ -70,6 +135,7 @@ capabilities:
       surfaces: [ios.app]
       distribution: [app_store_connect, testflight]
       keywords: [ios, iphone, ipad, testflight, swiftui]
+    paths: ["ios/**", "App/**", "Sources/**"]
     roles:
       architect: expert
       designer: expert
@@ -96,6 +162,7 @@ capabilities:
       surfaces: [macos.app]
       distribution: [app_store_connect]
       keywords: [macos, mac, swiftui, xcode, notarization, finder, extension]
+    paths: ["macos/**", "Apps/**", "Sources/**"]
     roles:
       architect: expert
       designer: expert
@@ -122,6 +189,7 @@ capabilities:
       surfaces: [android.app]
       distribution: [play_console]
       keywords: [android, play store, apk, kotlin, compose]
+    paths: ["android/**", "app/src/main/**"]
     roles:
       architect: expert
       designer: expert
@@ -147,6 +215,7 @@ capabilities:
       stacks: [node, python, go, java, graphql, rest, grpc]
       surfaces: [api]
       keywords: [api, rest, graphql, endpoint, servis, backend]
+    paths: ["api/**", "server/**", "src/api/**", "src/server/**"]
     roles:
       architect: expert
       developer: expert
@@ -170,6 +239,7 @@ capabilities:
       stacks: [python, node, go, rust]
       surfaces: [cli]
       keywords: [cli, command, terminal, komut]
+    paths: ["cli/**", "bin/**", "src/cli/**", "scripts/**"]
     roles:
       architect: practitioner
       developer: expert
@@ -190,6 +260,7 @@ capabilities:
     match:
       keywords: [auth, login, giriş, oturum, session, sso, mfa, oauth, yetki]
       surfaces: [auth]
+    paths: ["auth/**", "src/auth/**", "api/auth/**"]
     roles:
       architect: expert
       developer: expert
@@ -210,6 +281,7 @@ capabilities:
     match:
       keywords: [payment, ödeme, checkout, iap, subscription, abonelik, billing, iade]
       surfaces: [payments]
+    paths: ["payments/**", "src/payments/**", "api/payments/**", "src/billing/**"]
     roles:
       architect: expert
       developer: expert
@@ -231,6 +303,7 @@ capabilities:
     match:
       keywords: [migration, şema, schema, backfill, veri, database, db, tablo]
       surfaces: [data]
+    paths: ["db/**", "migrations/**", "src/db/**"]
     roles:
       architect: expert
       developer: expert
@@ -251,6 +324,7 @@ capabilities:
     match:
       keywords: [analytics, event, metric, funnel, ölçüm, telemetry, kpi]
       surfaces: [analytics]
+    paths: ["analytics/**", "src/analytics/**", "src/telemetry/**"]
     roles:
       analist: expert
       growth/run: expert
@@ -270,6 +344,7 @@ capabilities:
     match:
       keywords: [offline, çevrimdışı, sync, senkron, conflict, queue, kuyruk]
       surfaces: [offline]
+    paths: ["sync/**", "src/sync/**", "src/offline/**"]
     roles:
       architect: expert
       developer: expert
@@ -287,6 +362,7 @@ capabilities:
     match:
       keywords: [i18n, localization, çeviri, translation, locale, dil]
       surfaces: [i18n]
+    paths: ["i18n/**", "locales/**", "src/locales/**"]
     roles:
       designer: practitioner
       developer: practitioner
@@ -306,6 +382,7 @@ capabilities:
     description: "App Store dışı dağıtım: paketleme, imzalama, notarization ve güncelleme kanalı."
     match:
       distribution: [direct, dmg, notarize, notarization, notarized, sparkle]
+    paths: ["packaging/**", "installer/**", "scripts/release/**"]
     roles:
       devops: expert
       security: practitioner
@@ -322,6 +399,7 @@ capabilities:
     match:
       distribution: [app_store_connect, testflight]
       keywords: [app store, testflight, asc, inceleme]
+    paths: ["fastlane/**", "store/**", "appstore/**"]
     roles:
       release: expert
       marketing/stores: expert
@@ -341,6 +419,7 @@ capabilities:
     match:
       distribution: [play_console]
       keywords: [play console, google play, rollout, track]
+    paths: ["fastlane/**", "play/**"]
     roles:
       release: expert
       marketing/stores: expert
@@ -359,6 +438,7 @@ capabilities:
     match:
       distribution: [web_deploy, vercel, netlify, cloudflare]
       keywords: [deploy, yayın, production, canlı, rollout]
+    paths: ["deploy/**", "infra/**", ".github/workflows/**"]
     roles:
       release: expert
       devops: expert
@@ -377,6 +457,7 @@ capabilities:
     description: "Tehdit modeli, yetki, secret, bağımlılık ve tedarik zinciri."
     match:
       keywords: [security, güvenlik, authz, secret, owasp, cve, threat, sızma]
+    paths: ["security/**", ".github/workflows/**", "**/*.lock"]
     roles:
       architect: expert
       developer: practitioner
@@ -395,6 +476,7 @@ capabilities:
     description: "Veri minimizasyonu, izin, saklama, KVKK/GDPR ve privacy manifest."
     match:
       keywords: [privacy, gizlilik, kvkk, gdpr, consent, izin, att, saklama]
+    paths: ["privacy/**", "docs/privacy/**"]
     roles:
       security: expert
       data: practitioner
@@ -413,6 +495,7 @@ capabilities:
     description: "WCAG/HIG/TalkBack, kontrast, odak, Dynamic Type ve hareket."
     match:
       keywords: [a11y, accessibility, erişilebilirlik, voiceover, talkback, wcag, kontrast]
+    paths: ["accessibility/**", "src/a11y/**"]
     roles:
       designer: expert
       developer: practitioner
@@ -430,6 +513,7 @@ capabilities:
     description: "CWV, p95, startup, bellek ve yük altında davranış."
     match:
       keywords: [performance, performans, cwv, latency, gecikme, startup, p95, bellek]
+    paths: ["perf/**", "benchmarks/**"]
     roles:
       architect: practitioner
       developer: expert
@@ -446,6 +530,7 @@ capabilities:
     description: "Log, metric, trace, SLO ve alarm; arıza görünürlüğü."
     match:
       keywords: [observability, gözlemlenebilirlik, logging, metric, trace, slo, alert, alarm]
+    paths: ["observability/**", "monitoring/**", "ops/**"]
     roles:
       architect: practitioner
       developer: practitioner
