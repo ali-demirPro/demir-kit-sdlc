@@ -1,0 +1,157 @@
+source:
+  repo: https://github.com/Donchitos/Claude-Code-Game-Studios
+  commit: abc0de79d6ceb0b5d7aa693945849b3937afbe6a
+  read_at: "2026-11-10"
+  plan: delivery/plans/P6.yaml
+  files:
+    - studio-tests/quality-rubric.md
+    - studio-tests/catalog.yaml
+    - studio-tests/CLAUDE.md
+    - studio-tests/README.md
+    - studio-tests/skills/utility/skill-test.md
+    - studio-tests/skills/utility/skill-improve.md
+    - .claude/skills/skill-test/SKILL.md
+    - .claude/skills/skill-improve/SKILL.md
+    - .claude/docs/effects-map.md
+
+mechanisms:
+  - name: rubric-format
+    ours: >-
+      doctor_skills.py her skills/<name>/SKILL.md için varlık denetimi yapıyor:
+      description 40–400 karakter ve tetik, `## Done when` var/boş değil/son
+      bölüm, göreli link çözülüyor, referans tanımı var, gövde ≤300 satır
+      (200 üstü uyarı), TODO/TBD uyarı. `doctor` bunu "skill writing"
+      kontrolünde hata/uyarı olarak basıyor. "Talimat işi doğru yapıyor mu?"
+      sorusu, kategori ve karar sözlüğü yok; `delivery/rubrics/` dizini yok.
+    gap: >-
+      Dört kategori (routing / contract / safety / structure) ve metrik başına
+      PASS / FAIL / WARN / NOT_ASSESSED sözlüğü yok. Doctor'da NOT_ASSESSED
+      diye bir durum yok: dosya okunamazsa komut hata veriyor, "değerlendirilemedi"
+      ile "kötü" ayrılmıyor. Politika rubriğe bağlı değil.
+    target: "delivery/rubrics/skill.yaml + delivery/policies/skill-writing.md; P6-2 (#341)"
+
+  - name: rubric-scoring
+    ours: >-
+      eval.py dokuz mod sunuyor (--check, --list, --template, --verify,
+      --dry-run, --run, --results, compare, discovery). Hiçbiri skill metnini
+      rubriğe göre skorlamıyor; sonuç sözlüğü pass/fail/skip ve `--check`
+      yalnız senaryo/finding dosyalarının şemasını doğruluyor. Katalog eşdeğeri
+      (spec yolu + last_* sonuçları) yok; `.kit/eval-*` yalnız koşu/batch
+      kayıtlarını tutuyor, skill niteliği kaydı yok.
+    gap: >-
+      `--rubric` yok; kategori → metrik okuma, metrik kararı, NOT_ASSESSED'in
+      PASS'e çevrilmemesi, payda (`N/M değerlendirildi`), deterministik JSON ve
+      exit kuralı eksik.
+    target: "delivery/scripts/eval.py; P6-3 (#342)"
+
+  - name: keep-or-revert
+    ours: >-
+      Skill değişikliği guard → gate → review hattından geçiyor; önce/sonra
+      ölçüm yok. `eval.py --improve` yok. Geri alma yalnız git ile yapılabiliyor;
+      kayıtlı kopyadan geri yazma veya "eşit skor iyileşme değildir" kuralı yok.
+      Kalıcı sürüm saklama P4-5 (#336) ayrı iştir.
+    gap: >-
+      Baseline/re-test, combined FAIL+WARN skoru, eşit skorda "iyileşmedi",
+      re-test NOT_ASSESSED'ın iyileşme sayılmaması, her değişen dosyanın adı ve
+      içeriğinin yazmadan önce saklanması ve onaylı geri alma (git checkout
+      değil, kayıtlı kopya) eksik.
+    target: "delivery/scripts/eval.py; P6-4 (#343)"
+
+  - name: first-pass
+    ours: >-
+      `doctor --strict` dokuz runtime skill ve iki scoped skill'de 0 uyarı
+      veriyor; bu yapısal yeşil, nitelik ölçümü değil. Hiçbir skill rubrikten
+      geçmedi; borç listesi yok. `registry.yaml` `skills.runtime` 9,
+      `skills.scoped` 2 skill taşıyor.
+    gap: >-
+      Dokuz runtime skill için ilk rubrik geçişi, FAIL/WARN/NOT_ASSESSED dökümü
+      ve kapatılmayan borcun gerekçeli listesi yok.
+    target: "skills/*/SKILL.md + delivery/rubrics/skill-debt.md; P6-5 (#344)"
+
+children:
+  - slug: p6-1-analysis
+    issue: 297
+    title: "P6-1: derin analiz — Donchitos/Claude-Code-Game-Studios"
+    intent: >-
+      Donchitos/Claude-Code-Game-Studios deposunu pinlenmiş commit'te kod
+      seviyesinde incele; mekanizmaları hedef dosya, AC, risk ve CP'ye çevir;
+      alt issue'ları aç.
+    risk: low
+    depends_on: []
+    ac:
+      - "Pinlenmiş commit sha'sı, okunan dosya listesi ve plan yolu epic yorumunda yazılı."
+      - "rubrik metrikleri ve keep-or-revert döngüsü studio-tests/quality-rubric.md ile catalog.yaml'dan okundu; doctor_skills.py ile farkı yazıldı."
+      - "En az 4 çocuk issue açıldı; her biri niyet, kaba AC, risk, hedef dosya ve depends_on taşıyor."
+      - "delivery/plans/P6.yaml dosyası var; epic gövdesindeki keep ve children ile birebir aynı."
+      - "Epic gövdesi güncellendi (defer→keep, children), çocuklar intake etiketli ve update.py yorumu atıldı."
+
+  - slug: p6-2-rubric-format
+    issue: 341
+    title: "P6-2 rubrik formatı ve 4 kategori (delivery/rubrics/)"
+    intent: >-
+      Skill niteliğini ölçen rubrik dosyasını kur: dört kategori, metrik başına
+      PASS/FAIL/WARN/NOT_ASSESSED ve "değerlendirilemedi" durumunun PASS'ten
+      ayrılması; politikayı rubriğe bağla.
+    risk: low
+    depends_on: [297]
+    ac:
+      - "`delivery/rubrics/skill.yaml` dört kategori (routing, contract, safety, structure) ve her kategoride 2–4 metrik taşır; her metrik id, text, pass ve warn/fail ayrımı içerir."
+      - "Karar sözlüğü PASS / FAIL / WARN / NOT_ASSESSED'dir; NOT_ASSESSED sebep taşır ve PASS sayılmaz."
+      - "`skill-writing.md` rubriğe bağlanır; doctor'ın varlık denetimi ile rubriğin nitelik ölçümü ayrımı yazılır."
+      - "`./delivery/scripts/doctor.sh --strict` 0 uyarı verir; rubrik dosyası testte ayrıştırılır."
+
+  - slug: p6-3-rubric-scoring
+    issue: 342
+    title: "P6-3 eval.py --rubric skorlama (PASS/FAIL/WARN/NOT_ASSESSED)"
+    intent: >-
+      eval.py'ye rubrik skorlama modunu ekle: kategoriyi ve metrikleri dosyadan
+      oku, her metriği karara bağla, NOT_ASSESSED'i ayrı ve görünür tut; payda
+      ve exit kuralı deterministik olsun.
+    risk: medium
+    depends_on: [341]
+    ac:
+      - "`eval.py --rubric <skill|all>` rubriği dosyadan okur; kategori ve metin hardcode edilmez."
+      - "Kategori yoksa, skill okunamazsa veya metrik değerlendirilemezse NOT_ASSESSED + sebep yazılır; başka kategorinin metriği ödünç alınmaz."
+      - "Özet paydayı gösterir (`N/M değerlendirildi`); NOT_ASSESSED PASS'e çevrilmez ve ayrı satırda sayılır."
+      - "Karar sırası FAIL > WARN > NOT_ASSESSED > PASS; exit 0 yalnız PASS/WARN, exit 1 FAIL veya NOT_ASSESSED. `--json` aynı veriyi deterministik verir."
+      - "`./delivery/scripts/doctor.sh --strict` 0 uyarı verir; testler PASS, FAIL, WARN, NOT_ASSESSED ve eksik rubrik bölümünü kapsar."
+
+  - slug: p6-4-keep-or-revert
+    issue: 343
+    title: "P6-4 eval.py --improve keep-or-revert"
+    intent: >-
+      Skill değişikliğini ölçülebilir kıl: baseline rubrik, aday metin, yeniden
+      koşu ve combined FAIL+WARN karşılaştırması; iyileşme yoksa kayıtlı
+      kopyadan geri al, git checkout kullanma.
+    risk: medium
+    depends_on: [342]
+    ac:
+      - "`eval.py --improve <skill> --candidate <dosya>` baseline'ı ölçer, adayı yazar, rubriği yeniden koşar; skor yalnız yeniden koşudan gelir."
+      - "Düşük combined skor iyileşme sayılır ve değişiklik korunur; eşit/yüksek skor 'iyileşmedi' sayılır ve geri alma önerilir."
+      - "Geri alma yalnız açık onay/`--revert` ile kayıtlı kopyadan yazılır; `git checkout` kullanılmaz. Re-test NOT_ASSESSED iyileşme sayılmaz."
+      - "Rapor her değişen dosyayı adıyla listeler; tek çağrı tek döngüdür."
+      - "`./delivery/scripts/doctor.sh --strict` 0 uyarı verir; testler improved, equal, not_assessed, revert ve split-skill vakalarını kapsar."
+
+  - slug: p6-5-first-pass
+    issue: 344
+    title: "P6-5 9 runtime skill'in ilk rubrik geçişi ve borç listesi"
+    intent: >-
+      Dokuz runtime skill'i rubrikten ilk kez geçir; FAIL/WARN/NOT_ASSESSED
+      borcunu gerekçeli liste olarak yaz ve en az bir borcu metin düzeltmesiyle
+      kapat.
+    risk: low
+    depends_on: [342]
+    ac:
+      - "`eval.py --rubric all` dokuz runtime skill için koşar; her skill'in kararı ve metrik dökümü yazılır."
+      - "`delivery/rubrics/skill-debt.md` her FAIL/WARN/NOT_ASSESSED için skill, metrik, karar, neden ve öneri taşır."
+      - "En az bir FAIL/WARN gerçek metin düzeltmesiyle kapatılır; kapatılmayan borç gerekçesiyle listede kalır."
+      - "Borç listesi ile rubrik yeniden koşusu aynı kararları ve sayıları verir."
+      - "`./delivery/scripts/doctor.sh --strict` 0 uyarı verir."
+
+not_taking:
+  - "LLM-judge zorunluluğu"
+  - "Game studio rol/skill envanteri (49 agent / 75 skill)"
+  - "Repo kodunu kit'e kopyalamak"
+  - "Dokuz kategoriyi birebir almak; kit dört kategori kullanır"
+  - "Kalıcı skill sürüm arşivi (P4-5 #336 ayrı iş)"
+  - "Scoped skill'leri (mac-verify, swift-stack) ilk geçişe katmak"
