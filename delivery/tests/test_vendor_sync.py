@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import importlib.util
+import json
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -145,6 +147,160 @@ class VendorSyncTests(unittest.TestCase):
             self.assertTrue(plan["clean"])
             self.assertEqual(plan["changed"], [])
             self.assertEqual(plan["legacy"], [])
+
+    def test_apply_writes_manifest(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "source"
+            product = Path(directory) / "product"
+            source.mkdir()
+            product.mkdir()
+            make_source(source)
+            make_product(product)
+            vendor_sync.apply_plan(source, product)
+            kit = product / "demir-kit"
+            self.assertTrue((kit / vendor_sync.MANIFEST_NAME).is_file())
+            result = vendor_sync.check_manifest(kit)
+            self.assertEqual(result["status"], "pass", result)
+            self.assertEqual(result["missing"], [])
+            self.assertEqual(result["extra"], [])
+            self.assertEqual(result["changed"], [])
+
+
+class KitManifestTests(unittest.TestCase):
+    def make_tree(self, root: Path) -> None:
+        make_source(root)
+        (root / "delivery" / "tests").mkdir()
+        (root / "delivery" / "tests" / "test_x.py").write_text("x\n")
+        (root / "delivery" / "__pycache__").mkdir()
+        (root / "delivery" / "__pycache__" / "x.pyc").write_bytes(b"x")
+        (root / "notes.txt").write_text("not in allowlist\n")
+
+    def seal(self, root: Path) -> dict:
+        return vendor_sync.seal(root, commit="a" * 40)
+
+    def test_manifest_is_deterministic(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.make_tree(root)
+            payload = self.seal(root)
+            first = (root / vendor_sync.MANIFEST_NAME).read_bytes()
+            self.seal(root)
+            second = (root / vendor_sync.MANIFEST_NAME).read_bytes()
+            self.assertEqual(first, second)
+            self.assertEqual(payload["version"], "2.2.0")
+            self.assertEqual(payload["source_commit"], "a" * 40)
+            self.assertEqual(payload["generator_version"], 1)
+            paths = [item["path"] for item in payload["files"]]
+            self.assertEqual(paths, sorted(paths))
+            for item in payload["files"]:
+                self.assertEqual(
+                    item["bytes"], (root / item["path"]).stat().st_size
+                )
+
+    def test_manifest_scope_excludes_tests_and_pycache(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.make_tree(root)
+            payload = self.seal(root)
+            paths = {item["path"] for item in payload["files"]}
+            self.assertIn("delivery/CONTRACT.md", paths)
+            self.assertIn("skills/s1/SKILL.md", paths)
+            self.assertIn("VERSION", paths)
+            self.assertIn("install.sh", paths)
+            self.assertFalse(any("/tests/" in path for path in paths))
+            self.assertFalse(any("__pycache__" in path for path in paths))
+            self.assertNotIn("notes.txt", paths)
+
+    def test_offline_check_detects_missing_extra_and_changed(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.make_tree(root)
+            self.seal(root)
+            self.assertEqual(vendor_sync.check_manifest(root)["status"], "pass")
+
+            (root / "delivery" / "CONTRACT.md").unlink()
+            result = vendor_sync.check_manifest(root)
+            self.assertEqual(result["status"], "fail")
+            self.assertEqual(result["missing"], ["delivery/CONTRACT.md"])
+
+            self.seal(root)
+            (root / "delivery" / "extra.md").write_text("extra\n")
+            result = vendor_sync.check_manifest(root)
+            self.assertEqual(result["status"], "fail")
+            self.assertEqual(result["extra"], ["delivery/extra.md"])
+
+            self.seal(root)
+            (root / "README.md").write_text("tampered\n")
+            result = vendor_sync.check_manifest(root)
+            self.assertEqual(result["status"], "fail")
+            self.assertEqual(len(result["changed"]), 1)
+            changed = result["changed"][0]
+            self.assertEqual(changed["path"], "README.md")
+            self.assertRegex(changed["expected"], r"^[0-9a-f]{64}$")
+            self.assertRegex(changed["actual"], r"^[0-9a-f]{64}$")
+            self.assertNotEqual(changed["expected"], changed["actual"])
+
+    def test_offline_check_without_manifest_is_not_run(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.make_tree(root)
+            result = vendor_sync.check_manifest(root)
+            self.assertEqual(result["status"], "not_run")
+            self.assertIn("KIT-MANIFEST.json", result["reason"])
+
+    def test_manifest_validation_rejects_unknown_duplicate_and_digest(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.make_tree(root)
+            payload = self.seal(root)
+
+            unknown = json.loads(json.dumps(payload))
+            unknown["surprise"] = True
+            self.assertTrue(
+                any("izin verilmeyen" in item for item in vendor_sync.validate_manifest(unknown))
+            )
+
+            duplicate = json.loads(json.dumps(payload))
+            duplicate["files"].append(dict(duplicate["files"][0]))
+            self.assertTrue(
+                any("tekrarlı yol" in item for item in vendor_sync.validate_manifest(duplicate))
+            )
+
+            invalid = json.loads(json.dumps(payload))
+            invalid["files"][0]["sha256"] = "not-a-digest"
+            self.assertTrue(vendor_sync.validate_manifest(invalid))
+
+            outside = json.loads(json.dumps(payload))
+            outside["files"][0]["path"] = "notes.txt"
+            self.assertTrue(
+                any("allowlist dışı" in item for item in vendor_sync.validate_manifest(outside))
+            )
+
+    def test_check_cli_exit_codes(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.make_tree(root)
+            command = [
+                sys.executable,
+                str(SCRIPTS / "vendor_sync.py"),
+                "--check",
+                "--kit",
+                str(root),
+                "--json",
+            ]
+            missing = subprocess.run(command, capture_output=True, text=True)
+            self.assertEqual(missing.returncode, 2)
+            self.assertEqual(json.loads(missing.stdout)["status"], "not_run")
+
+            self.seal(root)
+            clean = subprocess.run(command, capture_output=True, text=True)
+            self.assertEqual(clean.returncode, 0, clean.stderr)
+            self.assertEqual(json.loads(clean.stdout)["status"], "pass")
+
+            (root / "README.md").write_text("tampered\n")
+            dirty = subprocess.run(command, capture_output=True, text=True)
+            self.assertEqual(dirty.returncode, 1)
+            self.assertEqual(json.loads(dirty.stdout)["status"], "fail")
 
 
 if __name__ == "__main__":

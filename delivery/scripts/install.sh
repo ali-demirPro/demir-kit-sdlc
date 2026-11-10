@@ -7,6 +7,7 @@
 #   ./install.sh --with-platform # + orchestration, orca-cli (global)
 #   ./install.sh --capabilities  # + capability-scoped skills (skills.scoped)
 #   ./install.sh --legacy        # same runtime set from the v1 archive
+#   ./install.sh --seal          # write KIT-MANIFEST.json for this kit tree
 set -euo pipefail
 
 CALLER_PWD="$PWD"
@@ -17,9 +18,10 @@ WITH_PLATFORM=false
 LEGACY=false
 DRY_RUN=false
 CAPABILITIES=false
+SEAL=false
 
 usage() {
-  sed -n '2,8p' "$SCRIPT_PATH"
+  sed -n '2,10p' "$SCRIPT_PATH"
 }
 
 for arg in "$@"; do
@@ -28,6 +30,7 @@ for arg in "$@"; do
     --capabilities) CAPABILITIES=true ;;
     --legacy) LEGACY=true ;;
     --dry-run) DRY_RUN=true ;;
+    --seal) SEAL=true ;;
     -h|--help)
       usage
       exit 0
@@ -35,6 +38,10 @@ for arg in "$@"; do
     *) echo "install.sh: unknown argument: $arg" >&2; exit 1 ;;
   esac
 done
+
+if [[ "$SEAL" == true ]]; then
+  exec python3 "${ROOT}/delivery/scripts/vendor_sync.py" --seal --kit "${ROOT}"
+fi
 
 REGISTRY_OUT="$(python3 - <<'PY'
 import sys
