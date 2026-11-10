@@ -19,6 +19,16 @@ const epicDetail = {
     { number: 182, title: 'Leaf: biten checkpoint', state: 'leaf-done' }
   ],
   gate: null,
+  machinery: {
+    gate_runs: 44,
+    gate_failures: 7,
+    review_rounds: 3,
+    leaves_done: 2,
+    blocked: 0,
+    deferred: 0,
+    lead_minutes: 89.9,
+    prevented: 0
+  },
   approvals: { agent_approved: true, human_qa: true },
   next_action: 'CP-2 panel detayı',
   // Dolu eval: satır `eval 12/14 · discovery %80 · 3 friction` olur; sıfır
@@ -96,6 +106,19 @@ const snapshot = {
       ok: true,
       epics: [epicDetail, partialEvaluationsEpic, emptyEvaluationsEpic],
       counts: { epics: 3, leaves: 3, blocked: 0 },
+      pulse: {
+        status: 'ok',
+        window_days: 7,
+        leaves_done: 11,
+        prev_delta: 3,
+        gates: 47,
+        gate_failures: 4,
+        review_rounds: 9,
+        blocked: 2,
+        deferred: 0,
+        daily: [1, 0, 2, 3, 1, 2, 2],
+        lead: { n: 11, p50: 58.8, p90: 124, samples: [6, 58.8] }
+      },
       agents: [
         { terminalId: 't1', title: 'claude/main', state: 'working' },
         { terminalId: 't2', title: 'codex/review', state: 'working' },
@@ -130,6 +153,7 @@ const snapshot = {
         }
       ],
       counts: { epics: 1, leaves: 1, blocked: 0 },
+      pulse: null,
       agents: [],
       live: { working: 0, blocked: 0, waiting: 0, idle: 0, done: 0 },
       warnings: [],
@@ -149,6 +173,20 @@ const snapshot = {
       stale: false
     }
   ],
+  pulse: {
+    projects: 1,
+    partial: true,
+    window_days: 7,
+    leaves_done: 11,
+    prev_delta: 3,
+    gates: 47,
+    gate_failures: 4,
+    review_rounds: 9,
+    blocked: 2,
+    deferred: 0,
+    daily: [1, 0, 2, 3, 1, 2, 2],
+    lead: { n: 11, p50: 58.8, p90: 124, samples: [6, 58.8] }
+  },
   warnings: []
 }
 
@@ -261,6 +299,7 @@ const focusMissingSnapshot = {
         }
       ],
       counts: { epics: 1, leaves: 1, blocked: 0 },
+      pulse: null,
       agents: [],
       live: { working: 0, blocked: 0, waiting: 0, idle: 0, done: 0 },
       warnings: [],
@@ -325,6 +364,22 @@ export default defineCheck({
     ...quietWorker,
     // Odak yok: canlı/aktif özet nötr satırda, hiçbir kartta "odak" rozeti yok.
     requests: { 'status.snapshot': focusMissingSnapshot }
+  },
+  pulseEmpty: {
+    ...quietWorker,
+    // Nabız yok (defter yok / eski status.py): `pulse yok` yazılır, panel çökmez.
+    requests: {
+      'status.snapshot': {
+        ...snapshot,
+        pulse: null,
+        projects: snapshot.projects.map((project) => ({ ...project, pulse: null }))
+      }
+    }
+  },
+  pulsePartial: {
+    ...quietWorker,
+    // Bir projede nabız var, diğerinde yok: filo şeridi `1 proje ölçüldü` der.
+    requests: { 'status.snapshot': snapshot }
   },
   empty: {
     ...quietWorker,

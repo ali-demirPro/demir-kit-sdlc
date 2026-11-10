@@ -13,7 +13,10 @@ yalnız `decision: rejected` yorumu yazar. Başarılı kabul geçişinden sonra 
 |-------|-------------|
 | Panel `portfolio` | Liste: her host + repo için tek proje kartı, epic ve leaf satırları. Detay: seçilen epic tam panelde, düz özet ve aksiyonlar |
 | Durum çubuğu `epic` | Odaklı proje `ok` ve aktif epiği varsa `EP-N · CP d/t · gate g`; yoksa sağlıklı proje sayısı `N proje` |
-| Durum çubuğu `cost` | Maliyet; `status.py` henüz `null` döndüğü için `-` |
+| Durum çubuğu `cost` | Maliyet; ölçüm yokken `yok` (sessiz `-` yok) |
+| Filo şeridi | Panel başlığında tüm projelerin `pulse` toplamı ve sparkline |
+| Proje nabzı | Kart içinde `7g: 11 leaf ↑3 · 47 gate · 4 düşen` + günlük sparkline |
+| Süreç karnesi | Epic detayında `gate 44 (7 düşen) · review 3 · lead 89.9 dk · engel 0` |
 
 Her proje kartı repo adını (`project.tracker.repo`, yoksa proje adı) başlık yapar;
 yanında kısa yol ve aktif iş sayısı `epic N · leaf M` rozeti durur. Sayılar
@@ -27,6 +30,29 @@ satırına tıklama, panele değil işçiye `plugin.request("workspace.open", {i
 gönderir; `workspace.open`'ı `workspace:write` yetkisiyle yalnız işçi çağırır ve
 `{ok}` (hata: `{ok:false,error}`) döner. Panel açılışta sorar, 30 saniyede bir
 yenilenir; "Yenile" düğmesi anında tazeler.
+
+## Nabız ve canlı pano
+
+`status.py --json` kökte `pulse`, her epic'te `machinery` taşır (kaynak
+`.kit/cycle.jsonl`; defter yoksa tüm sayılar `null`, sıfır uydurulmaz). İşçi
+proje nabızlarını **birebir toplayarak** filo şeridini üretir; toplama saf
+`src/pulse.ts` içindedir ve `node:test` ile sınanır. Eksik nabızlı proje varsa
+şerit `N proje ölçüldü` der, sıfır saymaz.
+
+- `pulseLine`: `7g · 11 leaf · ↑3 · 47 gate · 4 düşen · 2 engel`; `prev_delta`
+  sıfırsa ok çizilmez, `gate_failures` sıfırsa yazılmaz.
+- `fleetLine`: `3 proje · 7g · 15 leaf · ↑3 · 50 gate · lead 20 dk`.
+- `machineryLine`: `gate 44 (7 düşen) · review 3 · lead 89.9 dk · engel 0`.
+- Sparkline unicode bloklarla çizilir (`▁▂▃▄▅▆▇█`); günlük seri
+  `pulse.daily`, pencere içi `leaf-done` sayısıdır.
+
+Eski `status.py` `pulse` taşımıyorsa proje kartı `pulse yok` yazar; panel
+çökmez. `cost` durum çubuğu maliyet ölçülene kadar `yok` gösterir.
+
+**Canlı epic panosu:** epic satırında `3 bitti · 1 devam · 2 sırada` rozeti
+durur; leaf satırları bu gruplarda ve sabit sırada çizilir (`✓` bitti,
+`▸` devam, `○` sırada). Grup eşlemesi: `leaf-done`/`closed`/`epic-done` →
+bitti, `executing`/`blocked`/`epic-reconcile` → devam, kalanı → sırada.
 
 ## İki görünüm
 
