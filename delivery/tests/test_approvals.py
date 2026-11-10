@@ -256,9 +256,10 @@ class ApprovalContractTests(unittest.TestCase):
             encoding="utf-8"
         )
         self.assertIn("Onay etiketi yalnız insan", policy)
-        for name in ("VERSION", "README.md", "CHANGELOG.md"):
+        version = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
+        for name in ("README.md", "CHANGELOG.md"):
             text = (ROOT / name).read_text(encoding="utf-8")
-            self.assertIn("2.63.0", text)
+            self.assertIn(version, text)
 
 
 if __name__ == "__main__":
