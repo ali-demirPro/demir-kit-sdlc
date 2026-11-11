@@ -39,8 +39,8 @@ import {
   sparkline
 } from './pulse'
 
-/** Dashboard ile aynı pencere: 30 saniyede bir tazele. */
-const REFRESH_MS = 30_000
+/** Panel dakikada bir tazeler; işçi deposu 120 sn'de bir python'a döner (saatte ≤ 30 çağrı). */
+const REFRESH_MS = 60_000
 
 type PanelView =
   | { kind: 'list' }
@@ -133,6 +133,19 @@ function liveText(project: StatusProject): string {
   const idle = live?.idle ?? 0
   const idleText = idle > 0 ? ` · ${idle} boşta` : ''
   return `● ${live?.working ?? 0} çalışıyor${idleText} · ${live?.blocked ?? 0} engelli`
+}
+
+/** Depodaki kaydın yaşı: işçi `önbellekten okundu: Ns` uyarısı yazar, panel çözer. Yoksa null. */
+function cacheAgeOf(warnings?: string[]): string | null {
+  if (!Array.isArray(warnings)) return null
+  for (const warning of warnings) {
+    const match =
+      typeof warning === 'string'
+        ? warning.match(/önbellekten okundu: (\d+)s/)
+        : null
+    if (match !== null) return match[1]
+  }
+  return null
 }
 
 /**
@@ -450,6 +463,7 @@ function ProjectGroup({
 }) {
   const claimable = claimableLeaf(project)
   const active = isActive(project)
+  const cacheAge = cacheAgeOf(project.warnings)
 
   return (
     <Card title={projectTitle(project)} description={shortPath(project.path)}>
@@ -461,6 +475,9 @@ function ProjectGroup({
             {project.ok ? 'ok' : 'hata'}
           </Badge>
           {project.stale === true && <Badge tone="warning">eski veri</Badge>}
+          {cacheAge !== null && (
+            <Badge tone="neutral">{`önbellek yaşı ${cacheAge}s`}</Badge>
+          )}
           <Badge tone="neutral">{countsText(project)}</Badge>
           {project.counts?.blocked ? (
             <Badge tone="warning">{project.counts.blocked} engel</Badge>
