@@ -1,7 +1,16 @@
 // Odak çözümü ve ajan kartı saf yardımcılarla sınanır: python ya da gerçek kit yok.
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from 'node:fs'
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync
+} from 'node:fs'
 import * as os from 'node:os'
 import { join } from 'node:path'
 import { beforeEach, test } from 'node:test'
@@ -15,6 +24,7 @@ import {
   agentStateOf,
   agentTarget,
   agentWorkspaceHint,
+  CACHE_MS,
   cacheMatches,
   collapseProjectRefs,
   dedupeProjects,
@@ -22,6 +32,7 @@ import {
   learnAgentTerminal,
   matchWorkspaceHint,
   matchWorkspacePath,
+  parseStatusJson,
   parseTerminalMap,
   pickFocused,
   projectKey,
@@ -34,9 +45,11 @@ import {
   resetTerminalMap,
   serializeTerminalMap,
   shouldRetryFocus,
+  STATUS_ARGS,
   statusText,
   terminalFocus,
-  terminalMapSize
+  terminalMapSize,
+  withCacheAge
 } from './worker'
 
 beforeEach(() => {
@@ -522,8 +535,12 @@ test('repo: git ortak dizini depo kökünü verir', async () => {
 })
 
 test('activate: ilk tarama hazır olmayı bekletmez', async () => {
-  // `workspace.list` hiç dönmezse eski `await refresh` hazır olmayı kilitlerdi.
-  const hung = new Promise<unknown>(() => undefined)
+  // `workspace.list` çok yavaş dönünce (burada 100 ms) activate hazır olmayı
+  // beklememeli. Sonsuz bekleyen promise süreç boyunca modül düzeyindeki
+  // tazeleme kuyruğunu kilitlerdi; kısa gecikme bunu önler.
+  const hung = new Promise<unknown>((resolve) =>
+    setTimeout(() => resolve({ workspaces: [] }), 100)
+  )
   type Orca = Parameters<typeof activate>[0]
   const fake = {
     log: () => undefined,
@@ -544,4 +561,159 @@ test('activate: ilk tarama hazır olmayı bekletmez', async () => {
   const started = Date.now()
   await activate(fake as unknown as Orca)
   assert.ok(Date.now() - started < 1000, 'activate ilk taramayı beklememeli')
+  // Kuyruk gerçekten boşalsın: sonraki testler tazelemeyi kullanabilsin.
+  await hung
+  await new Promise((resolve) => setTimeout(resolve, 50))
+})
+
+test('budget: status.py 120 sn TTL ile cagrilir; panel 60 sn tazeler', () => {
+  assert.deepEqual([...STATUS_ARGS], ['--json', '--cache-ttl', '120'])
+  assert.equal(CACHE_MS, 120_000)
+  // panel.tsx `orca` kitini import eder; test icinde yalniz kaynagi okunur.
+  const candidates = [
+    join('src', 'panel.tsx'),
+    join('plugins', 'orca', 'src', 'panel.tsx')
+  ]
+  const found = candidates.find((path) => existsSync(path))
+  assert.ok(found !== undefined, `panel.tsx bulunamadi (cwd: ${process.cwd()})`)
+  assert.match(readFileSync(found, 'utf8'), /const REFRESH_MS = 60_000/)
+})
+
+test('cache age: depodan servis edilen yuk guncel yasini tasir, eski uyarilar gitmez', () => {
+  const fresh = withCacheAge(['[uyarı] bir şey'], 12)
+  assert.deepEqual(fresh, ['[uyarı] bir şey', 'önbellekten okundu: 12s'])
+  // Ardisik servislerde uyari buyurmez: eski yas satiri atilir, yenisi eklenir.
+  const again = withCacheAge(fresh, 55)
+  assert.deepEqual(again, ['[uyarı] bir şey', 'önbellekten okundu: 55s'])
+})
+
+function fixtureKit(exitCode: number): {
+  root: string
+  counter: string
+  count: () => number
+  cleanup: () => void
+} {
+  const root = mkdtempSync(join(os.tmpdir(), 'demir-kit-budget-'))
+  const counter = join(root, 'status-calls')
+  const scriptDir = join(root, 'delivery', 'scripts')
+  mkdirSync(scriptDir, { recursive: true })
+  const body = [
+    'import json, sys, pathlib',
+    `with open(${JSON.stringify(counter)}, 'a') as handle: handle.write('x')`,
+    `payload = {"contract_version": "2", "stale": ${exitCode !== 0 ? 'True' : 'False'}, "source": "live", "generated_at": "2026-11-11T00:00:00Z", "epics": [{"number": 361, "state": "executing", "checkpoints": []}], "counts": {"epics": 1, "leaves": 1, "blocked": 0}, "pulse": None, "warnings": ["gh: 500 iç hata"]}`,
+    'print(json.dumps(payload))',
+    `sys.exit(${exitCode})`,
+    ''
+  ].join('\n')
+  writeFileSync(join(scriptDir, 'status.py'), body)
+  return {
+    root,
+    counter,
+    count: () => (existsSync(counter) ? readFileSync(counter, 'utf8').length : 0),
+    cleanup: () => rmSync(root, { recursive: true, force: true })
+  }
+}
+
+function fakeOrca(root: string) {
+  const handlers = new Map<string, (input?: unknown) => Promise<unknown>>()
+  const storage = new Map<string, unknown>()
+  const orca = {
+    log: () => undefined,
+    panels: {
+      handle: (name: string, handler: (input?: unknown) => Promise<unknown>) => {
+        handlers.set(name, handler)
+      }
+    },
+    commands: { register: () => undefined },
+    events: { on: () => undefined },
+    settings: { get: async () => '', onDidChange: () => undefined },
+    storage: {
+      get: async (key: string) => storage.get(key) ?? null,
+      set: async (key: string, value: unknown) => {
+        storage.set(key, value)
+      },
+      delete: async (key: string) => {
+        storage.delete(key)
+      }
+    },
+    host: {
+      call: (method: string) => {
+        if (method === 'workspace.list') {
+          return Promise.resolve({
+            workspaces: [{ id: 'ws-budget', name: 'budget', path: root, hostId: null }]
+          })
+        }
+        if (method === 'workspace.readContext') {
+          return Promise.resolve({ displayName: 'budget', terminals: [] })
+        }
+        if (method === 'agents.list') return Promise.resolve({ agents: [] })
+        return Promise.resolve({})
+      }
+    }
+  }
+  return { orca, handlers }
+}
+
+async function waitFor(predicate: () => boolean, attempts = 200): Promise<void> {
+  for (let index = 0; index < attempts; index += 1) {
+    if (predicate()) return
+    await new Promise((resolve) => setTimeout(resolve, 25))
+  }
+  throw new Error('beklenen durum zamaninda gelmedi')
+}
+
+test('budget: bir saatlik panel omrunde status.py en fazla 30 kez kosar', async () => {
+  const fixture = fixtureKit(0)
+  const { orca, handlers } = fakeOrca(fixture.root)
+  const realNow = Date.now
+  let fakeNow = 0
+  Date.now = () => fakeNow
+  try {
+    type Orca = Parameters<typeof activate>[0]
+    await activate(orca as unknown as Orca)
+    // Ilk (zorunlu) tazeleme bitsin: sayac en az 1 olmali.
+    await waitFor(() => fixture.count() >= 1)
+    const handler = handlers.get('status.snapshot')
+    assert.ok(handler !== undefined, 'status.snapshot kaydi yok')
+    // Sahte saat: 60 dakika, her dakikada bir panel isteği (REFRESH_MS = 60_000).
+    for (let minute = 0; minute < 60; minute += 1) {
+      fakeNow = minute * 60_000
+      await handler(undefined)
+    }
+    assert.ok(
+      fixture.count() >= 2 && fixture.count() <= 30,
+      `1 saatte ${fixture.count()} status.py cagrisi (limit 30; 2 ustu da gerekli, yoksa tazeleme calismamis demektir)`
+    )
+  } finally {
+    Date.now = realNow
+    fixture.cleanup()
+  }
+})
+
+test('degraded: 0-disi cikis status.py yukunu kaybettirmez, neden ve stale tasinir', async () => {
+  const fixture = fixtureKit(1)
+  const { orca, handlers } = fakeOrca(fixture.root)
+  try {
+    type Orca = Parameters<typeof activate>[0]
+    await activate(orca as unknown as Orca)
+    await waitFor(() => fixture.count() >= 1)
+    const handler = handlers.get('status.snapshot')
+    assert.ok(handler !== undefined, 'status.snapshot kaydi yok')
+    const data = (await handler(undefined)) as StatusSnapshot
+    const project = data.projects.find((item) => item.id === 'ws-budget')
+    assert.ok(project !== undefined, 'proje karti yok')
+    assert.equal(project.ok, false)
+    assert.equal(project.stale, true)
+    // Sözleşme verisi korunur: epics/counts kaybolmaz.
+    assert.equal(project.epics.length, 1)
+    assert.equal(project.counts.epics, 1)
+    // Neden panele taşınır: hata satırı ve uyarılarda görünür.
+    assert.match(project.error ?? '', /status\.py çıkış 1/)
+    assert.ok(
+      project.warnings.some((warning) => /gh: 500/.test(warning)),
+      'status.py uyarisı tasinmadi'
+    )
+  } finally {
+    fixture.cleanup()
+  }
 })

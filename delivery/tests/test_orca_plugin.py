@@ -66,8 +66,8 @@ class ManifestTests(unittest.TestCase):
         self.assertIn("status.py", source)
         self.assertIn("statusBar.update", source)
         self.assertIn("status.snapshot", source)
-        # 30 saniyelik önbellek: süre sabiti ve depolama anahtarı birlikte.
-        self.assertIn("CACHE_MS = 30_000", source)
+        # 120 saniyelik önbellek (CP-1, çağrı bütçesi): süre sabiti ve depolama anahtarı birlikte.
+        self.assertIn("CACHE_MS = 120_000", source)
         self.assertIn("saved_at", source)
         self.assertIn("workspace.changed", source)
 

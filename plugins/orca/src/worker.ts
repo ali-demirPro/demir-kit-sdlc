@@ -29,14 +29,19 @@ import type {
 } from './protocol'
 import { fleetPulse } from './pulse'
 
-/** A second call inside this window answers from storage instead of running python. */
-export const CACHE_MS = 30_000
+/**
+ * İkinci çağrı bu pencerede python yerine depodan yanıtlanır. Pencere 120 sn:
+ * panel 60 sn'de bir tazeler, saatte en fazla 30 status.py çağrısı düşer.
+ */
+export const CACHE_MS = 120_000
 const CACHE_PREFIX = 'project:'
 const STATUS_TIMEOUT_MS = 10_000
 /** Claim ve geçiş `gh` çağırır: durum okumasından daha uzun sürebilir. */
 const ACTION_TIMEOUT_MS = 60_000
 const TAIL_LINES = 12
 const STATUS_SCRIPT = join('delivery', 'scripts', 'status.py')
+/** `status.py` her zaman bu argümanlarla koşar; `--cache-ttl 120`: dosya önbelleği 120 sn taze kalır. */
+export const STATUS_ARGS = ['--json', '--cache-ttl', '120'] as const
 const NO_KIT = 'demir-kit yok'
 const ZERO_COUNTS: StatusCounts = { epics: 0, leaves: 0, blocked: 0 }
 const AGENT_STATES: readonly AgentState[] = [
@@ -50,6 +55,8 @@ const AGENT_STATES: readonly AgentState[] = [
 interface StatusJson {
   stale?: boolean
   source?: string
+  /** status.py'nin ürettiği an (`from_cache` eskisi kalır); 0-dışı çıkışta da taşınır. */
+  generated_at?: string
   project?: {
     name?: string
     repo_root?: string | null
@@ -58,6 +65,7 @@ interface StatusJson {
   epics?: StatusEpic[]
   counts?: StatusCounts
   warnings?: string[]
+  pulse?: StatusProject['pulse']
 }
 
 interface CacheEntry {
@@ -859,22 +867,31 @@ async function resolveProjects(orca: OrcaWorkerApi): Promise<ResolvedProjects> {
   }
 }
 
-function runStatus(ref: ProjectRef): Promise<StatusJson> {
-  return new Promise((resolve, reject) => {
+/** `status.py` stdout'u: çıkış kodu 0 değilse de taşınır, yoksa kaybedilirdi. */
+export interface RunStatusResult {
+  code: number | null
+  stdout: string
+  stderr: string
+}
+
+function runStatus(ref: ProjectRef): Promise<RunStatusResult> {
+  return new Promise((resolve) => {
     execFile(
       'python3',
-      [join(ref.kitRoot, STATUS_SCRIPT), '--json'],
+      [join(ref.kitRoot, STATUS_SCRIPT), ...STATUS_ARGS],
       { cwd: ref.path, timeout: STATUS_TIMEOUT_MS, maxBuffer: 4 * 1024 * 1024 },
-      (error, stdout) => {
-        if (error !== null) {
-          reject(error)
-          return
-        }
-        try {
-          resolve(JSON.parse(stdout) as StatusJson)
-        } catch (parseError) {
-          reject(parseError)
-        }
+      (error, stdout, stderr) => {
+        const code =
+          error === null
+            ? 0
+            : typeof (error as { code?: unknown }).code === 'number'
+              ? ((error as { code: number }).code)
+              : null
+        resolve({
+          code,
+          stdout: typeof stdout === 'string' ? stdout : String(stdout ?? ''),
+          stderr: typeof stderr === 'string' ? stderr : String(stderr ?? '')
+        })
       }
     )
   })
@@ -1119,16 +1136,99 @@ export function cacheMatches(
   )
 }
 
+/** Depo önbelleği yaş uyarısının eki; panel bu metni çözüp "önbellek yaşı" gösterir. */
+const CACHE_AGE_PREFIX = 'önbellekten okundu: '
+
+/** Eski yaş uyarılarını atar, aktüelini ekler: depodan servis edilen yük hep taze yaş der. */
+export function withCacheAge(warnings: string[], ageSeconds: number): string[] {
+  const rest = warnings.filter((warning) => !warning.startsWith(CACHE_AGE_PREFIX))
+  return [...rest, `${CACHE_AGE_PREFIX}${ageSeconds}s`]
+}
+
+/** `status.py` stdout'unu sözleşme biçiminde çözer; bozuk ya da eksikse null. */
+export function parseStatusJson(stdout: string): StatusJson | null {
+  const text = stdout.trim()
+  if (text === '') return null
+  try {
+    const value: unknown = JSON.parse(text)
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+      return null
+    }
+    const data = value as StatusJson
+    if (data.epics !== undefined && !Array.isArray(data.epics)) return null
+    if (data.counts !== undefined && typeof data.counts !== 'object') return null
+    if (data.warnings !== undefined && !Array.isArray(data.warnings)) return null
+    return data
+  } catch {
+    return null
+  }
+}
+
+/** 0-dışı çıkışta panele taşınacak kısa neden: önce stderr'in ilk satırı, sonra sözleşme uyarısı. */
+function reasonFrom(result: RunStatusResult, data: StatusJson | null): string {
+  const stderrLine =
+    result.stderr
+      .split('\n')
+      .map((line) => line.trim())
+      .find((line) => line !== '') ?? ''
+  const contractLine = Array.isArray(data?.warnings)
+    ? (data.warnings.find(
+        (warning) => typeof warning === 'string' && warning.trim() !== ''
+      ) ?? '')
+    : ''
+  const detail = stderrLine !== '' ? stderrLine : contractLine
+  const base = `status.py çıkış ${result.code ?? '?'}`
+  return (detail === '' ? base : `${base}: ${detail}`).slice(0, 200)
+}
+
+/** Sözleşme alanlarını olduğu gibi koruyan proje yükü; 0-dışı çıkışta da epics/counts/pulse taşınır. */
+function statusProject(
+  ref: ProjectRef,
+  data: StatusJson,
+  overrides: {
+    ok: boolean
+    stale?: boolean
+    error?: string
+    warnings?: string[]
+  }
+): StatusProject {
+  const baseWarnings = Array.isArray(data.warnings)
+    ? data.warnings.filter((warning): warning is string => typeof warning === 'string')
+    : []
+  const warnings = [...baseWarnings, ...(overrides.warnings ?? [])]
+  const project: StatusProject = {
+    id: ref.id,
+    host: ref.hostId,
+    path: ref.path,
+    name: projectName(ref, data),
+    repo: projectRepo(data),
+    repo_root: projectRepoRoot(data),
+    ok: overrides.ok,
+    epics: Array.isArray(data.epics) ? data.epics : [],
+    counts: data.counts ?? { ...ZERO_COUNTS },
+    warnings,
+    stale: overrides.stale ?? data.stale === true,
+    pulse: data.pulse ?? null
+  }
+  if (overrides.error !== undefined) project.error = overrides.error
+  return project
+}
+
 async function cachedProject(
   orca: OrcaWorkerApi,
   ref: ProjectRef
 ): Promise<StatusProject | null> {
   const raw = await orca.storage.get(`${CACHE_PREFIX}${refKey(ref)}`)
   if (!isCacheEntry(raw)) return null
-  if (Date.now() - raw.saved_at >= CACHE_MS) return null
+  const ageMs = Date.now() - raw.saved_at
+  if (ageMs >= CACHE_MS) return null
   // Aynı yol iki hostta: giriş host dilimine ve yola bağlıdır.
   if (!cacheMatches(raw, ref)) return null
-  return raw.project
+  // Önbellek yaşı uyarıyı günceller: panel depodaki kaydın aktüel yaşını görür.
+  return {
+    ...raw.project,
+    warnings: withCacheAge(raw.project.warnings, Math.floor(ageMs / 1000))
+  }
 }
 
 async function projectSnapshot(
@@ -1145,27 +1245,39 @@ async function projectSnapshot(
       orca.log(`demir-kit: önbellek okunamadı (${ref.path}): ${String(error)}`)
     }
   }
+  // Beklenmedik hata yalnız bu projede kalır: Promise.all diğerlerini düşürmez.
   try {
-    const data = await runStatus(ref)
-    const project: StatusProject = {
-      id: ref.id,
-      host: ref.hostId,
-      path: ref.path,
-      name: projectName(ref, data),
-      repo: projectRepo(data),
-      repo_root: projectRepoRoot(data),
-      ok: true,
-      epics: Array.isArray(data.epics) ? data.epics : [],
-      counts: data.counts ?? { ...ZERO_COUNTS },
-      warnings: Array.isArray(data.warnings) ? data.warnings : [],
-      stale: data.stale === true,
-      pulse: data.pulse ?? null
+    const result = await runStatus(ref)
+    const data = parseStatusJson(result.stdout)
+    if (result.code === 0) {
+      if (data === null) {
+        return failedProject(ref, 'status.py JSON okunamadı')
+      }
+      const project = statusProject(ref, data, { ok: true })
+      try {
+        await orca.storage.set(`${CACHE_PREFIX}${refKey(ref)}`, {
+          saved_at: Date.now(),
+          project
+        })
+      } catch (storageError) {
+        // Önbelleğe yazılamazsa yük yine döner; yalnız sonraki tur python'a gider.
+        orca.log(`demir-kit: önbellek yazılamadı (${ref.path}): ${String(storageError)}`)
+      }
+      return project
     }
-    await orca.storage.set(`${CACHE_PREFIX}${refKey(ref)}`, {
-      saved_at: Date.now(),
-      project
-    })
-    return project
+    // 0-dışı çıkış: status.py sözleşmeyi yine de stdout'a yazdıysa veriyi koru,
+    // nedeni ve `stale: true` bilgisini panele taşı (epics/counts/pulse dokunulmaz).
+    const reason = reasonFrom(result, data)
+    if (data !== null) {
+      // Bozulmuş ya da limitten düşmüş yük depoya yazılmaz; sonraki tur yine dener.
+      return statusProject(ref, data, {
+        ok: false,
+        stale: true,
+        error: reason,
+        warnings: [reason]
+      })
+    }
+    return failedProject(ref, reason)
   } catch (error) {
     return failedProject(ref, messageOf(error))
   }

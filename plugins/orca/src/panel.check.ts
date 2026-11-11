@@ -190,6 +190,63 @@ const snapshot = {
   warnings: []
 }
 
+/**
+ * Bayat yük: işçi önbellekten sunar ya da 0-dışı çıkışta sözleşme verisini taşır.
+ * `stale` rozeti ve `önbellek yaşı` çizilir, neden uyarısı görünür; panel çökmez.
+ */
+const staleSnapshot = {
+  ok: true,
+  generated_at: '2026-11-11T08:30:00Z',
+  focused: 'ws-demir-kit',
+  projects: [
+    {
+      id: 'ws-demir-kit',
+      path: '/Users/ali/projeler/demir-kit',
+      name: 'demir-kit',
+      repo: 'ali-demirPro/demir-kit-sdlc',
+      ok: true,
+      epics: [],
+      counts: { epics: 0, leaves: 0, blocked: 0 },
+      agents: [],
+      live: { working: 0, blocked: 0, waiting: 0, idle: 0, done: 0 },
+      warnings: ['önbellekten okundu: 75s'],
+      stale: true
+    },
+    {
+      id: 'ws-urun',
+      path: '/Users/ali/projeler/urun',
+      name: 'urun',
+      ok: false,
+      error: 'status.py çıkış 1: gh: 500 iç hata',
+      epics: [
+        {
+          number: 24,
+          title: 'Epic: ilk sürüm',
+          state: 'executing',
+          risk: 'medium',
+          checkpoints: [
+            { id: 'CP-1', title: 'iskele', done: false, leaf: 25 }
+          ],
+          updated_at: null,
+          url: null,
+          leaves: [{ number: 25, title: 'Leaf: iskele', state: 'intake' }],
+          gate: null,
+          approvals: { agent_approved: false, human_qa: false },
+          next_action: null
+        }
+      ],
+      counts: { epics: 1, leaves: 1, blocked: 0 },
+      pulse: null,
+      agents: [],
+      live: { working: 0, blocked: 0, waiting: 0, idle: 0, done: 0 },
+      warnings: ['gh: 500 iç hata', 'status.py çıkış 1: gh: 500 iç hata'],
+      stale: true
+    }
+  ],
+  pulse: null,
+  warnings: []
+}
+
 /** No result for `workspace.list` would leave the worker's own error in the log. */
 const quietWorker = { results: { 'workspace.list': { workspaces: [] } } }
 
@@ -375,6 +432,11 @@ export default defineCheck({
         projects: snapshot.projects.map((project) => ({ ...project, pulse: null }))
       }
     }
+  },
+  stale: {
+    // Bayat/0-dışı yük: `stale` rozeti + önbellek yaşı çizilir, neden görünür, panel çökmez.
+    ...quietWorker,
+    requests: { 'status.snapshot': staleSnapshot }
   },
   pulsePartial: {
     ...quietWorker,
