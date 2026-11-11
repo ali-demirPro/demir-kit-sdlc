@@ -57,4 +57,4 @@ entries:
   - surface: kit.scripts
     path: delivery/scripts/doctor.py
     tags: [doctor]
-    weight: 2
+    weight: 1
