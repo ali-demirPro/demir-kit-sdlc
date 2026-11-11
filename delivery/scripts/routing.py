@@ -44,29 +44,23 @@ INACTIVE_REASONS = {
 
 
 def project_root(kit_root: Path, cwd: Path | None = None) -> Path:
-    """Delegate to the one contract: main checkout, explicit project, kit root."""
+    """State root: main checkout, explicit project, kit root (``kitlib.root``)."""
     return kitroot.project_root(kit_root, project=cwd)
 
 
-def _same_checkout(left: Path, right: Path) -> bool:
-    """Same repository checkout: equal paths or one git common root."""
-    if left.resolve() == right.resolve():
-        return True
-    left_common = kitroot.git_common_root(left)
-    right_common = kitroot.git_common_root(right)
-    return bool(
-        left_common
-        and right_common
-        and left_common.resolve() == right_common.resolve()
-    )
+def checkout_root(cwd: Path | None = None) -> Path:
+    """Current checkout (the linked worktree when present); session/report scoped."""
+    return kitroot.checkout_root(cwd)
 
 
 def kit_prefix(kit_root: Path, cwd: Path | None = None) -> str:
-    project = project_root(kit_root, cwd)
-    if _same_checkout(project, Path(kit_root)):
-        return ""
-    root = kitconfig.kit_root_name(project)
-    return f"{root}/" if root else ""
+    """Vendored kit directory inside the product; ``""`` for a self-host.
+
+    The prefix comes from ``kit.config.yaml: kit.root``, never from a path
+    comparison: a vendored kit and its product share one git common root.
+    """
+    root = kitconfig.kit_root_name(project_root(kit_root, cwd))
+    return "" if root in {"", "."} else f"{root}/"
 
 
 def load_registry(root: Path) -> dict:
@@ -80,7 +74,14 @@ def seal_body(body: str) -> dict:
 
 
 def is_epic(body: str) -> bool:
-    return yamlish.has_block(body, "demir-kit-epic")
+    """Legacy semantics: the opening fence alone marks an epic block.
+
+    ``yamlish.has_block`` also requires the closing fence; a seal that is still
+    being written must keep resolving as an epic, as it did before kitlib.
+    """
+    return (
+        re.search(r"```yaml\s+demir-kit-epic\s*\n", body or "") is not None
+    )
 
 
 def all_agents(registry: dict) -> list[str]:

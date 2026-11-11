@@ -21,6 +21,7 @@ import cycle  # noqa: E402
 import routing  # noqa: E402
 
 PROJECT = routing.project_root(ROOT)
+CHECKOUT = routing.checkout_root(ROOT)
 CYCLE_ROOT = cycle.project_root(ROOT)
 
 
@@ -208,7 +209,7 @@ def collect_usage(since: datetime, until: datetime) -> dict:
             ],
             text=True,
             stderr=subprocess.DEVNULL,
-            cwd=PROJECT,
+            cwd=CHECKOUT,
         )
         return json.loads(raw)
     except Exception:  # noqa: BLE001
@@ -232,7 +233,7 @@ def collect_delta(issue: int) -> dict | None:
                 "--json",
             ],
             text=True,
-            cwd=PROJECT,
+            cwd=CHECKOUT,
             stderr=subprocess.DEVNULL,
         )
         return json.loads(raw)
@@ -251,7 +252,7 @@ def collect_commits(since: datetime, until: datetime) -> list[str]:
                 "--pretty=format:%h %s",
             ],
             text=True,
-            cwd=PROJECT,
+            cwd=CHECKOUT,
         )
     except subprocess.CalledProcessError:
         return []

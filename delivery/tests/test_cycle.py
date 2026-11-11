@@ -18,6 +18,7 @@ SCRIPTS = ROOT / "delivery" / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
 from kitlib import root as kitroot  # noqa: E402
+import routing  # noqa: E402
 
 spec = importlib.util.spec_from_file_location("cycle", SCRIPTS / "cycle.py")
 cycle = importlib.util.module_from_spec(spec)
@@ -177,6 +178,15 @@ class ProjectRootWorktreeTests(unittest.TestCase):
         with patch.dict(os.environ, {"DEMIR_KIT_CYCLE_ROOT": ""}):
             resolved = cycle.project_root(self.worktree, self.worktree)
         self.assertEqual(resolved.resolve(), self.main.resolve())
+
+    def test_checkout_root_is_the_worktree_not_the_main_checkout(self) -> None:
+        self.assertEqual(
+            routing.checkout_root(self.worktree).resolve(), self.worktree.resolve()
+        )
+        self.assertEqual(
+            routing.project_root(self.worktree, self.worktree).resolve(),
+            self.main.resolve(),
+        )
 
 
 class TransitionCycleTests(unittest.TestCase):

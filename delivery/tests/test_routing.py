@@ -5,6 +5,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import re
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -212,12 +213,37 @@ class RoutingTests(unittest.TestCase):
         self.assertIn("no-op", routing.next_action({"leaf-done"}, False))
         self.assertIn("epic kapandı", routing.next_action({"epic-done"}, True))
 
-    def test_kit_prefix(self) -> None:
+    def test_kit_prefix_vendored_product_with_one_git_root(self) -> None:
+        # Regression: the vendored kit and the product share one git common
+        # root, so the prefix must come from kit.config, not a path compare.
+        with tempfile.TemporaryDirectory() as directory:
+            product = Path(directory)
+            (product / "kit.config.yaml").write_text(
+                "kit:\n  root: demir-kit\n", encoding="utf-8"
+            )
+            kit_copy = product / "demir-kit"
+            kit_copy.mkdir()
+            (kit_copy / "VERSION").write_text("2.65.1\n", encoding="utf-8")
+            subprocess.run(["git", "init", "-q", str(product)], check=True)
+            self.assertEqual(
+                routing.kit_prefix(kit_copy, product), "demir-kit/"
+            )
+
+    def test_kit_prefix_self_host_is_empty(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            (root / "kit.config.yaml").write_text("kit:\n  root: demir-kit\n")
-            self.assertEqual(routing.kit_prefix(Path("/kit"), root), "demir-kit/")
+            (root / "kit.config.yaml").write_text(
+                'kit:\n  root: "."\n', encoding="utf-8"
+            )
             self.assertEqual(routing.kit_prefix(root, root), "")
+
+    def test_checkout_scoped_callers_use_checkout_root(self) -> None:
+        wave = (SCRIPTS / "review_wave.py").read_text(encoding="utf-8")
+        self.assertIn("worktree = str(routing.checkout_root(ROOT))", wave)
+        report = (SCRIPTS / "report.py").read_text(encoding="utf-8")
+        self.assertIn("CHECKOUT = routing.checkout_root(ROOT)", report)
+        self.assertIn("cwd=CHECKOUT", report)
+        self.assertIn('state_path = PROJECT / ".orchestration"', report)
 
     def test_project_root(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -293,6 +319,12 @@ class BriefTests(unittest.TestCase):
     def test_is_epic(self) -> None:
         self.assertTrue(routing.is_epic("```yaml demir-kit-epic\nx: 1\n```"))
         self.assertFalse(routing.is_epic(seal()))
+
+    def test_is_epic_keeps_the_opening_fence_semantics(self) -> None:
+        # Legacy behaviour: an epic block that is still being written (no
+        # closing fence) is already an epic, not a leaf.
+        self.assertTrue(routing.is_epic("```yaml demir-kit-epic\nx: 1\n"))
+        self.assertTrue(routing.is_epic("```yaml demir-kit-epic\n"))
 
     def test_json_is_deterministic(self) -> None:
         first = json.dumps(

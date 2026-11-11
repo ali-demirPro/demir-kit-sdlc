@@ -499,7 +499,7 @@ def main() -> int:
         run_id = closure.run_id_for(epic) if epic else None
     if not run_id:
         raise SystemExit("review_wave: Orca run bulunamadı (--run ver)")
-    worktree = str(routing.project_root(ROOT))
+    worktree = str(routing.checkout_root(ROOT))
 
     model = model_policy.role_launch(
         routing.project_root(ROOT), "reviewer"

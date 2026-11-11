@@ -100,7 +100,7 @@ class ReportTests(unittest.TestCase):
             with patch.object(report, "PROJECT", root):
                 self.assertEqual(report.repo_name(), "owner/product")
 
-    def test_collect_commits_uses_project(self) -> None:
+    def test_collect_commits_uses_checkout(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             captured = {}
@@ -109,7 +109,7 @@ class ReportTests(unittest.TestCase):
                 captured.update(kwargs)
                 return "abc commit"
 
-            with patch.object(report, "PROJECT", root), patch.object(
+            with patch.object(report, "CHECKOUT", root), patch.object(
                 report.subprocess, "check_output", fake
             ):
                 commits = report.collect_commits(
