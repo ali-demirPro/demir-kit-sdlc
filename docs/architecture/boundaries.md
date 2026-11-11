@@ -150,9 +150,11 @@ Her sınır için: ne içeri girebilir, ne giremez, denetimi nasıl yapılır.
 - **Giremez:** Durum makinesi ve geçiş tanımları (yalnız `CONTRACT.md`), risk
   modeli; `registry.yaml` `protocol:` bloğunda adı geçmeyen yeni protokol
   runtime'a eklenemez.
-- **Denetim:** `./delivery/scripts/doctor.sh` (REQUIRED_FILES: execution/seal/
-  health-check/evidence/orca + link kontrolü) + registry `protocol:` referansları +
-  `python3 -m unittest discover -s delivery/tests`.
+- **Denetim:** `./delivery/scripts/doctor.sh` (`check_files` — REQUIRED_FILES:
+  execution/seal/health-check/evidence/orca; `check_links` — bu dosyalardaki
+  linkler) + `python3 -m unittest discover -s delivery/tests`. Registry
+  `protocol:` bloğu doctor'da doğrulanmıyor (`check_registry` bu bloğu okumaz);
+  bu blok için otomatik denetim yoktur, uyum review'da aranır.
 
 ### B10 — Agents / roller (`delivery/agents/<rol>/`)
 
@@ -185,11 +187,11 @@ Her sınır için: ne içeri girebilir, ne giremez, denetimi nasıl yapılır.
 - **Giremez:** `registry.yaml` `skills.runtime`'a girme, `install.sh` kurulu
   setine (`skills/` → proje kopyası) dahil edilme, `delivery/` runtime'ı tarafından
   çağrılma/vendored edilme.
-- **Denetim:** Ayrı test süiti yoktur; `doctor.sh` link kontrolü `discovery/`'i
-  taramaz. Somut mekanizma: `install.sh` yalnız `registry.yaml` `skills.runtime`
-  listesini kurar (discovery listede değildir); guard kit.docs yüzeyi
-  `discovery/**`'i kapsar. Runtime sızıntısı architect kapısının diff kıyasında
-  bu blokla yakalanır.
+- **Denetim:** Ayrı test süiti ve harici tarama yoktur; `doctor.sh` (`check_links`,
+  `check_legacy`, `check_skills`) `discovery/`'i kapsamaz. Somut mekanizma:
+  `install.sh` yalnız `registry.yaml` `skills.runtime` listesini kurar
+  (discovery listede değildir); guard kit.docs yüzeyi `discovery/**`'i kapsar.
+  Runtime sızıntısı architect kapısının diff kıyasında bu blokla yakalanır.
 
 ### B13 — Docs (`docs/`)
 
@@ -224,8 +226,9 @@ Her sınır için: ne içeri girebilir, ne giremez, denetimi nasıl yapılır.
   `kit.protocol` ≠ `2`.
 - **Denetim:** `./delivery/scripts/doctor.sh` (`check_ecosystem` — surface path
   varlığı + `kit.protocol == "2"`) + `python3 -m unittest discover -s delivery/tests`
-  (`test_surface_contract.py` — `check_ecosystem`: surface path varlığı +
-  `kit.protocol == "2"`, örn. `test_check_ecosystem_reports_missing_snapshot`;
+  (`test_surface_contract.py` — `check_ecosystem`'in yalnız ui_compare/snapshot
+  dalı, örn. `test_check_ecosystem_reports_missing_snapshot`; surface path
+  varlığı ve `kit.protocol == "2"` dalları bugün test edilmiyor;
   `test_model_policy.py` model politikasını test eder — `orca.inherit_session_model`
   / `role_defaults`, `kit.config`'in `protocol` alanını değil).
 
@@ -339,7 +342,7 @@ Her sınır için: ne içeri girebilir, ne giremez, denetimi nasıl yapılır.
 | `delivery/registry.yaml` | ✔ | ✔ | ✔ (tek kaynak) | ✔ |
 | `delivery/schemas/` | ✔ (`--body`/`--issue`) | ✔ | ✔ (şema referansları) | ✔ |
 | `delivery/policies/` | ✔ (link + tutarlılık) | ✔ | ✔ (quality-gates referansı) | ✔ |
-| `delivery/protocol/` | ✔ (link kontrolü) | ✔ | ✔ (protocol referansları) | ✔ |
+| `delivery/protocol/` | ✔ (`check_files` + `check_links`) | ✔ | — (registry `protocol:` bloğu doğrulanmıyor) | ✔ |
 | `delivery/agents/` | ✔ (varyant + agent.yaml) | ✔ | ✔ (agent_variants) | ✔ |
 | `delivery/runbooks/` | ✔ (pr-flow/adaptation/update — zorunlu dosya + link) | ✔ (test_ci_workflow, test_self_update, test_refactor) | — | ✔ |
 | `delivery/scripts/` | ✔ | ✔ | ✔ (script yolları) | ✔ (G1 + risk) |
@@ -349,11 +352,11 @@ Her sınır için: ne içeri girebilir, ne giremez, denetimi nasıl yapılır.
 | `delivery/context/` + `delivery/metrics/` + `delivery/orchestrator/` | ✔ (context/frequency.yaml — check_schemas; metrics/README.md — check_files; orchestrator md — link) | ✔ (test_brief — route index; test_context_metrics) | — | ✔ |
 | `skills/` | ✔ (skill denetimi) | ✔ | ✔ (`skills.runtime`) | ✔ |
 | `.agents/skills/` | ✔ (kopya denetimi) | — | ✔ (kaynak `skills/`) | — |
-| `discovery/` | ✔ (link/ağ) | — | — | ✔ (kapsam) |
+| `discovery/` | — (harici tarama yok) | — | — | ✔ (kapsam: kit.docs) |
 | `archive/v1.7/` | ✔ (legacy) | ✔ | — | — |
 | `docs/` | — (kapsam dışı; link hedefi geçerli olmalı) | — | — | — |
 | `plugins/` | — (doctor taramaz) | ✔ (test_orca_plugin; `gate.sh` plugins/ değişiminde Orca plugin süiti koşar) | — | — |
-| `ecosystem.yaml` / `kit.config.yaml` | ✔ (wiring/version) | ✔ | ✔ | ✔ (kök common-path `*.yaml`) |
+| `ecosystem.yaml` / `kit.config.yaml` | ✔ (`check_ecosystem` — path + protocol) | ✔ (`test_surface_contract` — yalnız snapshot dalı) | ✔ | ✔ (kök common-path `*.yaml`) |
 
 guard sütunu yalnız `guard.sh`'te tanımlı write-surface denetimini gösterir: G1 uygulama yüzeyi (bu repoda `factory.app_paths` yoktur, `kit.root: .` olduğundan varsayılan `delivery` + `skills`) ve `--issue N` çağrısında seal yüzeyi glob'larıyla (bu repoda kit.docs: `delivery/**`, `skills/**`, `discovery/**`, `.github/**`, `VERSION`, `install.sh` + kök common-path'ler `*.md`/`*.json`/`*.yaml`/… — `docs/**`, `plugins/**`, `archive/**`, `.agents/**` dışarıda); ✔ = modülün dosyaları bu glob'lara uyar, `—` = uymaz, ve bu sütun doctor'ın kapsamını değil yalnız guard'ın yüzeyini tarif eder.
 
