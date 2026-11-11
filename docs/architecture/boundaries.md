@@ -94,19 +94,31 @@ Her sınır için: ne içeri girebilir, ne giremez, denetimi nasıl yapılır.
   güncellemesi her zaman `install.sh` iledir.
 - **Denetim:** `install.sh --dry-run` + `doctor.sh` (skill denetimleri) + review.
 
-### B6 — Root çözümleme (git ortak kökü)
+### B6 — Root çözümleme (iki ayrı fonksiyon)
 
-- **Girebilir:** `git rev-parse --git-common-dir` ile bulunan ortak kök; ortak
-  kökte `kit.config.yaml` varsa kökü orası çözer (örn. `cycle.py project_root`,
-  `guard.sh` `PRODUCT_ROOT`); aksi halde mevcut checkout.
-- **Giremez:** Worktree'ye özgü kök yerine ana checkout varsayımı olmadan durum
-  yazımı — `.kit/` çıktıları ortak köke ait olmalıdır; worktree'ye yazılan durum
-  kopyası bozuk sayılır.
+- **Girebilir:** İki ayrı fonksiyon, ayrı ayrı tarif edilir — ikisi de "tek
+  doğru kök" değil, bugünkü gerçek davranıştır:
+  1. `delivery/scripts/guard.sh` (satır 12–16) — `PRODUCT_ROOT` için
+     `git -C "${PWD}" rev-parse --show-toplevel` kullanır (yedeği `pwd`):
+     **mevcut çalışma ağacının** köküdür; linked worktree'de worktree'nin
+     kendisidir, ortak kök DEĞİL. `PRODUCT_ROOT` içinde `kit.config.yaml`
+     varsa ROOT orasıdır, yoksa script'in KIT_ROOT'u.
+  2. `delivery/scripts/cycle.py` `project_root()` (`git_root`, satır 49–63,
+     çağırımı satır 66) — `git rev-parse --path-format=absolute --git-common-dir`
+     kullanır: ortak git dizininin ebeveyni = **ana checkout**, worktree'den
+     çağrılsa da değişmez. `kit.config.yaml` varsa orası, yoksa cwd, yoksa
+     kit_root (`DEMIR_KIT_CYCLE_ROOT` ile override edilebilir).
+- **Giremez:** İki kök "tekmiş gibi" varsayılan durum yazımı — cycle log'u
+  (`.kit/cycle.jsonl`) ana checkout'a aittir, worktree'ye yazılan durum kopyası
+  bozuk sayılır; guard'ın `show-toplevel` davranışı ile cycle.py'nin
+  ortak-kök davranışı birbirinin yerine geçecek şekilde "düzeltilmez".
 - **Not:** Bu tarif D-1 (#373) kitlib **tek `project_root` sözleşmesi**nin kapsamına
   işaret eder; bugün scriptler arasında birden çok tanım vardır ve kitlib bunları
   tek sözleşmede birleştirir. Bu dosya o kararı vermez, çelişmez, yalnız bugünkü
   davranışı ve hedef yönü tarif eder. Detay ve migrasyon D-1'dedir.
-- **Denetim:** `doctor.sh` + `delivery/tests/` (worktree fixture'ları) + D-1 testleri.
+- **Denetim:** `doctor.sh` (`check_worktree_management` — linked worktree'nin
+  Orca'da kayıtlı olduğunu doğrular) + `delivery/tests/` (`test_cycle.py`,
+  `test_epic_worktree.py`) + D-1 testleri.
 
 ### B7 — Kapsam taşması yok (guard + transition)
 
@@ -118,6 +130,103 @@ Her sınır için: ne içeri girebilir, ne giremez, denetimi nasıl yapılır.
   reddi + risk eskalasyonu) + `transition.sh --issue N` (tek yazıcı geçişleri) +
   `gate.sh --issue N --checkpoint CP-x`.
 
+### B8 — Policies (`delivery/policies/`)
+
+- **Girebilir:** Kapı ve süreç politikaları (`quality-gates.md`, `approval.md`,
+  `escalation.md`, `path-routing.md` …); `registry.yaml` `policies:` bölümü bunların
+  tek referans noktasıdır.
+- **Giremez:** Sözleşme metni ve değişmezler (`delivery/CONTRACT.md`'ye aittir),
+  şema gövdesi, script mantığı; politika "registry risk glob'larını genişletir"
+  diye yazılamaz — çelişirse registry kazanır.
+- **Denetim:** `./delivery/scripts/doctor.sh` (REQUIRED_FILES + link kontrolü +
+  `check_registry` — `path-routing.md` tablosu registry `paths` ile uyuşmuyorsa
+  error) + `python3 -m unittest discover -s delivery/tests` (örn. `test_doctor.py`
+  policy testleri).
+
+### B9 — Protocol (`delivery/protocol/`)
+
+- **Girebilir:** Sözleşmenin operasyonel karşılığı: execution, seal, health-check,
+  evidence, orca protokolleri; sözleşmenin "nasıl koşar"ını yazar.
+- **Giremez:** Durum makinesi ve geçiş tanımları (yalnız `CONTRACT.md`), risk
+  modeli; `registry.yaml` `protocol:` bloğunda adı geçmeyen yeni protokol
+  runtime'a eklenemez.
+- **Denetim:** `./delivery/scripts/doctor.sh` (REQUIRED_FILES: execution/seal/
+  health-check/evidence/orca + link kontrolü) + registry `protocol:` referansları +
+  `python3 -m unittest discover -s delivery/tests`.
+
+### B10 — Agents / roller (`delivery/agents/<rol>/`)
+
+- **Girebilir:** Rol başına `ROLE.md`, `how.md`, `communicates.md`,
+  `dependencies.md`, `SKILL.md`; `agent_variants.roles` listesindekilerin geçerli
+  `agent.yaml`'ı (capability registry ile uyumlu).
+- **Giremez:** Registry'de tanımsız rol/dizin; eksik dosya setiyle "rol var" sayılma;
+  rol tanımı sözleşmenin yerine geçmez.
+- **Denetim:** `./delivery/scripts/doctor.sh` (`check_registry` — agent dizinleri +
+  AGENT_FILES; `check_agent_variants` — schema + capabilities çapraz referansı;
+  `check_role_contracts` — `how.md` içinde `## Contract`) + link kontrolü +
+  `python3 -m unittest discover -s delivery/tests` (`test_variants.py`,
+  `test_macos_variants.py`).
+
+### B11 — Runbooks (`delivery/runbooks/`)
+
+- **Girebilir:** Operasyonel akışlar: epic-intake, epic-closure, pr-flow, update,
+  adaptation; adımlar CONTRACT durumlarına ve script çağrılarına işaret eder.
+- **Giremez:** Yeni durum/geçiş tanımı, script mantığı, sözleşme genişletmesi;
+  runbook sözleşmenin "nasıl yapılır"ını anlatır, "ne yapılabilir"ini değil.
+- **Denetim:** `./delivery/scripts/doctor.sh` (REQUIRED_FILES: pr-flow/adaptation/
+  update + link kontrolü) + `python3 -m unittest discover -s delivery/tests`
+  (`test_ci_workflow.py` — pr-flow merge commit; `test_self_update.py` — update.md
+  modları; `test_refactor.py` — epic-closure).
+
+### B12 — Discovery (`discovery/`)
+
+- **Girebilir:** Aşamalı sonraki-faz agent kaynakları (`discovery/agents/growth/
+  plan/`); kurulu runtime'a dahil edilmediği açıkça yazılı deneme alanı.
+- **Giremez:** `registry.yaml` `skills.runtime`'a girme, `install.sh` kurulu
+  setine (`skills/` → proje kopyası) dahil edilme, `delivery/` runtime'ı tarafından
+  çağrılma/vendored edilme.
+- **Denetim:** Ayrı test süiti yoktur; `doctor.sh` link kontrolü `discovery/`'i
+  taramaz. Somut mekanizma: `install.sh` yalnız `registry.yaml` `skills.runtime`
+  listesini kurar (discovery listede değildir); guard kit.docs yüzeyi
+  `discovery/**`'i kapsar. Runtime sızıntısı architect kapısının diff kıyasında
+  bu blokla yakalanır.
+
+### B13 — Docs (`docs/`)
+
+- **Girebilir:** Yeni mimari kayıtlar: modül sınırları (bu dosya) ve aynı türden
+  karar kayıtları; architect kapısının kıyas temasıdır.
+- **Giremez:** Kod/şema/script değişikliği, sözleşme metni; kapı davranışını
+  değiştiren metin buraya tek taraflı yazılamaz — sözleşme değişikliği yolu
+  `CONTRACT.md` + `VERSION` + `CHANGELOG.md` + `doctor.sh --strict`'tir.
+- **Denetim:** `doctor.sh` link kontrolü `docs/`'u taramaz (kapsam dışı; hedef
+  varlığı review'a kalır). Bu dosyanın varlık/içerik doğrulaması architect
+  review'dadır; guard (G1) açısından `kit.docs` yüzeyi `docs/**`'i kapsamaz
+  (kök `*.md` common-path'i yalnız kökteki dosyalara uygulanır).
+
+### B14 — Plugins (`plugins/orca`)
+
+- **Girebilir:** Orca plugin kaynakları (`plugins/orca/`); panel/gate entegrasyonu
+  kendi çalışma zamanında koşar.
+- **Giremez:** `delivery/` runtime'ına çağrı/bağımlılık; kit sözleşmesini veya kapı
+  davranışını sessiz değiştirme; plugin içine kit script kopyası.
+- **Denetim:** `./delivery/scripts/gate.sh` (değişen dosya `plugins/` altındaysa Orca
+  plugin süitini koşar) + `python3 -m unittest discover -s delivery/tests`
+  (`test_orca_plugin.py`, `test_gate.py` — `suites_for(plugins/orca)`). doctor kapsamı
+  dışıdır; guard (G1) açısından `kit.docs` yüzeyi `plugins/**`'i kapsamaz.
+
+### B15 — ecosystem.yaml / kit.config.yaml
+
+- **Girebilir:** Self-host wiring — bu repo hem kit hem üründür:
+  `ecosystem.yaml` (`products.*.surfaces.*.path` + tracker), `kit.config.yaml`
+  (`kit.protocol: "2"`).
+- **Giremez:** Kit'in üründe aynı dosyaları yamaması (kit kopyasını
+  `vendor_sync.sh` taşır); eksik/yanlış `surfaces.path` ile "surface var" sayılma;
+  `kit.protocol` ≠ `2`.
+- **Denetim:** `./delivery/scripts/doctor.sh` (`check_ecosystem` — surface path
+  varlığı + `kit.protocol == "2"`) + `python3 -m unittest discover -s delivery/tests`
+  (`test_surface_contract.py` — `check_ecosystem`; `test_model_policy.py` —
+  kit.config).
+
 ## Audit paths (module × check)
 
 | Modül | doctor | unittest | registry | guard |
@@ -128,13 +237,18 @@ Her sınır için: ne içeri girebilir, ne giremez, denetimi nasıl yapılır.
 | `delivery/policies/` | ✔ (link + tutarlılık) | ✔ | ✔ (quality-gates referansı) | — |
 | `delivery/protocol/` | ✔ (link kontrolü) | ✔ | ✔ (protocol referansları) | — |
 | `delivery/agents/` | ✔ (varyant + agent.yaml) | ✔ | ✔ (agent_variants) | — |
+| `delivery/runbooks/` | ✔ (pr-flow/adaptation/update — zorunlu dosya + link) | ✔ (test_ci_workflow, test_self_update, test_refactor) | — | — |
 | `delivery/scripts/` | ✔ | ✔ | ✔ (script yolları) | ✔ (G1 + risk) |
 | `delivery/tests/` | ✔ | ✔ | — | — |
+| `delivery/capabilities/` + `delivery/profiles/` + `delivery/packs/` | ✔ (check_capabilities + check_profiles + check_files) | ✔ (test_capabilities, test_profiles, test_macos_pack) | ✔ (registry `capabilities:` / `profiles:` blokları — doctor doğrular) | — |
+| `delivery/templates/` + `delivery/automations/` + `delivery/plans/` | ✔ (templates/github-labels.json — check_files + check_labels) | ✔ (test_ci_workflow, test_surface_contract, test_automations, test_rigor/test_doctor — plans/P3.yaml) | — | — |
+| `delivery/context/` + `delivery/metrics/` + `delivery/orchestrator/` | ✔ (context/frequency.yaml — check_schemas; metrics/README.md — check_files; orchestrator md — link) | ✔ (test_brief — route index; test_context_metrics) | — | — |
 | `skills/` | ✔ (skill denetimi) | ✔ | ✔ (`skills.runtime`) | — |
 | `.agents/skills/` | ✔ (kopya denetimi) | — | ✔ (kaynak `skills/`) | — |
 | `discovery/` | ✔ (link/ağ) | — | — | ✔ (kapsam) |
 | `archive/v1.7/` | ✔ (legacy) | ✔ | — | — |
 | `docs/` | — (kapsam dışı; link hedefi geçerli olmalı) | — | — | ✔ (kapsam) |
+| `plugins/` | — (doctor taramaz) | ✔ (test_orca_plugin; `gate.sh` plugins/ değişiminde Orca plugin süiti koşar) | — | ✔ (kapsam — kit.docs yüzeyi `plugins/**`'i kapsamaz) |
 | `ecosystem.yaml` / `kit.config.yaml` | ✔ (wiring/version) | ✔ | ✔ | ✔ (`PRODUCT_ROOT`) |
 
 `doctor.sh --strict` CI kapısıdır (warning = error). `gate.sh` davranış komutunu
