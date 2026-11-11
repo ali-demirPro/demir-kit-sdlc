@@ -1097,7 +1097,9 @@ def render_cp_brief(
     # ``brief_docs``'ten, sınır ``READ_BUDGET``'tan gelir.
     reading_note = (
         f"Okuma: bu brief yeterli; okuma sınırı {READ_BUDGET} dosya "
-        f"(route); bu brief {len(brief_docs)} dosya seçti; "
+        f"yalnız route (retrieved) seçimi için geçerlidir; "
+        f"sink ve window sınıra dahil değildir; "
+        f"bu brief {len(brief_docs)} dosya seçti; "
         f"{READ_BUDGET + 1}. dosya seçilirse brief exit ≠ 0 verir; "
         "ek dosyayı yalnız ilgili satır için aç (`rg -n`); "
         "CONTRACT.md ve quality-gates.md yalnız bölüm hedefiyle "
@@ -1414,7 +1416,8 @@ def main() -> int:
                 ),
             )
         except ValueError as exc:
-            sys.exit(f"brief: {exc}")
+            print(f"brief: {exc}", file=sys.stderr)
+            return 2
         if args.write:
             args.write.mkdir(parents=True, exist_ok=True)
             path = args.write / f"{args.cp}.md"

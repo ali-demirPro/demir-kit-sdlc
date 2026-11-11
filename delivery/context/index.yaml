@@ -16,12 +16,12 @@ entries:
     path: delivery/CONTRACT.md
     tags: [contract]
     weight: 2
-    section: risk-modeli
+    section: Risk modeli
   - surface: kit.docs
     path: delivery/policies/quality-gates.md
     tags: [gates, quality]
     weight: 2
-    section: gate-tanimlari
+    section: Gate tanımları
   - surface: kit.docs
     path: delivery/protocol/seal.md
     tags: [seal, intake]
@@ -33,7 +33,7 @@ entries:
   - surface: kit.docs
     path: delivery/plans/P2.yaml
     tags: [plan, epic]
-    weight: 2
+    weight: 1
   - surface: kit.scripts
     path: delivery/scripts/brief.py
     tags: [brief, route]

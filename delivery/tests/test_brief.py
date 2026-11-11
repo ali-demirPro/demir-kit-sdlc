@@ -2191,6 +2191,12 @@ class RouteBudgetTests(unittest.TestCase):
         ):
             self.assertEqual(entries[path]["weight"], 2)
             self.assertTrue(entries[path].get("section"))
+        # R-3: section değerleri rg -n ile eşleşen verbatim başlıklardır.
+        self.assertEqual(entries["delivery/CONTRACT.md"]["section"], "Risk modeli")
+        self.assertEqual(
+            entries["delivery/policies/quality-gates.md"]["section"],
+            "Gate tanımları",
+        )
 
         seal = {
             "surfaces": ["kit.docs"],
@@ -2210,7 +2216,7 @@ class RouteBudgetTests(unittest.TestCase):
             rendered = brief.routing.render_route([item]).strip()
             self.assertRegex(
                 rendered,
-                rf"^retrieved {re.escape(path)}#\S+ "
+                rf"^retrieved {re.escape(path)}#.+ "
                 rf"\(source: index, reason: .+\(weight 2\)\)$",
             )
 
@@ -2229,9 +2235,9 @@ class RouteBudgetTests(unittest.TestCase):
             docs=[],
             route=targets,
         )
-        self.assertIn("[retrieved] delivery/CONTRACT.md#risk-modeli", text)
+        self.assertIn("[retrieved] delivery/CONTRACT.md#Risk modeli", text)
         self.assertIn(
-            "[retrieved] delivery/policies/quality-gates.md#gate-tanimlari",
+            "[retrieved] delivery/policies/quality-gates.md#Gate tanımları",
             text,
         )
         self.assertNotIn("[retrieved] delivery/CONTRACT.md\n", text)
@@ -2241,7 +2247,7 @@ class RouteBudgetTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             six_path = self.write_index(tmp, self.six_or_five_entries(6))
             code, out, err = self.run_cp(["369", "--cp", "CP-1"], six_path)
-            self.assertNotEqual(code, 0)
+            self.assertEqual(code, 2)
             self.assertIn("okuma bütçesi", err)
 
             five_path = self.write_index(tmp, self.six_or_five_entries(5))
@@ -2309,6 +2315,9 @@ class RouteBudgetTests(unittest.TestCase):
         # Talimat bütçeyi aşmayı exit ≠ 0 ile bağlar.
         self.assertIn(f"{brief.READ_BUDGET + 1}. dosya", note)
         self.assertIn("exit ≠ 0", note)
+        # Sınır yalnız route (retrieved) seçimine aittir; sink/window sınıra dahil değil.
+        self.assertIn("yalnız route (retrieved)", note)
+        self.assertIn("sink ve window sınıra dahil değildir", note)
 
 
 if __name__ == "__main__":
