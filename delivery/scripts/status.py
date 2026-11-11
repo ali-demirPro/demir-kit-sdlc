@@ -3,7 +3,8 @@
 
 Sözleşme alanları:
 - `source`: "live" taze hesaplandı, "cache" önbellekten okundu.
-- `stale`: yalnızca durum eksikse true (kit kökü yok ya da çevrimdışı önbellek yok).
+- `stale`: yalnızca durum eksikse true (kit kökü yok, `gh` okunamadı, `gh` 500
+  sınırına ulaştı ya da çevrimdışı önbellek yok).
 - `kit.dirty`: git durumu okunamazsa null (bilinmiyor), true/false değil.
 
 CP-2 kapsamı: `epics` ve `counts` GitHub issue'larından toplanır
@@ -47,9 +48,11 @@ KIT_MARKERS = (
     Path("delivery") / "scripts" / "doctor.sh",
 )
 DOCTOR_SCRIPT = Path("delivery") / "scripts" / "doctor.sh"
-GH_FIELDS = "number,title,state,labels,body,updatedAt"
 GH_LIMIT = "500"
 GH_TIMEOUT = 30
+# Özet geçiş: gövdesiz alanlar; `body` yalnız açık/etiketli issue'lar için iner.
+GH_META_FIELDS = "number,title,state,labels,updatedAt"
+GH_FIELDS = "number,title,state,labels,body,updatedAt"
 DOCTOR_TIMEOUT = 120
 EPIC_BLOCK = "demir-kit-epic"
 LEAF_BLOCK = "demir-kit"
@@ -137,6 +140,10 @@ FAIL_TAG = re.compile(r"exit=[1-9]", re.I)
 
 class StatusError(Exception):
     """Kullanıcıya kısa mesajla anlatılacak durum hatası."""
+
+
+class LimitError(Exception):
+    """`gh issue list` çıktısı `GH_LIMIT` kayda ulaştı; liste eksik olabilir."""
 
 
 def read_text(path: Path) -> str:
@@ -879,11 +886,17 @@ def collect_issues(
     return epics, counts
 
 
-def fetch_issues(project: Path, warnings: list[str]) -> list[dict] | None:
-    """`gh issue list`; gh yoksa/başarısızsa None + uyarı (hata değil)."""
+def gh_issue_list(
+    project: Path, fields: str, extra: list[str], warnings: list[str]
+) -> list[dict] | None:
+    """Tek `gh issue list` çağrısı; hata durumunda None + uyarı.
+
+    Çıktı `GH_LIMIT` kayda ulaşırsa liste kesilmiş sayılır: `LimitError`
+    fırlatılır (sessiz eksik gösterim yerine hata).
+    """
     try:
         proc = subprocess.run(
-            ["gh", "issue", "list", "--json", GH_FIELDS, "--limit", GH_LIMIT, "--state", "all"],
+            ["gh", "issue", "list", "--json", fields, "--limit", GH_LIMIT, *extra],
             cwd=str(project),
             capture_output=True,
             text=True,
@@ -907,8 +920,47 @@ def fetch_issues(project: Path, warnings: list[str]) -> list[dict] | None:
         warnings.append("gh çıktısı liste değil: issue'lar okunamadı")
         return None
     if len(data) >= int(GH_LIMIT):
-        warnings.append(f"gh issue list {GH_LIMIT} ile sınırlı; daha fazla issue olabilir")
+        raise LimitError(
+            f"gh issue list {GH_LIMIT} kayıt sınırına ulaştı; liste eksik olabilir"
+        )
     return [item for item in data if isinstance(item, dict)]
+
+
+def fetch_issues(project: Path, warnings: list[str]) -> list[dict] | None:
+    """Issue listesi; gövde yalnız gereken issue'lar için indirilir.
+
+    Önce gövdesiz özet tüm issue'lar için alınır; `body` yalnız açık ya da
+    etiketli issue'lar için ayrıca indirilir (kapalı/etiketsiz issue'lar
+    atlanır). Herhangi bir çağrı `GH_LIMIT` kayda ulaşırsa `LimitError`.
+    """
+    meta = gh_issue_list(project, GH_META_FIELDS, ["--state", "all"], warnings)
+    if meta is None:
+        return None
+    bodies: dict[int, object] = {}
+    sweeps: list[list[str]] = []
+    if any(str(issue.get("state") or "").upper() == "OPEN" for issue in meta):
+        sweeps.append(["--state", "open"])
+    if any(
+        str(issue.get("state") or "").upper() != "OPEN" and bool(labels_of(issue))
+        for issue in meta
+    ):
+        sweeps.append(["--state", "closed", "--search", "-no:label"])
+    for extra in sweeps:
+        rows = gh_issue_list(project, GH_FIELDS, extra, warnings)
+        if rows is None:
+            return None
+        for item in rows:
+            number = item.get("number")
+            if isinstance(number, int) and not isinstance(number, bool):
+                bodies[number] = item.get("body")
+    merged = []
+    for issue in meta:
+        entry = dict(issue)
+        number = issue.get("number")
+        if isinstance(number, int) and not isinstance(number, bool) and number in bodies:
+            entry["body"] = bodies[number]
+        merged.append(entry)
+    return merged
 
 
 def gate_state(
@@ -934,7 +986,8 @@ def gate_state(
     return "pass" if proc.returncode == 0 else "fail"
 
 
-def build_status(project: Path, args: argparse.Namespace) -> dict:
+def build_status(project: Path, args: argparse.Namespace) -> tuple[dict, bool]:
+    """Durum yükü + `gh` 500 sınırına takıldı mı (çıkış kodu için)."""
     warnings: list[str] = []
     evaluations, eval_warnings = load_evaluations(project)
     warnings.extend(eval_warnings)
@@ -953,11 +1006,17 @@ def build_status(project: Path, args: argparse.Namespace) -> dict:
     epics: list[dict] = []
     counts = {"epics": 0, "leaves": 0, "blocked": 0}
     stale = kit_root is None
+    limit_exceeded = False
     if args.offline:
         warnings.append("önbellek yok: çevrimdışı modda ağa çıkılmadı")
         stale = True
     else:
-        issues = fetch_issues(project, warnings)
+        try:
+            issues = fetch_issues(project, warnings)
+        except LimitError as exc:
+            issues = None
+            limit_exceeded = True
+            warnings.append(str(exc))
         if issues is None:
             stale = True
         else:
@@ -999,7 +1058,7 @@ def build_status(project: Path, args: argparse.Namespace) -> dict:
         "counts": counts,
         "pulse": pulse,
         "warnings": warnings,
-    }
+    }, limit_exceeded
 
 
 def cache_path(project: Path) -> Path:
@@ -1359,7 +1418,7 @@ def render(data: dict) -> str:
     for warning in data["warnings"]:
         lines.append(f"[uyarı] {warning}")
     if data["stale"]:
-        lines.append("[uyarı] kit kökü yok — durum eksik")
+        lines.append("[uyarı] durum eksik — tam değil")
     return "\n".join(lines)
 
 
@@ -1389,6 +1448,7 @@ def main() -> int:
         return 1
 
     fingerprint = args_fingerprint(args)
+    limit_exceeded = False
     if args.offline:
         cached, age = read_cache(
             project, 0, fingerprint, ignore_ttl=True, ignore_args=True
@@ -1401,7 +1461,7 @@ def main() -> int:
                     epic["gate"] = None
         else:
             try:
-                data = build_status(project, args)
+                data, limit_exceeded = build_status(project, args)
             except StatusError as exc:
                 print(f"status: {exc}", file=sys.stderr)
                 return 1
@@ -1415,18 +1475,18 @@ def main() -> int:
             data = from_cache(cached, age)
         else:
             try:
-                data = build_status(project, args)
+                data, limit_exceeded = build_status(project, args)
             except StatusError as exc:
                 print(f"status: {exc}", file=sys.stderr)
                 return 1
-            if args.cache_ttl > 0:
+            if args.cache_ttl > 0 and not limit_exceeded:
                 write_cache(project, data, fingerprint)
 
     if args.json:
         print(json.dumps(data, ensure_ascii=False, indent=2))
     else:
         print(render(data))
-    return 0
+    return 1 if limit_exceeded else 0
 
 
 if __name__ == "__main__":

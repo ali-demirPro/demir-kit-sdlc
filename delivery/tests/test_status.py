@@ -67,6 +67,47 @@ def gh_marker(directory: Path, marker: Path) -> Path:
     return gh_stub(directory, f"echo called >> {shlex.quote(str(marker))}\nexit 1\n")
 
 
+def gh_split(
+    directory: Path,
+    meta: list[dict],
+    open_rows: list[dict],
+    labeled_rows: list[dict],
+    log: Path,
+    bytes_log: Path,
+) -> Path:
+    """İki aşamalı çekimi taklit eden sahte gh.
+
+    `--state all` gövdesiz özeti, `--state open` açık gövdeleri, `-no:label`
+    araması kapalı-etiketli gövdeleri döner; çağrılan args'ı `log`a, indirilen
+    bayt sayısını `bytes_log`a yazar.
+    """
+    directory.mkdir(parents=True, exist_ok=True)
+    payloads = {
+        "--state all": meta,
+        "--state open": open_rows,
+        "-no:label": labeled_rows,
+    }
+    files: dict[str, Path] = {}
+    for key, rows in payloads.items():
+        payload = directory / f"{len(files)}.json"
+        payload.write_text(json.dumps(rows), encoding="utf-8")
+        files[key] = payload
+    q = shlex.quote
+    body = (
+        f"echo \"$@\" >> {q(str(log))}\n"
+        "case \"$*\" in\n"
+        f"  *\"--state open\"*) f={q(str(files['--state open']))} ;;\n"
+        f"  *\"-no:label\"*) f={q(str(files['-no:label']))} ;;\n"
+        f"  *\"--state all\"*) f={q(str(files['--state all']))} ;;\n"
+        "  *) echo 'beklenmeyen args: '\"$*\" >&2; exit 2 ;;\n"
+        "esac\n"
+        f"wc -c < \"$f\" >> {q(str(bytes_log))}\n"
+        "cat \"$f\"\n"
+        "exit 0\n"
+    )
+    return gh_stub(directory, body)
+
+
 def doctor_stub(project: Path, log: Path, code: int = 0) -> None:
     """Proje içine sahte doctor.sh; her çağrıda issue numarasını loglar."""
     script = project / "delivery" / "scripts" / "doctor.sh"
@@ -423,6 +464,119 @@ class OfflineTests(unittest.TestCase):
             self.assertTrue(any("gh" in item.lower() for item in data["warnings"]))
             self.assertTrue(any("oturum yok" in item for item in data["warnings"]))
             self.assertTrue(data["stale"], "gh hatasında durum eksik sayılmalı")
+
+
+class FetchTests(unittest.TestCase):
+    """T-1 / T-2: iki aşamalı indirme; 500 sınırı hata olur."""
+
+    def fixture_277(self) -> list[dict]:
+        filler = "g" * 2400
+        rows = [
+            issue(
+                1,
+                "Epic 361",
+                ("executing",),
+                EPIC_BODY + filler,
+                state="OPEN",
+                updated_at="2026-11-01T00:00:00Z",
+            ),
+        ]
+        for n in range(2, 9):
+            rows.append(
+                issue(
+                    n,
+                    f"Leaf {n}",
+                    ("executing",),
+                    LEAF_BODY + filler,
+                    state="OPEN",
+                    updated_at="2026-11-01T00:00:00Z",
+                )
+            )
+        for n in range(10, 30):
+            rows.append(
+                issue(
+                    n,
+                    f"Biten {n}",
+                    ("leaf-done",),
+                    LEAF_BODY + filler,
+                    state="CLOSED",
+                    updated_at="2026-10-01T00:00:00Z",
+                )
+            )
+        for n in range(30, 279):
+            rows.append(
+                issue(
+                    n,
+                    f"Eski {n}",
+                    (),
+                    "gövde: " + filler,
+                    state="CLOSED",
+                    updated_at="2026-09-01T00:00:00Z",
+                )
+            )
+        return rows
+
+    # T-1: gövde yalnız açık/etiketli issue'lar için istenir; çıktı ≤ 300 KB.
+    def test_t1_body_only_for_open_and_labeled(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = project_dir(tmp)
+            rows = self.fixture_277()
+            self.assertEqual(len(rows), 277)
+            meta = [{k: v for k, v in row.items() if k != "body"} for row in rows]
+            open_rows = [row for row in rows if row["state"] == "OPEN"]
+            labeled = [
+                row for row in rows if row["state"] != "OPEN" and row["labels"]
+            ]
+            log = Path(tmp) / "calls.log"
+            bytes_log = Path(tmp) / "bytes.log"
+            stub = gh_split(Path(tmp) / "bin", meta, open_rows, labeled, log, bytes_log)
+            proc = run("--json", cwd=project, path=stub)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            calls = log.read_text(encoding="utf-8").splitlines()
+            body_calls = [call for call in calls if "body" in call]
+            self.assertTrue(body_calls, "gövde hiç istenmedi")
+            for call in body_calls:
+                self.assertTrue(
+                    "--state open" in call or "-no:label" in call,
+                    f"gövde beklenmeyen çağrıda istendi: {call}",
+                )
+            for call in calls:
+                if "--state all" in call:
+                    self.assertNotIn("body", call)
+            total = sum(int(line) for line in bytes_log.read_text(encoding="utf-8").split())
+            self.assertLessEqual(
+                total, 300 * 1024, f"indirilen JSON {total} bayt (≤ 300 KB olmalı)"
+            )
+            data = payload(proc)
+            self.assertTrue(any(epic["number"] == 1 for epic in data["epics"]))
+
+    # T-2: 500 kayıt dönen gh, çıkış 1 + stale nedeni üretir.
+    def test_t2_limit_is_error_not_warning(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = project_dir(tmp)
+            rows = [
+                issue(
+                    n,
+                    f"İssue {n}",
+                    ("intake",),
+                    f"gövde {n}",
+                    updated_at="2026-11-01T00:00:00Z",
+                )
+                for n in range(1, 501)
+            ]
+            stub = gh_fixture(Path(tmp) / "bin", rows)
+            proc = run("--json", cwd=project, path=stub)
+            self.assertEqual(proc.returncode, 1, proc.stderr)
+            data = payload(proc)
+            self.assertTrue(data["stale"])
+            self.assertEqual(data["epics"], [])
+            self.assertTrue(
+                any("500" in item for item in data["warnings"]),
+                data["warnings"],
+            )
+            plain = run(cwd=project, path=stub)
+            self.assertEqual(plain.returncode, 1)
+            self.assertIn("500", plain.stdout)
 
 
 class GateTests(unittest.TestCase):
