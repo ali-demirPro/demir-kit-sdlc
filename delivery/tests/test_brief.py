@@ -358,8 +358,26 @@ class ConfigTests(unittest.TestCase):
             with patch.object(
                 brief.context_metrics, "storage_root", return_value=main
             ), patch.object(brief.routing, "project_root", return_value=worktree):
+                index = Path(main_dir) / "index.yaml"
+                index.write_text(
+                    yaml.safe_dump(
+                        {
+                            "version": 1,
+                            "entries": [
+                                {
+                                    "surface": "kit.docs",
+                                    "path": "delivery/policies/context-budget.md",
+                                    "tags": ["context"],
+                                    "weight": 6,
+                                }
+                            ],
+                        },
+                        sort_keys=False,
+                    ),
+                    encoding="utf-8",
+                )
                 code, out, err = self.run_brief(
-                    ["321", "--cp", "CP-1"], set_context_root=False
+                    ["321", "--cp", "CP-1"], index_path=index, set_context_root=False
                 )
             self.assertEqual(code, 0, err)
             self.assertIn("CP brief — CP-1", out)
@@ -459,7 +477,8 @@ class CpBriefTests(unittest.TestCase):
         self.assertIn("delivery/scripts/brief.py", text)
         self.assertIn("gate.sh --issue 142 --checkpoint CP-1", text)
         self.assertIn("demir-kit-evidence", text)
-        self.assertIn("tamamını okuma", text)
+        self.assertIn("okuma sınırı", text)
+        self.assertIn("path#section", text)
 
     def test_prefix_uses_vendored_gate(self) -> None:
         text = brief.render_cp_brief(
@@ -1266,8 +1285,6 @@ class FrequencyTests(unittest.TestCase):
                 "doctor.py",
                 "guard.sh",
                 "transition.sh",
-                "verify.py",
-                "adopt.py",
             )
         ]
         frequency_rows = [
@@ -1452,6 +1469,28 @@ class PreviousRejectionTests(unittest.TestCase):
     SOURCE = "https://github.com/x/y/issues/335#issuecomment-1"
     REASON = "AR-1: Ret gerekçesi brief'e taşınmıyor"
 
+    def _budget_fixture_index(self, directory: str) -> Path:
+        """Fixture route index with a single retrieved entry (5 dosya bütçesi)."""
+        path = Path(directory) / "index.yaml"
+        path.write_text(
+            yaml.safe_dump(
+                {
+                    "version": 1,
+                    "entries": [
+                        {
+                            "surface": "kit.docs",
+                            "path": "delivery/policies/context-budget.md",
+                            "tags": ["context"],
+                            "weight": 6,
+                        }
+                    ],
+                },
+                sort_keys=False,
+            ),
+            encoding="utf-8",
+        )
+        return path
+
     def rejection_comment(
         self,
         status: str = "fail",
@@ -1568,6 +1607,9 @@ class PreviousRejectionTests(unittest.TestCase):
             os.environ, {"DEMIR_KIT_CONTEXT_ROOT": runtime}
         ), patch.object(brief, "repo_name", return_value="x/y"), patch.object(
             brief, "gh", side_effect=fake_gh
+        ), patch.object(
+            brief, "index_file",
+            return_value=self._budget_fixture_index(runtime),
         ), patch.object(
             sys, "argv", ["brief.py", *argv]
         ), contextlib.redirect_stdout(
@@ -2034,6 +2076,248 @@ class PreviousRejectionTests(unittest.TestCase):
 
         self.assertEqual(brief.issue_comments("x/y", 335, fetch=missing_gh), [])
         self.assertIsNone(brief.previous_rejection([]))
+
+
+class RouteBudgetTests(unittest.TestCase):
+    """Route 5 dosya sert bütçesi + bölüm hedefleri (issue 369, CP-1)."""
+
+    SIX_RETRIEVED = [
+        ("delivery/policies/context-budget.md", 6),
+        ("delivery/CONTRACT.md", 2),
+        ("delivery/policies/quality-gates.md", 2),
+        ("delivery/protocol/seal.md", 4),
+        ("skills/work-package/SKILL.md", 4),
+        ("delivery/plans/P2.yaml", 2),
+    ]
+
+    BUDGET_SEAL = {
+        "demir_kit_version": "2",
+        "epic": 362,
+        "entry": {"kind": "refactor"},
+        "factory": {"profile": "kit-internal"},
+        "intent": "okuma bütçesi",
+        "surfaces": ["kit.docs"],
+        "reference": {"paths": []},
+        "acceptance_criteria": [{"id": "AC-2", "text": "bütçe"}],
+        "risk": {"level": "medium"},
+        "tests_plan": [
+            {
+                "checkpoint_id": "CP-1",
+                "cases": [
+                    {
+                        "id": "T-2",
+                        "ac": "AC-2",
+                        "text": "bütçe",
+                        "check": "unit",
+                    }
+                ],
+            }
+        ],
+        "checkpoints": [
+            {"id": "CP-1", "title": "bütçe", "gates": {"behavior": True}}
+        ],
+    }
+
+    def write_index(self, directory, entries) -> Path:
+        path = Path(directory) / "index.yaml"
+        path.write_text(
+            yaml.safe_dump(
+                {"version": 1, "entries": entries}, sort_keys=False
+            ),
+            encoding="utf-8",
+        )
+        return path
+
+    def six_or_five_entries(self, count: int):
+        return [
+            {
+                "surface": "kit.docs",
+                "path": path,
+                "tags": ["docs"],
+                "weight": weight,
+            }
+            for path, weight in self.SIX_RETRIEVED[:count]
+        ]
+
+    def run_cp(self, argv, index_path):
+        issue = json.dumps(
+            {
+                "title": "bütçe",
+                "body": "```yaml demir-kit\n"
+                + yaml.safe_dump(self.BUDGET_SEAL, sort_keys=False)
+                + "\n```",
+                "labels": [],
+            }
+        )
+
+        def fake_gh(args, *rest, **kwargs):
+            return issue
+
+        out = io.StringIO()
+        err = io.StringIO()
+        with tempfile.TemporaryDirectory() as runtime, patch.dict(
+            os.environ, {"DEMIR_KIT_CONTEXT_ROOT": runtime}
+        ), patch.object(brief, "repo_name", return_value="x/y"), patch.object(
+            brief, "gh", fake_gh
+        ), patch.object(
+            brief, "index_file", return_value=index_path
+        ), patch.object(
+            sys, "argv", ["brief.py", *argv]
+        ), contextlib.redirect_stdout(
+            out
+        ), contextlib.redirect_stderr(
+            err
+        ):
+            try:
+                code = brief.main()
+            except SystemExit as exc:
+                if isinstance(exc.code, int):
+                    code = exc.code
+                else:
+                    # sys.exit("msg") prints the message to stderr at shutdown.
+                    err.write(str(exc.code or ""))
+                    code = 1
+        return code, out.getvalue(), err.getvalue()
+
+    # T-1 (AC-1): CONTRACT/quality-gates bölüm hedefiyle gelir; ağırlık 2.
+    def test_contract_and_quality_gates_use_section_targets_and_weight_two(self) -> None:
+        index_path = ROOT / "delivery" / "context" / "index.yaml"
+        index = brief.routing.load_route_index(index_path, ROOT)
+        self.assertIsNotNone(index)
+        entries = {entry["path"]: entry for entry in index["entries"]}
+        for path in (
+            "delivery/CONTRACT.md",
+            "delivery/policies/quality-gates.md",
+        ):
+            self.assertEqual(entries[path]["weight"], 2)
+            self.assertTrue(entries[path].get("section"))
+        # R-3: section değerleri rg -n ile eşleşen verbatim başlıklardır.
+        self.assertEqual(entries["delivery/CONTRACT.md"]["section"], "Risk modeli")
+        self.assertEqual(
+            entries["delivery/policies/quality-gates.md"]["section"],
+            "Gate tanımları",
+        )
+
+        seal = {
+            "surfaces": ["kit.docs"],
+            "reference": {"paths": []},
+        }
+        route, fallback = brief.routing.build_route(seal, [], index)
+        self.assertIsNone(fallback)
+        by_path = {item["path"]: item for item in route}
+        for path in (
+            "delivery/CONTRACT.md",
+            "delivery/policies/quality-gates.md",
+        ):
+            item = by_path[path]
+            self.assertEqual(item["class"], "retrieved")
+            self.assertIn("weight 2", item["reason"])
+            self.assertEqual(item["section"], entries[path]["section"])
+            rendered = brief.routing.render_route([item]).strip()
+            self.assertRegex(
+                rendered,
+                rf"^retrieved {re.escape(path)}#.+ "
+                rf"\(source: index, reason: .+\(weight 2\)\)$",
+            )
+
+        # Brief lists the section targets, not the full documents.
+        targets = [
+            item
+            for item in route
+            if item["class"] == "retrieved"
+            and item.get("section")
+        ]
+        self.assertEqual(len(targets), 2)
+        text = brief.render_cp_brief(
+            {"issue": 369, "risk": "medium"},
+            SEAL,
+            "CP-1",
+            docs=[],
+            route=targets,
+        )
+        self.assertIn("[retrieved] delivery/CONTRACT.md#Risk modeli", text)
+        self.assertIn(
+            "[retrieved] delivery/policies/quality-gates.md#Gate tanımları",
+            text,
+        )
+        self.assertNotIn("[retrieved] delivery/CONTRACT.md\n", text)
+
+    # T-2 (AC-2): 6 adaylı fixture'da brief hata verir; 5'te geçer.
+    def test_sixth_reading_candidate_fails_and_five_passes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            six_path = self.write_index(tmp, self.six_or_five_entries(6))
+            code, out, err = self.run_cp(["369", "--cp", "CP-1"], six_path)
+            self.assertEqual(code, 2)
+            self.assertIn("okuma bütçesi", err)
+
+            five_path = self.write_index(tmp, self.six_or_five_entries(5))
+            code, out, err = self.run_cp(["369", "--cp", "CP-1"], five_path)
+            self.assertEqual(code, 0, err)
+            self.assertIn("## CP brief — CP-1", out)
+
+    def test_render_raises_read_budget_error_on_sixth_retrieved(self) -> None:
+        route = [
+            {
+                "class": "retrieved",
+                "path": f"delivery/plans/fake_{index}.yaml",
+                "source": "index",
+                "reason": "fixture",
+            }
+            for index in range(6)
+        ]
+        with self.assertRaises(brief.ReadBudgetError):
+            brief.render_cp_brief(
+                {"issue": 369, "risk": "medium"},
+                SEAL,
+                "CP-1",
+                route=route,
+            )
+        five = brief.render_cp_brief(
+            {"issue": 369, "risk": "medium"},
+            SEAL,
+            "CP-1",
+            route=route[:5],
+        )
+        self.assertIn("## CP brief — CP-1", five)
+
+    # T-3 (AC-3): son talimat ile selected_docs aynı bütçe sabitinden üretilir.
+    def test_reading_note_and_selected_docs_share_budget_constant(self) -> None:
+        route = [
+            {
+                "class": "retrieved",
+                "path": "delivery/scripts/gate.py",
+                "source": "index",
+                "reason": "fixture",
+            }
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            meta = Path(tmp) / ".kit" / "brief-369-CP-1.json"
+            text = brief.render_cp_brief(
+                {"issue": 369, "risk": "medium"},
+                SEAL,
+                "CP-1",
+                docs=["delivery/agents/developer/ROLE.md"],
+                route=route,
+                meta_path=meta,
+            )
+            payload = json.loads(meta.read_text(encoding="utf-8"))
+        note = next(
+            line for line in text.splitlines() if line.startswith("Okuma:")
+        )
+        # Tek kaynak: sabit ve seçim sayısı iki tarafta da aynı.
+        self.assertIn(str(brief.READ_BUDGET), note)
+        match = re.search(r"bu brief (\d+) dosya seçti", note)
+        self.assertIsNotNone(match)
+        self.assertEqual(int(match.group(1)), len(payload["selected_docs"]))
+        self.assertEqual(payload["selected_docs"], sorted(set(payload["selected_docs"])))
+        # sink yolu hâlâ metrikte; unknown sınıf yok.
+        self.assertIn("delivery/scripts/brief.py", payload["selected_docs"])
+        # Talimat bütçeyi aşmayı exit ≠ 0 ile bağlar.
+        self.assertIn(f"{brief.READ_BUDGET + 1}. dosya", note)
+        self.assertIn("exit ≠ 0", note)
+        # Sınır yalnız route (retrieved) seçimine aittir; sink/window sınıra dahil değil.
+        self.assertIn("yalnız route (retrieved)", note)
+        self.assertIn("sink ve window sınıra dahil değildir", note)
 
 
 if __name__ == "__main__":

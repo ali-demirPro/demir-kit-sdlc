@@ -119,33 +119,107 @@ class RateTests(unittest.TestCase):
         self.assertEqual(row["miss_rate"], 0.25)  # 1 / (3 + 1)
         self.assertEqual(row["over_read_rate"], 0.5)  # (100 + 50) / 300
         self.assertFalse(row["clamped"])
+        self.assertIsInstance(row["miss_rate"], float)
+        self.assertIsInstance(row["over_read_rate"], float)
         self.assertEqual(context_metrics.miss_rate(["a", "b"], ["c"]), 0.3333)
 
-    def test_zero_denominator_is_unknown(self) -> None:
+    def test_unmeasurable_rows_omit_rate_fields(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             row = context_metrics.build_row(
                 314, "CP-1", tokens=0, root=root
             )
             self.assertEqual(row["tokens"], "unknown")
-            self.assertEqual(row["miss_rate"], "unknown")
-            self.assertEqual(row["over_read_rate"], "unknown")
+            self.assertNotIn("miss_rate", row)
+            self.assertNotIn("over_read_rate", row)
+            self.assertNotIn("clamped", row)
 
             empty = context_metrics.build_row(
                 314, "CP-1", tokens=100, root=root
             )
-            self.assertEqual(empty["miss_rate"], "unknown")
+            self.assertNotIn("miss_rate", empty)  # 0 / 0
             self.assertEqual(empty["over_read_rate"], 0.0)
+            self.assertEqual(empty["clamped"], False)
 
+            brief = [write_doc(root, "brief.md", 40)]
             missing = context_metrics.build_row(
                 314,
                 "CP-1",
+                brief_docs=brief,
+                missed_docs=["gone.md"],
                 extra_docs=["does-not-exist.md"],
                 tokens=100,
                 root=root,
             )
-            self.assertEqual(missing["over_read_rate"], "unknown")
+            self.assertEqual(missing["miss_rate"], 0.5)
+            self.assertNotIn("over_read_rate", missing)
+            self.assertNotIn("clamped", missing)
             self.assertIn("doc-missing:does-not-exist.md", missing["method"])
+
+
+class UnproducibleFieldsTests(unittest.TestCase):
+    """T-1 (AC-1): ölçülebilir kayıtta oranlar sayı; ölçülemez kayıtta alan yok."""
+
+    def test_brief_recorded_row_jsonl_has_no_rate_fields(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / ".kit").mkdir(parents=True, exist_ok=True)
+            path = root / ".kit" / "brief-314-CP-1.json"
+            path.write_text(
+                json.dumps(
+                    {
+                        "issue": 314,
+                        "cp": "CP-1",
+                        "armed": ["cp CP-1"],
+                        "fallbacks": [],
+                        "selected_docs": ["delivery/scripts/brief.py"],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            write_usage(root, 314, {"input": 250, "output": 0, "reasoning": 0})
+            result = context_metrics.record_from_brief(314, "CP-1", root)
+            self.assertIsNotNone(result)
+            row, line = result
+        self.assertNotIn("miss_rate", row)
+        self.assertNotIn("over_read_rate", row)
+        self.assertNotIn("clamped", row)
+        parsed = json.loads(line)
+        self.assertNotIn("miss_rate", parsed)
+        self.assertNotIn("over_read_rate", parsed)
+        self.assertNotIn("clamped", parsed)
+        self.assertIn("split:unknown", parsed["method"])
+
+    def test_usage_known_record_keeps_measured_rates(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            write_usage(root, 314, {"input": 100, "output": 0, "reasoning": 0})
+            brief = [write_doc(root, "brief.md", 40)]
+            row, line = context_metrics.record(
+                314, "CP-1", brief_docs=brief, tokens=100, root=root, write=False
+            )
+        self.assertEqual(row["miss_rate"], 0.0)
+        self.assertEqual(row["over_read_rate"], 0.0)
+        self.assertEqual(row["clamped"], False)
+        parsed = json.loads(line)
+        for key in ("miss_rate", "over_read_rate", "clamped"):
+            self.assertIsInstance(parsed[key], (int, float))
+
+    def test_summary_reports_absent_fields_as_unmeasured(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            older = summary_row(1, 0.5, 0.5)
+            newer = {
+                key: value
+                for key, value in summary_row(2, 0.0, 0.0).items()
+                if key not in ("miss_rate", "over_read_rate")
+            }
+            write_metrics_rows(root, [older, newer])
+            data = context_metrics.summary(window=10, root=root)
+        self.assertEqual(data["miss_rate"]["measured"], 1)
+        self.assertEqual(data["miss_rate"]["distribution"]["unknown"], 1)
+        self.assertEqual(data["over_read_rate"]["measured"], 1)
+        self.assertEqual(data["over_read_rate"]["distribution"]["unknown"], 1)
 
 
 class RecordTests(unittest.TestCase):
@@ -576,8 +650,9 @@ class BriefMetaTests(unittest.TestCase):
         self.assertEqual(row["selected_docs"], docs)
         self.assertEqual(row["brief_docs"], [])
         self.assertEqual(row["tokens"], 100)
-        self.assertEqual(row["miss_rate"], "unknown")
-        self.assertEqual(row["over_read_rate"], "unknown")
+        self.assertNotIn("miss_rate", row)
+        self.assertNotIn("over_read_rate", row)
+        self.assertNotIn("clamped", row)
         self.assertIn("split:unknown", row["method"])
         self.assertEqual(json.loads(line), row)
 
@@ -837,7 +912,8 @@ class TokenTests(unittest.TestCase):
                 row = context_metrics.build_row(314, "CP-1", root=root)
         self.assertEqual(row["tokens"], "unknown")
         self.assertEqual(row["method"], "tokens:unknown")
-        self.assertEqual(row["over_read_rate"], "unknown")
+        self.assertNotIn("over_read_rate", row)
+        self.assertNotIn("miss_rate", row)
 
     def test_explicit_snapshot_file_is_labelled_total(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -893,7 +969,7 @@ class FixtureTests(unittest.TestCase):
             "extra": 1,
             "missed": 0,
             "tokens": 300,
-            "miss_rate": "unknown",
+            "miss_rate": None,  # 0 / 0 — the field is absent
             "over_read_rate": 0.5,
         },
     }
@@ -942,8 +1018,12 @@ class FixtureTests(unittest.TestCase):
                 )
                 self.assertEqual(first, second)
                 self.assertEqual(first_line, second_line)
-                self.assertEqual(first["miss_rate"], spec["miss_rate"])
-                self.assertEqual(first["over_read_rate"], spec["over_read_rate"])
+                for key in ("miss_rate", "over_read_rate"):
+                    expected = spec[key]
+                    if expected is None:
+                        self.assertNotIn(key, first)
+                    else:
+                        self.assertEqual(first[key], expected)
 
 
 class SummaryTests(unittest.TestCase):

@@ -55,13 +55,15 @@ RECORD = {
 }
 
 
-def run_main(argv: list[str]) -> tuple[int, str, str]:
+def run_main(argv: list[str], context_check=(0, "")) -> tuple[int, str, str]:
     out, err = io.StringIO(), io.StringIO()
     with patch.object(cp_close, "repo_name", return_value="o/r"), patch.object(
         cp_close, "issue_payload", return_value={"body": "x"}
     ), patch.object(cp_close, "risk_of", return_value="medium"), patch.object(
         cp_close, "load_evidence", return_value=RECORD
     ), patch.object(cp_close, "validate_record", return_value=[]), patch.object(
+        cp_close, "context_check", return_value=context_check
+    ), patch.object(
         cp_close, "gate_command", return_value="gate"
     ), patch.object(
         cp_close, "record_evidence_index", return_value=True
@@ -172,6 +174,75 @@ class CpCloseTests(unittest.TestCase):
         self.assertEqual(code, 1)
         post.assert_not_called()
         self.assertIn("gate düştü", err)
+
+    def test_hard_limit_blocks_close_and_marks_blocked(self) -> None:
+        with patch.object(
+            cp_close, "run_gate"
+        ) as gate, patch.object(
+            cp_close, "mark_blocked"
+        ) as blocked:
+            code, _, err = run_main(
+                ["--issue", "148", "--cp", "CP-1", "--evidence", "e", "--apply"],
+                context_check=(
+                    1,
+                    "bağlam 350,000 token ≥ 300,000 — yeni oturum aç",
+                ),
+            )
+        self.assertEqual(code, 1)
+        gate.assert_not_called()
+        blocked.assert_called_once_with(
+            "o/r", 148, "bağlam 350,000 token ≥ 300,000 — yeni oturum aç"
+        )
+        self.assertIn("blocked", err)
+
+    def test_warn_band_close_proceeds_with_warning(self) -> None:
+        with patch.object(cp_close, "run_gate", return_value=(0, "")), patch.object(
+            cp_close, "post_comment", return_value="c1"
+        ), patch.object(cp_close, "verify_issue", return_value=(0, "")), patch.object(
+            cp_close, "checkpoint", return_value=True
+        ):
+            _, out, err = run_main(
+                ["--issue", "148", "--cp", "CP-1", "--evidence", "e", "--apply"],
+                context_check=(
+                    0,
+                    "bağlam 250,000 token ≥ 200,000 — özet yaz, yeni oturuma geç",
+                ),
+            )
+        self.assertIn("200,000", err)
+        self.assertIn("CP kapandı", out)
+
+    def test_mark_blocked_adds_label_and_comment(self) -> None:
+        calls: list[list[str]] = []
+
+        class Result:
+            returncode = 0
+            stdout = "{}"
+
+        def fake_run(command, **kwargs):
+            calls.append(command)
+            return Result()
+
+        with patch.object(cp_close.subprocess, "run", side_effect=fake_run):
+            self.assertTrue(
+                cp_close.mark_blocked("o/r", 148, "bağlam 350,000 token ≥ 300,000")
+            )
+        flat = [" ".join(command) for command in calls]
+        self.assertTrue(any("--add-label blocked" in item for item in flat), flat)
+        self.assertTrue(
+            any("issues/148/comments" in item for item in flat), flat
+        )
+
+    def test_mark_blocked_reports_failure(self) -> None:
+        class Result:
+            returncode = 1
+
+        with patch.object(
+            cp_close.subprocess, "run", return_value=Result()
+        ), redirect_stderr(io.StringIO()) as err:
+            self.assertFalse(
+                cp_close.mark_blocked("o/r", 148, "bağlam 350,000 token ≥ 300,000")
+            )
+        self.assertIn("blocked", err.getvalue())
 
     def test_verify_failure_rolls_back(self) -> None:
         with patch.object(cp_close, "run_gate", return_value=(0, "")), patch.object(

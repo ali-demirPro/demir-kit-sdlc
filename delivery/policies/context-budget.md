@@ -31,11 +31,16 @@ sözleşmesidir. Her dosya tek bir sınıfa girer; sınıfı belirlenemeyen dosy
 | `unknown` | Sınıfı belirlenemeyen | retrieve edilmez; brief'te görünür | — |
 
 Sınıf bütçeleri mevcut eşikleri değiştirmez: 200k/300k bağlam, 2k/8k araç
-çıktısı ve 3/5 doküman sınırları aynen geçerlidir. Bir CP'nin toplam okuma
-bütçesi en fazla 5 dosyadır; sınıf üst sınırları bu toplamın alt sınırlarıdır
-(hiçbir sınıf 5 dosyalık toplamı aşamaz, sınıfların toplamı da 5 dosyayı
-geçemez) ve 200k uyarı eşiğinin altında kalır. `unknown` okunmadığı için
-toplama girmez.
+çıktısı ve 3/5 doküman sınırları aynen geçerlidir. Bütçeler kodla uygulanır
+(`brief.py`): `window` en fazla `WINDOW_LIMIT` (3), route ile seçilen
+`retrieved`, her CP için en fazla 5 dosyadır (`READ_BUDGET`); route **6.
+dosyayı seçmek isteyince brief durur (`exit ≠ 0`)**, dosyayı sessizce
+atarmaz. `sink` zorunlu çekirdektir (`SINK_LIMIT` = 4) ve değişiklik
+yüzeyini listeler; `unknown` okunmadığı için toplama girmez. "Worker başına
+okunan doküman" eşikleri (3 uyarı / 5 sert) aynen geçerlidir. `READ_BUDGET`
+tek kaynaktır: brief'in son talimat satırı ve `.kit/brief-*.json` içindeki
+`selected_docs` aynı sabiti ve aynı seçim listesini kullanır; çelişki bir
+test ile engellenir.
 
 ### CP başına zorunlu sink
 
@@ -55,7 +60,13 @@ sink `unknown` değildir; brief seal düzeltilmeden başlamaz.
 girdiler weight azalan sırada alınır; eşit weight'te yol artan sıralanır.
 Eşleşmeyen veya weight'i eşik altında kalan aday retrieved listesine katılmaz.
 Sınıfı belirlenemeyen dosya da `[unknown]` sayılır ve sessizce retrieved'a
-düşmez.
+düşmez. Seçim `READ_BUDGET` (5) dosyada serttir: route 6. adayı seçmek
+isteyince brief `ReadBudgetError` ile durur ve `exit ≠ 0` verir; fazlası
+sessizce atılamaz. Büyük dokümanlar **bölüm hedefiyle** yönlendirilir:
+index girdisindeki opsiyonel `section` (boş olmayan string) route/brief
+çıktısında `path#section` olarak yazılır; worker dosyayı `rg -n` ile yalnız
+o başlıkta okur, tamamını açmaz (`CONTRACT.md`, `quality-gates.md`: ağırlık 2
++ bölüm hedefi).
 
 ### Etiketler
 
@@ -79,7 +90,8 @@ geçerlidir; `unknown` dosya açılmadan önce sınıflandırılır.
    hunk alınır; `gh api` çıktısı `--jq` ile daraltılır.
 5. **CP brief ile başla.** Worker, seal'i ve dokümanları kendiliğinden okumaz;
    `brief.py --cp CP-x` çıktısıyla başlar. Doküman yalnız brief'teki satırı
-   doğrulamak için açılır (`CONTRACT.md` ve `quality-gates.md` tam okunmaz).
+   doğrulamak için açılır; bölüm hedefli satırlar (`path#section`) yalnız o
+   başlıkta okunur (`CONTRACT.md` ve `quality-gates.md` tam okunmaz).
 6. **Yazma biçimi.** Var olan dosya `edit`/patch ile değişir; tam dosya yazma
    yalnız yeni dosyada kullanılır. Yazılan içerik bağlama ikinci kez girmez.
 7. **Kanıt özeti.** Issue'ya ham log değil, komut + exit code + dosya yolu +
@@ -93,6 +105,14 @@ geçerlidir; `unknown` dosya açılmadan önce sınıflandırılır.
 
 - Politika `delivery/registry.yaml → policies.context_budget` ile kayıtlıdır.
 - `brief.py --cp` kompakt CP brief'i üretir; `orca_plan.py` worker spec'ine gömer.
+- `usage.py --check --context` claim (`next-leaf.py`) ve CP kapanışında
+  (`cp_close.py --apply`) çağrılır; ölçülen değer 300k'yı aşarsa leaf/CP
+  kapanmaz, `blocked` etiketi ve gerekçe yorumu yazılır. Ölçüm yoksa kontrol
+  atlanır — `unknown` bağlam claim'i/kapanışı engellemez.
+- Route `retrieved` seçimi `READ_BUDGET` (5) dosyada serttir; aşım `exit ≠ 0`.
+- Büyük dokümanlar için `index.yaml` girdisi `section` ile bölüm hedefi taşır
+  ve brief `path#section` yazar; route/brief talimatı tek kaynaktan (`READ_BUDGET`)
+  üretilir.
 - Bütçe ihlali bir kalite bulgusu değil, **duruş** nedenidir: özet yaz, yeni
   oturum aç, işi kaybetme.
 
@@ -109,23 +129,26 @@ dağılım, leaf başına `armed`/`fallback_count` üretir; 10'dan az satırda
 - `over_read_rate = (brief dışı token + kullanılmayan brief token) / toplam bağlam token`.
   Payda oturum deltasıdır: önce `.kit/usage-<issue>.json`
   (`input + output + reasoning + cache.read + cache.write`), yoksa
-  `usage.py --delta` (`usage.session_delta`); ikisi de yoksa `unknown`.
+  `usage.py --delta` (`usage.session_delta`); ikisi de yoksa `tokens:unknown`.
   Claim anındaki `.orchestration/usage-<issue>.json` toplamdır, delta yerine
   kullanılmaz; yalnız açıkça verilirse `method` alanında `usage-total` olarak
   işaretlenir. Doküman maliyeti `bayt / 4`.
 - Oranlar `0..1` aralığındadır. Payda sıfırsa, usage dosyası yoksa veya
-  doküman bulunamazsa `unknown` yazılır; sıfır uydurulmaz. `1.0` üstü değer
+  doküman bulunamazsa oran **ölçülemez**: ilgili alan satırda bulunmaz
+  (`miss_rate` / `over_read_rate` yazılmaz, `clamped` da yazılamaz) — `unknown`
+  yazılmaz, sıfır uydurulmaz. `1.0` üstü değer
   `1.0`'a kırpılır ve satır `clamped: true` taşır.
 
 `leaf-done` öncesi `.kit/context-metrics.jsonl` dosyasına tek satır yazılır:
 
 ```json
-{"armed":true,"brief_docs":[],"clamped":false,"config_digest":"sha256:…","cp":"CP-1","extra_docs":[],"fallback_count":2,"issue":314,"method":"split:unknown;tokens:unknown","miss_rate":"unknown","missed_docs":[],"over_read_rate":"unknown","selected_docs":["delivery/scripts/brief.py"],"tokens":"unknown","unused_brief_docs":[]}
+{"armed":true,"brief_docs":[],"config_digest":"sha256:…","cp":"CP-1","extra_docs":[],"fallback_count":2,"issue":314,"method":"split:unknown;tokens:unknown","missed_docs":[],"selected_docs":["delivery/scripts/brief.py"],"tokens":"unknown","unused_brief_docs":[]}
 ```
 
 Satır `issue, cp, selected_docs, brief_docs, unused_brief_docs, extra_docs,
-missed_docs, tokens, miss_rate, over_read_rate, clamped, armed, fallback_count,
-config_digest, method` alanlarını taşır ve deterministiktir (yol artan sıralı,
+missed_docs, tokens, armed, fallback_count, config_digest, method` alanlarını
+taşır ve ölçülebilen `miss_rate`, `over_read_rate` ve `clamped` alanları
+onların yanında yer alır; deterministiktir (yol artan sıralı,
 zaman damgası yok). `selected_docs` brief'in seçtiği dokümanlardır; `brief_docs`
 yalnız kullanıldığı kanıtlananlar, `unused_brief_docs` seçilip kullanılmayanlar,
 `extra_docs` brief dışından okunanlardır (`brief_docs` boş olabilir). `armed`
@@ -141,8 +164,8 @@ deterministiktir. Bu dosya yalnız seçimi bilir; kullanım kanıtı üretmez.
 yaşar (cycle.jsonl gibi); epic worktree kaldırılınca kaybolmaz.
 
 `usage_known` / `split:unknown` kuralı: brief metadata'sı yalnız seçimi bilir.
-Kullanım kanıtı yoksa `brief_docs` ve `unused_brief_docs` boş, `miss_rate` ve
-`over_read_rate` `unknown` olur ve `method` `split:unknown` taşır; `0.0`
+Kullanım kanıtı yoksa `brief_docs` ve `unused_brief_docs` boş olur, `miss_rate` ve
+`over_read_rate` alanları satırda bulunmaz ve `method` `split:unknown` taşır; `0.0`
 uydurulmaz. `tokens` yine usage deltasından gelebilir, çünkü bilinmeyen yalnız
 used/unused ayrımıdır.
 

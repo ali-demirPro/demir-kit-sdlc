@@ -118,6 +118,41 @@ def context_state(tokens: int, warn: int = CONTEXT_WARN, hard: int = CONTEXT_HAR
     return (0, "")
 
 
+def peak_prompt_tokens(messages) -> int:
+    """Largest single prompt size (input + cache read/write) in a message list."""
+    peak = 0
+    for message in messages or []:
+        if not isinstance(message, dict):
+            continue
+        tokens = message.get("tokens") or {}
+        cache = tokens.get("cache") or {}
+        try:
+            peak = max(
+                peak,
+                int(tokens.get("input") or 0)
+                + int(cache.get("read") or 0)
+                + int(cache.get("write") or 0),
+            )
+        except (TypeError, ValueError):
+            continue
+    return peak
+
+
+def current_context_tokens(project: Path | None = None) -> int | None:
+    """Current session context size (largest prompt so far) in tokens.
+
+    ``None`` when the session cannot be resolved or the export fails — an
+    unmeasurable context is never turned into a number.
+    """
+    try:
+        session = current_session(project)
+        export = session_export(str(session.get("id")))
+    except (Exception, SystemExit):
+        return None
+    messages = export.get("messages") if isinstance(export, dict) else []
+    return peak_prompt_tokens(messages)
+
+
 def snapshot_path(issue: int, project: Path | None = None) -> Path:
     project = project or project_root()
     return project / ".orchestration" / f"usage-{issue}.json"
@@ -727,16 +762,21 @@ def main() -> int:
     parser.add_argument("--snapshot", action="store_true")
     parser.add_argument("--delta", action="store_true")
     parser.add_argument("--issue", type=int)
-    parser.add_argument("--check", action="store_true", help="bağlam bütçesi kontrolü")
+    parser.add_argument("--check", action="store_true", help="bağlam bütçesi kontrolü (--context yoksa oturumdan ölçer)")
     parser.add_argument("--context", type=int, help="oturum bağlamı (token)")
     parser.add_argument("--dispatch", help="one supervised worker dispatch id")
     parser.add_argument("--run", help="aggregate all workers of an Orca run")
     args = parser.parse_args()
 
     if args.check:
-        if args.context is None:
-            sys.exit("usage: --check için --context <token> gerekli")
-        code, message = context_state(int(args.context))
+        tokens = args.context
+        if tokens is None:
+            tokens = current_context_tokens()
+            if tokens is None:
+                # An unmeasurable context must surface, never fabricate a number.
+                print("bağlam ölçülemedi — kontrol atlandı", file=sys.stderr)
+                return 0
+        code, message = context_state(int(tokens))
         if message:
             print(message)
         return code

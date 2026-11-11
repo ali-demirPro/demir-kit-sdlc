@@ -21,6 +21,7 @@ import cycle  # noqa: E402
 import epic_worktree  # noqa: E402
 import process_gate  # noqa: E402
 import routing  # noqa: E402
+import usage  # noqa: E402
 
 SKIP_LABELS = {"executing", "blocked", "deferred", "leaf-done", "epic-done"}
 CLAIM_PREFIX = "run claim:"
@@ -207,6 +208,35 @@ def write_snapshot(number: int) -> None:
         )
 
 
+def claim_context() -> tuple[int, str]:
+    """Context check for the current session before a claim.
+
+    Calls ``usage.py --check --context <token>``; an unmeasurable context is
+    reported on stderr and never blocks the claim. A measured 300k+ exceed
+    returns exit 1 with the hard-limit message.
+    """
+    try:
+        tokens = usage.current_context_tokens()
+    except Exception:
+        tokens = None
+    if tokens is None:
+        print("next-leaf: bağlam ölçülemedi — kontrol atlandı", file=sys.stderr)
+        return 0, ""
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(Path(__file__).resolve().parent / "usage.py"),
+            "--check",
+            "--context",
+            str(tokens),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    return result.returncode, (result.stdout or "").strip()
+
+
 def prepare_worktree(number: int, epic: int | None) -> int:
     """Ensure the epic worktree and print the exact next commands."""
     if not epic:
@@ -283,6 +313,24 @@ def claim(number: int, epic: int | None, risk: str) -> int:
             f"next-leaf: #{number} lease'i bayat; "
             f"`next-leaf --release --issue {number}` çalıştır"
         )
+
+    context_code, context_message = claim_context()
+    if context_code != 0:
+        body = (
+            "run blocked: bağlam sınırı\n\n"
+            f"{context_message}\n\n"
+            "Claim yapılmadı; yeni oturum açıp tekrar deneyin."
+        )
+        gh(["issue", "edit", str(number), "--add-label", "blocked"])
+        gh(["issue", "comment", str(number), "--body", body])
+        print(
+            f"next-leaf: #{number} bağlam sınırında — claim yapılmadı: "
+            f"{context_message}",
+            file=sys.stderr,
+        )
+        return 1
+    if context_message:
+        print(context_message, file=sys.stderr)
 
     run_id = now().strftime("run-%Y%m%dT%H%M%S%fZ")
     expires = now() + timedelta(hours=LEASE_HOURS)

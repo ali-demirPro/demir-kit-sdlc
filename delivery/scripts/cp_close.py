@@ -25,6 +25,7 @@ import doctor  # noqa: E402
 import evidence as evidence_lib  # noqa: E402
 import routing  # noqa: E402
 import update as update_mod  # noqa: E402
+import usage  # noqa: E402
 
 SCHEMA = ROOT / "delivery" / "schemas" / "evidence.schema.json"
 DEFAULT_GATE_LEVEL = "fast"
@@ -95,6 +96,70 @@ def validate_record(
     elif record.get("status") == "pass":
         errors.append("verification bloğu yok")
     return errors
+
+
+def context_check() -> tuple[int, str]:
+    """Context check for the current session before the CP close.
+
+    Calls ``usage.py --check --context <token>``; an unmeasurable context is
+    reported on stderr and never blocks the close. A measured 300k+ exceed
+    returns exit 1 with the hard-limit message.
+    """
+    try:
+        tokens = usage.current_context_tokens()
+    except Exception:
+        tokens = None
+    if tokens is None:
+        print("cp_close: bağlam ölçülemedi — kontrol atlandı", file=sys.stderr)
+        return 0, ""
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(Path(__file__).resolve().parent / "usage.py"),
+            "--check",
+            "--context",
+            str(tokens),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    return result.returncode, (result.stdout or "").strip()
+
+
+def mark_blocked(repo: str, issue: int, message: str) -> bool:
+    """Add the ``blocked`` label and a rationale comment; True when both land."""
+    label = subprocess.run(
+        ["gh", "issue", "edit", str(issue), "--repo", repo, "--add-label", "blocked"],
+        capture_output=True,
+        text=True,
+    )
+    body = (
+        "run blocked: bağlam sınırı\n\n"
+        f"{message}\n\n"
+        "CP kapanmadı; yeni oturum açıp tekrar deneyin."
+    )
+    comment = subprocess.run(
+        [
+            "gh",
+            "api",
+            "-X",
+            "POST",
+            f"repos/{repo}/issues/{issue}/comments",
+            "--input",
+            "-",
+        ],
+        capture_output=True,
+        text=True,
+        input=json.dumps({"body": body}),
+    )
+    ok = label.returncode == 0 and comment.returncode == 0
+    if not ok:
+        print(
+            "cp_close: blocked etiketi/gerekçesi yazılamadı — gh çıktısını denetleyin",
+            file=sys.stderr,
+        )
+    return ok
 
 
 def gate_command(issue: int, cp_id: str, level: str = DEFAULT_GATE_LEVEL) -> str:
@@ -298,6 +363,14 @@ def main() -> int:
             ]
         ))
         return 0
+
+    code, message = context_check()
+    if code != 0:
+        mark_blocked(repo, args.issue, message)
+        print(f"cp_close: {message} — CP kapatılamadı (blocked)", file=sys.stderr)
+        return 1
+    if message:
+        print(message, file=sys.stderr)
 
     code, output = run_gate(command)
     if code != 0:

@@ -92,8 +92,16 @@ READ_TAGS = {
 READ_UNKNOWN = "[unknown]"
 SINK_LIMIT = 4
 WINDOW_LIMIT = 3
-RETRIEVED_LIMIT = 5
+# CP başına route ile seçilen okuma dokümanı bütçesi (``--route`` retrieved
+# seçimi). 6. adayda brief `ReadBudgetError` ile durur (exit ≠ 0).
+READ_BUDGET = 5
+# Eski ad; bütçe sabiti tek kaynaktır.
+RETRIEVED_LIMIT = READ_BUDGET
 WINDOW_DOC_ORDER = ("ROLE.md", "how.md", "SKILL.md", "communicates.md", "dependencies.md")
+
+
+class ReadBudgetError(ValueError):
+    """Route, okuma bütçesinden çok doküman seçti — brief durur."""
 
 
 def read_tag(value) -> str:
@@ -116,12 +124,16 @@ def reading_items(
     items: list[dict] = []
     seen: set[str] = set()
 
-    def add(kind: str, path) -> None:
+    def add(kind: str, path, section: str | None = None) -> None:
         text = str(path or "")
         if not text or text in seen:
             return
         seen.add(text)
-        items.append({"class": kind, "path": text})
+        entry = {"class": kind, "path": text}
+        section_text = str(section or "").strip()
+        if section_text:
+            entry["section"] = section_text
+        items.append(entry)
 
     for path in sink or []:
         add("sink", path)
@@ -133,7 +145,11 @@ def reading_items(
         kind = str(item.get("class") or "").strip()
         if kind == "candidate":
             continue
-        add(kind if kind in READ_CLASSES else "unknown", item.get("path"))
+        add(
+            kind if kind in READ_CLASSES else "unknown",
+            item.get("path"),
+            item.get("section"),
+        )
     return items
 
 
@@ -156,10 +172,13 @@ def window_docs(docs: list[str] | None, role: str) -> list[str]:
 
 
 def cp_route_items(route: list[dict] | None) -> list[dict]:
-    """Route items the CP brief lists: sink/retrieved/unknown, capped budget.
+    """Route items the CP brief lists: sink/retrieved/unknown.
 
-    Window paths come from :func:`window_docs`; candidates stay in ``--route``
-    output so the CP brief does not re-list them as reading material.
+    Retrieved selection is hard-capped at ``READ_BUDGET``: a route that would
+    select a 6th reading document stops the brief with ``ReadBudgetError``
+    instead of silently dropping the file. Window paths come from
+    :func:`window_docs`; candidates stay in ``--route`` output so the CP brief
+    does not re-list them as reading material.
     """
     items: list[dict] = []
     retrieved = 0
@@ -171,14 +190,22 @@ def cp_route_items(route: list[dict] | None) -> list[dict]:
             continue
         if kind == "retrieved":
             retrieved += 1
-            if retrieved > RETRIEVED_LIMIT:
-                continue
+            if retrieved > READ_BUDGET:
+                raise ReadBudgetError(
+                    f"okuma bütçesi aşıldı: route {READ_BUDGET} dokümandan "
+                    f"fazlasını seçti ({retrieved}. dosya: "
+                    f"{routing.route_target(item)}); index weight'lerini "
+                    "daralt veya bölüm hedefi kullan"
+                )
         items.append(item)
     return items
 
 
 def render_reading_items(items: list[dict]) -> list[str]:
-    return [f"- {read_tag(item['class'])} {item['path']}" for item in items]
+    return [
+        f"- {read_tag(item['class'])} {routing.route_target(item)}"
+        for item in items
+    ]
 
 
 def control_fields(
@@ -1066,11 +1093,22 @@ def render_cp_brief(
             "Kanıt: case olmadığı için evidence iskeleti üretilmedi; "
             "önce seal'i düzelt."
         )
+    # Son talimat ile okuma listesi tek kaynaktan üretilir (AC-3): liste
+    # ``brief_docs``'ten, sınır ``READ_BUDGET``'tan gelir.
+    reading_note = (
+        f"Okuma: bu brief yeterli; okuma sınırı {READ_BUDGET} dosya "
+        f"yalnız route (retrieved) seçimi için geçerlidir; "
+        f"sink ve window sınıra dahil değildir; "
+        f"bu brief {len(brief_docs)} dosya seçti; "
+        f"{READ_BUDGET + 1}. dosya seçilirse brief exit ≠ 0 verir; "
+        "ek dosyayı yalnız ilgili satır için aç (`rg -n`); "
+        "CONTRACT.md ve quality-gates.md yalnız bölüm hedefiyle "
+        "(`path#section`) okunur."
+    )
     lines += [
         "Makine: `resources.py --report` yalnız bilgi içindir; hiçbir komutu durdurmaz.",
         f"Komut: `{gate_command}`",
-        "Okuma: bu brief yeterli; ek dosyayı yalnız ilgili satır için aç "
-        "(`rg -n`), CONTRACT.md ve quality-gates.md tamamını okuma.",
+        reading_note,
         "Kurallar: yalnız bu CP; başka CP/contract/CI dosyasına dokunma; tam dosya "
         "dökme; bağlam 200k'da uyar, 300k'da dur ve kısa özet yaz.",
     ]
@@ -1286,28 +1324,33 @@ def main() -> int:
             if args.cp:
                 cp, _ = cp_selection(seal, args.cp)
                 role = cp_role(cp.get("gates") or {})
-                reading = reading_items(
-                    sink=[
-                        str(item["path"])
-                        for item in route
-                        if item.get("class") == "sink"
-                    ],
-                    window=window_docs(
-                        [
+                try:
+                    reading = reading_items(
+                        sink=[
                             str(item["path"])
                             for item in route
-                            if item.get("class") == "window"
+                            if item.get("class") == "sink"
                         ],
-                        role,
-                    ),
-                    route=cp_route_items(
-                        [
-                            item
-                            for item in route
-                            if item.get("class") not in ("sink", "window", "candidate")
-                        ]
-                    ),
-                )
+                        window=window_docs(
+                            [
+                                str(item["path"])
+                                for item in route
+                                if item.get("class") == "window"
+                            ],
+                            role,
+                        ),
+                        route=cp_route_items(
+                            [
+                                item
+                                for item in route
+                                if item.get("class")
+                                not in ("sink", "window", "candidate")
+                            ]
+                        ),
+                    )
+                except ReadBudgetError as exc:
+                    print(f"brief: {exc}", file=sys.stderr)
+                    return 2
                 if reading:
                     output += "Okuma sınıfları:\n"
                     output += "\n".join(render_reading_items(reading)) + "\n"
@@ -1373,7 +1416,8 @@ def main() -> int:
                 ),
             )
         except ValueError as exc:
-            sys.exit(f"brief: {exc}")
+            print(f"brief: {exc}", file=sys.stderr)
+            return 2
         if args.write:
             args.write.mkdir(parents=True, exist_ok=True)
             path = args.write / f"{args.cp}.md"

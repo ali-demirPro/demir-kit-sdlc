@@ -298,12 +298,22 @@ def _dedupe(items) -> list[str]:
 ROUTE_INDEX_VERSION = 1
 ROUTE_INDEX_KEYS = {"version", "entries"}
 ROUTE_ENTRY_KEYS = {"surface", "path", "tags", "weight"}
+# Optional per entry: ``section`` — the bölüm hedefi. Route/brief render
+# ``path#section`` so a long document is read at one heading, never in full.
+ROUTE_ENTRY_OPTIONAL_KEYS = {"section"}
 ROUTE_CLASSES = ("sink", "window", "retrieved", "candidate")
 ROUTE_SOURCES = {"seal", "resolver", "index", "static"}
 # One line per path: sink beats window, window beats retrieved/candidate.
 ROUTE_PRIORITY = {"sink": 4, "window": 3, "retrieved": 2, "candidate": 1}
 # Matching entries below this weight stay visible as candidates with a reason.
 ROUTE_MIN_WEIGHT = 2
+
+
+def route_target(item: dict) -> str:
+    """Display target for one route item: ``path#section`` when a section is set."""
+    path = str(item.get("path", ""))
+    section = str(item.get("section") or "").strip()
+    return f"{path}#{section}" if section else path
 
 
 class RouteIndexError(ValueError):
@@ -471,7 +481,9 @@ def load_route_index(path: Path, root: Path | None = None) -> dict | None:
         label = f"{path}: entries[{position}]"
         if not isinstance(entry, dict):
             raise RouteIndexError(f"{label}: mapping olmalı")
-        unknown = sorted(set(entry) - ROUTE_ENTRY_KEYS)
+        unknown = sorted(
+            set(entry) - (ROUTE_ENTRY_KEYS | ROUTE_ENTRY_OPTIONAL_KEYS)
+        )
         if unknown:
             raise RouteIndexError(f"{label}: bilinmeyen anahtar: {', '.join(unknown)}")
         missing = sorted(ROUTE_ENTRY_KEYS - set(entry))
@@ -494,14 +506,20 @@ def load_route_index(path: Path, root: Path | None = None) -> dict | None:
         weight = entry.get("weight")
         if not _is_number(weight) or weight <= 0:
             raise RouteIndexError(f"{label}: weight pozitif sayı olmalı")
-        result.append(
-            {
-                "surface": surface.strip(),
-                "path": entry_path,
-                "tags": list(tags),
-                "weight": weight,
-            }
-        )
+        section = entry.get("section")
+        if section is not None:
+            if not isinstance(section, str) or not section.strip():
+                raise RouteIndexError(f"{label}: section boş olmayan string olmalı")
+            section = section.strip()
+        entry_out = {
+            "surface": surface.strip(),
+            "path": entry_path,
+            "tags": list(tags),
+            "weight": weight,
+        }
+        if section is not None:
+            entry_out["section"] = section
+        result.append(entry_out)
 
     return {"version": version, "entries": result}
 
@@ -607,17 +625,18 @@ def build_route(
 
     selected.sort(key=lambda entry: (-float(entry["weight"]), str(entry["path"])))
     for entry in selected:
-        add(
-            {
-                "class": "retrieved",
-                "path": f"{prefix}{entry['path']}",
-                "source": "index",
-                "reason": (
-                    f"surface {entry['surface']} eşleşti "
-                    f"(weight {entry['weight']})"
-                ),
-            }
-        )
+        item = {
+            "class": "retrieved",
+            "path": f"{prefix}{entry['path']}",
+            "source": "index",
+            "reason": (
+                f"surface {entry['surface']} eşleşti "
+                f"(weight {entry['weight']})"
+            ),
+        }
+        if entry.get("section"):
+            item["section"] = str(entry["section"])
+        add(item)
     candidates.sort(key=lambda item: (item["path"], item["reason"]))
     for item in candidates:
         add(item)
@@ -630,7 +649,7 @@ def render_route(route: list[dict], fallback: str | None = None) -> str:
         lines.append(f"fallback: {fallback}")
     for item in route:
         lines.append(
-            f"{item['class']} {item['path']} "
+            f"{item['class']} {route_target(item)} "
             f"(source: {item['source']}, reason: {item['reason']})"
         )
     return "\n".join(lines) + ("\n" if lines else "")
