@@ -18,11 +18,16 @@ from pathlib import Path
 
 import yaml
 
+from kitlib import comments as kitcomments
+from kitlib import config as kitconfig
+from kitlib import gh as kitgh
+from kitlib import root as kitroot
+from kitlib import yamlish
+
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import epic_worktree  # noqa: E402
-import routing  # noqa: E402
 import usage  # noqa: E402
 
 
@@ -35,9 +40,19 @@ def run(args: list[str], cwd: Path | None = None) -> str:
     return result.stdout
 
 
+def gh(args: list[str]) -> str:
+    """Run ``gh``; a failure keeps the closure prefix and exits."""
+    try:
+        return kitgh.capture(args)
+    except kitgh.GhError as exc:
+        raise SystemExit(
+            f"closure: {' '.join(args[:2])} failed — {exc.stderr}"
+        ) from exc
+
+
 def repo_name() -> str:
-    project = routing.project_root(ROOT)
-    ecosystem = yaml.safe_load((project / "ecosystem.yaml").read_text(encoding="utf-8")) or {}
+    project = kitroot.project_root(ROOT)
+    ecosystem = kitconfig.read_yaml(project / "ecosystem.yaml")
     repo = (ecosystem.get("tracker") or {}).get("repo")
     if not repo:
         raise SystemExit("closure: ecosystem.yaml tracker.repo yok")
@@ -45,54 +60,21 @@ def repo_name() -> str:
 
 
 def issue_payload(repo: str, number: int) -> dict:
-    return json.loads(run(["gh", "api", f"repos/{repo}/issues/{number}"]))
+    return json.loads(gh(kitgh.api_args(f"repos/{repo}/issues/{number}")))
 
 
 def epic_children(payload: dict) -> list[int]:
-    match = re.search(r"```yaml\s+demir-kit-epic\s*\n(.*?)```", payload.get("body") or "", re.S)
-    if not match:
-        return []
-    try:
-        data = yaml.safe_load(match.group(1)) or {}
-    except yaml.YAMLError:
-        return []
+    data = yamlish.parse_block(payload.get("body") or "", "demir-kit-epic")
     children = data.get("children") if isinstance(data, dict) else []
     return [int(item) for item in children or [] if isinstance(item, int)]
 
 
 def leaf_seal(payload: dict) -> dict:
-    match = re.search(r"```yaml\s+demir-kit\s*\n(.*?)```", payload.get("body") or "", re.S)
-    if not match:
-        return {}
-    try:
-        data = yaml.safe_load(match.group(1)) or {}
-    except yaml.YAMLError:
-        return {}
-    return data if isinstance(data, dict) else {}
+    return yamlish.parse_block(payload.get("body") or "", "demir-kit")
 
 
 def label_events(repo: str, issue: int) -> list[dict]:
-    events: list[dict] = []
-    page = 1
-    while True:
-        raw = run(
-            [
-                "gh",
-                "api",
-                f"repos/{repo}/issues/{issue}/timeline?per_page=100&page={page}",
-            ]
-        )
-        try:
-            batch = json.loads(raw)
-        except json.JSONDecodeError:
-            break
-        if not isinstance(batch, list) or not batch:
-            break
-        events.extend(batch)
-        if len(batch) < 100:
-            break
-        page += 1
-    return events
+    return kitgh.timeline(repo, issue, request=run)
 
 
 def parse_time(value: str) -> datetime | None:
@@ -103,27 +85,7 @@ def parse_time(value: str) -> datetime | None:
 
 
 def issue_comments(repo: str, issue: int) -> list[dict]:
-    rows: list[dict] = []
-    page = 1
-    while True:
-        raw = run(
-            [
-                "gh",
-                "api",
-                f"repos/{repo}/issues/{issue}/comments?per_page=100&page={page}",
-            ]
-        )
-        try:
-            batch = json.loads(raw)
-        except json.JSONDecodeError:
-            break
-        if not isinstance(batch, list) or not batch:
-            break
-        rows.extend(batch)
-        if len(batch) < 100:
-            break
-        page += 1
-    return rows
+    return kitgh.issue_comments(repo, issue, request=run)
 
 
 def deferred_detail(repo: str, issue: int) -> str:
@@ -171,14 +133,10 @@ def cp_count(seals: dict[int, dict]) -> int:
 
 
 def state_roots() -> list[Path]:
-    roots = [routing.project_root(ROOT)]
-    try:
-        common = run(["git", "rev-parse", "--path-format=absolute", "--git-common-dir"])
-        main = Path(common.strip()).parent
-        if main not in roots:
-            roots.append(main)
-    except SystemExit:
-        pass
+    roots = [kitroot.project_root(ROOT)]
+    main = kitroot.git_common_root()
+    if main and main not in roots:
+        roots.append(main)
     return roots
 
 
@@ -336,11 +294,11 @@ def render_closure(
 
 
 def validate_block(body: str, leaf_count: int) -> list[str]:
-    match = re.search(r"```yaml\s+demir-kit-closure\s*\n(.*?)```", body, re.S)
-    if not match:
+    raw = yamlish.block_text(body, "demir-kit-closure")
+    if raw is None:
         return ["closure bloğu üretilemedi"]
     try:
-        record = yaml.safe_load(match.group(1)) or {}
+        record = yamlish.load_text(raw) or {}
     except yaml.YAMLError as exc:
         return [f"closure YAML geçersiz — {exc}"]
     import doctor
@@ -362,35 +320,11 @@ def validate_block(body: str, leaf_count: int) -> list[str]:
 
 
 def post_comment(repo: str, issue: int, body: str) -> str | None:
-    result = subprocess.run(
-        [
-            "gh",
-            "api",
-            "-X",
-            "POST",
-            f"repos/{repo}/issues/{issue}/comments",
-            "--input",
-            "-",
-        ],
-        capture_output=True,
-        text=True,
-        input=json.dumps({"body": body}),
-    )
-    if result.returncode != 0:
-        return None
-    try:
-        return str(json.loads(result.stdout).get("id") or "")
-    except json.JSONDecodeError:
-        return None
+    return kitcomments.post(repo, issue, body)
 
 
 def delete_comment(repo: str, comment_id: str) -> bool:
-    result = subprocess.run(
-        ["gh", "api", "-X", "DELETE", f"repos/{repo}/issues/comments/{comment_id}"],
-        capture_output=True,
-        text=True,
-    )
-    return result.returncode == 0
+    return kitcomments.delete(repo, comment_id)
 
 
 def verify_close(issue: int) -> tuple[int, str]:

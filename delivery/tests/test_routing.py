@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import re
 import sys
 import tempfile
 import unittest
@@ -16,6 +17,7 @@ SCRIPTS = ROOT / "delivery" / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
 import routing  # noqa: E402
+from kitlib import yamlish  # noqa: E402
 
 spec = importlib.util.spec_from_file_location("brief", SCRIPTS / "brief.py")
 brief = importlib.util.module_from_spec(spec)
@@ -33,6 +35,78 @@ def seal(surfaces=("kit.docs",), risk="medium", factory=None) -> str:
     if factory:
         data["factory"] = factory
     return "```yaml demir-kit\n" + yaml.safe_dump(data, sort_keys=False) + "```\n"
+
+
+class YamlishTests(unittest.TestCase):
+    """T-3 and AC-3: one parser, and the D-2 backlog is explicit."""
+
+    # First-pass modules that parse fenced blocks. Each must call the shared
+    # parser; usage/cycle carry no YAML block parser at all.
+    PARSER_CALLERS = ("routing.py", "next-leaf.py", "closure.py")
+
+    # D-2 (#374) migrates these remaining inline copies. The exact set is the
+    # AC-3 measurement: a new copy makes this test red, and so does removing a
+    # copy without moving it into the caller set above.
+    BACKLOG = {
+        "approval_sweep.py",
+        "approvals.py",
+        "brief.py",
+        "cp_close.py",
+        "doctor.py",
+        "doctor_approval.py",
+        "report.py",
+        "review_packet.py",
+        "seal_lint.py",
+        "status.py",
+        "transition.py",
+    }
+
+    INLINE_PARSER = re.compile(r"```yaml\\s\+[^\n]*\(\.\*\?\)")
+
+    def test_parse_block_returns_the_tagged_mapping(self) -> None:
+        body = (
+            "before\n"
+            "```yaml demir-kit\n"
+            "demir_kit_version: '2'\n"
+            "epic: 364\n"
+            "risk: {level: medium}\n"
+            "```\n"
+            "after\n"
+        )
+        self.assertEqual(
+            yamlish.parse_block(body, "demir-kit"),
+            {"demir_kit_version": "2", "epic": 364, "risk": {"level": "medium"}},
+        )
+        self.assertEqual(yamlish.parse_block(body, "demir-kit-epic"), {})
+        self.assertEqual(
+            yamlish.parse_block(body, "demir-kit")["epic"], 364
+        )
+
+    def test_fallbacks_are_empty_instead_of_raising(self) -> None:
+        self.assertEqual(yamlish.parse_block("", "demir-kit"), {})
+        self.assertEqual(
+            yamlish.parse_block("```yaml demir-kit\n[broken\n```", "demir-kit"),
+            {},
+        )
+        self.assertEqual(
+            yamlish.parse_block("```yaml demir-kit\n- a\n- b\n```", "demir-kit"),
+            {},
+        )
+
+    def test_first_pass_modules_call_the_shared_parser(self) -> None:
+        for name in self.PARSER_CALLERS:
+            text = (SCRIPTS / name).read_text(encoding="utf-8")
+            self.assertIn("yamlish.parse_block(", text, name)
+            self.assertNotRegex(text, self.INLINE_PARSER.pattern, name)
+
+    def test_inline_yaml_block_parsers_match_the_d2_backlog(self) -> None:
+        found = {
+            path.name
+            for path in sorted(SCRIPTS.glob("*.py"))
+            if self.INLINE_PARSER.search(path.read_text(encoding="utf-8"))
+        }
+        self.assertFalse(found & set(self.PARSER_CALLERS))
+        self.assertEqual(found, self.BACKLOG)
 
 
 class RoutingTests(unittest.TestCase):

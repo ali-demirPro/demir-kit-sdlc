@@ -12,13 +12,20 @@ import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from kitlib import root as kitroot
+
 ROOT = Path(__file__).resolve().parents[2]
 BIN = "opencode2"
 
 
 def project_root(cwd: Path | None = None) -> Path:
-    current = Path(cwd) if cwd else Path.cwd()
-    return current if (current / "kit.config.yaml").is_file() else ROOT
+    """State root: main checkout when called from a linked worktree."""
+    return kitroot.project_root(ROOT, project=cwd)
+
+
+def session_root(cwd: Path | None = None) -> Path:
+    """Checkout that owns OpenCode sessions (the worktree a worker runs in)."""
+    return kitroot.checkout_root(cwd)
 
 
 def parse_time(value: str | None, default: datetime) -> datetime:
@@ -145,7 +152,7 @@ def current_context_tokens(project: Path | None = None) -> int | None:
     unmeasurable context is never turned into a number.
     """
     try:
-        session = current_session(project)
+        session = current_session(session_root(project))
         export = session_export(str(session.get("id")))
     except (Exception, SystemExit):
         return None
@@ -181,8 +188,7 @@ def current_session(project: Path | None = None) -> dict:
 
 
 def write_snapshot(issue: int) -> dict:
-    project = project_root()
-    session = current_session(project)
+    session = current_session(session_root())
     info = api_session_info(session["id"])
     data = {
         "issue": issue,
@@ -192,7 +198,7 @@ def write_snapshot(issue: int) -> dict:
         "time": info.get("time"),
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
-    path = snapshot_path(issue, project)
+    path = snapshot_path(issue, project_root())
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
     return data
@@ -358,18 +364,9 @@ SESSION_MAP = "worker-sessions.json"
 
 
 def state_root() -> Path:
-    try:
-        result = subprocess.run(
-            ["git", "rev-parse", "--path-format=absolute", "--git-common-dir"],
-            capture_output=True,
-            text=True,
-        )
-        if result.returncode == 0:
-            candidate = Path(result.stdout.strip()).parent
-            if candidate.is_dir():
-                return candidate
-    except (FileNotFoundError, OSError):
-        pass
+    common = kitroot.git_common_root()
+    if common and common.is_dir():
+        return common
     return project_root()
 
 
@@ -637,7 +634,7 @@ def collect(since: datetime, until: datetime) -> dict:
     except FileNotFoundError:
         sys.exit(f"usage: {BIN} bulunamadı")
 
-    project = project_root()
+    project = session_root()
     rows = []
     for session in sessions:
         if session.get("directory") != str(project):

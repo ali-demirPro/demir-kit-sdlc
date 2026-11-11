@@ -11,7 +11,9 @@ import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-import yaml
+from kitlib import comments as kitcomments
+from kitlib import gh as kitgh
+from kitlib import yamlish
 
 SCRIPTS = Path(__file__).resolve().parent
 ROOT = SCRIPTS.parents[1]
@@ -31,25 +33,18 @@ LEASE_HOURS = 2
 
 
 def gh(args: list[str]) -> str:
-    result = subprocess.run(["gh", *args], capture_output=True, text=True)
-    if result.returncode != 0:
-        sys.exit(f"next-leaf: gh failed — {result.stderr.strip()}")
-    return result.stdout
+    try:
+        return kitgh.capture(args)
+    except kitgh.GhError as exc:
+        sys.exit(f"next-leaf: gh failed — {exc.stderr}")
 
 
 def gh_optional(args: list[str]) -> str:
-    result = subprocess.run(["gh", *args], capture_output=True, text=True)
-    return result.stdout if result.returncode == 0 else ""
+    return kitgh.capture(args, optional=True)
 
 
 def parse_seal(body: str) -> dict:
-    match = re.search(r"```yaml\s+demir-kit\s*\n(.*?)```", body, re.S)
-    if not match:
-        return {}
-    try:
-        return yaml.safe_load(match.group(1)) or {}
-    except yaml.YAMLError:
-        return {}
+    return yamlish.parse_block(body, "demir-kit")
 
 
 def now() -> datetime:
@@ -70,21 +65,14 @@ def parse_time(value: str | None) -> datetime | None:
 
 def comment_id(comment: dict) -> int:
     """Accept REST comments (int id) and GraphQL/node payloads (URL suffix)."""
-    for key in ("databaseId", "id"):
-        raw = comment.get(key)
-        if isinstance(raw, int):
-            return raw
-        if isinstance(raw, str) and raw.isdigit():
-            return int(raw)
-    url = comment.get("url") or ""
-    match = re.search(r"(?:issuecomment-|/comments/)(\d+)", url)
-    if match:
-        return int(match.group(1))
-    sys.exit("next-leaf: comment id okunamadı (id/url yok)")
+    try:
+        return kitcomments.comment_id(comment)
+    except ValueError as exc:
+        sys.exit(f"next-leaf: {exc}")
 
 
 def comment_body(comment: dict) -> str:
-    return comment.get("body") or ""
+    return kitcomments.body(comment)
 
 
 def run_id_from(comment: dict) -> str | None:
@@ -98,37 +86,14 @@ def lease_until_from(comment: dict) -> datetime | None:
 
 
 def fetch_comments(repo: str, number: int, page_size: int = 100) -> list[dict]:
-    comments: list[dict] = []
-    page = 1
-    while True:
-        raw = gh(
-            [
-                "api",
-                f"repos/{repo}/issues/{number}/comments?per_page={page_size}&page={page}",
-            ]
-        )
-        try:
-            batch = json.loads(raw)
-        except json.JSONDecodeError:
-            break
-        if not isinstance(batch, list) or not batch:
-            break
-        comments.extend(batch)
-        if len(batch) < page_size:
-            break
-        page += 1
-    return comments
+    return kitgh.issue_comments(repo, number, page_size, request=gh)
 
 
 def fetch_issue(number: int) -> dict:
     raw = gh(
-        [
-            "issue",
-            "view",
-            str(number),
-            "--json",
-            "number,title,state,body,labels,assignees,url",
-        ]
+        kitgh.issue_view_args(
+            number, "number,title,state,body,labels,assignees,url"
+        )
     )
     data = json.loads(raw)
     if not isinstance(data, dict):
@@ -321,8 +286,8 @@ def claim(number: int, epic: int | None, risk: str) -> int:
             f"{context_message}\n\n"
             "Claim yapılmadı; yeni oturum açıp tekrar deneyin."
         )
-        gh(["issue", "edit", str(number), "--add-label", "blocked"])
-        gh(["issue", "comment", str(number), "--body", body])
+        gh(kitgh.issue_edit_args(number, "--add-label", "blocked"))
+        gh(kitgh.issue_comment_args(number, body))
         print(
             f"next-leaf: #{number} bağlam sınırında — claim yapılmadı: "
             f"{context_message}",
@@ -339,9 +304,9 @@ def claim(number: int, epic: int | None, risk: str) -> int:
         f"lease_until: `{expires.isoformat()}`\n\n"
         f"Epic: #{epic} · risk: {risk}"
     )
-    gh(["issue", "comment", str(number), "--body", body])
-    gh(["issue", "edit", str(number), "--add-label", "executing"])
-    gh_optional(["issue", "edit", str(number), "--add-assignee", "@me"])
+    gh(kitgh.issue_comment_args(number, body))
+    gh(kitgh.issue_edit_args(number, "--add-label", "executing"))
+    gh_optional(kitgh.issue_edit_args(number, "--add-assignee", "@me"))
 
     refreshed = fetch_issue(number)
     winner = claim_winner(refreshed)
@@ -354,7 +319,7 @@ def claim(number: int, epic: int | None, risk: str) -> int:
         None,
     )
     if ours is None or winner != ours:
-        gh_optional(["issue", "edit", str(number), "--remove-assignee", "@me"])
+        gh_optional(kitgh.issue_edit_args(number, "--remove-assignee", "@me"))
         print(f"claim lost: #{number} ({run_id})", file=sys.stderr)
         return 1
 
@@ -388,19 +353,15 @@ def release(number: int, force: bool, reason: str) -> int:
         )
 
     run_id = lease.get("run_id") or "none"
-    gh_optional(["issue", "edit", str(number), "--remove-label", "executing"])
+    gh_optional(kitgh.issue_edit_args(number, "--remove-label", "executing"))
     for assignee in issue.get("assignees") or []:
         login = assignee.get("login")
         if login:
-            gh_optional(["issue", "edit", str(number), "--remove-assignee", login])
+            gh_optional(kitgh.issue_edit_args(number, "--remove-assignee", login))
     gh(
-        [
-            "issue",
-            "comment",
-            str(number),
-            "--body",
-            f"run release: `{run_id}`\nreason: {reason}",
-        ]
+        kitgh.issue_comment_args(
+            number, f"run release: `{run_id}`\nreason: {reason}"
+        )
     )
     print("\n".join(routing.render_config(routing.control_config(ROOT))))
     print(f"released #{number} ({run_id})")
@@ -533,30 +494,14 @@ def main() -> int:
 
     open_issues = json.loads(
         gh(
-            [
-                "issue",
-                "list",
-                "--state",
-                "open",
-                "--limit",
-                "200",
-                "--json",
-                "number,title,body,labels,createdAt",
-            ]
+            kitgh.issue_list_args(
+                "open", 200, "number,title,body,labels,createdAt"
+            )
         )
     )
     all_issues = json.loads(
         gh(
-            [
-                "issue",
-                "list",
-                "--state",
-                "all",
-                "--limit",
-                "1000",
-                "--json",
-                "number,state,labels",
-            ]
+            kitgh.issue_list_args("all", 1000, "number,state,labels")
         )
     )
     eligible, skipped = select_eligible(

@@ -13,10 +13,11 @@ written from the worktree but read after the worktree is gone, so
 from __future__ import annotations
 
 import json
-import os
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
+
+from kitlib import root as kitroot
 
 DIR = ".kit"
 NAME = "cycle.jsonl"
@@ -48,33 +49,14 @@ def parse_ts(value: str | None) -> datetime | None:
 
 def git_root(cwd: Path | None = None) -> Path | None:
     """Main checkout root, even when called from a linked worktree."""
-    try:
-        result = subprocess.run(
-            ["git", "rev-parse", "--path-format=absolute", "--git-common-dir"],
-            cwd=str(cwd or Path.cwd()),
-            capture_output=True,
-            text=True,
-        )
-    except OSError:
-        return None
-    if result.returncode != 0:
-        return None
-    common = Path(result.stdout.strip())
-    return common.parent if common.name == ".git" else common
+    return kitroot.git_common_root(cwd)
 
 
 def project_root(kit_root: Path, cwd: Path | None = None) -> Path:
     """Directory that owns ``.kit/``: the main checkout when it is a project."""
-    override = os.environ.get("DEMIR_KIT_CYCLE_ROOT")
-    if override:
-        return Path(override)
-    root = git_root(cwd)
-    if root and (root / "kit.config.yaml").is_file():
-        return root
-    current = Path(cwd or Path.cwd())
-    if (current / "kit.config.yaml").is_file():
-        return current
-    return Path(kit_root)
+    return kitroot.project_root(
+        kit_root, project=cwd, env_override="DEMIR_KIT_CYCLE_ROOT"
+    )
 
 
 def cycle_path(project: Path) -> Path:

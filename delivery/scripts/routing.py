@@ -9,6 +9,10 @@ from pathlib import Path
 
 import yaml
 
+from kitlib import config as kitconfig
+from kitlib import root as kitroot
+from kitlib import yamlish
+
 DEFAULT_PATH = "ui_feature"
 NARROW_ORDER = (
     "store_release",
@@ -40,19 +44,28 @@ INACTIVE_REASONS = {
 
 
 def project_root(kit_root: Path, cwd: Path | None = None) -> Path:
-    current = Path(cwd) if cwd else Path.cwd()
-    return current if (current / "kit.config.yaml").is_file() else kit_root
+    """Delegate to the one contract: main checkout, explicit project, kit root."""
+    return kitroot.project_root(kit_root, project=cwd)
+
+
+def _same_checkout(left: Path, right: Path) -> bool:
+    """Same repository checkout: equal paths or one git common root."""
+    if left.resolve() == right.resolve():
+        return True
+    left_common = kitroot.git_common_root(left)
+    right_common = kitroot.git_common_root(right)
+    return bool(
+        left_common
+        and right_common
+        and left_common.resolve() == right_common.resolve()
+    )
 
 
 def kit_prefix(kit_root: Path, cwd: Path | None = None) -> str:
     project = project_root(kit_root, cwd)
-    if project == kit_root:
+    if _same_checkout(project, Path(kit_root)):
         return ""
-    try:
-        config = yaml.safe_load((project / "kit.config.yaml").read_text(encoding="utf-8")) or {}
-    except (FileNotFoundError, yaml.YAMLError):
-        config = {}
-    root = str((config.get("kit") or {}).get("root") or "demir-kit").strip("/")
+    root = kitconfig.kit_root_name(project)
     return f"{root}/" if root else ""
 
 
@@ -63,18 +76,11 @@ def load_registry(root: Path) -> dict:
 
 
 def seal_body(body: str) -> dict:
-    match = re.search(r"```yaml\s+demir-kit\s*\n(.*?)```", body, re.S)
-    if not match:
-        return {}
-    try:
-        data = yaml.safe_load(match.group(1)) or {}
-    except yaml.YAMLError:
-        return {}
-    return data if isinstance(data, dict) else {}
+    return yamlish.parse_block(body, "demir-kit")
 
 
 def is_epic(body: str) -> bool:
-    return bool(re.search(r"```yaml\s+demir-kit-epic\s*\n", body))
+    return yamlish.has_block(body, "demir-kit-epic")
 
 
 def all_agents(registry: dict) -> list[str]:
@@ -126,7 +132,7 @@ def detect_signal(registry: dict, seal: dict):
 
 
 def strip_seal(body: str) -> str:
-    return re.sub(r"```yaml\s+demir-kit(?:-epic)?\s*\n.*?```", "", body, flags=re.S)
+    return yamlish.strip_blocks(body)
 
 
 def detect_path_detail(
