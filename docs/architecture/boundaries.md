@@ -98,13 +98,13 @@ Her sınır için: ne içeri girebilir, ne giremez, denetimi nasıl yapılır.
 
 - **Girebilir:** İki ayrı fonksiyon, ayrı ayrı tarif edilir — ikisi de "tek
   doğru kök" değil, bugünkü gerçek davranıştır:
-  1. `delivery/scripts/guard.sh` (satır 12–16) — `PRODUCT_ROOT` için
-     `git -C "${PWD}" rev-parse --show-toplevel` kullanır (yedeği `pwd`):
+  1. `delivery/scripts/guard.sh` — `PRODUCT_ROOT`: `git -C "${PWD}"
+     rev-parse --show-toplevel` kullanır (yedeği `pwd`):
      **mevcut çalışma ağacının** köküdür; linked worktree'de worktree'nin
      kendisidir, ortak kök DEĞİL. `PRODUCT_ROOT` içinde `kit.config.yaml`
      varsa ROOT orasıdır, yoksa script'in KIT_ROOT'u.
-  2. `delivery/scripts/cycle.py` `project_root()` (`git_root`, satır 49–63,
-     çağırımı satır 66) — `git rev-parse --path-format=absolute --git-common-dir`
+  2. `delivery/scripts/cycle.py` — `git_root()` ve onu çağıran
+     `project_root()`: `git rev-parse --path-format=absolute --git-common-dir`
      kullanır: ortak git dizininin ebeveyni = **ana checkout**, worktree'den
      çağrılsa da değişmez. `kit.config.yaml` varsa orası, yoksa cwd, yoksa
      kit_root (`DEMIR_KIT_CYCLE_ROOT` ile override edilebilir).
@@ -224,32 +224,138 @@ Her sınır için: ne içeri girebilir, ne giremez, denetimi nasıl yapılır.
   `kit.protocol` ≠ `2`.
 - **Denetim:** `./delivery/scripts/doctor.sh` (`check_ecosystem` — surface path
   varlığı + `kit.protocol == "2"`) + `python3 -m unittest discover -s delivery/tests`
-  (`test_surface_contract.py` — `check_ecosystem`; `test_model_policy.py` —
-  kit.config).
+  (`test_surface_contract.py` — `check_ecosystem`: surface path varlığı +
+  `kit.protocol == "2"`, örn. `test_check_ecosystem_reports_missing_snapshot`;
+  `test_model_policy.py` model politikasını test eder — `orca.inherit_session_model`
+  / `role_defaults`, `kit.config`'in `protocol` alanını değil).
+
+### B16 — Scripts (`delivery/scripts/`)
+
+- **Girebilir:** bash + python3 (PyYAML zorunlu) uygulama kodu — sözleşmenin
+  ve registry'nin **okuyucusu** CLI'ler (`doctor.sh` → `doctor.py`, `guard.sh`,
+  `gate.sh`, `transition.sh`, `next-leaf.sh`, `install.sh` …); exit code
+  0/≠0 ile biten deterministik davranışlar.
+- **Giremez:** Sözleşme metni, şema gövdesi, registry verisi burada icat
+  edilmez — katman sırası sözleşme → registry/şema → script'tir; ikinci bir
+  yol/glob/etiket listesi (registry kopyası) script içinde yaşayamaz.
+- **Denetim:** `./delivery/scripts/doctor.sh` (REQUIRED_FILES script seti +
+  `check_links`) + `python3 -m unittest discover -s delivery/tests`
+  (`test_doctor.py`, `test_guard.py`, `test_gate.py`, `test_transition.py` …)
+  + `./delivery/scripts/guard.sh` G1 (bu repoda `delivery/` ve `skills/`
+  uygulama yüzeyi; seal'siz çağrıda agent-approved'suz bloklar) + risk glob'u
+  (`risk_filter.py`).
+
+### B17 — Tests (`delivery/tests/`)
+
+- **Girebilir:** Python unittest paketi; `test_*.py` adlandırması (discover
+  otomatik bulur); script'leri import ya da subprocess ile çağıran testler;
+  geçici fixture dizinleri.
+- **Giremez:** Production iş mantığı; script'in kopyası burada yaşamaz —
+  test script'i import eder, kod klonlamaz; registry/şema verisi fixture
+  içine gömülü ikinci kaynak olarak kopyalanmaz, testler repodaki gerçek
+  dosyaları okur.
+- **Denetim:** `python3 -m unittest discover -s delivery/tests` (CI'da
+  `doctor.sh --strict` kapısıyla birlikte koşulur); registry `risk.exclude`
+  içindeki `delivery/tests/**` glob'u test değişikliklerini risk
+  eskalasyonuna sokmaz (seal glob'u ise `delivery/**` ile kapsar —
+  bkz. denetim tablosu).
+
+### B18 — Capabilities / profiles / packs
+
+- **Girebilir:** Capability registry — `surfaces` + `paths` + `common_paths`
+  (write-surface glob'larının tek tanımı; guard bunları kullanır), `role-matrix.yaml`,
+  `levels.md`; profiller — `id` = dosya adı, `capabilities` registry'de tanımlı
+  id'lere işaret eder, `platform_packs` pack dizinlerine; pack'ler — profil
+  `platform_packs` listesinin açtığı `checklist.md` kalite modülleri
+  (`platform-gate` skill okur).
+- **Giremez:** Registry'de tanımsız capability id (profil/pack referansında);
+  şema enum'u dışı surface (`capability.schema.json` `match.surfaces` enum'u
+  registry ile birebir tutulur); pack içine script/kit kodu kopyası.
+- **Denetim:** doctor.sh `check_capabilities` (capability + role-matrix
+  şemaları, şema enum ↔ registry surface karşılaştırması, `validate_references`
+  — rol/pack referansları) + `check_profiles` (şema + `id`↔dosya adı +
+  capability/pack/skill referansları) + REQUIRED_FILES (capabilities/*) +
+  unittest (`test_capabilities.py`, `test_profiles.py`, `test_macos_pack.py`,
+  `test_variants.py`).
+
+### B19 — Templates / automations / plans
+
+- **Girebilir:** Hedef repo'ya kopyalanan şablonlar — `github-labels.json`
+  (etiketler; registry `labels:` ile senkron), `ci-delivery.yml` (adaptation
+  çıktısı örnek CI), `ecosystem-macos.yaml`; `automations/*.yml` — Orca
+  zamanlanmış iş tanımları, **varsayılan kapalı** (`automations.py templates`
+  listeler; kurulum/aktivasyon Orca tarafında ayrı onayla); `plans/P*.yaml` —
+  dışarıda okunan referansın provenance'ı (kaynak repo + commit) + iç mekanizma
+  haritası/eksik listesi.
+- **Giremez:** Registry/sözleşme kopyaları (etiket listesi burada yaşar ama
+  registry ile çelişirse doctor `check_labels` hata verir); automations'ın
+  sessizce etkinleşmesi; plan dosyasına sözleşme/karar metni gizleme (P dosyaları
+  referans haritasıdır, kaynak değil).
+- **Denetim:** doctor.sh `check_labels` (`github-labels.json` ↔ registry
+  `labels` + çekirdek etiketler, yinelenen ad kontrolü) + REQUIRED_FILES
+  (`github-labels.json`) + unittest (`test_automations.py` — TEMPLATES glob
+  ↔ dosya adları; `test_ci_workflow.py`; `test_surface_contract.py`;
+  `test_rigor.py` + `test_doctor.py` P3.yaml'ı okur). plans/*.yaml için
+  doctor'da şema denetimi **yoktur** — yalnız ilgili testler okur.
+
+### B20 — Context / metrics / orchestrator
+
+- **Girebilir:** `context/index.yaml` — yüzey → doküman/skill route indeksi
+  (`routing.py` / `brief.py --route`; bilinmeyen anahtar, çözülemeyen yol veya
+  pozitif olmayan weight brief'i exit 2 ile durdurur); `context/frequency.yaml`
+  — sayımsal, kimliksiz sıklık tablosu (`.kit/context-metrics.jsonl`'den
+  türetilir, `version` + `rows` taşır); `metrics/README.md` — closure
+  raporunun zorunlu metrik tanımları (`closure.schema.json` ile kilitli);
+  `orchestrator/` — orchestrator rol dosyaları (ROLE.md, how.md, …).
+- **Giremez:** Kimlik/PII içeren kayıt (frequency yalnız sayım);
+  `metrics/README.md` dışında yeni metrik alanı (şekli `closure.schema.json`
+  belirler); `index.yaml`'e şema dışı anahtar (brief exit 2).
+- **Denetim:** doctor.sh `check_schemas` (`context/frequency.yaml` —
+  `context_metrics.report_frequency`) + REQUIRED_FILES + `check_links`
+  (DELIVERY rglob `*.md` — orchestrator md dahil) + unittest
+  (`test_brief.py` — route index ve geçersiz context → exit 2;
+  `test_context_metrics.py`). `orchestrator/` registry agents denetiminin
+  dışındadır (doctor registry agent listesinden `orchestrator`'ı çıkarır);
+  denetimi yalnız link taramasıdır — ayrı şema/kapı yoktur.
+
+### B21 — `.agents/skills/` (install çıktısı; makineye özel)
+
+- **Girebilir:** `./install.sh`'in ürettiği proje seviyesi skill kopyaları
+  (`.agents/skills/<name>/SKILL.md`); makineye özel kurulum durumu.
+- **Giremez:** Elle kopyalama/düzenleme — kaynak daima `skills/`'tir
+  (çakışmada `skills/` kazanır, kopya yalnız `./install.sh` ile tazelenir);
+  `.agents/` gitignore'dadır, commit'e girmez; kopya güncel sayılır
+  varsayılmaz.
+- **Denetim:** `./install.sh --dry-run` + doctor.sh `check_installed_skills`
+  (uyar-only: kaynak ile kopya farklıysa uyarır; `.agents/skills/` yoksa ya da
+  `DEMIR_KIT_DOCTOR_IGNORE_INSTALLED=1` ise denetim sessizdir) + review. Bu
+  repoda `.agents/skills/` dizininin kendisi yoktur.
 
 ## Audit paths (module × check)
 
 | Modül | doctor | unittest | registry | guard |
 |-------|--------|----------|----------|-------|
-| `delivery/CONTRACT.md` | ✔ (version/contract) | ✔ | — | — |
-| `delivery/registry.yaml` | ✔ | ✔ | ✔ (tek kaynak) | — |
-| `delivery/schemas/` | ✔ (`--body`/`--issue`) | ✔ | ✔ (şema referansları) | — |
-| `delivery/policies/` | ✔ (link + tutarlılık) | ✔ | ✔ (quality-gates referansı) | — |
-| `delivery/protocol/` | ✔ (link kontrolü) | ✔ | ✔ (protocol referansları) | — |
-| `delivery/agents/` | ✔ (varyant + agent.yaml) | ✔ | ✔ (agent_variants) | — |
-| `delivery/runbooks/` | ✔ (pr-flow/adaptation/update — zorunlu dosya + link) | ✔ (test_ci_workflow, test_self_update, test_refactor) | — | — |
+| `delivery/CONTRACT.md` | ✔ (version/contract) | ✔ | — | ✔ |
+| `delivery/registry.yaml` | ✔ | ✔ | ✔ (tek kaynak) | ✔ |
+| `delivery/schemas/` | ✔ (`--body`/`--issue`) | ✔ | ✔ (şema referansları) | ✔ |
+| `delivery/policies/` | ✔ (link + tutarlılık) | ✔ | ✔ (quality-gates referansı) | ✔ |
+| `delivery/protocol/` | ✔ (link kontrolü) | ✔ | ✔ (protocol referansları) | ✔ |
+| `delivery/agents/` | ✔ (varyant + agent.yaml) | ✔ | ✔ (agent_variants) | ✔ |
+| `delivery/runbooks/` | ✔ (pr-flow/adaptation/update — zorunlu dosya + link) | ✔ (test_ci_workflow, test_self_update, test_refactor) | — | ✔ |
 | `delivery/scripts/` | ✔ | ✔ | ✔ (script yolları) | ✔ (G1 + risk) |
-| `delivery/tests/` | ✔ | ✔ | — | — |
-| `delivery/capabilities/` + `delivery/profiles/` + `delivery/packs/` | ✔ (check_capabilities + check_profiles + check_files) | ✔ (test_capabilities, test_profiles, test_macos_pack) | ✔ (registry `capabilities:` / `profiles:` blokları — doctor doğrular) | — |
-| `delivery/templates/` + `delivery/automations/` + `delivery/plans/` | ✔ (templates/github-labels.json — check_files + check_labels) | ✔ (test_ci_workflow, test_surface_contract, test_automations, test_rigor/test_doctor — plans/P3.yaml) | — | — |
-| `delivery/context/` + `delivery/metrics/` + `delivery/orchestrator/` | ✔ (context/frequency.yaml — check_schemas; metrics/README.md — check_files; orchestrator md — link) | ✔ (test_brief — route index; test_context_metrics) | — | — |
-| `skills/` | ✔ (skill denetimi) | ✔ | ✔ (`skills.runtime`) | — |
+| `delivery/tests/` | ✔ | ✔ | — | ✔ |
+| `delivery/capabilities/` + `delivery/profiles/` + `delivery/packs/` | ✔ (check_capabilities + check_profiles + check_files) | ✔ (test_capabilities, test_profiles, test_macos_pack) | ✔ (registry `capabilities:` / `profiles:` blokları — doctor doğrular) | ✔ |
+| `delivery/templates/` + `delivery/automations/` + `delivery/plans/` | ✔ (templates/github-labels.json — check_files + check_labels) | ✔ (test_ci_workflow, test_surface_contract, test_automations, test_rigor/test_doctor — plans/P3.yaml) | — | ✔ |
+| `delivery/context/` + `delivery/metrics/` + `delivery/orchestrator/` | ✔ (context/frequency.yaml — check_schemas; metrics/README.md — check_files; orchestrator md — link) | ✔ (test_brief — route index; test_context_metrics) | — | ✔ |
+| `skills/` | ✔ (skill denetimi) | ✔ | ✔ (`skills.runtime`) | ✔ |
 | `.agents/skills/` | ✔ (kopya denetimi) | — | ✔ (kaynak `skills/`) | — |
 | `discovery/` | ✔ (link/ağ) | — | — | ✔ (kapsam) |
 | `archive/v1.7/` | ✔ (legacy) | ✔ | — | — |
-| `docs/` | — (kapsam dışı; link hedefi geçerli olmalı) | — | — | ✔ (kapsam) |
-| `plugins/` | — (doctor taramaz) | ✔ (test_orca_plugin; `gate.sh` plugins/ değişiminde Orca plugin süiti koşar) | — | ✔ (kapsam — kit.docs yüzeyi `plugins/**`'i kapsamaz) |
-| `ecosystem.yaml` / `kit.config.yaml` | ✔ (wiring/version) | ✔ | ✔ | ✔ (`PRODUCT_ROOT`) |
+| `docs/` | — (kapsam dışı; link hedefi geçerli olmalı) | — | — | — |
+| `plugins/` | — (doctor taramaz) | ✔ (test_orca_plugin; `gate.sh` plugins/ değişiminde Orca plugin süiti koşar) | — | — |
+| `ecosystem.yaml` / `kit.config.yaml` | ✔ (wiring/version) | ✔ | ✔ | ✔ (kök common-path `*.yaml`) |
+
+guard sütunu yalnız `guard.sh`'te tanımlı write-surface denetimini gösterir: G1 uygulama yüzeyi (bu repoda `factory.app_paths` yoktur, `kit.root: .` olduğundan varsayılan `delivery` + `skills`) ve `--issue N` çağrısında seal yüzeyi glob'larıyla (bu repoda kit.docs: `delivery/**`, `skills/**`, `discovery/**`, `.github/**`, `VERSION`, `install.sh` + kök common-path'ler `*.md`/`*.json`/`*.yaml`/… — `docs/**`, `plugins/**`, `archive/**`, `.agents/**` dışarıda); ✔ = modülün dosyaları bu glob'lara uyar, `—` = uymaz, ve bu sütun doctor'ın kapsamını değil yalnız guard'ın yüzeyini tarif eder.
 
 `doctor.sh --strict` CI kapısıdır (warning = error). `gate.sh` davranış komutunu
 koşar; `guard.sh` yazım yüzeyini sınırlar; `transition.sh` durum geçişlerinin tek
