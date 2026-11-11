@@ -1422,6 +1422,76 @@ class VersionDriftTests(DoctorTestCase):
         self.assertEqual(doctor.WARNS, [])
 
 
+class ChangelogTests(DoctorTestCase):
+    def _check(self, body: str, version: str) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "CHANGELOG.md").write_text(body, encoding="utf-8")
+            doctor.check_changelog(root, version)
+
+    def test_valid_changelog_passes(self) -> None:
+        self._check(
+            "# Changelog\n\n"
+            "## 2.1.0 — 2026-02-02\n\n- yeni\n\n"
+            "## 2.0.0 — 2026-01-01\n\n- eski\n",
+            "2.1.0",
+        )
+        self.assertEqual(doctor.ERRORS, [])
+        self.assertEqual(doctor.WARNS, [])
+
+    def test_mid_file_changelog_header_errors(self) -> None:
+        self._check(
+            "## 2.65.1 — 2026-11-11\n\n- a\n\n"
+            "# Changelog\n\n"
+            "## 2.65.0 — 2026-11-10\n\n- b\n",
+            "2.65.1",
+        )
+        self.assertTrue(any("# Changelog" in item for item in doctor.ERRORS), doctor.ERRORS)
+
+    def test_duplicate_version_errors(self) -> None:
+        self._check(
+            "# Changelog\n\n"
+            "## 2.65.1 — 2026-11-11\n\n- a\n\n"
+            "## 2.64.0 — 2026-11-10\n\n- b\n\n"
+            "## 2.64.0 — 2026-11-10\n\n- c\n",
+            "2.65.1",
+        )
+        self.assertTrue(
+            any("2.64.0" in item and "birden" in item for item in doctor.ERRORS),
+            doctor.ERRORS,
+        )
+
+    def test_versions_must_descend(self) -> None:
+        self._check(
+            "# Changelog\n\n"
+            "## 2.63.0 — 2026-11-09\n\n- a\n\n"
+            "## 2.64.0 — 2026-11-10\n\n- b\n",
+            "2.63.0",
+        )
+        self.assertTrue(any("azal" in item for item in doctor.ERRORS), doctor.ERRORS)
+
+    def test_first_version_must_match_version(self) -> None:
+        self._check(
+            "# Changelog\n\n"
+            "## 2.64.0 — 2026-11-10\n\n- a\n",
+            "2.65.1",
+        )
+        self.assertTrue(any("2.64.0" in item for item in doctor.ERRORS), doctor.ERRORS)
+
+    def test_broken_fixture_like_issue_371(self) -> None:
+        self._check(
+            "## 2.65.1 — 2026-11-11\n\n- a\n\n"
+            "## 2.65.0 — 2026-11-10\n\n- b\n\n"
+            "## 2.64.0 — 2026-11-10\n\n- c\n\n"
+            "# Changelog\n\n"
+            "## 2.64.0 — 2026-11-10\n\n- d\n\n"
+            "## 2.63.0 — 2026-11-09\n\n- e\n",
+            "2.65.1",
+        )
+        self.assertTrue(any("# Changelog" in item for item in doctor.ERRORS), doctor.ERRORS)
+        self.assertTrue(any("2.64.0" in item for item in doctor.ERRORS), doctor.ERRORS)
+
+
 class InstalledSkillsTests(DoctorTestCase):
     def make_root(self, root: Path, *, stale: bool) -> None:
         (root / "skills" / "demo").mkdir(parents=True)

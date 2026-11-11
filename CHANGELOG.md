@@ -1,3 +1,5 @@
+# Changelog
+
 ## 2.65.1 — 2026-11-11
 
 - **Orca eklentisi çökmesi (düzeltme)** — `activate` ilk durum taramasını
@@ -45,10 +47,6 @@
   (`DEMIR_KIT_DOCTOR_IGNORE_INSTALLED=1`), `seal_lint` `.ts`/`orca plugin`
   izlerini kanıt sayar.
 - Sürüm 2.64.0.
-
-# Changelog
-
-## 2.64.0 — 2026-11-10
 
 - **Onay bağlama (Epic #292, #333)** — `demir-kit-accept` bloğu artık
   `binding_sha256` + `binding_base` taşır: seal gövdesi + onay anındaki taban

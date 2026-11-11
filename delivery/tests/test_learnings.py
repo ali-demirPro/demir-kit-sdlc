@@ -103,6 +103,38 @@ class ApplyTests(unittest.TestCase):
         self.assertEqual(learnings.bump_patch("2.27.0"), "2.27.1")
 
 
+class AddChangelogTests(unittest.TestCase):
+    def test_prepends_new_entry_above_existing(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "VERSION").write_text("2.0.0\n", encoding="utf-8")
+            (root / "CHANGELOG.md").write_text(
+                "# Changelog\n\n## 2.0.0 — 2026-01-01\n\n- eski\n",
+                encoding="utf-8",
+            )
+            learnings.add_changelog(root, "2.1.0", "yeni bulgu")
+            text = (root / "CHANGELOG.md").read_text(encoding="utf-8")
+            self.assertTrue(text.startswith("# Changelog\n\n"))
+            self.assertLess(text.index("## 2.1.0"), text.index("## 2.0.0"))
+            self.assertIn("- **Öğrenim** — yeni bulgu", text)
+
+    def test_same_version_is_noop(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "VERSION").write_text("2.0.0\n", encoding="utf-8")
+            (root / "CHANGELOG.md").write_text(
+                "# Changelog\n\n## 2.0.0 — 2026-01-01\n\n- eski\n",
+                encoding="utf-8",
+            )
+            learnings.add_changelog(root, "2.1.0", "yeni bulgu")
+            snapshot = (root / "CHANGELOG.md").read_text(encoding="utf-8")
+            learnings.add_changelog(root, "2.1.0", "yeni bulgu")
+            self.assertEqual(
+                (root / "CHANGELOG.md").read_text(encoding="utf-8"), snapshot
+            )
+            self.assertEqual(snapshot.count("## 2.1.0"), 1)
+
+
 SKILL_TEXT = (
     "---\nname: alpha\ndescription: >-\n  Alpha skill fixture. Use when testing.\n"
     "---\n\n# alpha\n\n## Steps\n\nDo it.\n\n## Done when\n\nOk.\n"

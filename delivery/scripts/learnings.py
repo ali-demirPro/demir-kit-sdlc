@@ -785,8 +785,14 @@ def bump_patch(version: str) -> str:
 def add_changelog(root: Path, version: str, bullet: str) -> None:
     path = root / "CHANGELOG.md"
     text = path.read_text(encoding="utf-8")
+    if re.search(rf"^##\s+{re.escape(version)}\b", text, re.M):
+        return  # aynı sürüm zaten var — dosyayı değiştirme
     entry = f"## {version} — {date.today().isoformat()}\n\n- **Öğrenim** — {bullet}\n"
-    text = text.replace("# Changelog\n\n", f"# Changelog\n\n{entry}\n", 1)
+    marker = "# Changelog\n\n"
+    if marker in text:
+        text = text.replace(marker, f"{marker}{entry}\n", 1)
+    else:
+        text = f"# Changelog\n\n{entry}\n" + text
     path.write_text(text, encoding="utf-8")
     (root / "VERSION").write_text(version + "\n", encoding="utf-8")
 
