@@ -1,6 +1,8 @@
 # Route index: surface -> document/skill, consumed by `brief.py --route`.
-# Schema: version + entries[{surface, path, tags, weight}].
+# Schema: version + entries[{surface, path, tags, weight}] + optional ``section``.
 # Unknown keys, missing keys, unresolved paths and non-positive weights exit 2.
+# ``section`` (optional, non-empty string) is the bölüm hedefi: route/brief render
+# ``path#section`` so the document is read at one heading (`rg -n`), never in full.
 # Paths must stay inside the kit root: absolute paths, `..` escapes and symlinks
 # that resolve outside the root also exit 2. Matching entries with weight < 2 are
 # printed as `candidate` with a short reason instead of being selected.
@@ -13,11 +15,13 @@ entries:
   - surface: kit.docs
     path: delivery/CONTRACT.md
     tags: [contract]
-    weight: 5
+    weight: 2
+    section: risk-modeli
   - surface: kit.docs
     path: delivery/policies/quality-gates.md
     tags: [gates, quality]
-    weight: 5
+    weight: 2
+    section: gate-tanimlari
   - surface: kit.docs
     path: delivery/protocol/seal.md
     tags: [seal, intake]
