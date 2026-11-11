@@ -181,7 +181,11 @@ class LeaseTests(unittest.TestCase):
             next_leaf, "gh_optional", side_effect=fake_optional
         ), patch.object(
             next_leaf, "write_snapshot"
-        ) as snapshot, patch.object(next_leaf, "now", return_value=fixed):
+        ) as snapshot, patch.object(
+            next_leaf, "now", return_value=fixed
+        ), patch.object(
+            next_leaf, "claim_context", return_value=(0, "")
+        ):
             self.assertEqual(next_leaf.claim(46, 44, "medium"), 1)
         snapshot.assert_not_called()
         self.assertTrue(
@@ -315,6 +319,104 @@ class ClaimRunIdTests(unittest.TestCase):
         ), redirect_stderr(err):
             self.assertEqual(next_leaf.prepare_worktree(46, 44), 0)
         self.assertIn("task içermiyor", err.getvalue())
+
+
+class ClaimContextGateTests(unittest.TestCase):
+    """T-2 (AC-2): 300k aşımında claim `blocked` üretir ve gerekçe yazar."""
+
+    def test_claim_context_hard_limit_runs_usage_check(self) -> None:
+        with patch.object(
+            next_leaf.usage, "current_context_tokens", return_value=350_000
+        ):
+            code, message = next_leaf.claim_context()
+        self.assertEqual(code, 1)
+        self.assertIn("300,000", message)
+
+    def test_claim_context_below_hard_limit_passes(self) -> None:
+        with patch.object(
+            next_leaf.usage, "current_context_tokens", return_value=120_000
+        ):
+            self.assertEqual(next_leaf.claim_context(), (0, ""))
+
+    def test_claim_context_warn_band_warns_but_passes(self) -> None:
+        with patch.object(
+            next_leaf.usage, "current_context_tokens", return_value=250_000
+        ):
+            code, message = next_leaf.claim_context()
+        self.assertEqual(code, 0)
+        self.assertIn("200,000", message)
+
+    def test_claim_context_unmeasurable_skips_check(self) -> None:
+        with patch.object(
+            next_leaf.usage, "current_context_tokens", return_value=None
+        ):
+            self.assertEqual(next_leaf.claim_context(), (0, ""))
+
+    def test_measured_hard_limit_blocks_claim_and_writes_rationale(self) -> None:
+        before = issue([])
+        calls: list[list[str]] = []
+
+        def fake_gh(args):
+            calls.append(args)
+            return ""
+
+        with patch.object(
+            next_leaf, "fetch_issue", return_value=before
+        ), patch.object(
+            next_leaf, "gh", side_effect=fake_gh
+        ), patch.object(
+            next_leaf, "gh_optional", side_effect=fake_gh
+        ), patch.object(
+            next_leaf, "write_snapshot"
+        ) as snapshot, patch.object(
+            next_leaf.usage, "current_context_tokens", return_value=350_000
+        ):
+            result = next_leaf.claim(46, 44, "medium")
+        self.assertEqual(result, 1)
+        joined = [" ".join(call) for call in calls]
+        self.assertTrue(
+            any("--add-label" in call and "blocked" in call for call in joined),
+            joined,
+        )
+        self.assertTrue(
+            any("run blocked:" in call and "300,000" in call for call in joined),
+            joined,
+        )
+        self.assertFalse(any("run claim:" in call for call in joined), joined)
+        self.assertFalse(any("--add-label executing" in call for call in joined), joined)
+        snapshot.assert_not_called()
+
+    def test_warn_band_claim_proceeds(self) -> None:
+        fixed = datetime(2026, 11, 11, 9, 0, 0, tzinfo=timezone.utc)
+        run_id = "run-20261111T090000000000Z"
+        after = issue([comment(11, f"run claim: `{run_id}`", fixed)])
+        calls: list[list[str]] = []
+
+        def fake_gh(args):
+            calls.append(args)
+            return ""
+
+        with patch.object(
+            next_leaf, "fetch_issue", side_effect=[issue([]), after]
+        ), patch.object(
+            next_leaf, "gh", side_effect=fake_gh
+        ), patch.object(
+            next_leaf, "gh_optional", side_effect=fake_gh
+        ), patch.object(
+            next_leaf, "write_snapshot"
+        ), patch.object(
+            next_leaf, "now", return_value=fixed
+        ), patch.object(
+            next_leaf, "claim_context", return_value=(
+                0,
+                "bağlam 250,000 token ≥ 200,000 — özet yaz, yeni oturuma geç",
+            )
+        ):
+            result = next_leaf.claim(46, 44, "medium")
+        self.assertEqual(result, 0)
+        joined = [" ".join(call) for call in calls]
+        self.assertFalse(any("--add-label blocked" in call for call in joined))
+        self.assertTrue(any("--add-label executing" in call for call in joined))
 
 
 class ExplicitIssueTests(unittest.TestCase):

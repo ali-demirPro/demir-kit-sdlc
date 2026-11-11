@@ -105,6 +105,10 @@ geçerlidir; `unknown` dosya açılmadan önce sınıflandırılır.
 
 - Politika `delivery/registry.yaml → policies.context_budget` ile kayıtlıdır.
 - `brief.py --cp` kompakt CP brief'i üretir; `orca_plan.py` worker spec'ine gömer.
+- `usage.py --check --context` claim (`next-leaf.py`) ve CP kapanışında
+  (`cp_close.py --apply`) çağrılır; ölçülen değer 300k'yı aşarsa leaf/CP
+  kapanmaz, `blocked` etiketi ve gerekçe yorumu yazılır. Ölçüm yoksa kontrol
+  atlanır — `unknown` bağlam claim'i/kapanışı engellemez.
 - Route `retrieved` seçimi `READ_BUDGET` (5) dosyada serttir; aşım `exit ≠ 0`.
 - Büyük dokümanlar için `index.yaml` girdisi `section` ile bölüm hedefi taşır
   ve brief `path#section` yazar; route/brief talimatı tek kaynaktan (`READ_BUDGET`)
@@ -125,23 +129,26 @@ dağılım, leaf başına `armed`/`fallback_count` üretir; 10'dan az satırda
 - `over_read_rate = (brief dışı token + kullanılmayan brief token) / toplam bağlam token`.
   Payda oturum deltasıdır: önce `.kit/usage-<issue>.json`
   (`input + output + reasoning + cache.read + cache.write`), yoksa
-  `usage.py --delta` (`usage.session_delta`); ikisi de yoksa `unknown`.
+  `usage.py --delta` (`usage.session_delta`); ikisi de yoksa `tokens:unknown`.
   Claim anındaki `.orchestration/usage-<issue>.json` toplamdır, delta yerine
   kullanılmaz; yalnız açıkça verilirse `method` alanında `usage-total` olarak
   işaretlenir. Doküman maliyeti `bayt / 4`.
 - Oranlar `0..1` aralığındadır. Payda sıfırsa, usage dosyası yoksa veya
-  doküman bulunamazsa `unknown` yazılır; sıfır uydurulmaz. `1.0` üstü değer
+  doküman bulunamazsa oran **ölçülemez**: ilgili alan satırda bulunmaz
+  (`miss_rate` / `over_read_rate` yazılmaz, `clamped` da yazılamaz) — `unknown`
+  yazılmaz, sıfır uydurulmaz. `1.0` üstü değer
   `1.0`'a kırpılır ve satır `clamped: true` taşır.
 
 `leaf-done` öncesi `.kit/context-metrics.jsonl` dosyasına tek satır yazılır:
 
 ```json
-{"armed":true,"brief_docs":[],"clamped":false,"config_digest":"sha256:…","cp":"CP-1","extra_docs":[],"fallback_count":2,"issue":314,"method":"split:unknown;tokens:unknown","miss_rate":"unknown","missed_docs":[],"over_read_rate":"unknown","selected_docs":["delivery/scripts/brief.py"],"tokens":"unknown","unused_brief_docs":[]}
+{"armed":true,"brief_docs":[],"config_digest":"sha256:…","cp":"CP-1","extra_docs":[],"fallback_count":2,"issue":314,"method":"split:unknown;tokens:unknown","missed_docs":[],"selected_docs":["delivery/scripts/brief.py"],"tokens":"unknown","unused_brief_docs":[]}
 ```
 
 Satır `issue, cp, selected_docs, brief_docs, unused_brief_docs, extra_docs,
-missed_docs, tokens, miss_rate, over_read_rate, clamped, armed, fallback_count,
-config_digest, method` alanlarını taşır ve deterministiktir (yol artan sıralı,
+missed_docs, tokens, armed, fallback_count, config_digest, method` alanlarını
+taşır ve ölçülebilen `miss_rate`, `over_read_rate` ve `clamped` alanları
+onların yanında yer alır; deterministiktir (yol artan sıralı,
 zaman damgası yok). `selected_docs` brief'in seçtiği dokümanlardır; `brief_docs`
 yalnız kullanıldığı kanıtlananlar, `unused_brief_docs` seçilip kullanılmayanlar,
 `extra_docs` brief dışından okunanlardır (`brief_docs` boş olabilir). `armed`
@@ -157,8 +164,8 @@ deterministiktir. Bu dosya yalnız seçimi bilir; kullanım kanıtı üretmez.
 yaşar (cycle.jsonl gibi); epic worktree kaldırılınca kaybolmaz.
 
 `usage_known` / `split:unknown` kuralı: brief metadata'sı yalnız seçimi bilir.
-Kullanım kanıtı yoksa `brief_docs` ve `unused_brief_docs` boş, `miss_rate` ve
-`over_read_rate` `unknown` olur ve `method` `split:unknown` taşır; `0.0`
+Kullanım kanıtı yoksa `brief_docs` ve `unused_brief_docs` boş olur, `miss_rate` ve
+`over_read_rate` alanları satırda bulunmaz ve `method` `split:unknown` taşır; `0.0`
 uydurulmaz. `tokens` yine usage deltasından gelebilir, çünkü bilinmeyen yalnız
 used/unused ayrımıdır.
 

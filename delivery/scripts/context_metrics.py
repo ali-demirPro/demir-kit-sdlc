@@ -7,17 +7,20 @@ Definitions (single source of truth, see ``delivery/policies/context-budget.md``
   here are the *used* ones; an unused brief doc is over-read, not missed.
 - ``over_read_rate = (extra_docs_token + unused_brief_token) / tokens`` — the
   denominator is the session token delta: ``.kit/usage-<issue>.json`` wins,
-  otherwise ``usage.session_delta`` is called; neither means ``unknown``.
-- A zero denominator, a missing usage delta or a missing document yields
-  ``unknown``; a zero is never invented. Rates above 1 are clamped to 1.0 and
-  the row records ``clamped: true``. The ``method`` field names the source as
-  ``usage-delta`` (session delta) or ``usage-total`` (explicit snapshot file).
+  otherwise ``usage.session_delta`` is called; neither means ``unknown`` tokens.
+- A zero denominator, a missing usage delta or a missing document means the
+  rate cannot be produced: the field is **absent** from the row (``miss_rate``
+  / ``over_read_rate`` are simply not written), never ``unknown``. A zero is
+  never invented either. Rates above 1 are clamped to 1.0 and the row records
+  ``clamped: true``; ``clamped`` exists only when ``over_read_rate`` does. The
+  ``method`` field names the source as ``usage-delta`` (session delta) or
+  ``usage-total`` (explicit snapshot file).
 - ``selected_docs`` is what the CP brief chose. When use evidence is absent
   (``usage_known=False``, the ``record_from_brief`` path) the used/unused split
-  stays empty, both rates are ``unknown`` and ``method`` carries
+  stays empty, both rate fields are absent from the row and ``method`` carries
   ``split:unknown``; ``tokens`` may still come from the usage delta, because
-  only the used/unused split is unknown, not the token total. The selection is
-  never reported as used.
+  only the used/unused split is unmeasurable, not the token total. The selection
+  is never reported as used.
 
 One deterministic JSON line is written per ``(issue, cp)`` to
 ``.kit/context-metrics.jsonl`` so a leaf-done transition can tell whether the CP
@@ -242,10 +245,10 @@ def resolve_tokens(
     return UNKNOWN, "tokens:unknown"
 
 
-def miss_rate(brief_docs: list[str], missed_docs: list[str]) -> float | str:
+def miss_rate(brief_docs: list[str], missed_docs: list[str]) -> float | None:
     denominator = len(brief_docs) + len(missed_docs)
     if denominator == 0:
-        return UNKNOWN
+        return None
     return round(len(missed_docs) / denominator, 4)
 
 
@@ -265,8 +268,8 @@ def over_read_rate(
     unused_brief_docs: list[str],
     tokens: int | str,
     root: Path | None = None,
-) -> tuple[float | str, bool, list[str]]:
-    """``(rate, clamped, missing_docs)``; unknown when a denominator/term is."""
+) -> tuple[float | None, bool, list[str]]:
+    """``(rate | None, clamped, missing_docs)``; ``None`` when a term is."""
     missing: list[str] = []
     total = 0
     for value in [*unused_brief_docs, *extra_docs]:
@@ -276,9 +279,9 @@ def over_read_rate(
             continue
         total += cost
     if isinstance(tokens, str) or tokens <= 0:
-        return UNKNOWN, False, sorted(missing)
+        return None, False, sorted(missing)
     if missing:
-        return UNKNOWN, False, sorted(missing)
+        return None, False, sorted(missing)
     raw = total / tokens
     clamped = raw > 1.0
     return round(min(1.0, raw), 4), clamped, []
@@ -353,8 +356,8 @@ def build_row(
         )
         miss_value = miss_rate(brief_sorted, missed_sorted)
     else:
-        rate, clamped, missing = UNKNOWN, False, []
-        miss_value = UNKNOWN
+        rate, clamped, missing = None, False, []
+        miss_value = None
     method = [token_method]
     method += [f"doc-missing:{value}" for value in missing]
     if not usage_known:
@@ -385,14 +388,18 @@ def build_row(
         "extra_docs": extra_sorted,
         "missed_docs": missed_sorted,
         "tokens": token_value,
-        "miss_rate": miss_value,
-        "over_read_rate": rate,
-        "clamped": clamped,
         "armed": armed_value,
         "fallback_count": fallback_count,
         "config_digest": config_digest(base, config),
         "method": ";".join(sorted(method)),
     }
+    # A rate that cannot be produced is absent from the schema, never
+    # ``unknown``: readers measure what exists and report absent as ölçülemedi.
+    if miss_value is not None:
+        row["miss_rate"] = miss_value
+    if rate is not None:
+        row["over_read_rate"] = rate
+        row["clamped"] = clamped
     return row
 
 
@@ -502,8 +509,9 @@ def record_from_brief(
     """Record a row from the CP brief metadata; ``None`` when it is missing.
 
     The brief only knows which documents it *selected*, not which were used, so
-    the row carries ``selected_docs`` with ``usage_known=False`` instead of
-    claiming the selection was used (which would fabricate 0.0 rates).
+    the row carries ``selected_docs`` with the used/unused split unmeasured and
+    ``miss_rate``/``over_read_rate`` absent (the unmeasurable fields are left
+    out of the schema instead of fabricating ``0.0``).
     """
     meta = read_brief_meta(issue, cp, root)
     if meta is None:
