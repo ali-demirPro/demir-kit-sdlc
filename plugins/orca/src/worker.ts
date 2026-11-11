@@ -592,7 +592,7 @@ export function pickFocused(
   ).workspace
 }
 
-interface ProjectRef {
+export interface ProjectRef {
   id: string
   /** `workspace.list` alanı; host kaydetmeyen kurulumlarda null. */
   hostId: string | null
@@ -714,6 +714,74 @@ interface ResolvedProjects {
   truncated: boolean
 }
 
+/** `git rev-parse` üst sınırı: yerel bir komut, ağ beklemez. */
+const REPO_LOOKUP_TIMEOUT_MS = 2_000
+/** Yol -> ortak depo kökü; hata da önbelleğe girer, her turda yeniden denenmez. */
+const repoRootCache = new Map<string, string | null>()
+
+/**
+ * Bir worktree'nin ortak depo kökü: `git-common-dir` üst dizini. Ana checkout
+ * da worktree de aynı kökü verir; git yoksa ya da yol bir depo değilse null.
+ */
+export function repoRootOf(path: string): Promise<string | null> {
+  const cached = repoRootCache.get(path)
+  if (cached !== undefined) return Promise.resolve(cached)
+  return new Promise((resolve) => {
+    execFile(
+      'git',
+      ['-C', path, 'rev-parse', '--path-format=absolute', '--git-common-dir'],
+      { timeout: REPO_LOOKUP_TIMEOUT_MS, maxBuffer: 64 * 1024 },
+      (error, stdout) => {
+        let root: string | null = null
+        if (error === null) {
+          const common = stdout.trim()
+          const cut = common.lastIndexOf('/')
+          if (cut > 0) root = common.slice(0, cut)
+        }
+        repoRootCache.set(path, root)
+        resolve(root)
+      }
+    )
+  })
+}
+
+/**
+ * Aynı deponun ana checkout'u ve epic worktree'leri tek ref'e iner: `status.py`
+ * ve içindeki `gh` çağrısı her worktree için ayrı koşmaz. Kazanan sırası odaklı
+ * ref, ana checkout, worktree olmayan yol; grup tek ref'ten oluşuyorsa o kalır.
+ */
+export function collapseProjectRefs(
+  refs: readonly ProjectRef[],
+  focused: string | null,
+  roots: ReadonlyMap<string, string | null>
+): ProjectRef[] {
+  const groups = new Map<string, ProjectRef[]>()
+  for (const ref of refs) {
+    const root = roots.get(ref.path) ?? null
+    const segment = hostSegment(ref.hostId, ref.id)
+    const key =
+      root === null
+        ? `${segment}::path:${normalizePath(ref.path)}`
+        : `${segment}::repo:${normalizePath(root)}`
+    const group = groups.get(key)
+    if (group === undefined) groups.set(key, [ref])
+    else group.push(ref)
+  }
+  const collapsed: ProjectRef[] = []
+  for (const group of groups.values()) {
+    const winner =
+      group.find((ref) => ref.id === focused) ??
+      group.find((ref) => {
+        const root = roots.get(ref.path) ?? null
+        return root !== null && normalizePath(root) === normalizePath(ref.path)
+      }) ??
+      group.find((ref) => !isWorktreePath(ref.path)) ??
+      group[0]
+    if (winner !== undefined) collapsed.push(winner)
+  }
+  return collapsed
+}
+
 /**
  * Tüm workspace'ler; kit'i olanlar. Odaklı workspace, sonra ayarlardaki yol,
  * sonra kalanlar gelir. Aynı host + dizin bir kez sayılır.
@@ -769,10 +837,21 @@ async function resolveProjects(orca: OrcaWorkerApi): Promise<ResolvedProjects> {
     push(refFor(workspace))
   }
 
+  // Aynı depo tek taranır: epic worktree'leri `status.py` + `gh` çağrısını
+  // çoğaltmaz. Odaklı ref grubun kazananı olur, kart kimliği değişmez.
+  const focusedId = focusedRef?.id ?? null
+  const roots = new Map<string, string | null>()
+  await Promise.all(
+    [...new Set(refs.map((ref) => ref.path))].map(async (path) => {
+      roots.set(path, await repoRootOf(path))
+    })
+  )
+  const collapsed = collapseProjectRefs(refs, focusedId, roots)
+
   // Odak çözülemediyse ya da kit taşımıyorsa `focused` null kalır: tahmin yok.
   return {
-    refs,
-    focused: focusedRef?.id ?? null,
+    refs: collapsed,
+    focused: focusedId,
     focusSource: focusedRef === null ? 'none' : focus.source,
     workspaces,
     contextTerminals: focusedTerminals,
@@ -1928,5 +2007,10 @@ export default async function activate(orca: OrcaWorkerApi): Promise<void> {
     }
   })
 
-  await refresh(orca, true)
+  // Hazır olma bu turu beklemez: çok sayıda projede `status.py` 10 sn'yi aşar
+  // ve Orca işçiyi "hazır olmadı" diye yeniden başlatır. Panel isteği uçuştaki
+  // tura katılır; ilk veri hazır olma sinyalinden sonra gelir.
+  void refresh(orca, true).catch((error) => {
+    orca.log(`demir-kit: ilk tazeleme başarısız: ${messageOf(error)}`)
+  })
 }

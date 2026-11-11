@@ -1,3 +1,14 @@
+## 2.65.1 — 2026-11-11
+
+- **Orca eklentisi çökmesi (düzeltme)** — `activate` ilk durum taramasını
+  beklemez; çok sayıda workspace'te `status.py --json` 10 sn'yi aşınca Orca
+  işçiyi "hazır olmadı" diye 3 kez yeniden başlatıp `errored` bırakıyordu. İlk
+  tarama arka planda koşar, panel isteği uçuştaki tura katılır.
+- **Worktree tekrarı** — aynı deponun ana checkout ve epic worktree'leri
+  `git-common-dir` ile tek taramaya iner; `status.py` ve içindeki `gh` çağrısı
+  worktree sayısıyla çoğalmaz.
+- Sürüm 2.65.1.
+
 ## 2.65.0 — 2026-11-10
 
 - **Kit manifesti (Epic P5, #337)** — `vendor_sync.py --seal` deterministik

@@ -1,9 +1,12 @@
 // Odak çözümü ve ajan kartı saf yardımcılarla sınanır: python ya da gerçek kit yok.
 import assert from 'node:assert/strict'
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from 'node:fs'
 import * as os from 'node:os'
 import { join } from 'node:path'
 import { beforeEach, test } from 'node:test'
+import activate from './worker'
+import type { ProjectRef } from './worker'
 import type { StatusProject, StatusSnapshot } from './protocol'
 import {
   activeAgentFocus,
@@ -13,6 +16,7 @@ import {
   agentTarget,
   agentWorkspaceHint,
   cacheMatches,
+  collapseProjectRefs,
   dedupeProjects,
   hintsFromWorkspaceId,
   learnAgentTerminal,
@@ -25,6 +29,7 @@ import {
   refKey,
   rememberAgentHint,
   rememberTerminal,
+  repoRootOf,
   resetAgentHints,
   resetTerminalMap,
   serializeTerminalMap,
@@ -455,4 +460,88 @@ test('config: symlinked project path reuses the workspace', () => {
   } finally {
     rmSync(root, { recursive: true, force: true })
   }
+})
+
+function projectRef(
+  id: string,
+  path: string,
+  hostId: string | null = null
+): ProjectRef {
+  return { id, hostId, path, name: id, kitRoot: path }
+}
+
+test('repo: worktree ve checkout tek refe iner', () => {
+  const roots = new Map<string, string | null>([
+    ['/repo', '/repo'],
+    ['/repo/epic-7', '/repo'],
+    ['/other', '/other']
+  ])
+  const collapsed = collapseProjectRefs(
+    [projectRef('a', '/repo'), projectRef('b', '/repo/epic-7'), projectRef('c', '/other')],
+    null,
+    roots
+  )
+  // Ana checkout kazanır; ayrı depo kendi kartında kalır.
+  assert.deepEqual(collapsed.map((ref) => ref.id), ['a', 'c'])
+  // Odaklı worktree kazanır: panelin odak kimliği değişmez.
+  const focused = collapseProjectRefs(
+    [projectRef('a', '/repo'), projectRef('b', '/repo/epic-7')],
+    'b',
+    roots
+  )
+  assert.deepEqual(focused.map((ref) => ref.id), ['b'])
+  // Aynı yol iki hostta: iki ref, iki kart.
+  const hosts = collapseProjectRefs(
+    [projectRef('a', '/repo', 'h1'), projectRef('b', '/repo', 'h2')],
+    null,
+    roots
+  )
+  assert.equal(hosts.length, 2)
+  // Kök bilinmiyorsa yol anahtarı: iki ayrı ref korunur.
+  const unknown = collapseProjectRefs(
+    [projectRef('a', '/x'), projectRef('b', '/y')],
+    null,
+    new Map()
+  )
+  assert.equal(unknown.length, 2)
+})
+
+test('repo: git ortak dizini depo kökünü verir', async () => {
+  const base = mkdtempSync(join(os.tmpdir(), 'demir-kit-repo-'))
+  const plain = join(base, 'plain')
+  const repo = join(base, 'repo')
+  try {
+    mkdirSync(plain)
+    mkdirSync(repo)
+    assert.equal(await repoRootOf(plain), null)
+    execFileSync('git', ['init', '--quiet', repo], { stdio: 'ignore' })
+    assert.equal(await repoRootOf(repo), realpathSync(repo))
+  } finally {
+    rmSync(base, { recursive: true, force: true })
+  }
+})
+
+test('activate: ilk tarama hazır olmayı bekletmez', async () => {
+  // `workspace.list` hiç dönmezse eski `await refresh` hazır olmayı kilitlerdi.
+  const hung = new Promise<unknown>(() => undefined)
+  type Orca = Parameters<typeof activate>[0]
+  const fake = {
+    log: () => undefined,
+    panels: { handle: () => undefined },
+    commands: { register: () => undefined },
+    events: { on: () => undefined },
+    settings: { get: async () => '', onDidChange: () => undefined },
+    storage: {
+      get: async () => null,
+      set: async () => undefined,
+      delete: async () => undefined
+    },
+    host: {
+      call: (method: string) =>
+        method === 'workspace.list' ? hung : Promise.resolve({})
+    }
+  }
+  const started = Date.now()
+  await activate(fake as unknown as Orca)
+  assert.ok(Date.now() - started < 1000, 'activate ilk taramayı beklememeli')
 })
