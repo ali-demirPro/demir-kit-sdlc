@@ -607,15 +607,14 @@ def check_unsealed_work(root: Path = ROOT) -> None:
     for message in errors: error(message)
     for message in warnings: warn(message)
 
+def check_changelog(root: Path, version: str) -> None:
+    doctor_version.check_changelog(root, version, error, warn)
+
+
 def check_version() -> None:
     check("version")
     version = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
-    changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
-    match = re.search(r"^##\s+(\d+\.\d+\.\d+)", changelog, re.M)
-    if not match:
-        error("CHANGELOG.md: sürüm başlığı bulunamadı")
-    elif match.group(1) != version:
-        error(f"VERSION ({version}) ≠ CHANGELOG ({match.group(1)})")
+    doctor_version.check_changelog(ROOT, version, error, warn)
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     if f"**{version}**" not in readme:
         warn(f"README.md sürüm başlığı {version} değil")
