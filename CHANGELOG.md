@@ -1,5 +1,22 @@
 # Changelog
 
+## 2.67.0 — 2026-11-21
+
+- **Superpowers Faz 1 (Epic S, #386)** — `obra/superpowers` v7.0.2 (MIT)
+  yönteminden seçmeli üç disiplin kardeş doküman olarak eklendi; yeni state,
+  script veya şema yok.
+- **Skill yazımı** — `delivery/policies/skill-writing/` altında
+  `discovery.md` (description = ne zaman, isim, token bütçesi),
+  `bulletproofing.md` (kaçış yolları, gerekçe tablosu) ve `pressure-evals.md`
+  (RED-GREEN-REFACTOR ile baskı testi; `eval.py` zorunluluğu getirmez).
+- **TDD ve kanıt** — `skills/behavior-gate/` altında `tdd-discipline.md`
+  (kırmızı-önce, testten önce yazılan kodu sil, tüm suite) ve `verification.md`
+  (taze kanıt olmadan tamamlık iddiası yok).
+- **Review fix-loop** — `skills/adversarial-review/fix-loop.md`: tur 1–3 aynı
+  implementer, tur 4–5 taze implementer + daha yetkin model, controller
+  düzeltmez, 5. tur sonrası karar defteri.
+- Sürüm 2.67.0.
+
 ## 2.65.1 — 2026-11-11
 
 - **Orca eklentisi çökmesi (düzeltme)** — `activate` ilk durum taramasını

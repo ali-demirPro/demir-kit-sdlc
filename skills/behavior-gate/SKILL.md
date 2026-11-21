@@ -20,6 +20,13 @@ Communication: `delivery/policies/human-communication.md`.
 4. Re-run the gate — exit `0`.
 5. Post evidence (`delivery/protocol/evidence.md`), then `worker_done`.
 
+## Companion docs
+
+- [tdd-discipline.md](tdd-discipline.md) — failing test first, deleting code
+  written before the test, and the full-suite rule.
+- [verification.md](verification.md) — no completion claim without fresh
+  evidence from a command run in the current message.
+
 ## Gate command
 
 ```bash

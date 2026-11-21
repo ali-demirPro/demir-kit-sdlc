@@ -9,6 +9,7 @@ import sys
 import tempfile
 import time
 import unittest
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -56,6 +57,11 @@ def make_db(path: Path, rows: list[dict]) -> None:
     conn.close()
 
 
+def recent_ts(minutes_ago: int) -> str:
+    """Window içinde kalan ISO damgası; sabit tarih testi zamana bağlı kırar."""
+    return (datetime.now(timezone.utc) - timedelta(minutes=minutes_ago)).isoformat()
+
+
 class CollectTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory()
@@ -101,10 +107,10 @@ class CollectTests(unittest.TestCase):
         kit = self.projects / "votum" / ".kit"
         kit.mkdir(parents=True)
         rows = [
-            {"ts": "2026-11-07T10:00:00+00:00", "issue": 1, "stage": "executing"},
-            {"ts": "2026-11-07T10:20:00+00:00", "issue": 1, "stage": "leaf-done"},
-            {"ts": "2026-11-07T11:00:00+00:00", "issue": 2, "stage": "executing"},
-            {"ts": "2026-11-07T11:40:00+00:00", "issue": 2, "stage": "leaf-done"},
+            {"ts": recent_ts(120), "issue": 1, "stage": "executing"},
+            {"ts": recent_ts(100), "issue": 1, "stage": "leaf-done"},
+            {"ts": recent_ts(60), "issue": 2, "stage": "executing"},
+            {"ts": recent_ts(20), "issue": 2, "stage": "leaf-done"},
         ]
         (kit / "cycle.jsonl").write_text(
             "\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8"
@@ -116,10 +122,10 @@ class CollectTests(unittest.TestCase):
         kit = self.projects / "votum" / ".kit"
         kit.mkdir(parents=True)
         rows = [
-            {"ts": "2026-11-07T10:00:00+00:00", "issue": 1, "stage": "executing"},
-            {"ts": "2026-11-07T10:05:00+00:00", "issue": 1, "stage": "review"},
-            {"ts": "2026-11-07T10:10:00+00:00", "issue": 1, "stage": "gate"},
-            {"ts": "2026-11-07T10:20:00+00:00", "issue": 1, "stage": "leaf-done"},
+            {"ts": recent_ts(25), "issue": 1, "stage": "executing"},
+            {"ts": recent_ts(20), "issue": 1, "stage": "review"},
+            {"ts": recent_ts(15), "issue": 1, "stage": "gate"},
+            {"ts": recent_ts(5), "issue": 1, "stage": "leaf-done"},
         ]
         (kit / "cycle.jsonl").write_text(
             "\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8"
@@ -132,20 +138,20 @@ class CollectTests(unittest.TestCase):
         kit = self.projects / "votum" / ".kit"
         kit.mkdir(parents=True)
         cycles = [
-            {"ts": "2026-11-07T10:00:00+00:00", "issue": 1, "stage": "executing"},
-            {"ts": "2026-11-07T10:05:00+00:00", "issue": 1, "stage": "review"},
-            {"ts": "2026-11-07T10:10:00+00:00", "issue": 1, "stage": "gate"},
-            {"ts": "2026-11-07T10:20:00+00:00", "issue": 1, "stage": "leaf-done"},
+            {"ts": recent_ts(25), "issue": 1, "stage": "executing"},
+            {"ts": recent_ts(20), "issue": 1, "stage": "review"},
+            {"ts": recent_ts(15), "issue": 1, "stage": "gate"},
+            {"ts": recent_ts(5), "issue": 1, "stage": "leaf-done"},
         ]
         (kit / "cycle.jsonl").write_text(
             "\n".join(json.dumps(row) for row in cycles) + "\n", encoding="utf-8"
         )
         index = [
-            {"ts": "2026-11-07T10:06:00+00:00", "issue": 1, "cp": "CP-1",
+            {"ts": recent_ts(19), "issue": 1, "cp": "CP-1",
              "reviewers": ["ses_real123", None]},
-            {"ts": "2026-11-07T10:07:00+00:00", "issue": 1, "cp": "CP-2",
+            {"ts": recent_ts(18), "issue": 1, "cp": "CP-2",
              "reviewers": ["reviewer_a"]},
-            {"ts": "2026-11-07T10:08:00+00:00", "issue": 1, "cp": "CP-3",
+            {"ts": recent_ts(17), "issue": 1, "cp": "CP-3",
              "reviewers": []},
         ]
         (kit / "evidence.jsonl").write_text(
@@ -161,7 +167,7 @@ class CollectTests(unittest.TestCase):
         kit = self.projects / "votum" / ".kit"
         kit.mkdir(parents=True)
         index = [
-            {"ts": "2026-10-01T10:00:00+00:00", "issue": 1, "cp": "CP-1",
+            {"ts": recent_ts(30 * 24 * 60), "issue": 1, "cp": "CP-1",
              "reviewers": ["ses_old"]},
         ]
         (kit / "evidence.jsonl").write_text(
