@@ -65,28 +65,37 @@ python3 delivery/scripts/review_packet.py --issue <N> --cp CP-1 --commit HEAD --
 kırılma arar. Diff'te yeni `blocking` kırılma açık bulgu listesine eklenir;
 kapsam dışı gözlemler deftere ertelenmiş minor olarak gider ve döngüyü uzatmaz.
 
-## Controller düzeltmez
+## Koordinatör düzeltmez
 
-Bulgu controller oturumunda **düzeltilmez**. Controller'ın bağlamı koordinasyon
-için temiz kalır; controller düzeltmesi incelemeden geçmez. Düzeltme her zaman
-bir implementer görevidir.
+Bulgu koordinatör (controller) oturumunda **düzeltilmez**. Koordinatörün bağlamı
+koordinasyon için temiz kalır; koordinatör düzeltmesi incelemeden geçmez.
+Düzeltme her zaman bir fixer (implementer) görevidir.
 
-## 5. tur sonrası — karar
+## 5. tur sonrası — karar ya da blocked
 
-Beşinci turun yeniden incelemesi hâlâ açık bırakıyorsa gönderim durur.
-Controller her açık bulguyu kendisi karara bağlar; plan ve CP'ler arası bağlam
-reviewer'da yoktur:
+Beşinci turun yeniden incelemesi hâlâ açık bırakıyorsa gönderim durur
+(`SKILL.md`: en fazla 5 tur). Koordinatör açık bulguları iki sınıfa ayırır; plan
+ve CP'ler arası bağlam yalnız onda vardır:
 
-- **Reviewer yanlış veya tartışmalı:** park et —
-  `CP: parked — <bulgu> — Karar: <kod neden duruyor>`. Son inceleme iki tarafı da görür.
-- **Gerçek ama bağımlı iş yok:** aynı biçimde park et; karar gerçek ve ertelendi der.
-- **Gerçek ve taşıyıcı** (sonraki iş bunun üstüne kurulur veya plan kusuru
-  ortaya çıkar): bağımlı işi açan en küçük değişikliğe karar ver, deftere yaz ve
-  sonraki görevin gönderimine taşı. Yapısal kusuru sessizce park etmek, bütün
-  bağımlı işleri onun üstüne kurar.
+- **Koordinatörün karar verebildiği bulgu:** deftere karar yazılır.
+  - Reviewer yanlış veya tartışmalı:
+    `CP: parked — <bulgu> — Karar: <kod neden duruyor>`. Son inceleme iki tarafı da görür.
+  - Gerçek ama bağımlı iş yok: aynı biçimde park et; karar gerçek ve ertelendi der.
+  - Gerçek ve taşıyıcı (sonraki iş bunun üstüne kurulur veya plan kusuru ortaya
+    çıkar): bağımlı işi açan en küçük değişikliğe karar ver, deftere yaz ve
+    sonraki görevin gönderimine taşı. Yapısal kusuru sessizce park etmek, bütün
+    bağımlı işleri onun üstüne kurar.
+- **Koordinatörün karar veremediği bulgu** (kapsam, sözleşme veya insan kararı
+  gerekiyor): leaf `blocked` olur ve issue'ya tek bir insan dili sorusu yazılır.
+  Açık bulgular defterde tek satırla listelenir.
 
 Karar yalnız tavanda verilir; döngüyü erken bitirmek için erken karar vermek
 ön yargıdır. Her karar bir defter satırıdır; sessiz çöpe atma yasak.
+
+## Aktör adları
+
+Kit sözlüğü: **koordinatör** = controller; **fixer** = implementer. Bu doküman
+upstream adları parantez içinde taşır.
 
 ## Defter satırı
 
@@ -98,5 +107,6 @@ CP: fix round <R>/5 (<X> addressed, <Y> open — <bulgu tek satırları>; commit
 
 ## Done when
 
-Her zorunlu bulgu `ADDRESSED`, tur sayısı 5'i geçmedi, her karar defterde ve
+Her zorunlu bulgu `ADDRESSED` veya tavanda defterde karara bağlandı; karar
+verilemeyen bulgu kaldıysa leaf `blocked` ve issue'da tek insan sorusu var;
 `reviews.adversarial` evidence'a yazıldı.

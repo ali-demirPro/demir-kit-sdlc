@@ -89,7 +89,7 @@ Hangi yazım A'nın tek kabul edilebilir cevap olduğunu açıkça gösterirdi?"
 
 ## Kontrol listesi
 
-- [ ] En az üç basınçlı senaryo yazıldı.
+- [ ] Her senaryo en az üç basıncı bir arada taşıyor.
 - [ ] Senaryo skill olmadan koşuldu; başarısızlık görüldü.
 - [ ] Mazeretler kelimesi kelimesine kaydedildi.
 - [ ] Skill yalnız gözlenen başarısızlıkları kapatıyor.

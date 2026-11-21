@@ -44,7 +44,8 @@ Testi geçecek en küçük kodu yaz. Özellik ekleme, başka kodu refactor etme,
 
 ## Verify GREEN — tüm suite
 
-Yalnız kendi testin değil, projenin test komutu yeşil olmalı:
+Yalnız kendi testin değil, projenin test komutu yeşil olmalı. Komut
+`ecosystem.yaml` yüzeyinden gelir; kit deposunda:
 
 ```bash
 python3 -m unittest discover -s delivery/tests
