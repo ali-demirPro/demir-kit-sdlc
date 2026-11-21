@@ -50,10 +50,15 @@ python3 delivery/scripts/review_wave.py --issue <N> --cp CP-1 --commit <sha> \
 
 ## Loop
 
+Fix round mechanics: [fix-loop.md](fix-loop.md) — rounds 1–3 resume the same
+implementer (fixer), 4–5 use a fresh fixer on a stronger model, and the
+coordinator (controller) never fixes findings.
+
 - Her bulgu `severity: blocking|nit` taşır; alan yoksa verdict reddedilir.
 - Tur 1: tüm bulgular. Tur 2: yalnız `blocking`. Tur 3: aynı 60 dakikalık
   onay süresi; yanıt gelmezse not düşülür ve `risk-accepted` ile devam edilir.
-- Max 5 rounds, then `blocked` + one human-language question.
+- Max 5 rounds. At the cap the coordinator rules on findings it can decide
+  (ledger entry) and takes the rest to `blocked` + one human-language question.
 
 ## Approval
 

@@ -95,6 +95,17 @@ Lint her `skills/<name>/SKILL.md` dizinini denetler: `skills.runtime` ve
 İki set karıştırılmaz: `## Done when` runtime skill sözleşmesidir, rol
 dokümanları `## Contract` kullanır.
 
+## 9 — Keşif, sağlamlaştırma, baskı testi
+
+Bu politikanın üç kardeş dokümanı vardır ve her biri tek bir soruyu kapatır:
+
+- [discovery.md](skill-writing/discovery.md) — description ne zaman'ı söyler,
+  isim ve token bütçesi agent'ın skill'i bulmasını sağlar.
+- [bulletproofing.md](skill-writing/bulletproofing.md) — disiplin kuran
+  skill'de bilinen kaçış yolları açıkça kapatılır.
+- [pressure-evals.md](skill-writing/pressure-evals.md) — skill yazılmadan önce
+  baskı senaryosuyla baseline kırmızı görülür; `eval.py`ye bağlı değildir.
+
 ## Lint
 
 | Kural | Seviye |
